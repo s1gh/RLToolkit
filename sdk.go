@@ -1092,6 +1092,17 @@ const sdkJS = `(function () {
         // Kick once so the first paint sizes correctly even if no
         // observer event fires.
         requestAnimationFrame(flush);
+
+        // ResizeObserver doesn't fire on transform / opacity animations, so
+        // a fade-in or slide-in finishing changes nothing observable. We
+        // hook animation/transition end and font load — all common sources
+        // of post-first-paint layout shift — and re-flush.
+        const onAnimEnd = () => requestAnimationFrame(flush);
+        document.addEventListener('animationend', onAnimEnd, true);
+        document.addEventListener('transitionend', onAnimEnd, true);
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(() => requestAnimationFrame(flush));
+        }
         return true;
       },
     };
