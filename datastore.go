@@ -94,7 +94,9 @@ func (s *DataStore) loadInto(plugin string, sh *pluginShard) error {
 	return nil
 }
 
-// flushLocked persists sh.data to disk. Caller must hold sh.mu (write).
+// flushLocked persists sh.data to disk via write-to-temp + rename so a
+// crash mid-write never corrupts the existing file. Caller must hold
+// sh.mu (write).
 func (s *DataStore) flushLocked(plugin string, sh *pluginShard) error {
 	path, err := s.safePath(plugin)
 	if err != nil {
@@ -104,7 +106,11 @@ func (s *DataStore) flushLocked(plugin string, sh *pluginShard) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func (s *DataStore) LoadAll(plugin string) (map[string]json.RawMessage, error) {

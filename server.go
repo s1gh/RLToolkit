@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -77,15 +79,6 @@ func writeAsset(w http.ResponseWriter, contentType, cacheControl string, body []
 	_, _ = w.Write(body)
 }
 
-func writeEmbeddedHTML(w http.ResponseWriter, path string) {
-	data, err := webFS.ReadFile(path)
-	if err != nil {
-		http.Error(w, "asset missing", http.StatusInternalServerError)
-		return
-	}
-	writeAsset(w, "text/html; charset=utf-8", "", data)
-}
-
 // httpError logs the underlying error and returns a generic message to
 // the client so internal details (paths, parser output) don't leak.
 func httpError(w http.ResponseWriter, ctx string, err error, status int) {
@@ -100,6 +93,7 @@ var (
 	sseDataPrefix = []byte("data: ")
 	sseRecordEnd  = []byte("\n\n")
 	ssePingFrame  = []byte(": ping\n\n")
+	sseFramePool  = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, 0, 512)) }}
 )
 
 // parseEventsFilter turns a comma-separated `?events=A,B,C` query value
@@ -141,18 +135,19 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	writeFrame := func(prefix, body, suffix []byte) bool {
 		_ = rc.SetWriteDeadline(time.Now().Add(sseWriteDeadline))
-		if _, err := w.Write(prefix); err != nil {
-			return false
-		}
+		buf := sseFramePool.Get().(*bytes.Buffer)
+		buf.Reset()
+		buf.Write(prefix)
 		if len(body) > 0 {
-			if _, err := w.Write(body); err != nil {
-				return false
-			}
+			buf.Write(body)
 		}
 		if len(suffix) > 0 {
-			if _, err := w.Write(suffix); err != nil {
-				return false
-			}
+			buf.Write(suffix)
+		}
+		_, err := w.Write(buf.Bytes())
+		sseFramePool.Put(buf)
+		if err != nil {
+			return false
 		}
 		return rc.Flush() == nil
 	}
@@ -309,7 +304,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 // ── Static / embedded assets ────────────────────────────────
 
 func (s *Server) handleOverlay(w http.ResponseWriter, _ *http.Request) {
-	writeEmbeddedHTML(w, "web/overlay.html")
+	writeAsset(w, "text/html; charset=utf-8", "", overlayHTML)
 }
 
 func (s *Server) handleSDKJS(w http.ResponseWriter, _ *http.Request) {
@@ -329,5 +324,5 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	writeEmbeddedHTML(w, "web/dashboard.html")
+	writeAsset(w, "text/html; charset=utf-8", "", dashboardHTML)
 }

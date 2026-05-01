@@ -29,4 +29,14 @@ var (
 	sdkJSBytes      = []byte(sdkJS)
 	sdkCSSBytes     = []byte(sdkCSS)
 	faviconSVGBytes = []byte(faviconSVG)
+	dashboardHTML   = mustReadEmbed("web/dashboard.html")
+	overlayHTML     = mustReadEmbed("web/overlay.html")
 )
+
+func mustReadEmbed(path string) []byte {
+	data, err := webFS.ReadFile(path)
+	if err != nil {
+		panic("embedded asset missing: " + path)
+	}
+	return data
+}

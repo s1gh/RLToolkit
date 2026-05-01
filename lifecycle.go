@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,6 +57,10 @@ type LifecycleTracker struct {
 
 	mu   sync.RWMutex
 	snap LifecycleSnapshot
+
+	// matchActive mirrors snap.MatchActive for lock-free reads on the
+	// 60 Hz UpdateState hot path (avoids RWMutex on every tick).
+	matchActive atomic.Bool
 
 	lastTickMu sync.Mutex
 	lastTick   time.Time
@@ -122,9 +127,8 @@ func (t *LifecycleTracker) onUpdateState(raw []byte) {
 	t.lastTick = time.Now()
 	t.lastTickMu.Unlock()
 
-	// If we'd previously declared match_inactive (after a timeout, say,
-	// or before any RL events arrived), an UpdateState resurrects us.
-	if t.Snapshot().MatchActive {
+	// Fast atomic check — avoids RWMutex on the 60 Hz common case.
+	if t.matchActive.Load() {
 		return
 	}
 	guid := extractMatchGUID(raw)
@@ -211,6 +215,7 @@ func (t *LifecycleTracker) update(mutate func(*LifecycleSnapshot)) {
 	}
 	next.Since = time.Now()
 	t.snap = next
+	t.matchActive.Store(next.MatchActive)
 	t.mu.Unlock()
 
 	t.publish(next)
@@ -258,7 +263,7 @@ func (t *LifecycleTracker) Run(ctx context.Context) {
 }
 
 func (t *LifecycleTracker) checkTimeout() {
-	if !t.Snapshot().MatchActive {
+	if !t.matchActive.Load() {
 		return
 	}
 	t.lastTickMu.Lock()
@@ -280,13 +285,14 @@ func (t *LifecycleTracker) checkTimeout() {
 // a full Unmarshal. The field is small (UUID, ~36 bytes) and reliably
 // near the start of the JSON, so a substring scan is dramatically
 // cheaper than json.Unmarshal at 60Hz.
+var matchGuidMarker = []byte(`"MatchGuid":"`)
+
 func extractMatchGUID(raw []byte) string {
-	const key = `"MatchGuid":"`
-	i := bytes.Index(raw, []byte(key))
+	i := bytes.Index(raw, matchGuidMarker)
 	if i < 0 {
 		return ""
 	}
-	rest := raw[i+len(key):]
+	rest := raw[i+len(matchGuidMarker):]
 	end := bytes.IndexByte(rest, '"')
 	if end < 0 {
 		return ""

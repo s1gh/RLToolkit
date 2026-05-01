@@ -31,6 +31,11 @@ type EventBus struct {
 	mu      sync.RWMutex
 	subs    map[*subscriber]struct{}
 	metrics *busMetrics
+
+	// scratch is reused by Publish to snapshot subscribers without
+	// allocating per call. Safe because only the single dispatcher
+	// goroutine calls Publish (serialized through RLClient.dispatcher).
+	scratch []*subscriber
 }
 
 func NewEventBus() *EventBus {
@@ -109,10 +114,14 @@ func (b *EventBus) Publish(data []byte) {
 
 	// Snapshot under read lock so we don't hold it during sends.
 	b.mu.RLock()
-	dst := make([]*subscriber, 0, len(b.subs))
+	if cap(b.scratch) < len(b.subs) {
+		b.scratch = make([]*subscriber, 0, len(b.subs))
+	}
+	dst := b.scratch[:0]
 	for s := range b.subs {
 		dst = append(dst, s)
 	}
+	b.scratch = dst
 	b.mu.RUnlock()
 
 	var slow []*subscriber
