@@ -597,20 +597,19 @@ body.overlay-mode .ov   { display: block !important; }
    size to its own content rather than fill — that's what makes the iframe
    look transparent in the empty parts. */
 body.overlay-mode .ov {
-  /* Intrinsic-width (fit-content) so the box reports its real text-extent
-     to ResizeObserver. Without this, .ov inherits 100% width from <body>
-     and the autoSize-driven host-window size cycles forever. */
+  /* Hug the longest row's content rather than fill the manifest surface.
+     The SDK's body flex centering (align-items: flex-start for anchor:left,
+     justify-content: flex-end for anchor:bottom) then pins .ov to the
+     anchored corner with the rest of the surface left transparent.
+     Padding gives row glow / box-shadow paint room so effects don't clip
+     at the surface edge. */
   display: inline-flex;
   flex-direction: column;
   width: max-content;
   max-width: 100%;
   height: auto;
   max-height: 100%;
-  /* Padding so box-shadow / glow effects on rows have layout room. The
-     widget surface gets sized to .ov's bounding box; effects that paint
-     outside that box would be clipped by the GTK surface. */
   padding: 4px 4px 4px 0;
-  /* Fade-in the whole HUD so it doesn't pop on match start. */
   animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 

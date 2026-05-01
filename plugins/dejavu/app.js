@@ -45,21 +45,15 @@
         c.textContent = s === 'connected' ? 'live' : s;
       });
 
-      // Overlay mode + running inside the desktop widget → let the host
-      // window grow/shrink with our content. We measure '.ov' rather than
-      // <body>: the SDK applies flex centering to <body> so its size
-      // tracks the iframe, not the content. The manifest's width/height
-      // becomes just the initial size; from here on the .ov box drives
-      // the surface. No-op outside Tauri (OBS / regular browser).
-      if (isOverlay && RLT.widget.isHosted()) {
-        RLT.widget.autoSize(true, {
-          target: '.ov',
-          minWidth: 220,
-          minHeight: 32,
-          maxWidth: 480,
-          maxHeight: 600,
-        });
-      }
+      // (Earlier we tried RLT.widget.autoSize so the surface would track
+      // .ov's intrinsic size. In practice the layer-shell ↔ webview ↔ GTK
+      // sizing chain didn't propagate cleanly: shrinking the surface
+      // shrank the body, which shrank .ov via max-height:100%, which kept
+      // measuring the same number — content still rendered taller than
+      // the surface and got clipped. Reverted: the manifest width/height
+      // is the surface and the SDK's flex centering pins .ov inside it.
+      // RLT.widget.autoSize stays available for plugins whose layout
+      // doesn't lean on the SDK's body-flex centering.)
     },
 
     ready() {
