@@ -20,6 +20,7 @@ dashboards, persistence, and debugging.
 - [Subscribing to events](#subscribing-to-events)
   - [The `events` map](#the-events-map)
   - [The full event catalog](#the-full-event-catalog)
+  - [Things worth knowing when handling events](#things-worth-knowing-when-handling-events)
   - [Lifecycle gating](#lifecycle-gating)
   - [Convenience subscriptions](#convenience-subscriptions)
   - [Enriched match state](#enriched-match-state)
@@ -359,6 +360,71 @@ shortcut + team) against the live roster, so you get the same enriched
 shape regardless of which event surfaced the player. If the player isn't
 in the current roster, the resolution falls back to the raw fields with
 `player: null` and `encounter: null`.
+
+### Things worth knowing when handling events
+
+Cross-cutting advice that bites every plugin author at least once.
+
+**Phase-gate noisy events.** Most events fire during menus, podium, and
+freeplay too. If you only care about real matches, set `whilePhase:
+['live']` (or `['live', 'replay']` if you want goal-replay context).
+Gameplay-only events like `BallHit`, `Statfeed`, and `ClockUpdated`
+mostly belong behind a phase gate — without one your plugin counts
+training-mode demos and lobby-warmup goals as if they were real.
+
+**`target.id` can be empty.** Events sourced from RL's stat feed
+sometimes ship only a `Name` + `Shortcut` and no `PrimaryId`. The SDK
+falls back to roster name-matching, but in private matches with bots,
+or right after a player joins (before their roster entry replicates),
+you may end up with `id === ''`. If you key a Map by `target.id`,
+multiple bots collide on the empty string. Defensive code: key on
+`target.id || target.name`. Same applies to `victim`, `scorer`,
+`assister`, and `BallHit.players[i]`.
+
+**`UpdateState` is the hot path.** It fires at PacketSendRate (~60Hz).
+Anything you do in `onTick`/`UpdateState` runs sixty times a second.
+DOM rebuilds belong behind a content fingerprint — diff first, paint
+only when something actually changed. The dejavu plugin's
+`views/overlay.js` shows the pattern: build a string from the relevant
+fields (`m.players.map(p => id+':'+team+':'+name).join('|')`), bail
+early if it matches `lastFp`, otherwise repaint and update `lastFp`.
+
+**`MatchCreated` arrives before the roster fills.** The event fires
+when teams are first replicated — players still trickle in over the
+next second. If you want the final roster, listen for the first
+`UpdateState` after `MatchCreated`, or use `RLT.match.onMatch` (which
+the SDK debounces to structural changes only).
+
+**`MatchEnded` fires before `PodiumStart`.** If you tear DOM down on
+`MatchEnded`, you'll lose it before the user gets to read the final
+score during podium. If you want to clear, do it on `MatchDestroyed`
+(player has left the lobby) or `MatchCreated` (a new match started).
+
+**Resetting per-match state.** The pattern most plugins want is "reset
+my counters at the start of each match." `MatchCreated` is the right
+hook — it fires once per lobby, no replays, no podium echoes. Don't
+reset on `MatchInitialized` (it can fire multiple times for the same
+match in some flows) or `RoundStarted` (fires per-round in OT).
+
+**Goal-replay events are real events.** `GoalScored` fires once during
+live play AND, in some RL builds, can fire again as the replay rewinds
+into the goal moment. Use `events.recent('GoalScored')` if you need to
+deduplicate; the dedup key is usually
+`(matchGuid, scorer.id, goalTime)`.
+
+**Persistence: per-plugin store vs shared encounter ledger.** Anything
+specific to your plugin's logic goes in `RLT.store` (per-plugin
+namespace). Anything that's about the *players themselves* — names,
+encounters, win/loss against you — belongs on the shared ledger via
+`RLT.encounters` so other plugins benefit. A demo tracker should put
+its per-match map in `RLT.store`; a "have I demoed this person before"
+counter should extend the encounter record.
+
+**The raw envelope is always there.** Every typed payload ships the
+original RL data under `.raw`. If the SDK didn't surface a field you
+need, it's still reachable: `goal.raw.SomeFieldRLAdded`. Don't fork
+the SDK to add a field — read it from `raw` in your plugin and, if
+it's broadly useful, send a PR upstream.
 
 ### Lifecycle gating
 
