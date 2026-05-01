@@ -1,0 +1,34 @@
+[package]
+name = "rl-widget"
+version = "0.1.0"
+edition = "2021"
+description = "RL Toolkit per-plugin overlay widget"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "rl-widget"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["unstable"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
+clap = { version = "4", features = ["derive"] }
+url = "2"
+
+# Linux-only: layer-shell so the widget lives on the overlay layer
+# (above normal windows, anchored, click-through).
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+gtk-layer-shell = "0.8"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
