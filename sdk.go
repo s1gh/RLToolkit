@@ -911,6 +911,70 @@ const sdkJS = `(function () {
     };
   })();
 
+  // ─── Widget control (desktop-overlay only) ─────────────────
+  // When the plugin's overlay is loaded inside the Tauri-backed rl-widget,
+  // these methods reshape the host window at runtime: resize to fit
+  // content, re-anchor, fade, hide between matches, etc.
+  //
+  // In an OBS browser source / regular browser tab there is no host
+  // window to reshape — every call is a silent no-op that resolves to
+  // false, so plugin code stays portable.
+  //
+  // The detection is conservative: we look for window.__TAURI_INTERNALS__
+  // (Tauri 2's invoke bridge). If it isn't present, we don't assume any
+  // host capability.
+  const widget = (function () {
+    const inTauri = typeof window !== 'undefined'
+      && !!window.__TAURI_INTERNALS__
+      && typeof window.__TAURI_INTERNALS__.invoke === 'function';
+
+    function invoke(cmd, args) {
+      if (!inTauri) return Promise.resolve(false);
+      try {
+        return window.__TAURI_INTERNALS__.invoke(cmd, args || {})
+          .then(() => true)
+          .catch((e) => {
+            console.warn('[RLT.widget]', cmd, 'failed:', e);
+            return false;
+          });
+      } catch (e) {
+        console.warn('[RLT.widget]', cmd, 'threw:', e);
+        return Promise.resolve(false);
+      }
+    }
+
+    return {
+      /** True only when running inside the desktop widget (Tauri). */
+      isHosted() { return inTauri; },
+
+      /** Resize the host window. width/height in CSS (logical) pixels. */
+      size(width, height) {
+        return invoke('widget_size', { width: width | 0, height: height | 0 });
+      },
+
+      /** Anchor to a corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'. */
+      anchor(corner) {
+        return invoke('widget_anchor', { anchor: String(corner || 'bottom-left') });
+      },
+
+      /** Padding (in logical pixels) from each anchored edge. */
+      margin(x, y) {
+        return invoke('widget_margin', { x: x | 0, y: y | 0 });
+      },
+
+      /** Opacity 0..1, applied to the whole window. */
+      opacity(o) {
+        return invoke('widget_opacity', { opacity: Number(o) });
+      },
+
+      /** Show / hide the window. Use to keep the widget out of the way
+       *  between matches without tearing down the process. */
+      visible(v) {
+        return invoke('widget_visible', { visible: !!v });
+      },
+    };
+  })();
+
   // ─── Public API ────────────────────────────────────────────
   window.RLT = {
     plugin: plugin,         // registration API; .name kept below for back-compat
@@ -932,6 +996,7 @@ const sdkJS = `(function () {
     store,
     ui,
     events,
+    widget,
   };
 
   // Auto-connect on load. Plugins can call RLT._reconnect() to force.
