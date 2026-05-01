@@ -44,6 +44,22 @@
         c.dataset.status = s;
         c.textContent = s === 'connected' ? 'live' : s;
       });
+
+      // Overlay mode + running inside the desktop widget → let the host
+      // window grow/shrink with our content. We measure '.ov' rather than
+      // <body>: the SDK applies flex centering to <body> so its size
+      // tracks the iframe, not the content. The manifest's width/height
+      // becomes just the initial size; from here on the .ov box drives
+      // the surface. No-op outside Tauri (OBS / regular browser).
+      if (isOverlay && RLT.widget.isHosted()) {
+        RLT.widget.autoSize(true, {
+          target: '.ov',
+          minWidth: 220,
+          minHeight: 32,
+          maxWidth: 480,
+          maxHeight: 600,
+        });
+      }
     },
 
     ready() {
