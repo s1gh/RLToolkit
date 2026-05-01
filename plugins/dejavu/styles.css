@@ -506,14 +506,10 @@ body.overlay-mode {
   border-radius: 6px;
   transition: background .12s ease;
 }
-/* Separator above each row except the first. Drawn as a 1px inset line so
-   it doesn't bleed past the rounded hover state. */
-.lb-row + .lb-row::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 14px; right: 14px;
-  height: 1px;
-  background: var(--line);
+/* Separator above each row except the first. Plain border on the row
+   itself — simpler and more reliable than a pseudo-element. */
+.lb-row + .lb-row {
+  border-top: 1px solid var(--line);
 }
 .lb-row:hover { background: rgba(255,255,255,0.02); }
 /* Returning-player accent: 2px gold bar on the left. Subtle, persistent,
