@@ -31,7 +31,9 @@ DV.leaderboard = (function () {
     const map = RLT.encounters.all();
 
     const all = Object.entries(map)
-      .filter(([id]) => id !== RLT.me.id)
+      // Exclude self and the bot aggregate — leaderboard tracks humans.
+      // Bot data still persists in the ledger, just hidden from this view.
+      .filter(([id]) => id !== RLT.me.id && id !== BOT_ID)
       .map(([id, e]) => {
         const isBot = id === BOT_ID;
         // Both human and bot rows show the most-recent name in the name
