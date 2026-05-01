@@ -60,7 +60,7 @@ const manifestTemplate = `{
   "overlay": {
     "file": "overlay.html",
     "width": 320,
-    "height": 120,
+    "height": 180,
     "anchor": "top-right",
     "offset_x": 16,
     "offset_y": 16,
@@ -92,25 +92,48 @@ const overlayTemplate = `<!doctype html>
             border-radius: 12px; padding: 14px 16px; }
     h2 { font-family: var(--rlt-display); font-size: 14px; margin: 0 0 6px;
          text-transform: uppercase; letter-spacing: 0.18em; color: #fff; }
+    .row { display: flex; justify-content: space-between; align-items: baseline;
+           font-size: 13px; color: var(--rlt-txt-2); margin-top: 4px; }
     .value { font-family: var(--rlt-mono); color: var(--rlt-cyan); }
   </style>
 </head>
 <body>
   <div class="card">
     <h2>__NAME__</h2>
-    <div>Last goal by: <span class="value" id="who">—</span></div>
+    <div class="row"><span>Last goal by</span><span class="value" id="who">—</span></div>
+    <div class="row"><span>Goals</span><span class="value" id="goals">0</span></div>
+    <div class="row"><span>Saves</span><span class="value" id="saves">0</span></div>
+    <div class="row"><span>Demos</span><span class="value" id="demos">0</span></div>
   </div>
 
   <script>
   'use strict';
   (function () {
-    const who = document.getElementById('who');
+    const who   = document.getElementById('who');
+    const goals = document.getElementById('goals');
+    const saves = document.getElementById('saves');
+    const demos = document.getElementById('demos');
+    const counts = { goals: 0, saves: 0, demos: 0 };
+
+    function render() {
+      goals.textContent = counts.goals;
+      saves.textContent = counts.saves;
+      demos.textContent = counts.demos;
+    }
+
+    function reset() {
+      counts.goals = counts.saves = counts.demos = 0;
+      who.textContent = '—';
+      render();
+    }
 
     // Discover what events you can handle: console.log(RLT.events.catalog)
-    // or fetch /api/events. See plugins/goalfeed for a richer example.
+    // or fetch /api/events. RLT.stats.* holds verified StatfeedEvent
+    // eventName values (RLT.stats.DEMOLISH, .SAVE, .GOAL, …).
     RLT.plugin.register({
       name:    '__NAME__',
       version: '0.1.0',
+      whilePhase: ['live', 'replay'],
 
       events: {
         GoalScored(g) {
@@ -118,12 +141,25 @@ const overlayTemplate = `<!doctype html>
           // enriched roster lookup and may be null in the brief window
           // before the match's first UpdateState arrives — don't depend
           // on it for the displayed name.
+          counts.goals++;
           who.textContent = g.scorer.name;
+          render();
+        },
+        StatfeedEvent(s) {
+          // Use RLT.stats.* constants — typos surface as undefined
+          // instead of silently never matching.
+          if (s.eventName === RLT.stats.SAVE)     counts.saves++;
+          if (s.eventName === RLT.stats.DEMOLISH) counts.demos++;
+          render();
         },
       },
 
-      ready() {
-        who.textContent = 'waiting for a goal…';
+      // Reset counters whenever the player leaves a match. The server
+      // flips match_active=false on MatchDestroyed, on connection drop,
+      // OR after 5s of UpdateState silence — so this catches every exit
+      // path including "back out to menu without MatchDestroyed".
+      onMatchActive(active) {
+        if (!active) reset();
       },
     });
   })();

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DebugPlugin</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <script src="/sdk.js" data-plugin="debug"></script>
+    <style>
+      body {
+        font-family: var(--rlt-display);
+        padding: 16px;
+        color: var(--rlt-txt);
+        background: var(--rlt-bg-0);
+        margin: 0;
+      }
+      body.overlay-mode {
+        background: transparent;
+        padding: 0;
+      }
+      .card {
+        background: var(--rlt-bg-1);
+        border: 1px solid var(--rlt-line);
+        border-radius: 12px;
+        padding: 14px 18px;
+        height: 460px;
+        display: flex;
+        flex-direction: column;
+      }
+      .header {
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--rlt-txt-3);
+        margin-bottom: 8px;
+      }
+      .log {
+        flex: 1;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .log-entry {
+        padding: 2px 0;
+        border-bottom: 1px solid var(--rlt-line);
+      }
+      .log-entry .event-name {
+        color: var(--rlt-cyan);
+        font-weight: bold;
+      }
+      .log-entry .event-type {
+        color: var(--rlt-txt-2);
+        margin-left: 8px;
+      }
+      .log-entry .event-player {
+        color: var(--rlt-txt-3);
+        margin-left: 8px;
+      }
+      .log-entry .timestamp {
+        color: var(--rlt-txt-3);
+        font-size: 10px;
+      }
+      .counts {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--rlt-line);
+        font-size: 11px;
+        color: var(--rlt-txt-2);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+      }
+      .counts span {
+        color: var(--rlt-cyan);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="header">StatfeedEvent Log</div>
+      <div id="log" class="log"></div>
+      <div id="counts" class="counts"></div>
+    </div>
+
+    <script>
+      (function () {
+        const logEl = document.getElementById("log");
+        const countsEl = document.getElementById("counts");
+        const seen = {};
+
+        function addEntry(s) {
+          const name = s.eventName || "unknown";
+          seen[name] = (seen[name] || 0) + 1;
+
+          const entry = document.createElement("div");
+          entry.className = "log-entry";
+
+          const ts = new Date().toLocaleTimeString("en", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+
+          const player = s.mainTarget
+            ? s.mainTarget.Name || s.mainTarget.name || ""
+            : "";
+          const secondary = s.secondaryTarget
+            ? s.secondaryTarget.Name || s.secondaryTarget.name || ""
+            : "";
+
+          let detail = player;
+          if (secondary) detail += " -> " + secondary;
+
+          entry.innerHTML =
+            '<span class="timestamp">' +
+            ts +
+            "</span> " +
+            '<span class="event-name">' +
+            name +
+            "</span>" +
+            (s.type ? '<span class="event-type">[' + s.type + "]</span>" : "") +
+            (detail ? '<span class="event-player">' + detail + "</span>" : "");
+
+          logEl.appendChild(entry);
+          logEl.scrollTop = logEl.scrollHeight;
+
+          renderCounts();
+        }
+
+        function renderCounts() {
+          const entries = Object.entries(seen).sort((a, b) => b[1] - a[1]);
+          countsEl.innerHTML = entries
+            .map(([name, count]) => name + ": <span>" + count + "</span>")
+            .join(" | ");
+        }
+
+        function reset() {
+          logEl.innerHTML = "";
+          Object.keys(seen).forEach((k) => delete seen[k]);
+          countsEl.innerHTML = "";
+        }
+
+        RLT.plugin.register({
+          name: "debug",
+          version: "0.1.0",
+          whilePhase: ["live", "replay", "countdown", "paused"],
+
+          events: {
+            StatfeedEvent(s) {
+              addEntry(s);
+            },
+          },
+
+          onMatchActive(active) {
+            if (!active) reset();
+          },
+        });
+      })();
+    </script>
+  </body>
+</html>
