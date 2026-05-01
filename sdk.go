@@ -149,6 +149,13 @@ const sdkJS = `(function () {
         bus.emit('_status', status);
         return;
       }
+      // Synthetic _Lifecycle: snapshot fields live at the top level
+      // (match_active / phase / match_guid / since), not inside Data.
+      // Hand the whole envelope to the lifecycle subscriber.
+      if (msg.Event === '_Lifecycle') {
+        bus.emit('_Lifecycle', msg);
+        return;
+      }
       // Decode the inner JSON-encoded Data payload — RL ships it as a string.
       let data = msg.Data;
       if (typeof data === 'string') {
@@ -834,56 +841,70 @@ const sdkJS = `(function () {
     onReplayCreated:     makeOn('ReplayCreated'),
   };
 
-  // ─── Lifecycle state machine ───────────────────────────────
-  // RL doesn't ship a "what's happening right now" enum. Plugins want one.
-  // Derived states:
-  //   'idle'      - no match (or RL disconnected)
+  // ─── Lifecycle (driven by the server's _Lifecycle event) ──
+  //
+  // The toolkit publishes an authoritative gameplay snapshot via the
+  // synthetic _Lifecycle SSE event. We mirror it locally so plugins
+  // can poll the current phase, subscribe to transitions, or ask the
+  // simpler "am I in a match" question without inferring from
+  // individual RL events.
+  //
+  // Phase enum (matches server LifecyclePhase exactly):
+  //   'none'      - not in a match (server's authoritative state for
+  //                 disconnected, between matches, or RL silent for >5s)
   //   'created'   - MatchCreated fired but countdown hasn't started
   //   'countdown' - CountdownBegin fired, RoundStarted hasn't
   //   'live'      - active gameplay
   //   'paused'    - admin paused
-  //   'replay'    - goal replay or history replay active
+  //   'replay'    - goal replay
   //   'ended'     - MatchEnded fired
   //   'podium'    - PodiumStart fired
+  //
+  // Backwards compat: the previous client-only machine called the
+  // catch-all state 'idle'. Plugins that wrote whilePhase: ['idle']
+  // keep working — we accept either name in shouldFire below.
   const lifecycle = (function () {
     const ev = emitter();
-    let phase = 'idle';
-    let prevPhase = 'idle';
+    const matchActiveEv = emitter();
 
-    function set(next) {
-      if (next === phase) return;
-      prevPhase = phase;
-      phase = next;
-      ev.emit('change', phase, prevPhase);
+    let phase = 'none';
+    let prevPhase = 'none';
+    let matchActive = false;
+    let matchGUID = '';
+    let since = null; // ISO string from the server
+
+    function applySnapshot(snap) {
+      const newPhase = String(snap.phase || 'none');
+      const newActive = !!snap.match_active;
+      const newGUID = String(snap.match_guid || '');
+      const phaseChanged = newPhase !== phase;
+      const activeChanged = newActive !== matchActive;
+
+      if (phaseChanged) {
+        prevPhase = phase;
+        phase = newPhase;
+      }
+      matchActive = newActive;
+      matchGUID = newGUID;
+      since = snap.since || null;
+
+      if (phaseChanged) ev.emit('change', phase, prevPhase);
+      if (activeChanged) matchActiveEv.emit('change', matchActive);
     }
 
-    bus.on('_status', (s) => { if (s !== 'connected') set('idle'); });
-
-    bus.on('MatchCreated',     () => set('created'));
-    bus.on('MatchInitialized', () => set('countdown'));
-    bus.on('CountdownBegin',   () => set('countdown'));
-    bus.on('RoundStarted',     () => set('live'));
-    bus.on('MatchPaused',      () => set('paused'));
-    bus.on('MatchUnpaused',    () => set(prevPhase === 'paused' ? 'live' : prevPhase));
-    bus.on('GoalReplayStart',  () => set('replay'));
-    bus.on('GoalReplayEnd',    () => set('live'));
-    bus.on('MatchEnded',       () => set('ended'));
-    bus.on('PodiumStart',      () => set('podium'));
-    bus.on('MatchDestroyed',   () => set('idle'));
-
-    // Fall-back: if we get UpdateStates without ever hearing a setup event
-    // (plugin booted mid-match), best-effort to 'live'.
-    bus.on('UpdateState', (d) => {
-      if (phase === 'idle' && d && d.Players && d.Players.length) {
-        if (d.Game && d.Game.bReplay) set('replay');
-        else set('live');
-      }
-    });
+    // Wire the server's authoritative event. The bus emits these from
+    // the EventSource onmessage path before the typed-event normalizer
+    // runs, so we always see them inline with everything else.
+    bus.on('_Lifecycle', (snap) => { if (snap) applySnapshot(snap); });
 
     return {
       get phase() { return phase; },
       get previous() { return prevPhase; },
+      get matchActive() { return matchActive; },
+      get guid() { return matchGUID; },
+      get since() { return since; },
       onChange(fn) { return ev.on('change', fn); },
+      onMatchActive(fn) { return matchActiveEv.on('change', fn); },
     };
   })();
 
@@ -959,7 +980,13 @@ const sdkJS = `(function () {
       if (!spec.whilePhase) return true;
       if (spec.whilePhase === '*') return true;
       const allow = Array.isArray(spec.whilePhase) ? spec.whilePhase : [spec.whilePhase];
-      return allow.indexOf(lifecycle.phase) !== -1;
+      const cur = lifecycle.phase;
+      // Back-compat alias: 'idle' was the previous name for what the
+      // server now calls 'none'. Plugins that wrote whilePhase:['idle']
+      // (or its inverse) should keep working.
+      if (allow.indexOf(cur) !== -1) return true;
+      if (cur === 'none' && allow.indexOf('idle') !== -1) return true;
+      return false;
     }
 
     function gate(spec, fn) {
@@ -1004,11 +1031,15 @@ const sdkJS = `(function () {
       }
 
       // Convenience subscriptions.
-      if (typeof spec.onMatch      === 'function') unsubs.push(match.onChange(gate(spec, spec.onMatch)));
-      if (typeof spec.onTick       === 'function') unsubs.push(match.onTick(gate(spec, spec.onTick)));
-      if (typeof spec.onIdentity   === 'function') unsubs.push(identity.onChange(gate(spec, spec.onIdentity)));
-      if (typeof spec.onEncounters === 'function') unsubs.push(encounters.onChange(gate(spec, spec.onEncounters)));
-      if (typeof spec.onLifecycle  === 'function') unsubs.push(lifecycle.onChange(gate(spec, spec.onLifecycle)));
+      if (typeof spec.onMatch       === 'function') unsubs.push(match.onChange(gate(spec, spec.onMatch)));
+      if (typeof spec.onTick        === 'function') unsubs.push(match.onTick(gate(spec, spec.onTick)));
+      if (typeof spec.onIdentity    === 'function') unsubs.push(identity.onChange(gate(spec, spec.onIdentity)));
+      if (typeof spec.onEncounters  === 'function') unsubs.push(encounters.onChange(gate(spec, spec.onEncounters)));
+      if (typeof spec.onLifecycle   === 'function') unsubs.push(lifecycle.onChange(gate(spec, spec.onLifecycle)));
+      // onMatchActive is the simpler "am I in a match" question. Fires
+      // on transitions only, not at register-time (use lifecycle.matchActive
+      // for the current value if you need it during init/ready).
+      if (typeof spec.onMatchActive === 'function') unsubs.push(lifecycle.onMatchActive(gate(spec, spec.onMatchActive)));
 
       const handle = {
         name,
