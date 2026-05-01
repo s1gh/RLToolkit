@@ -140,9 +140,12 @@ body.overlay-mode {
 }
 .conn-pill[data-status="connecting"]::before { background: var(--gold); box-shadow: 0 0 10px var(--gold); }
 .conn-pill[data-status="disconnected"]::before { background: #ef4444; }
+/* Both keyframes carry the same two shadow layers so ease-in-out can
+   actually interpolate between them. With mismatched layer counts the
+   second halo pops in/out instead of breathing smoothly. */
 @keyframes pulse {
-  0%,100% { box-shadow: 0 0 10px #22c55e; }
-  50%     { box-shadow: 0 0 18px #22c55e, 0 0 32px rgba(34,197,94,.4); }
+  0%, 100% { box-shadow: 0 0 8px  #22c55e, 0 0 14px rgba(34,197,94,0); }
+  50%      { box-shadow: 0 0 14px #22c55e, 0 0 28px rgba(34,197,94,0.45); }
 }
 
 .icon-btn {
