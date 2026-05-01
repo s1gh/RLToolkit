@@ -241,6 +241,9 @@ type PluginManager struct {
 }
 
 func NewPluginManager(dir string) *PluginManager {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("[plugins] Cannot create plugin dir %q: %v", dir, err)
+	}
 	pm := &PluginManager{dir: dir, loaded: make(map[string]string)}
 	pm.List() // initial scan, just to log what's present at startup
 	return pm
@@ -723,10 +726,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 // ─── Main ───────────────────────────────────────────────────
 
 func main() {
+	// Default plugin/data dirs sit next to the executable, not the cwd.
+	// This makes double-click-from-anywhere "just work" — the folders are
+	// auto-created on first launch in the same directory as the binary.
+	exeDir := "."
+	if exe, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exe)
+	}
+
 	rlAddr := flag.String("rl-addr", "127.0.0.1:49123", "RL Stats API address (host:port)")
 	httpPort := flag.Int("port", 8080, "HTTP server port")
-	pluginDir := flag.String("plugins", "plugins", "Plugin directory path")
-	dataDir := flag.String("data", "data", "Data directory path")
+	pluginDir := flag.String("plugins", filepath.Join(exeDir, "plugins"), "Plugin directory path")
+	dataDir := flag.String("data", filepath.Join(exeDir, "data"), "Data directory path")
 	flag.Parse()
 
 	cfg := Config{
