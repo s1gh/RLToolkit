@@ -436,6 +436,9 @@ body.overlay-mode {
   padding: 4px 8px;
   border-radius: 99px;
   white-space: nowrap;
+  min-width: 72px;
+  text-align: center;
+  box-sizing: border-box;
 }
 .claim-btn {
   background: var(--bg-0);
@@ -543,6 +546,9 @@ body.overlay-mode {
   border: 1px solid var(--line);
   padding: 4px 8px;
   border-radius: 99px;
+  min-width: 72px;
+  text-align: center;
+  box-sizing: border-box;
 }
 .lb-time {
   font-family: var(--mono);
