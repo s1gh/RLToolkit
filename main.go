@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -56,11 +58,13 @@ Server flags (serve):
 func runServe() {
 	cfg := parseFlags()
 	log.SetFlags(log.Ltime)
+	log.SetOutput(&styledLogWriter{w: os.Stderr})
 
 	// Print the welcome + setup banner first so the user sees a clean
 	// intro before any timestamped operational log lines start.
 	printStartupBanner(cfg)
 	printRLSetupNotice()
+	printLogsSectionHeader()
 
 	store, err := NewDataStore(cfg.DataDir)
 	if err != nil {
@@ -181,12 +185,14 @@ func awaitSignal() {
 // ANSI escape codes. Empty when the terminal can't render them, so
 // the same code path produces clean plain-text in pipes / dumb terms.
 var (
-	cReset  = ansi("\x1b[0m")
-	cDim    = ansi("\x1b[2m")
-	cBold   = ansi("\x1b[1m")
-	cCyan   = ansi("\x1b[36m")
-	cAmber  = ansi("\x1b[33m")
-	cAccent = ansi("\x1b[1;36m") // bold cyan — for the wordmark
+	cReset   = ansi("\x1b[0m")
+	cDim     = ansi("\x1b[2m")
+	cBold    = ansi("\x1b[1m")
+	cCyan    = ansi("\x1b[36m")
+	cAmber   = ansi("\x1b[33m")
+	cMagenta = ansi("\x1b[35m")
+	cGreen   = ansi("\x1b[32m")
+	cAccent  = ansi("\x1b[1;36m") // bold cyan — for the wordmark
 )
 
 // ansi returns the given escape only when output is going to a real
@@ -256,4 +262,94 @@ func printRLSetupNotice() {
 	line("")
 	line(fmt.Sprintf("%sChanges only take effect on a fresh RL launch.%s", cDim, cReset))
 	fmt.Fprintln(os.Stderr)
+}
+
+// printLogsSectionHeader is the visual hand-off between the static
+// banner above and the live operational logs below. A small label
+// over a dim hairline rule makes it unambiguous that what follows
+// is runtime output, not more banner content.
+func printLogsSectionHeader() {
+	fmt.Fprintf(os.Stderr, "  %s%s%s %s──────────────────────────────────%s\n\n",
+		cDim, "logs", cReset, cDim, cReset)
+}
+
+// styledLogWriter wraps stderr to colorize log lines emitted by the
+// stdlib log package. Each line arrives as "HH:MM:SS [facet] message".
+// We dim the timestamp, color the facet tag (one color per facet so
+// they're scannable at a glance), and leave the message body plain.
+//
+// Falls back to passthrough when ansi() returned "" — same code path
+// in pipes / NO_COLOR / dumb terminals, no escape garbage.
+type styledLogWriter struct {
+	w io.Writer
+}
+
+// facetColor maps log facets ("[bus]", "[plugins]", "[server]", …)
+// to consistent colors so users can scan a busy log by hue. Add new
+// facets here as they're introduced; unknown facets render dim, which
+// reads as "uncategorized" without breaking layout.
+var facetColor = map[string]string{
+	"server":  cGreen,
+	"rl-api":  cCyan,
+	"plugins": cMagenta,
+	"bus":     cAmber,
+	"http":    cDim,
+	"data":    cDim,
+}
+
+func (s *styledLogWriter) Write(p []byte) (int, error) {
+	// Fast path: no color → straight passthrough. Keeps this writer
+	// from re-allocating on every log line in non-TTY environments.
+	if cReset == "" {
+		return s.w.Write(p)
+	}
+
+	// Log entries can theoretically batch (rare for stdlib log, but
+	// safe to handle) — split on '\n' and style each non-empty line.
+	var out bytes.Buffer
+	for _, line := range bytes.SplitAfter(p, []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		s.styleLine(&out, line)
+	}
+	_, err := s.w.Write(out.Bytes())
+	return len(p), err
+}
+
+// styleLine recognizes the stdlib log format with Ltime + a "[facet]"
+// prefix. Anything that doesn't match is written through unchanged so
+// non-conforming log calls (e.g. multi-line stack traces) don't get
+// chopped up.
+func (s *styledLogWriter) styleLine(out *bytes.Buffer, line []byte) {
+	// Expect: "HH:MM:SS [facet] message\n" — bail to passthrough on
+	// any deviation. Length floor: 8 (time) + 1 (space) + 3 ([x]).
+	if len(line) < 12 || line[2] != ':' || line[5] != ':' || line[8] != ' ' || line[9] != '[' {
+		out.Write(line)
+		return
+	}
+	close := bytes.IndexByte(line[9:], ']')
+	if close < 0 {
+		out.Write(line)
+		return
+	}
+	tsEnd := 8                    // index just past "HH:MM:SS"
+	facet := string(line[10 : 9+close]) // contents between '[' and ']'
+	color := facetColor[facet]
+	if color == "" {
+		color = cDim
+	}
+	rest := line[9+close+1:] // " message\n"
+
+	// Dim timestamp, colored [facet], plain message body.
+	out.WriteString(cDim)
+	out.Write(line[:tsEnd])
+	out.WriteString(cReset)
+	out.WriteByte(' ')
+	out.WriteString(color)
+	out.WriteByte('[')
+	out.WriteString(facet)
+	out.WriteByte(']')
+	out.WriteString(cReset)
+	out.Write(rest)
 }
