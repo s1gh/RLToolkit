@@ -136,16 +136,19 @@ body.overlay-mode {
 .conn-pill[data-status="connected"]::before {
   background: #22c55e;
   box-shadow: 0 0 10px #22c55e;
-  animation: pulse 2s ease-in-out infinite;
+  /* alternate direction = the curve reverses at the bright end instead
+     of restarting at dim, so there's no dwell/stutter at the loop point. */
+  animation: pulse 1.6s ease-in-out infinite alternate;
 }
 .conn-pill[data-status="connecting"]::before { background: var(--gold); box-shadow: 0 0 10px var(--gold); }
 .conn-pill[data-status="disconnected"]::before { background: #ef4444; }
-/* Both keyframes carry the same two shadow layers so ease-in-out can
-   actually interpolate between them. With mismatched layer counts the
-   second halo pops in/out instead of breathing smoothly. */
+/* Single-direction breathe — paired with `direction: alternate` so the
+   curve reverses at the bright end and there's no dwell/snap at the
+   loop point. Two shadow layers in both keyframes (matched count) so
+   the outer halo fades smoothly instead of popping in. */
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 8px  #22c55e, 0 0 14px rgba(34,197,94,0); }
-  50%      { box-shadow: 0 0 14px #22c55e, 0 0 28px rgba(34,197,94,0.45); }
+  from { box-shadow: 0 0 6px  #22c55e, 0 0 12px rgba(34,197,94,0);    }
+  to   { box-shadow: 0 0 14px #22c55e, 0 0 26px rgba(34,197,94,0.45); }
 }
 
 .icon-btn {
