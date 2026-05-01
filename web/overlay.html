@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>RL Toolkit — Overlay</title>
+<style>
+  html,body{margin:0;padding:0;width:100vw;height:100vh;background:transparent;overflow:hidden}
+  .pf{position:absolute;border:none;background:transparent}
+</style></head><body><script>
+fetch('/api/plugins').then(r=>r.json()).then(plugins=>{
+  plugins.forEach(p=>{
+    if(!p.overlay||!p.overlay.file)return;
+    const a = p.overlay.anchor || 'top-right';
+    const f = document.createElement('iframe');
+    f.className = 'pf';
+    // Pass the anchor through to the iframe so the SDK can align the
+    // plugin's content inside the iframe to the same corner the iframe
+    // itself is anchored to. Without this, the visible content would sit
+    // top-left within the iframe regardless of where the iframe lives.
+    f.src = '/plugins/' + p.name + '/' + p.overlay.file + '?overlay=1&anchor=' + encodeURIComponent(a);
+    f.style.width = p.overlay.width + 'px';
+    f.style.height = p.overlay.height + 'px';
+    f.style.opacity = p.overlay.opacity || 1;
+    f.setAttribute('allowtransparency', 'true');
+    f.setAttribute('frameborder', '0');
+    const ox = (p.overlay.offset_x||0)+'px', oy = (p.overlay.offset_y||0)+'px';
+    if (a.includes('top'))  f.style.top = oy;    else f.style.bottom = oy;
+    if (a.includes('left')) f.style.left = ox;   else f.style.right = ox;
+    if (p.overlay.click_through) f.style.pointerEvents = 'none';
+    document.body.appendChild(f);
+  });
+});
+</script></body></html>

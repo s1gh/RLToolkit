@@ -1,0 +1,21 @@
+# Build artifacts
+/rl-toolkit
+/rl-toolkit.exe
+*.exe
+
+# Per-plugin persistence — runtime data, not source
+/data/*.json
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Tauri / Node (the upcoming overlay app will live in overlay-app/)
+overlay-app/target/
+overlay-app/dist/
+overlay-app/node_modules/
+overlay-app/src-tauri/target/
+**/node_modules/

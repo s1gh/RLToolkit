@@ -1,0 +1,17 @@
+{
+  "name": "dejavu",
+  "title": "Déjà Vu",
+  "version": "1.0.0",
+  "author": "rl-toolkit",
+  "description": "Tracks players you've encountered before and shows encounter history",
+  "overlay": {
+    "file": "overlay.html",
+    "width": 280,
+    "height": 260,
+    "anchor": "bottom-left",
+    "offset_x": 12,
+    "offset_y": 12,
+    "opacity": 1,
+    "click_through": true
+  }
+}

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RL Toolkit</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Surfaces */
+  --bg-0:#08090f; --bg-1:#0f1117; --bg-2:#161922; --bg-3:#1f232f;
+  --line:#252938; --line-2:#363b4d;
+
+  /* Text */
+  --txt:#e9ecf2; --txt-2:#a6abbf; --txt-3:#6c7286;
+
+  /* Accents */
+  --cyan:#22d3ee;   --cyan-glow:rgba(34,211,238,0.35);
+  --violet:#a78bfa; --violet-glow:rgba(167,139,250,0.35);
+  --green:#22c55e;
+  --gold:#fbbf24;
+  --rose:#f472b6;
+
+  /* Type */
+  --display:'Inter Tight', system-ui, sans-serif;
+  --ui:'Inter', system-ui, sans-serif;
+  --mono:'JetBrains Mono', ui-monospace, monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:var(--ui); font-size:14px; color:var(--txt);
+  background:
+    radial-gradient(1400px 700px at 85% -10%, rgba(167,139,250,0.10), transparent 60%),
+    radial-gradient(1100px 550px at -10% 110%, rgba(34,211,238,0.07), transparent 60%),
+    var(--bg-0);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  min-height:100vh;
+  letter-spacing:-0.005em;
+}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit}
+
+/* ─── Layout ───────────────────────────────────────────────── */
+.shell{
+  max-width:1280px; margin:0 auto;
+  padding:24px 32px 40px;
+}
+@media (max-width:720px){ .shell{ padding:20px 18px 32px; } }
+
+/* ─── Topbar ───────────────────────────────────────────────── */
+.topbar{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 4px 24px;
+  border-bottom:1px solid var(--line);
+  margin-bottom:32px;
+}
+.brand{ display:flex; align-items:center; gap:14px; }
+.brand .logo{
+  width:42px; height:42px; border-radius:12px;
+  background:linear-gradient(135deg, var(--cyan), var(--violet));
+  display:grid; place-items:center;
+  font-family:var(--display); font-weight:800; font-size:15px;
+  color:var(--bg-0); letter-spacing:-0.02em;
+  box-shadow: 0 8px 24px -8px var(--violet-glow);
+}
+.brand h1{
+  font-family:var(--display); font-weight:800;
+  font-size:22px; letter-spacing:-0.025em; line-height:1;
+  color:#fff;
+}
+.brand .tag{
+  font-size:12px; color:var(--txt-3);
+  margin-top:3px; letter-spacing:0;
+}
+
+.conn{
+  display:inline-flex; align-items:center; gap:8px;
+  padding:7px 14px;
+  background:var(--bg-2); border:1px solid var(--line);
+  border-radius:99px;
+  font-size:12px; font-weight:600;
+  color:var(--txt-2);
+  letter-spacing:0;
+}
+.conn::before{
+  content:''; width:7px; height:7px; border-radius:50%;
+  background:var(--txt-3);
+}
+.conn[data-status="connected"]    { color:#fff; }
+.conn[data-status="connected"]::before{
+  background:var(--green); box-shadow:0 0 0 3px rgba(34,197,94,.18);
+  animation:pulse 2.4s ease-in-out infinite;
+}
+.conn[data-status="connecting"]::before{ background:var(--gold); }
+.conn[data-status="disconnected"]::before{ background:#ef4444; }
+@keyframes pulse{
+  0%,100%{ box-shadow:0 0 0 3px rgba(34,197,94,.16); }
+  50%   { box-shadow:0 0 0 6px rgba(34,197,94,.04); }
+}
+
+/* ─── Section heading ──────────────────────────────────────── */
+.section-head{
+  display:flex; align-items:baseline; justify-content:space-between;
+  margin: 4px 4px 16px;
+}
+.section-head h2{
+  font-family:var(--display); font-weight:600;
+  font-size:18px; letter-spacing:-0.015em; line-height:1;
+  color:var(--txt);
+}
+.section-head .count{
+  font-family:var(--mono); font-size:12px;
+  color:var(--txt-3);
+  font-feature-settings:'tnum';
+}
+
+/* ─── Plugin grid ──────────────────────────────────────────── */
+.plugins{
+  display:grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap:14px;
+  margin-bottom:48px;
+}
+
+.card{
+  position:relative;
+  background:linear-gradient(180deg, var(--bg-1), var(--bg-2) 110%);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:20px 22px 18px;
+  display:flex; flex-direction:column; gap:14px;
+  min-height:200px;
+  overflow:hidden;
+  transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+.card::before{
+  content:''; position:absolute; inset:0;
+  background:radial-gradient(360px 200px at 100% 0%, rgba(167,139,250,0.08), transparent 60%);
+  opacity:0; transition:opacity .25s ease;
+  pointer-events:none;
+}
+.card::after{
+  content:''; position:absolute; left:0; right:0; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--cyan), var(--violet), transparent);
+  opacity:0; transition:opacity .25s ease;
+}
+.card:hover{
+  transform:translateY(-2px);
+  border-color:var(--line-2);
+  box-shadow:0 24px 48px -24px rgba(0,0,0,.6), 0 0 0 1px rgba(167,139,250,.12);
+}
+.card:hover::before, .card:hover::after{ opacity:1; }
+
+.card-head{ display:flex; align-items:center; gap:12px; }
+.card-icon{
+  width:44px; height:44px; border-radius:11px;
+  background:linear-gradient(135deg, var(--cyan), var(--violet));
+  display:grid; place-items:center;
+  font-family:var(--display); font-weight:800; font-size:15px;
+  color:var(--bg-0); letter-spacing:-0.02em;
+  flex-shrink:0;
+}
+.card-meta{ flex:1; min-width:0; }
+.card-title{
+  font-family:var(--display); font-weight:700;
+  font-size:18px; letter-spacing:-0.015em; line-height:1.2;
+  color:#fff;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.card-sub{
+  display:flex; align-items:center; gap:8px;
+  margin-top:4px;
+  font-size:12px; color:var(--txt-3);
+}
+.card-sub .v{
+  font-family:var(--mono); font-size:10px; font-weight:600;
+  letter-spacing:0.06em;
+  background:var(--bg-3); border:1px solid var(--line);
+  padding:2px 8px; border-radius:99px;
+  color:var(--txt-2);
+}
+.card-sub .author{
+  font-family:var(--mono); color:var(--txt-3);
+}
+
+.card-desc{
+  font-size:13px; line-height:1.55;
+  color:var(--txt-2);
+  flex:1;
+  display:-webkit-box;
+  -webkit-line-clamp:3;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+.card-actions{ display:flex; gap:6px; }
+.btn{
+  flex:1;
+  font-family:var(--ui); font-size:12px; font-weight:600;
+  letter-spacing:0;
+  padding:10px 14px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:var(--bg-3); color:var(--txt);
+  cursor:pointer;
+  transition:all .15s ease;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+}
+.btn:hover{ border-color:var(--cyan); color:var(--cyan); }
+.btn.primary{
+  background:linear-gradient(135deg, var(--cyan), var(--violet));
+  color:var(--bg-0); border-color:transparent; font-weight:700;
+}
+.btn.primary:hover{
+  filter:brightness(1.08);
+  box-shadow:0 8px 24px -8px var(--cyan-glow), 0 8px 24px -8px var(--violet-glow);
+  color:var(--bg-0);
+}
+.btn .arrow{ font-size:11px; transition:transform .2s ease; }
+.btn.primary:hover .arrow{ transform:translateX(2px); }
+
+/* ─── Empty state ──────────────────────────────────────────── */
+.empty{
+  grid-column:1 / -1;
+  background:var(--bg-1); border:1px dashed var(--line-2);
+  border-radius:14px;
+  padding:48px 32px; text-align:center;
+}
+.empty .em-icon{
+  width:48px; height:48px; margin:0 auto 14px;
+  border-radius:12px;
+  background:var(--bg-3); border:1px solid var(--line);
+  display:grid; place-items:center;
+  font-size:22px; color:var(--txt-3);
+}
+.empty h3{
+  font-family:var(--display); font-weight:700; font-size:18px;
+  letter-spacing:-0.015em; color:#fff; margin-bottom:6px;
+}
+.empty p{ color:var(--txt-3); font-size:13px; max-width:380px; margin:0 auto; line-height:1.55; }
+.empty code{
+  font-family:var(--mono); font-size:12px;
+  color:var(--cyan);
+  background:var(--bg-3); padding:1px 6px; border-radius:4px;
+}
+
+/* ─── Footer ribbon ────────────────────────────────────────── */
+.ribbon{
+  border-top:1px solid var(--line);
+  padding-top:16px; margin-top:8px;
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  font-size:11px; color:var(--txt-3);
+  font-family:var(--mono);
+}
+.ribbon .label{
+  text-transform:uppercase; letter-spacing:0.16em;
+  color:var(--txt-3);
+  font-family:var(--ui); font-weight:600;
+  margin-right:4px;
+}
+.ribbon a{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:4px 10px; border-radius:99px;
+  border:1px solid var(--line);
+  color:var(--txt-2);
+  transition:all .15s ease;
+}
+.ribbon a:hover{
+  border-color:var(--cyan); color:var(--cyan);
+}
+.ribbon a .dot{
+  width:5px; height:5px; border-radius:50%;
+  background:var(--txt-3);
+  transition:background .15s ease;
+}
+.ribbon a:hover .dot{ background:var(--cyan); box-shadow:0 0 6px var(--cyan-glow); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">RL</div>
+      <div>
+        <h1>RL Toolkit</h1>
+        <div class="tag">Stats API · Plugin Host</div>
+      </div>
+    </div>
+    <span class="conn" id="conn" data-status="disconnected">disconnected</span>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <h2>Plugins</h2>
+      <span class="count" id="stat-count">0</span>
+    </div>
+    <div class="plugins" id="pl"></div>
+  </section>
+
+  <footer class="ribbon">
+    <span class="label">Endpoints</span>
+    <a href="/overlay" target="_blank"><span class="dot"></span>/overlay</a>
+    <a href="/events" target="_blank"><span class="dot"></span>/events</a>
+    <a href="/api/plugins" target="_blank"><span class="dot"></span>/api/plugins</a>
+    <a href="/api/status" target="_blank"><span class="dot"></span>/api/status</a>
+  </footer>
+
+</div>
+
+<script>
+'use strict';
+
+// ─── Connection pill — short polling, no SSE ───────────────
+// Dashboard is a launcher, not a monitor. /api/status every few seconds is
+// plenty, and avoids the long-lived SSE connection (which Firefox warns
+// about whenever you navigate away).
+const conn = document.getElementById('conn');
+async function pingStatus() {
+  try {
+    const r = await fetch('/api/status', { cache: 'no-store' });
+    const j = await r.json();
+    conn.dataset.status = j.rl_api || 'disconnected';
+    conn.textContent = j.rl_api || 'disconnected';
+  } catch {
+    conn.dataset.status = 'disconnected';
+    conn.textContent = 'disconnected';
+  }
+}
+pingStatus();
+setInterval(pingStatus, 5000);
+
+// ─── Plugin list ───────────────────────────────────────────
+fetch('/api/plugins').then(r => r.json()).then(ps => {
+  const c = document.getElementById('pl');
+  document.getElementById('stat-count').textContent = (ps || []).length;
+
+  if (!ps || ps.length === 0) {
+    c.innerHTML = '<div class="empty">'
+      + '<div class="em-icon">◇</div>'
+      + '<h3>No plugins yet</h3>'
+      + '<p>Drop a folder with <code>manifest.json</code> + <code>overlay.html</code> into your <code>plugins/</code> directory and refresh.</p>'
+      + '</div>';
+    return;
+  }
+
+  c.innerHTML = ps.map(p => {
+    const overlay = p.overlay && p.overlay.file
+      ? '/plugins/' + p.name + '/' + p.overlay.file
+      : null;
+    const transparent = overlay ? overlay + '?overlay=1' : null;
+    const initials = (p.title || p.name || '?').replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '◇';
+    const desc = p.description
+      ? esc(p.description)
+      : '<span style="color:var(--txt-3);font-style:italic">No description provided.</span>';
+
+    return '<article class="card">'
+      + '<div class="card-head">'
+        + '<div class="card-icon">' + esc(initials) + '</div>'
+        + '<div class="card-meta">'
+          + '<div class="card-title">' + esc(p.title || p.name) + '</div>'
+          + '<div class="card-sub">'
+            + (p.version ? '<span class="v">v' + esc(p.version) + '</span>' : '')
+            + (p.author ? '<span class="author">@' + esc(p.author) + '</span>' : '')
+          + '</div>'
+        + '</div>'
+      + '</div>'
+      + '<p class="card-desc">' + desc + '</p>'
+      + '<div class="card-actions">'
+        + (overlay ? '<a class="btn primary" href="' + overlay + '" target="_blank">Open <span class="arrow">→</span></a>' : '')
+        + (transparent ? '<a class="btn" href="' + transparent + '" target="_blank">Transparent</a>' : '')
+      + '</div>'
+    + '</article>';
+  }).join('');
+});
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+</script>
+</body></html>

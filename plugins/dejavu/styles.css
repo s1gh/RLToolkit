@@ -1,0 +1,763 @@
+/* ─── Tokens ────────────────────────────────────────────── */
+:root {
+  --bg-0: #0a0c14;
+  --bg-1: #0f1320;
+  --bg-2: #161b2c;
+  --bg-3: #1d2238;
+  --line: #232a44;
+  --line-2: #2f375a;
+  --txt: #e6e9f5;
+  --txt-2: #a9b0cf;
+  --txt-3: #6c739a;
+
+  --cyan: #22d3ee;
+  --cyan-glow: rgba(34, 211, 238, 0.35);
+  --violet: #a78bfa;
+  --violet-glow: rgba(167, 139, 250, 0.35);
+  --magenta: #f472b6;
+  --gold: #fbbf24;
+  --gold-soft: rgba(251, 191, 36, 0.12);
+  --gold-glow: rgba(251, 191, 36, 0.35);
+
+  --blue: #3b82f6;
+  --blue-glow: rgba(59, 130, 246, 0.4);
+  --orange: #fb7c3c;
+  --orange-glow: rgba(251, 124, 60, 0.4);
+
+  --display: 'Saira Condensed', system-ui, sans-serif;
+  --ui: 'Inter', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  font-family: var(--ui);
+  font-size: 13px;
+  color: var(--txt);
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(167,139,250,0.12), transparent 60%),
+    radial-gradient(1000px 500px at 0% 110%, rgba(34,211,238,0.08), transparent 60%),
+    var(--bg-0);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+body.overlay-mode {
+  background: transparent;
+  overflow: hidden;
+}
+.mono { font-family: var(--mono); font-feature-settings: 'tnum'; }
+
+/* ════════════════════════════════════════════════════════
+   CONTROL PAGE
+   ════════════════════════════════════════════════════════ */
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px 24px 60px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, var(--bg-1), var(--bg-2));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand .logo {
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  box-shadow: 0 0 24px var(--violet-glow);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--bg-0);
+  letter-spacing: -0.02em;
+}
+.brand h1 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #fff 30%, var(--cyan));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.brand .tag {
+  font-size: 11px;
+  color: var(--txt-3);
+  letter-spacing: 0.02em;
+  font-weight: 500;
+}
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+
+.conn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--txt-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.conn-pill::before {
+  content: '';
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--txt-3);
+}
+.conn-pill[data-status="connected"]::before {
+  background: #22c55e;
+  box-shadow: 0 0 10px #22c55e;
+  animation: pulse 2s ease-in-out infinite;
+}
+.conn-pill[data-status="connecting"]::before { background: var(--gold); box-shadow: 0 0 10px var(--gold); }
+.conn-pill[data-status="disconnected"]::before { background: #ef4444; }
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 10px #22c55e; }
+  50%     { box-shadow: 0 0 18px #22c55e, 0 0 32px rgba(34,197,94,.4); }
+}
+
+.icon-btn {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  color: var(--txt-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  font-size: 15px;
+  transition: all .15s ease;
+}
+.icon-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: 0 0 16px var(--cyan-glow);
+}
+
+/* ─── Inline identity ───────────────────────────────────── */
+.identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--txt-2);
+}
+.identity-line .il-label {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  font-weight: 700;
+  color: var(--txt-3);
+}
+.identity-line .il-name {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.01em;
+}
+.identity-line .il-name.empty {
+  color: var(--txt-3);
+  font-style: italic;
+  font-weight: 500;
+}
+.identity-line .il-edit {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--txt-3);
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all .15s ease;
+}
+.identity-line .il-edit:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.identity-line .il-hint {
+  font-style: italic;
+  color: var(--txt-3);
+  font-size: 12px;
+}
+.identity-line .il-edit-panel {
+  flex: 1 0 100%;
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.input {
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  flex: 1;
+  transition: all .15s ease;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px var(--cyan-glow);
+}
+.btn {
+  font-family: var(--ui);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--cyan);
+  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  color: var(--bg-0);
+  cursor: pointer;
+  transition: all .15s ease;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.btn:hover {
+  box-shadow: 0 0 18px var(--cyan-glow), 0 0 28px var(--violet-glow);
+}
+.btn.ghost {
+  background: var(--bg-3);
+  border-color: var(--line);
+  color: var(--txt);
+}
+.btn.ghost:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: 0 0 16px var(--cyan-glow);
+}
+
+/* ─── Cards ─────────────────────────────────────────────── */
+.card {
+  background: linear-gradient(180deg, var(--bg-1), var(--bg-2));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px 22px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+}
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.card-head h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+}
+.card-head .badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  color: var(--txt-2);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-family: var(--mono);
+}
+.card-empty {
+  padding: 50px 20px;
+  text-align: center;
+  color: var(--txt-3);
+  font-size: 13px;
+}
+.card-empty .em-icon {
+  font-size: 30px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+/* ─── Match player rows ─────────────────────────────────── */
+.teams-stack { display: flex; flex-direction: column; gap: 16px; }
+.team-block-head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+.team-block-head .tdot { width: 8px; height: 8px; border-radius: 2px; }
+.team-block.blue   .tdot  { background: var(--blue);   box-shadow: 0 0 10px var(--blue-glow); }
+.team-block.orange .tdot  { background: var(--orange); box-shadow: 0 0 10px var(--orange-glow); }
+.team-block-head .tname {
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.team-block.blue   .tname { color: var(--blue); }
+.team-block.orange .tname { color: var(--orange); }
+
+.player-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  margin-bottom: 6px;
+  position: relative;
+  transition: border-color .15s, background .15s;
+}
+.player-row:hover { border-color: var(--line-2); background: var(--bg-3); }
+.player-row.is-me {
+  border-color: var(--violet);
+  background: linear-gradient(135deg, rgba(167,139,250,0.08), var(--bg-2));
+  box-shadow: 0 0 24px rgba(167,139,250,0.15);
+}
+.player-row.returning {
+  border-color: var(--gold);
+  background: linear-gradient(135deg, rgba(251,191,36,0.06), var(--bg-2));
+}
+.player-row.returning::after {
+  content: 'DÉJÀ VU';
+  position: absolute;
+  top: 6px; right: 14px;
+  font-family: var(--display);
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 0.2em;
+  opacity: 0.7;
+}
+.pr-badge {
+  width: 38px; height: 38px;
+  border-radius: 8px;
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--txt-2);
+}
+.player-row.returning .pr-badge {
+  background: var(--gold-soft);
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 0 14px var(--gold-glow);
+}
+.player-row.is-me .pr-badge {
+  background: rgba(167,139,250,0.15);
+  border-color: var(--violet);
+  color: var(--violet);
+}
+.pr-info { min-width: 0; }
+.pr-name {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pr-name .you-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--ui);
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--violet);
+  background: rgba(167,139,250,0.15);
+  border: 1px solid var(--violet);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.14em;
+  vertical-align: middle;
+}
+.pr-aliases {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt-3);
+  margin-top: 2px;
+}
+.pr-platform {
+  font-family: var(--ui);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--txt-3);
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.claim-btn {
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  color: var(--txt-2);
+  padding: 7px 11px;
+  border-radius: 6px;
+  font-family: var(--ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s ease;
+}
+.claim-btn:hover {
+  border-color: var(--violet);
+  color: var(--violet);
+  background: rgba(167,139,250,0.08);
+  box-shadow: 0 0 14px var(--violet-glow);
+}
+
+/* ─── Leaderboard ───────────────────────────────────────── */
+.lb-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 4px;
+  transition: border-color .15s, background .15s;
+}
+.lb-row:hover { border-color: var(--line-2); background: var(--bg-3); }
+.lb-row.returning { border-color: var(--gold); }
+
+.lb-rank {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--txt-3);
+  font-weight: 600;
+  min-width: 22px;
+  text-align: right;
+}
+.lb-count {
+  font-family: var(--display);
+  font-feature-settings: 'tnum';
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--gold);
+  text-shadow: 0 0 12px var(--gold-glow);
+  min-width: 50px;
+}
+.lb-count .x {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--txt-3);
+  text-shadow: none;
+  margin-left: 2px;
+}
+.lb-info { min-width: 0; }
+.lb-name {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb-aliases {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt-3);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb-platform {
+  font-family: var(--ui);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--txt-3);
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  border-radius: 99px;
+}
+.lb-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--txt-3);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ─── Toast ─────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  color: var(--bg-0);
+  padding: 12px 22px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s, transform .25s;
+  z-index: 1000;
+  box-shadow: 0 0 30px var(--cyan-glow), 0 0 50px var(--violet-glow);
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ════════════════════════════════════════════════════════
+   OVERLAY MODE  (?overlay=1) — "Recon HUD"
+   ════════════════════════════════════════════════════════
+   Design intent: a tactical sighting widget, not a webpage.
+   - No outer card. Each row is a self-contained tag with its
+     own translucent backing. Game shows through the gaps.
+   - Auto-sizes to content. Empty state is a single thin line.
+   - Returning opponents trigger gold accents, scan-line, and
+     a slow pulse — the whole point of dejavu is the recognition.
+   - Anchored bottom-left by the SDK; rows stack upward.
+   ════════════════════════════════════════════════════════ */
+body.overlay-mode .page { display: none !important; }
+body.overlay-mode .ov   { display: block !important; }
+.ov { display: none; }
+
+/* The SDK applies display:flex to <body> with align-items:flex-start (left)
+   and justify-content:flex-end (bottom). .ov is one flex child; we let it
+   size to its own content rather than fill — that's what makes the iframe
+   look transparent in the empty parts. */
+body.overlay-mode .ov {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  /* Fade-in the whole HUD so it doesn't pop on match start. */
+  animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* The legacy .ov-card no longer wraps anything in overlay mode — keep a
+   no-op rule so accidental references don't paint a giant box. */
+body.overlay-mode .ov-card {
+  display: contents;
+}
+
+/* Section label for each team — small, condensed, military-radio feel. */
+.ov-team {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}
+.ov-team:first-child { margin-top: 0; }
+
+.ov-tname {
+  font-family: var(--display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  /* Tiny pill so the team label has a backing of its own. */
+  align-self: flex-start;
+  padding: 2px 8px 2px 7px;
+  background: rgba(10, 12, 20, 0.55);
+  border-left: 2px solid currentColor;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  /* Subtle text-shadow keeps it legible on bright RL skies. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+.ov-team.blue   .ov-tname { color: var(--blue);   }
+.ov-team.orange .ov-tname { color: var(--orange); }
+
+/* The row itself — three-column tag: count | name | (optional aside).
+   Background is per-row so the iframe shows through between rows. */
+.ov-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 10px 5px 8px;
+  background: rgba(10, 12, 20, 0.62);
+  border-left: 2px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  /* Sharp HUD edges; only a hair of corner radius. */
+  border-radius: 2px;
+  /* Animate each row in with a tiny stagger via the inline style index. */
+  animation: ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--ov-i, 0) * 40ms);
+}
+
+/* Returning opponent — the dramatic state. Gold edge, soft glow, scan-line. */
+.ov-row.returning {
+  border-left-color: var(--gold);
+  background:
+    linear-gradient(90deg, rgba(251, 191, 36, 0.16), rgba(10, 12, 20, 0.62) 60%);
+  box-shadow:
+    0 0 0 1px rgba(251, 191, 36, 0.15) inset,
+    0 0 18px -2px rgba(251, 191, 36, 0.35);
+}
+/* The scan-line: a 1px gold sweep that traverses the row every few seconds.
+   Lives in ::after so it doesn't fight z-index with content. */
+.ov-row.returning::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(251, 191, 36, 0.45) 50%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: ov-scan 4.5s linear infinite;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0.55;
+  border-radius: inherit;
+}
+/* Subtle pulse on the gold edge so peripheral vision catches it. */
+.ov-row.returning {
+  animation:
+    ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    ov-pulse 2.4s ease-in-out infinite 320ms;
+}
+
+/* Encounter count — looks like a target-lock readout. */
+.ov-r-num {
+  font-family: var(--display);
+  font-feature-settings: 'tnum';
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--txt-3);
+  text-align: right;
+  letter-spacing: 0.04em;
+  /* A trailing × glyph (added in JS as ::before would mean per-row content) */
+}
+.ov-row.returning .ov-r-num {
+  color: var(--gold);
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.55);
+}
+
+/* Name + aliases share a column. */
+.ov-r-name {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  line-height: 1.15;
+}
+.ov-r-aliases {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: rgba(251, 191, 36, 0.75);
+  margin-top: 1px;
+  letter-spacing: 0.04em;
+  /* The "aka" prefix is rendered in JS in a dimmer color. */
+}
+.ov-r-aliases .aka {
+  color: var(--txt-3);
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 8px;
+}
+
+/* Empty state — single line, almost invisible until you look for it.
+   No card backing. */
+.ov-empty {
+  align-self: flex-start;
+  font-family: var(--display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(169, 176, 207, 0.55);
+  padding: 4px 9px;
+  background: rgba(10, 12, 20, 0.45);
+  border-left: 2px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+/* ── Animations ─────────────────────────────────────────── */
+@keyframes ov-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes ov-row-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes ov-scan {
+  0%   { background-position: -40% 0; }
+  60%  { background-position: 140% 0; }
+  100% { background-position: 140% 0; }
+}
+@keyframes ov-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.15) inset,
+      0 0 18px -2px rgba(251, 191, 36, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.30) inset,
+      0 0 26px -2px rgba(251, 191, 36, 0.55);
+  }
+}
+
+/* Honor reduced-motion — kill all the moving bits, keep the static look. */
+@media (prefers-reduced-motion: reduce) {
+  body.overlay-mode .ov,
+  .ov-row,
+  .ov-row.returning {
+    animation: none !important;
+  }
+  .ov-row.returning::after {
+    display: none;
+  }
+}
