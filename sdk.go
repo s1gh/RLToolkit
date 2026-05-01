@@ -999,6 +999,17 @@ const sdkJS = `(function () {
       };
     }
 
+    function isolate(spec, fn) {
+      // Like gate() but without the whilePhase filter — used for
+      // transition observers (onLifecycle, onMatchActive) that need to
+      // fire regardless of destination phase. Still wraps in try/catch
+      // for error isolation.
+      return function () {
+        try { return fn.apply(null, arguments); }
+        catch (e) { console.error('[RLT] plugin "' + spec.name + '" handler threw:', e); }
+      };
+    }
+
     function register(spec) {
       spec = spec || {};
       const name = spec.name || pluginName;
@@ -1031,15 +1042,20 @@ const sdkJS = `(function () {
       }
 
       // Convenience subscriptions.
+      //
+      // onLifecycle and onMatchActive intentionally bypass whilePhase
+      // gating: they observe transitions *into* and *out of* phases, so
+      // gating them by the destination phase would swallow exactly the
+      // transitions the plugin cares about. (Without this, a plugin
+      // with whilePhase: ['live'] would never see "match_active just
+      // went false" because the destination phase is 'none'.)
+      // isolate() gives them error/log handling without phase gating.
       if (typeof spec.onMatch       === 'function') unsubs.push(match.onChange(gate(spec, spec.onMatch)));
       if (typeof spec.onTick        === 'function') unsubs.push(match.onTick(gate(spec, spec.onTick)));
       if (typeof spec.onIdentity    === 'function') unsubs.push(identity.onChange(gate(spec, spec.onIdentity)));
       if (typeof spec.onEncounters  === 'function') unsubs.push(encounters.onChange(gate(spec, spec.onEncounters)));
-      if (typeof spec.onLifecycle   === 'function') unsubs.push(lifecycle.onChange(gate(spec, spec.onLifecycle)));
-      // onMatchActive is the simpler "am I in a match" question. Fires
-      // on transitions only, not at register-time (use lifecycle.matchActive
-      // for the current value if you need it during init/ready).
-      if (typeof spec.onMatchActive === 'function') unsubs.push(lifecycle.onMatchActive(gate(spec, spec.onMatchActive)));
+      if (typeof spec.onLifecycle   === 'function') unsubs.push(lifecycle.onChange(isolate(spec, spec.onLifecycle)));
+      if (typeof spec.onMatchActive === 'function') unsubs.push(lifecycle.onMatchActive(isolate(spec, spec.onMatchActive)));
 
       const handle = {
         name,
