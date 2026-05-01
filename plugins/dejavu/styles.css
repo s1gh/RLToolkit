@@ -441,10 +441,7 @@ body.overlay-mode {
   background: var(--bg-2);
 }
 .player-row.is-bot.returning::after { content: none; }
-.lb-row.is-bot {
-  border-color: var(--line);
-  background: var(--bg-2);
-}
+.lb-row.is-bot::before { background: transparent !important; }
 .pr-aliases {
   font-family: var(--mono);
   font-size: 10px;
@@ -492,79 +489,116 @@ body.overlay-mode {
   box-shadow: 0 0 14px var(--violet-glow);
 }
 
-/* ─── Leaderboard ───────────────────────────────────────── */
+/* ─── Leaderboard ───────────────────────────────────────────────────
+   Flush list, no per-row cards. Each row is a transparent grid with a
+   single subtle separator above (except the first). Returning players
+   get a 2px gold accent on the left edge — flag without dominating.
+   The whole leaderboard reads as one composed list. */
 .lb-row {
+  position: relative;
   display: grid;
-  grid-template-columns: auto auto 1fr auto auto auto;
-  gap: 14px;
+  grid-template-columns: 28px minmax(56px, auto) minmax(0, 1fr) auto auto auto;
+  column-gap: 16px;
   align-items: center;
-  padding: 10px 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin-bottom: 4px;
-  transition: border-color .15s, background .15s;
+  padding: 10px 14px 10px 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  transition: background .12s ease;
 }
-.lb-row:hover { border-color: var(--line-2); background: var(--bg-3); }
-.lb-row.returning { border-color: var(--gold); }
-
-/* W/L cell — wins green-ish, losses muted. Em-dash when no record. */
-.lb-wl {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--txt-2);
-  white-space: nowrap;
+/* Separator above each row except the first. Drawn as a 1px inset line so
+   it doesn't bleed past the rounded hover state. */
+.lb-row + .lb-row::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 14px; right: 14px;
+  height: 1px;
+  background: var(--line);
 }
-.lb-wl .w   { color: var(--rlt-green, #22c55e); }
-.lb-wl .l   { color: var(--txt-3); }
-.lb-wl .sep { color: var(--txt-3); margin: 0 2px; }
-.lb-wl.empty { color: var(--txt-3); font-family: var(--ui); }
+.lb-row:hover { background: rgba(255,255,255,0.02); }
+/* Returning-player accent: 2px gold bar on the left. Subtle, persistent,
+   doesn't crowd the data. The bar sits flush with the row's rounded edge. */
+.lb-row.returning::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 6px; bottom: 6px;
+  width: 2px;
+  background: var(--gold);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--gold-glow);
+}
 
+/* Rank — quiet monospace tucked at the start. */
 .lb-rank {
   font-family: var(--mono);
+  font-feature-settings: 'tnum';
   font-size: 11px;
   color: var(--txt-3);
-  font-weight: 600;
-  min-width: 22px;
+  font-weight: 500;
   text-align: right;
 }
+
+/* Encounter count — display face for the number, smaller faded ×.
+   Sized down from the previous chunky 22px to read as one element of
+   a row rather than the row's centerpiece. */
 .lb-count {
   font-family: var(--display);
   font-feature-settings: 'tnum';
-  font-size: 22px;
+  font-size: 17px;
   font-weight: 700;
-  color: var(--gold);
-  text-shadow: 0 0 12px var(--gold-glow);
-  min-width: 50px;
+  line-height: 1;
+  color: var(--txt);
+  text-align: right;
+  white-space: nowrap;
 }
 .lb-count .x {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--txt-3);
-  text-shadow: none;
   margin-left: 2px;
 }
+.lb-row.returning .lb-count { color: var(--gold); }
+
+/* Name + (optional) aliases line. Aliases are dimmed mono. */
 .lb-info { min-width: 0; }
 .lb-name {
-  font-family: var(--display);
-  font-size: 15px;
+  font-family: var(--ui);
+  font-size: 14px;
   font-weight: 600;
-  color: #fff;
+  letter-spacing: 0.005em;
+  color: var(--txt);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .lb-aliases {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--txt-3);
-  margin-top: 2px;
+  margin-top: 3px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* W/L cell — quiet by default. Wins green only when there is a record. */
+.lb-wl {
+  font-family: var(--mono);
+  font-feature-settings: 'tnum';
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--txt-2);
+  white-space: nowrap;
+  min-width: 56px;
+  text-align: right;
+}
+.lb-wl .w   { color: #4ade80; }
+.lb-wl .l   { color: var(--txt-3); }
+.lb-wl .sep { color: var(--txt-3); margin: 0 3px; }
+.lb-wl.empty { color: var(--txt-3); font-family: var(--ui); }
+
+/* Platform icon — same circular shape as before, slightly smaller. */
 .lb-platform {
   display: inline-flex;
   align-items: center;
@@ -573,7 +607,6 @@ body.overlay-mode {
   height: 22px;
   color: var(--txt-2);
   background: transparent;
-  border: 0;
   flex: 0 0 auto;
 }
 .lb-platform .rlt-platform-icon { width: 18px; height: 18px; display: block; }
@@ -584,11 +617,14 @@ body.overlay-mode {
   font-weight: 700;
   color: var(--txt-3);
 }
+
+/* Time-ago — dim mono, right-aligned. */
 .lb-time {
   font-family: var(--mono);
+  font-feature-settings: 'tnum';
   font-size: 11px;
   color: var(--txt-3);
-  min-width: 40px;
+  min-width: 36px;
   text-align: right;
 }
 
