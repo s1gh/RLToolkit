@@ -30,14 +30,15 @@
     </div>
   </header>
 
-  <!-- Identity (inline, expandable) -->
-  <section class="identity-line">
-    <span class="il-label">you:</span>
-    <span class="il-name" id="id-val">unclaimed</span>
-    <button class="il-edit" id="id-edit" title="Change identity">✎</button>
-    <span class="il-hint" id="id-hint">— click "this is me" on your row when you're in a match</span>
-
-    <div class="il-edit-panel" id="id-panel" hidden>
+  <!-- Identity (collapsed by default; expands on pencil click or when unclaimed) -->
+  <section class="identity-strip" id="id-strip" data-mode="collapsed">
+    <div class="il-collapsed">
+      <span class="il-label">you:</span>
+      <span class="il-name" id="id-val">unclaimed</span>
+      <button class="il-edit" id="id-edit" title="Change identity">✎</button>
+      <span class="il-hint" id="id-hint" hidden>— click "this is me" on your row when you're in a match</span>
+    </div>
+    <div class="il-expanded" id="id-panel" hidden>
       <input class="input" type="text" id="id-input" placeholder="Steam|76561...|0">
       <button class="btn" id="id-set">Set</button>
       <button class="btn ghost" id="id-clear">Clear</button>
@@ -45,28 +46,29 @@
     </div>
   </section>
 
-  <!-- Current match -->
-  <section class="card" style="margin-bottom:20px">
-    <div class="card-head">
-      <h2>This match</h2>
-      <span class="badge" id="match-badge">offline</span>
-    </div>
-    <div id="match-host">
-      <div class="card-empty">
-        <div class="em-icon">◇</div>
-        queue up — waiting for a match
+  <!-- Two-column grid: live match (left) | most-met leaderboard (right) -->
+  <div class="grid">
+    <section class="card col-match">
+      <div class="card-head">
+        <h2>This match</h2>
+        <span class="badge" id="match-badge">offline</span>
       </div>
-    </div>
-  </section>
+      <div id="match-host">
+        <div class="card-empty">
+          <div class="em-icon">◇</div>
+          queue up — waiting for a match
+        </div>
+      </div>
+    </section>
 
-  <!-- Most-met leaderboard -->
-  <section class="card">
-    <div class="card-head">
-      <h2>Most met</h2>
-      <span class="badge mono"><span id="lb-count">0</span> shown</span>
-    </div>
-    <div id="lb-host"></div>
-  </section>
+    <section class="card col-leader">
+      <div class="card-head">
+        <h2>Most met</h2>
+        <span class="badge mono"><span id="lb-count">0</span> shown</span>
+      </div>
+      <div id="lb-host"></div>
+    </section>
+  </div>
 
 </main>
 
