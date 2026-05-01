@@ -517,7 +517,8 @@ body.overlay-mode {
 }
 .lb-row:hover { background: rgba(255,255,255,0.02); }
 /* Returning-player accent: 2px gold bar on the left. Subtle, persistent,
-   doesn't crowd the data. The bar sits flush with the row's rounded edge. */
+   doesn't crowd the data. No glow — at this scale it just bleeds across
+   the row separator and visually erases it for adjacent returning rows. */
 .lb-row.returning::after {
   content: '';
   position: absolute;
@@ -525,7 +526,6 @@ body.overlay-mode {
   width: 2px;
   background: var(--gold);
   border-radius: 2px;
-  box-shadow: 0 0 8px var(--gold-glow);
 }
 
 /* Rank — quiet monospace tucked at the start. */
