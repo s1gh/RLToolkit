@@ -66,7 +66,7 @@ DV.leaderboard = (function () {
       return;
     }
 
-    host.innerHTML = all.map((p, i) => {
+    host.innerHTML = all.map((p) => {
       // Bot row shows the full roster of bot names (e.g. "Bandit · Hound · …");
       // human rows show prior aliases (last 2). Same slot, different content.
       const aliasLabel = p.isBot ? 'incl.' : 'also';
@@ -88,7 +88,6 @@ DV.leaderboard = (function () {
       })();
 
       return '<div class="' + rowCls.join(' ') + '">' +
-        '<div class="lb-rank">' + (i + 1) + '</div>' +
         '<div class="lb-count">' + p.count + '<span class="x">×</span></div>' +
         '<div class="lb-info">' +
           '<div class="lb-name">' + RLT.ui.esc(p.name) + botTag + '</div>' +

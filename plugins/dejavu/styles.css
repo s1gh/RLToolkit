@@ -497,7 +497,7 @@ body.overlay-mode {
 .lb-row {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(56px, auto) minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(56px, auto) minmax(0, 1fr) auto auto auto;
   column-gap: 16px;
   align-items: center;
   padding: 10px 14px 10px 16px;
@@ -522,16 +522,6 @@ body.overlay-mode {
   width: 2px;
   background: var(--gold);
   border-radius: 2px;
-}
-
-/* Rank — quiet monospace tucked at the start. */
-.lb-rank {
-  font-family: var(--mono);
-  font-feature-settings: 'tnum';
-  font-size: 11px;
-  color: var(--txt-3);
-  font-weight: 500;
-  text-align: right;
 }
 
 /* Encounter count — display face for the number, smaller faded ×.
