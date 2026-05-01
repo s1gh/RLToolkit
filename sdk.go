@@ -45,6 +45,10 @@ const sdkJS = `(function () {
         const html = document.documentElement;
         const body = document.body;
         if (!body) return;
+        // Tag the document so plugin CSS can target .overlay-mode for
+        // transparent backgrounds, no padding, etc — same convention every
+        // plugin used by hand before; now it's automatic.
+        body.classList.add('overlay-mode');
         // Fill the iframe completely.
         html.style.margin = '0';
         html.style.padding = '0';

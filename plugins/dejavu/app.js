@@ -9,9 +9,9 @@
 'use strict';
 
 (function () {
+  // The SDK auto-adds body.overlay-mode whenever ?overlay=1, so we only
+  // read the flag here to pick which views to mount.
   const isOverlay = new URLSearchParams(location.search).has('overlay');
-  if (isOverlay) document.body.classList.add('overlay-mode');
-
   const views = isOverlay
     ? [DV.overlay]
     : [DV.identity, DV.match, DV.leaderboard];
