@@ -223,7 +223,7 @@ const sdkJS = `(function () {
   // ─── Encounter ledger (shared across all plugins) ──────────
   const encounters = (function () {
     const ev = emitter();
-    let map = {};                 // PrimaryId -> { names, count, first_seen, last_seen, matches }
+    let map = {};                 // PrimaryId -> { names, count, first_seen, last_seen, matches, wins, losses }
     let loaded = false;
     const persistShared = debouncedWriter('_rlt', 'encounters', () => map, 1500);
 
@@ -255,7 +255,7 @@ const sdkJS = `(function () {
       if (!id) return;
       const now = new Date().toISOString();
       if (!map[id]) {
-        map[id] = { names: [name], count: 1, first_seen: now, last_seen: now, matches: [guid] };
+        map[id] = { names: [name], count: 1, first_seen: now, last_seen: now, matches: [guid], wins: 0, losses: 0 };
         ev.emit('change', map);
         persistShared();
         return;
@@ -277,12 +277,27 @@ const sdkJS = `(function () {
       persistShared();
     }
 
+    // Apply a per-player W/L delta. Lazy-upgrades legacy records that
+    // predate the wins/losses fields (treat absent as 0). Caller is
+    // responsible for dedup — this method blindly increments.
+    function recordOutcome(id, won) {
+      if (!id) return;
+      const e = map[id];
+      if (!e) return; // outcome only meaningful for already-seen players
+      if (typeof e.wins   !== 'number') e.wins   = 0;
+      if (typeof e.losses !== 'number') e.losses = 0;
+      if (won) e.wins++; else e.losses++;
+      ev.emit('change', map);
+      persistShared();
+    }
+
     return {
       get(id) { return map[id] || null; },
       all() { return Object.assign({}, map); },
       isReady() { return loaded; },
       onChange(fn) { return ev.on('change', fn); },
       _record: record,
+      _recordOutcome: recordOutcome,
     };
   })();
 
@@ -927,6 +942,8 @@ const sdkJS = `(function () {
     const inTauri = typeof window !== 'undefined'
       && !!window.__TAURI_INTERNALS__
       && typeof window.__TAURI_INTERNALS__.invoke === 'function';
+    // Stable storage for autoSize across repeated calls.
+    const autoSizeState = { observer: null, flush: null, active: false };
 
     function invoke(cmd, args) {
       if (!inTauri) return Promise.resolve(false);
@@ -971,6 +988,87 @@ const sdkJS = `(function () {
        *  between matches without tearing down the process. */
       visible(v) {
         return invoke('widget_visible', { visible: !!v });
+      },
+
+      /** Auto-resize the host window to fit a measurement target. Pass true
+       *  to start, false to stop. Uses ResizeObserver and debounces calls
+       *  to widget_size to one animation frame.
+       *
+       *  Options:
+       *    target    — DOM element OR CSS selector to measure. Defaults
+       *                to document.body. Pass the actual content wrapper
+       *                (e.g. '.ov') so the body's flex centering doesn't
+       *                inflate the measurement to the iframe's full size.
+       *    minWidth, minHeight, maxWidth, maxHeight — clamps in CSS px.
+       *
+       *  Idempotent: subsequent calls re-target rather than stack. */
+      autoSize(enabled, opts) {
+        if (!inTauri) return false;
+        opts = opts || {};
+        const minW = (opts.minWidth | 0) || 1;
+        const minH = (opts.minHeight | 0) || 1;
+        const maxW = (opts.maxWidth | 0) || 4096;
+        const maxH = (opts.maxHeight | 0) || 4096;
+
+        const resolveTarget = () => {
+          if (opts.target instanceof Element) return opts.target;
+          if (typeof opts.target === 'string') {
+            return document.querySelector(opts.target) || document.body;
+          }
+          return document.body;
+        };
+
+        // Tear down any previous observer so options take effect.
+        if (autoSizeState.observer) {
+          autoSizeState.observer.disconnect();
+          autoSizeState.observer = null;
+        }
+
+        if (!enabled) {
+          autoSizeState.active = false;
+          return true;
+        }
+
+        let pending = false;
+        let lastW = -1, lastH = -1;
+        const flush = () => {
+          pending = false;
+          if (!autoSizeState.active) return;
+          const el = resolveTarget();
+          if (!el) return;
+          // getBoundingClientRect respects transforms and gives us fractional
+          // pixels; scrollWidth/Height ignores subpixel layout. The widget
+          // surface is integer-pixel so we ceil to avoid clipping the last
+          // row by half a pixel during fade-in animations.
+          const r = el.getBoundingClientRect();
+          const w = Math.max(minW, Math.min(maxW, Math.ceil(r.width)));
+          const h = Math.max(minH, Math.min(maxH, Math.ceil(r.height)));
+          if (w === lastW && h === lastH) return;
+          lastW = w; lastH = h;
+          invoke('widget_size', { width: w, height: h });
+        };
+
+        const observer = new ResizeObserver(() => {
+          if (pending) return;
+          pending = true;
+          requestAnimationFrame(flush);
+        });
+        autoSizeState.observer = observer;
+        autoSizeState.flush = flush;
+        autoSizeState.active = true;
+
+        // ResizeObserver only fires on the elements we observe. Watch the
+        // target and document.body — the latter catches reflows that don't
+        // change the target's box but do change its layout (e.g. a parent
+        // flex container resizing).
+        observer.observe(resolveTarget());
+        if (resolveTarget() !== document.body && document.body) {
+          observer.observe(document.body);
+        }
+        // Kick once so the first paint sizes correctly even if no
+        // observer event fires.
+        requestAnimationFrame(flush);
+        return true;
       },
     };
   })();
