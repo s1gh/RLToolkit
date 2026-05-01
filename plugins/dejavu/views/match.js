@@ -81,9 +81,13 @@ DV.match = (function () {
       : '';
     const youTag = p.isMe ? '<span class="you-tag">YOU</span>' : '';
     const botTag = isBot ? '<span class="bot-tag">BOT</span>' : '';
-    // Bots can't be "you", so don't offer the claim affordance.
-    const claim = (p.id && !p.isMe && !isBot)
-      ? '<button class="claim-btn" data-claim-id="' + RLT.ui.escAttr(p.id) + '">this is me</button>'
+    // Claim affordance: a "+" button on every non-self, non-bot row, but
+    // ONLY while identity is unclaimed. Once claimed, the buttons vanish
+    // and just the YOU tag remains. Reduces visual noise post-claim and
+    // surfaces a quick path to claim while unclaimed.
+    const unclaimed = !RLT.me.id;
+    const claim = (unclaimed && p.id && !isBot)
+      ? '<button class="claim-btn" data-claim-id="' + RLT.ui.escAttr(p.id) + '" title="This is me">+</button>'
       : '<span></span>';
 
     const icon = RLT.ui.platformIcon(p.platform);
