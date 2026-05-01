@@ -6,6 +6,9 @@ window.DV = window.DV || {};
 DV.leaderboard = (function () {
   const $ = DV.dom.$;
   const TOP_N = 10;
+  // RL ships every bot under one sentinel id, so the bot record is an
+  // aggregate over every CPU we've played. Display it as "Bots" with a tag.
+  const BOT_ID = 'Unknown|0|0';
   // Render is wired to onTick (~60Hz), but the leaderboard's content only
   // changes when the encounter ledger does. Skipping no-op rebuilds keeps
   // :hover state stable.
@@ -29,21 +32,28 @@ DV.leaderboard = (function () {
 
     const all = Object.entries(map)
       .filter(([id]) => id !== RLT.me.id)
-      .map(([id, e]) => ({
-        id,
-        name: e.names[e.names.length - 1] || 'Unknown',
-        aliases: e.names.slice(0, -1),
-        count: e.count || 1,
-        wins:   e.wins   | 0,
-        losses: e.losses | 0,
-        last: e.last_seen,
-        platform: id.split('|')[0],
-      }))
+      .map(([id, e]) => {
+        const isBot = id === BOT_ID;
+        // For the bot aggregate, the names array is the full set of bot
+        // identities we've encountered — surface that as the alias list
+        // and label the row "Bots" instead of whichever bot was last seen.
+        return {
+          id,
+          isBot,
+          name: isBot ? 'Bots' : (e.names[e.names.length - 1] || 'Unknown'),
+          aliases: isBot ? (e.names || []) : e.names.slice(0, -1),
+          count: e.count || 1,
+          wins:   e.wins   | 0,
+          losses: e.losses | 0,
+          last: e.last_seen,
+          platform: id.split('|')[0],
+        };
+      })
       .sort((a, b) => (b.count - a.count) || (new Date(b.last) - new Date(a.last)))
       .slice(0, TOP_N);
 
     const fp = all.map((p) =>
-      p.id + ':' + p.count + ':' + p.wins + ':' + p.losses + ':' + p.name + ':' + (p.last || '')
+      p.id + ':' + p.count + ':' + p.wins + ':' + p.losses + ':' + p.name + ':' + (p.last || '') + ':' + p.aliases.length
     ).join('|');
     if (fp === lastFp) return;
     lastFp = fp;
@@ -56,23 +66,34 @@ DV.leaderboard = (function () {
     }
 
     host.innerHTML = all.map((p, i) => {
-      const aliases = p.aliases.length
-        ? '<div class="lb-aliases">also ' + p.aliases.slice(-2).map(RLT.ui.esc).join(' · ') + '</div>'
+      // Bot row shows the full roster of bot names (e.g. "Bandit · Hound · …");
+      // human rows show prior aliases (last 2). Same slot, different content.
+      const aliasLabel = p.isBot ? 'incl.' : 'also';
+      const aliasItems = p.isBot ? p.aliases.slice(0, 4) : p.aliases.slice(-2);
+      const aliases = aliasItems.length
+        ? '<div class="lb-aliases">' + aliasLabel + ' ' + aliasItems.map(RLT.ui.esc).join(' · ') + '</div>'
         : '';
-      return '<div class="lb-row ' + (p.count > 1 ? 'returning' : '') + '">' +
+      const botTag = p.isBot ? '<span class="bot-tag">BOT</span>' : '';
+      const rowCls = ['lb-row'];
+      if (p.count > 1) rowCls.push('returning');
+      if (p.isBot) rowCls.push('is-bot');
+
+      const platform = (function () {
+        const icon = RLT.ui.platformIcon(p.platform);
+        const title = RLT.ui.escAttr(p.platform || 'Unknown');
+        return icon
+          ? '<div class="lb-platform" title="' + title + '">' + icon + '</div>'
+          : '<div class="lb-platform lb-platform-empty" title="' + title + '"></div>';
+      })();
+
+      return '<div class="' + rowCls.join(' ') + '">' +
         '<div class="lb-rank">' + (i + 1) + '</div>' +
         '<div class="lb-count">' + p.count + '<span class="x">×</span></div>' +
         '<div class="lb-info">' +
-          '<div class="lb-name">' + RLT.ui.esc(p.name) + '</div>' +
+          '<div class="lb-name">' + RLT.ui.esc(p.name) + botTag + '</div>' +
           aliases +
         '</div>' +
-        (function () {
-          const icon = RLT.ui.platformIcon(p.platform);
-          const title = RLT.ui.escAttr(p.platform || 'Unknown');
-          return icon
-            ? '<div class="lb-platform" title="' + title + '">' + icon + '</div>'
-            : '<div class="lb-platform lb-platform-empty" title="' + title + '"></div>';
-        })() +
+        platform +
         wlCell(p.wins, p.losses) +
         '<div class="lb-time">' + RLT.ui.timeAgo(p.last) + '</div>' +
       '</div>';

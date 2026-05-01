@@ -63,16 +63,26 @@ DV.match = (function () {
     host.innerHTML = '<div class="teams-stack">' + inner + '</div>';
   }
 
+  // RL ships every bot under a single sentinel id, so flag them visually
+  // and skip irrelevant chrome (claim button, alias spam from other bots).
+  const BOT_ID = 'Unknown|0|0';
+
   function playerRow(p) {
+    const isBot = p.id === BOT_ID;
     const cls = ['player-row'];
     if (p.isMe) cls.push('is-me');
-    if (p.encounterCount > 1) cls.push('returning');
+    if (isBot) cls.push('is-bot');
+    if (!isBot && p.encounterCount > 1) cls.push('returning');
 
-    const aliases = p.aliases.length
+    // Aliases come from the shared bot record, so they're other bot names —
+    // not useful as "aka" context for this specific bot.
+    const aliases = (!isBot && p.aliases.length)
       ? '<div class="pr-aliases">aka ' + p.aliases.slice(-2).map(RLT.ui.esc).join(' · ') + '</div>'
       : '';
     const youTag = p.isMe ? '<span class="you-tag">YOU</span>' : '';
-    const claim = (p.id && !p.isMe)
+    const botTag = isBot ? '<span class="bot-tag">BOT</span>' : '';
+    // Bots can't be "you", so don't offer the claim affordance.
+    const claim = (p.id && !p.isMe && !isBot)
       ? '<button class="claim-btn" data-claim-id="' + RLT.ui.escAttr(p.id) + '">this is me</button>'
       : '<span></span>';
 
@@ -84,7 +94,7 @@ DV.match = (function () {
     return '<div class="' + cls.join(' ') + '" data-pid="' + RLT.ui.escAttr(p.id) + '">' +
       '<div class="pr-badge" data-cell="enc">' + p.encounterCount + '</div>' +
       '<div class="pr-info">' +
-        '<div class="pr-name">' + RLT.ui.esc(p.name) + youTag + '</div>' +
+        '<div class="pr-name">' + RLT.ui.esc(p.name) + youTag + botTag + '</div>' +
         aliases +
       '</div>' +
       platform +

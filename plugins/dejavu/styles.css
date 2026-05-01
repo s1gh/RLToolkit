@@ -418,6 +418,32 @@ body.overlay-mode {
   letter-spacing: 0.14em;
   vertical-align: middle;
 }
+/* BOT tag — used both inline next to a name and on leaderboard rows. Uses
+   cyan so it reads distinct from YOU (violet) and DÉJÀ VU (gold). */
+.bot-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--ui);
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--cyan);
+  background: rgba(34,211,238,0.10);
+  border: 1px solid var(--cyan);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.14em;
+  vertical-align: middle;
+}
+/* Bot row — neutral treatment, suppress the gold "returning" chrome. */
+.player-row.is-bot {
+  border-color: var(--line);
+  background: var(--bg-2);
+}
+.player-row.is-bot.returning::after { content: none; }
+.lb-row.is-bot {
+  border-color: var(--line);
+  background: var(--bg-2);
+}
 .pr-aliases {
   font-family: var(--mono);
   font-size: 10px;
