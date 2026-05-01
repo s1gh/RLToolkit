@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -447,19 +446,13 @@ func (c *RLClient) Run(ctx context.Context) {
 func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
 	dec := json.NewDecoder(conn)
 
-	// Read deadlines:
-	//   - normalTimeout: how long we tolerate silence before assuming RL is
-	//     dead. RL sends at the user's PacketSendRate during gameplay and
-	//     occasionally between matches, so 30s is plenty.
-	//   - postDestroyTimeout: shorter window applied after MatchDestroyed,
-	//     because RL's exporter sometimes goes silent on the existing
-	//     connection after a match ends. If we hear nothing within this
-	//     window, we reconnect — RL always emits to a fresh client.
-	const (
-		normalTimeout      = 30 * time.Second
-		postDestroyTimeout = 3 * time.Second
-	)
-	deadline := normalTimeout
+	// Silence on this connection for longer than readTimeout means we force
+	// a reconnect. RL's exporter sometimes silently stops emitting to an
+	// existing connection (especially after a match ends + long menu idle)
+	// while leaving the TCP socket alive — but it always emits to a fresh
+	// client. So treat any prolonged silence as "connection is stale,
+	// reconnect" rather than waiting forever for data that won't come.
+	const readTimeout = 30 * time.Second
 
 	for {
 		select {
@@ -467,7 +460,7 @@ func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
 			return
 		default:
 		}
-		conn.SetReadDeadline(time.Now().Add(deadline))
+		conn.SetReadDeadline(time.Now().Add(readTimeout))
 
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
@@ -475,42 +468,15 @@ func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
 				return
 			}
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				if deadline == postDestroyTimeout {
-					log.Printf("[rl-api] silent after MatchDestroyed — reconnecting")
-					return
-				}
-				continue
+				log.Printf("[rl-api] silent for %s — reconnecting", readTimeout)
+				return
 			}
 			log.Printf("[rl-api] Read error: %v", err)
 			return
 		}
 
 		c.enqueue(raw)
-
-		// MatchDestroyed → arm the short deadline. If RL keeps emitting
-		// (e.g., MatchCreated for a new match), the next packet will reset
-		// us back to the normal deadline below.
-		if isMatchDestroyed(raw) {
-			deadline = postDestroyTimeout
-			continue
-		}
-		// Any other packet means the connection is healthy.
-		if deadline != normalTimeout {
-			deadline = normalTimeout
-		}
 	}
-}
-
-// isMatchDestroyed peeks at the envelope without a full JSON decode.
-// The marker substring is unique to this one event.
-var matchDestroyedMarker = []byte(`"Event":"MatchDestroyed"`)
-
-func isMatchDestroyed(raw []byte) bool {
-	n := len(raw)
-	if n > 64 {
-		n = 64
-	}
-	return bytes.Contains(raw[:n], matchDestroyedMarker)
 }
 
 // ─── HTTP Server ────────────────────────────────────────────
