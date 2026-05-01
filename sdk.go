@@ -101,14 +101,17 @@ const sdkJS = `(function () {
   let status = 'disconnected';
   let es = null;
 
-  // Server-side event filter (?events=...). The SDK always needs
-  // UpdateState (drives RLT.match enrichment) plus every lifecycle
-  // event (drives RLT.match.lifecycle and reset semantics). Plugins
-  // extend this set by registering handlers — see register() below.
+  // Server-side event filter (?events=...). The SDK always needs the
+  // lifecycle events (drives RLT.match.lifecycle and reset semantics).
+  //
+  // UpdateState is intentionally NOT in the always-required set — it's
+  // the heaviest event by far (~1-3 KB at 60-120 Hz) and most plugins
+  // don't need it. Plugins opt in by registering an UpdateState/onTick
+  // handler, an onMatch handler, or by calling RLT.match.subscribe().
+  //
   // Synthetic events ("_ConnectionStatus", "_Lifecycle") bypass the
   // server's filter entirely; we don't list them here.
   const requiredEvents = new Set([
-    'UpdateState',
     'MatchCreated', 'MatchInitialized',
     'CountdownBegin', 'RoundStarted',
     'MatchPaused', 'MatchUnpaused',
@@ -523,8 +526,12 @@ const sdkJS = `(function () {
 
     return {
       get current() { return cur; },
-      onChange(fn) { return ev.on('change', fn); }, // structural changes only
-      onTick(fn)   { return ev.on('tick', fn);   }, // every UpdateState
+      // onChange / onTick auto-subscribe to UpdateState since they're
+      // useless without it. Plugins that read .current synchronously
+      // outside a handler should call .subscribe() once at init time.
+      onChange(fn) { addEvent('UpdateState'); return ev.on('change', fn); },
+      onTick(fn)   { addEvent('UpdateState'); return ev.on('tick', fn);   },
+      subscribe()  { addEvent('UpdateState'); },
     };
   })();
 
@@ -949,6 +956,31 @@ const sdkJS = `(function () {
     (acc[e.category] = acc[e.category] || []).push(e.name);
     return acc;
   }, {});
+
+  // ─── Statfeed eventName registry ───────────────────────────
+  // RL ships StatfeedEvent.eventName as raw asset names ('Demolish',
+  // 'AerialGoal', 'FlipReset', …). The official Stats API docs do NOT
+  // enumerate these — the list below is what's been observed in-game.
+  // Use RLT.stats.* in plugin code instead of bare strings so typos
+  // surface as undefined rather than silent no-ops.
+  //
+  // To discover new ones, run the debug plugin and watch for entries
+  // here that aren't in this list — then add them.
+  const stats = Object.freeze({
+    SHOT:        'Shot',         // type: "Shot on Goal"
+    GOAL:        'Goal',         // also fires GoalScored
+    AERIAL_GOAL: 'AerialGoal',
+    LONG_GOAL:   'LongGoal',
+    TURTLE_GOAL: 'TurtleGoal',
+    HAT_TRICK:   'HatTrick',     // 3+ goals by same player
+    SAVE:        'Save',
+    DEMOLISH:    'Demolish',     // secondaryTarget = demolished player
+    FLIP_RESET:  'FlipReset',
+    WIN:         'Win',
+  });
+  // Reverse lookup so plugins can do stats.known.has(s.eventName)
+  // when filtering against the verified set.
+  stats.known = new Set(Object.values(stats));
 
   // ─── Plugin registration API ───────────────────────────────
   // Declarative way for plugins to wire themselves up. Built on top of the
@@ -1393,6 +1425,7 @@ const sdkJS = `(function () {
     store,
     ui,
     events,
+    stats,
     widget,
   };
 

@@ -293,13 +293,49 @@ The richest payload — a fully enriched view of the current match.
 ```js
 {
   matchGuid:       '...',
-  eventName:       'Demolish',            // raw asset name: 'Demolish', 'Save', 'EpicSave', …
+  eventName:       'Demolish',            // raw asset name (see table below)
   type:            'Demolition',          // localized display label
   mainTarget:      Player,                // the player who earned the stat
   secondaryTarget: Player | null,         // e.g. for demos, the demolished player
   raw:             {...},
 }
 ```
+
+The official Stats API docs do not enumerate `eventName` values. The
+following were verified in-game using the `debug` plugin:
+
+| eventName | type (display label) | SDK constant |
+|-----------|---------------------|--------------|
+| `Shot` | Shot on Goal | `RLT.stats.SHOT` |
+| `Goal` | Goal | `RLT.stats.GOAL` |
+| `AerialGoal` | Aerial Goal | `RLT.stats.AERIAL_GOAL` |
+| `LongGoal` | Long Goal | `RLT.stats.LONG_GOAL` |
+| `TurtleGoal` | Turtle Goal | `RLT.stats.TURTLE_GOAL` |
+| `HatTrick` | Hat Trick | `RLT.stats.HAT_TRICK` |
+| `Save` | Save | `RLT.stats.SAVE` |
+| `Demolish` | Demolition | `RLT.stats.DEMOLISH` |
+| `FlipReset` | Flip Reset | `RLT.stats.FLIP_RESET` |
+| `Win` | Win | `RLT.stats.WIN` |
+
+Prefer the `RLT.stats.*` constants over bare strings in plugin code —
+typos surface as `undefined` (handler never matches) instead of silent
+no-ops. `RLT.stats.known` is a `Set` of all verified values, useful for
+filtering unknown events:
+
+```js
+events: {
+  StatfeedEvent(s) {
+    if (s.eventName === RLT.stats.DEMOLISH) {
+      // count demos
+    }
+  },
+},
+```
+
+This list is not exhaustive — other values likely exist for stats that
+did not occur during testing (e.g. `EpicSave`, `Assist`, `BicycleGoal`,
+`OvertimeGoal`). Use the `debug` plugin to discover new ones, then add
+them to `RLT.stats` in `sdk.go` and to this table.
 
 ##### `ClockUpdatedSeconds`
 
@@ -467,15 +503,30 @@ the new list. This means your plugin's webview only does
 `JSON.parse` on events you actually subscribed to — important at
 60Hz, more important at 120Hz.
 
-The filter always includes a few events the SDK needs to drive
-its own state, regardless of what you subscribed to:
+The filter always includes the RL lifecycle events
+(`MatchCreated`, `RoundStarted`, `MatchEnded`, etc.) — these drive
+phase tracking and the reset semantics on `RLT.match.lifecycle`,
+and they're rare (a handful per match) so they're free to subscribe
+to.
 
-  - `UpdateState` — feeds `RLT.match` (rosters, scores, ball state).
-    Without it, `g.scorer.player`, `g.scorer.isMe`, and
-    `g.scorer.encounter` would be empty even when `GoalScored` fires.
-  - All RL lifecycle events (`MatchCreated`, `RoundStarted`,
-    `MatchEnded`, etc.) — these drive phase tracking and the reset
-    semantics on `RLT.match.lifecycle`.
+`UpdateState` is **opt-in**, not always-on. It's the heaviest event
+by far (~1-3 KB at 60-120 Hz, dominates total bandwidth) so plugins
+only get it when they need it. The SDK auto-subscribes when:
+
+  - You register an `UpdateState` event handler, OR
+  - You register an `onTick` or `onMatch` handler, OR
+  - You call `RLT.match.onChange(...)` or `RLT.match.onTick(...)`, OR
+  - You call `RLT.match.subscribe()` explicitly.
+
+Plugins that only react to events (`GoalScored`, `StatfeedEvent`,
+`BallHit`, etc.) and never read `RLT.match.current` directly stay
+off the tick stream and pay near-zero bandwidth.
+
+**Side effect:** without `UpdateState`, `RLT.match.current` is `null`
+and the enriched `.player` field on event payloads (e.g.
+`g.scorer.player`) is also `null` — the event's own `.name`,
+`.shortcut`, `.team` still work. If you need the full enriched
+roster lookup, opt in via `RLT.match.subscribe()` at plugin init.
 
 Synthetic events with a `_` prefix (`_ConnectionStatus`,
 `_Lifecycle`) bypass the filter entirely on the server side —
