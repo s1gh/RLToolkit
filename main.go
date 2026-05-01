@@ -80,6 +80,7 @@ func runServe() {
 		log.Printf("[server] Dashboard → http://localhost:%d", cfg.HTTPPort)
 		log.Printf("[server] Overlay   → http://localhost:%d/overlay", cfg.HTTPPort)
 		log.Printf("[server] Waiting for Rocket League Stats API on %s …", cfg.RLAddr)
+		printRLSetupNotice()
 		if err := hs.ListenAndServe(); err != http.ErrServerClosed {
 			log.Fatalf("[server] %v", err)
 		}
@@ -174,4 +175,21 @@ func awaitSignal() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
+}
+
+// printRLSetupNotice reminds the user that RL's Stats API is OFF by
+// default. Without PacketSendRate > 0 in DefaultStatsAPI.ini, RL never
+// opens the local socket and the toolkit will sit at "disconnected"
+// forever. This is the single most common first-run failure, so we
+// surface the requirement up-front instead of letting users debug it
+// from "Connection refused" logs.
+func printRLSetupNotice() {
+	log.Println("[server] ────────────────────────────────────────────────────")
+	log.Println("[server] First-run check: RL's Stats API is OFF by default.")
+	log.Println("[server] Edit  <RL Install>/TAGame/Config/DefaultStatsAPI.ini")
+	log.Println("[server] before launching Rocket League and set:")
+	log.Println("[server]     PacketSendRate=60   (or up to 120)")
+	log.Println("[server]     Port=49123          (toolkit's default)")
+	log.Println("[server] Changes only take effect on a fresh RL launch.")
+	log.Println("[server] ────────────────────────────────────────────────────")
 }
