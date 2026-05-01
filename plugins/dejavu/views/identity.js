@@ -52,6 +52,7 @@ DV.identity = (function () {
     });
     $('id-clear')?.addEventListener('click', async () => {
       await RLT.me.clear();
+      if (idIn) idIn.value = '';
       RLT.ui.toast('Identity cleared');
       close();
     });
