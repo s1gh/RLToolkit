@@ -168,7 +168,7 @@ RLT.plugin.register({
     BallHit(hit)       { /* ... */ },
     UpdateState(state) { /* ... */ },   // 60Hz match snapshot
     MatchEnded(end)    { /* ... */ },
-    Statfeed(stat)     { /* ... */ },
+    StatfeedEvent(s)   { /* ... */ },
     '*'(name, payload) { /* catchall */ },
   },
 });
@@ -189,8 +189,8 @@ below is the source of truth for what payload your handler will receive.
 | `GoalScored`       | A goal was scored. Includes scorer, assister, last touch, ball impact.   | `live` `replay`                        |
 | `BallHit`          | Any car touched the ball. Pre/post speed and location.                   | `live`                                 |
 | `CrossbarHit`      | The ball hit a crossbar. Includes ball speed and impact force.           | `live`                                 |
-| `Statfeed`         | RL's stat feed fired (demo, save, epic save, hat trick, etc).            | `live` `replay`                        |
-| `ClockUpdated`     | Match clock changed by ≥1 second.                                        | `live` `countdown`                     |
+| `StatfeedEvent`    | RL's stat feed fired (demo, save, epic save, hat trick, etc).            | `live` `replay`                        |
+| `ClockUpdatedSeconds` | Match clock changed by ≥1 second.                                     | `live` `countdown`                     |
 | `MatchCreated`     | All teams replicated; lobby is ready.                                    | any                                    |
 | `MatchInitialized` | First countdown started.                                                 | any                                    |
 | `CountdownBegin`   | A round countdown began (start of round, post-goal restart).             | any                                    |
@@ -226,9 +226,13 @@ The richest payload — a fully enriched view of the current match.
   arena:       'Mannfield',            // pretty arena name
   clockSeconds: 287,                   // remaining clock (int seconds)
   overtime:    false,
+  replay:      false,                  // true during goal replays / history replays
+  hasWinner:   false,                  // a team has officially won
+  winner:      '',                     // winning team name (e.g. 'Blue') or ''
   scoreBlue:   2,
   scoreOrange: 1,
-  ball:        {Location, Velocity},   // null when no match
+  ball:        { Speed, TeamNum },     // ball.Speed in UU/s, TeamNum=255 = untouched
+  target:      { Name, Shortcut, TeamNum } | null,  // spectator camera target, when bHasTarget
   raw:         {...},                  // raw RL UpdateState envelope
 }
 ```
@@ -238,15 +242,24 @@ The richest payload — a fully enriched view of the current match.
 ```js
 {
   matchGuid:      '550e8400-...',
-  goalSpeed:      210.4,               // kph (RL-units; convert if you want km/h)
-  goalTime:       12.3,                // seconds since round start
+  goalSpeed:      91.4,                // ball speed at goal-line crossing, km/h (see note below)
+  goalTime:       12.3,                // length of the round (seconds) that just closed
   impactLocation: { X, Y, Z },         // where the ball crossed the goal line
   scorer:         Player,              // resolved against the live roster
   assister:       Player | null,
-  ballLastTouch:  { player: Player, speed: 6321 } | null,
+  ballLastTouch:  { player: Player, speed: 87 } | null,  // post-touch ball speed, km/h
   raw:            {...},
 }
 ```
+
+> **Speed units, the messy truth.** The official RL Stats API spec
+> labels both `GoalSpeed` and `BallLastTouch.Speed` as "Unreal
+> Units/second", but the spec's own example values (87.3 and 125) and
+> every observed value match RL's in-game **km/h** display directly. A
+> goal RL displays as 91 km/h arrives here as ~91. Treat these two
+> fields as km/h. `BallHit` ball speeds (`preSpeed`, `postSpeed`) and
+> player `speed` from `UpdateState` *are* genuinely in UU/s — convert
+> with `× 0.036` for km/h.
 
 ##### `BallHit`
 
@@ -274,20 +287,20 @@ The richest payload — a fully enriched view of the current match.
 }
 ```
 
-##### `Statfeed`
+##### `StatfeedEvent`
 
 ```js
 {
-  matchGuid: '...',
-  eventName: 'Demolition',             // or 'Save', 'EpicSave', 'HatTrick', 'AerialGoal', …
-  type:      'Demolition',             // RL's category — usually mirrors eventName
-  target:    Player,                   // the player who got the stat
-  victim:    Player | null,            // for demos, the player who got demolished
-  raw:       {...},
+  matchGuid:       '...',
+  eventName:       'Demolish',            // raw asset name: 'Demolish', 'Save', 'EpicSave', …
+  type:            'Demolition',          // localized display label
+  mainTarget:      Player,                // the player who earned the stat
+  secondaryTarget: Player | null,         // e.g. for demos, the demolished player
+  raw:             {...},
 }
 ```
 
-##### `ClockUpdated`
+##### `ClockUpdatedSeconds`
 
 ```js
 {
@@ -340,11 +353,18 @@ raw RL fields with derived data so you don't re-implement lookups.
   saves:          0,
   shots:          5,
   demos:          1,
-  touches:        21,
+  touches:        21,                            // total ball touches
+  carTouches:     5,                             // touches by car body (not ball)
   boost:          78,                            // 0..100, or null mid-respawn
-  speed:          1820,                          // car velocity (RL units), or null
+  speed:          1820,                          // car velocity, UU/s (×0.036 → km/h), or null
+  boosting:       false,
   onGround:       true,
-  hasCar:         true,
+  onWall:         false,
+  powersliding:   false,
+  demolished:     false,                         // true on the frame this car is destroyed
+  supersonic:     false,                         // true at top speed (~2300 UU/s)
+  hasCar:         true,                          // false during respawn
+  attacker:       null,                          // {Name, Shortcut, TeamNum} when demolished
   encounterCount: 4,                             // # of distinct matches you've shared
   aliases:        ['SquishyMuffinz', 'sm_old'],  // prior names, current name excluded
   firstSeen:      '2025-09-12T19:04:11Z',        // ISO timestamp; null if first-meet
@@ -368,18 +388,19 @@ Cross-cutting advice that bites every plugin author at least once.
 **Phase-gate noisy events.** Most events fire during menus, podium, and
 freeplay too. If you only care about real matches, set `whilePhase:
 ['live']` (or `['live', 'replay']` if you want goal-replay context).
-Gameplay-only events like `BallHit`, `Statfeed`, and `ClockUpdated`
+Gameplay-only events like `BallHit`, `StatfeedEvent`, and `ClockUpdatedSeconds`
 mostly belong behind a phase gate — without one your plugin counts
 training-mode demos and lobby-warmup goals as if they were real.
 
-**`target.id` can be empty.** Events sourced from RL's stat feed
-sometimes ship only a `Name` + `Shortcut` and no `PrimaryId`. The SDK
-falls back to roster name-matching, but in private matches with bots,
-or right after a player joins (before their roster entry replicates),
-you may end up with `id === ''`. If you key a Map by `target.id`,
+**Player `id` can be empty.** Sub-event player refs ship as
+`{Name, Shortcut, TeamNum}` only — no `PrimaryId`. The SDK falls back to
+roster name/shortcut matching, but in private matches with bots, or
+right after a player joins (before their roster entry replicates), you
+may end up with `id === ''`. If you key a Map by `mainTarget.id`,
 multiple bots collide on the empty string. Defensive code: key on
-`target.id || target.name`. Same applies to `victim`, `scorer`,
-`assister`, and `BallHit.players[i]`.
+`p.id || p.name`. Applies to every resolved player: `mainTarget`,
+`secondaryTarget`, `scorer`, `assister`, `ballLastTouch.player`,
+`BallHit.players[i]`.
 
 **`UpdateState` is the hot path.** It fires at PacketSendRate (~60Hz).
 Anything you do in `onTick`/`UpdateState` runs sixty times a second.
@@ -854,8 +875,8 @@ Here's a working "last goal speed" overlay in one file:
     const speedEl = document.getElementById('speed');
     const whoEl   = document.getElementById('who');
 
-    // RL ships goal speed in Unreal Units / sec. ≈ 0.0364 → kph.
-    const uuToKph = (uu) => Math.round(uu * 0.0364);
+    // g.goalSpeed is already in km/h despite what RL's spec text says —
+    // see the "Speed units, the messy truth" note above.
 
     RLT.plugin.register({
       name:    'last-goal-speed',
@@ -865,7 +886,7 @@ Here's a working "last goal speed" overlay in one file:
       events: {
         GoalScored(g) {
           speedEl.classList.remove('empty');
-          speedEl.textContent = uuToKph(g.goalSpeed || 0) + ' kph';
+          speedEl.textContent = Math.round(g.goalSpeed || 0) + ' km/h';
           whoEl.textContent   = g.scorer.name;
         },
       },

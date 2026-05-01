@@ -345,10 +345,21 @@ const sdkJS = `(function () {
           shots: p.Shots | 0,
           demos: p.Demos | 0,
           touches: p.Touches | 0,
+          carTouches: p.CarTouches | 0,
           boost: typeof p.Boost === 'number' ? p.Boost : null,
           speed: typeof p.Speed === 'number' ? p.Speed : null,
-          onGround: !!p.bOnGround,
-          hasCar: !!p.bHasCar,
+          // Booleans from the spectator-only block. Absent fields → false,
+          // which is what plugins want as a default.
+          boosting:     !!p.bBoosting,
+          onGround:     !!p.bOnGround,
+          onWall:       !!p.bOnWall,
+          powersliding: !!p.bPowersliding,
+          demolished:   !!p.bDemolished,
+          supersonic:   !!p.bSupersonic,
+          hasCar:       !!p.bHasCar,
+          // Present only on the frame this player was demolished. Shape is
+          // {Name, Shortcut, TeamNum} — same as event-level player refs.
+          attacker: p.Attacker || null,
           encounterCount: enc ? enc.count : 1,
           aliases: enc ? enc.names.filter((n) => n !== name) : [],
           firstSeen: enc ? enc.first_seen : null,
@@ -370,9 +381,19 @@ const sdkJS = `(function () {
         arena: game ? (game.Arena || '').replace(/_P$/, '').replace(/_/g, ' ') : '',
         clockSeconds: game ? (game.TimeSeconds | 0) : null,
         overtime: !!(game && game.bOvertime),
+        // bReplay covers both goal replays and history replays — the
+        // authoritative way to detect either, instead of inferring from
+        // GoalReplayStart/End edges.
+        replay:     !!(game && game.bReplay),
+        hasWinner:  !!(game && game.bHasWinner),
+        winner:     game ? (game.Winner || '') : '',
         scoreBlue:   game && game.Teams ? ((game.Teams.find((t) => t.TeamNum === 0) || game.Teams[0] || {}).Score | 0) : 0,
         scoreOrange: game && game.Teams ? ((game.Teams.find((t) => t.TeamNum === 1) || game.Teams[1] || {}).Score | 0) : 0,
+        // Ball is { Speed, TeamNum }. TeamNum is 255 if the ball hasn't
+        // been touched yet (per the spec) — treat that as null.
         ball: game && game.Ball ? game.Ball : null,
+        // Spectator camera target — only meaningful when bHasTarget.
+        target: game && game.bHasTarget ? (game.Target || null) : null,
         raw: d,
       };
     }
@@ -630,14 +651,22 @@ const sdkJS = `(function () {
 
   // Per-event normalizers — each is a tiny function so the README-fields
   // map 1:1 to JS property names, and players come pre-resolved.
+  //
+  // GoalScored note: RL re-fires GoalScored at round-restart boundaries
+  // (after the kickoff countdown) with an empty Scorer.Name and no
+  // resolvable roster match. Without this guard, every such re-fire
+  // overwrites the plugin's last-known scorer with the literal string
+  // "Unknown". Drop the event when we can't identify a real scorer.
   bus.on('GoalScored', (d) => {
     if (!d) return;
+    const scorer = resolvePlayer(d.Scorer);
+    if (!scorer || (!scorer.player && (!d.Scorer || !d.Scorer.Name))) return;
     emitTyped('GoalScored', {
       matchGuid: d.MatchGuid || null,
       goalSpeed: d.GoalSpeed != null ? d.GoalSpeed : null,
       goalTime:  d.GoalTime  != null ? d.GoalTime  : null,
       impactLocation: d.ImpactLocation || null,
-      scorer:   resolvePlayer(d.Scorer),
+      scorer,
       assister: d.Assister ? resolvePlayer(d.Assister) : null,
       ballLastTouch: d.BallLastTouch ? {
         player: resolvePlayer(d.BallLastTouch.Player),
@@ -674,21 +703,25 @@ const sdkJS = `(function () {
     });
   });
 
+  // Statfeed: every player ref is a {Name, Shortcut, TeamNum} stub —
+  // resolvePlayer enriches it against the live roster. Field names mirror
+  // the official wire payload (MainTarget / SecondaryTarget) so the docs
+  // are searchable both ways.
   bus.on('StatfeedEvent', (d) => {
     if (!d) return;
-    emitTyped('Statfeed', {
+    emitTyped('StatfeedEvent', {
       matchGuid: d.MatchGuid || null,
       eventName: d.EventName || '',
       type:      d.Type      || '',
-      target:    resolvePlayer(d.MainTarget),
-      victim:    d.SecondaryTarget ? resolvePlayer(d.SecondaryTarget) : null,
+      mainTarget:      resolvePlayer(d.MainTarget),
+      secondaryTarget: d.SecondaryTarget ? resolvePlayer(d.SecondaryTarget) : null,
       raw: d,
     });
   });
 
   bus.on('ClockUpdatedSeconds', (d) => {
     if (!d) return;
-    emitTyped('ClockUpdated', {
+    emitTyped('ClockUpdatedSeconds', {
       matchGuid: d.MatchGuid || null,
       seconds:   d.TimeSeconds != null ? d.TimeSeconds : null,
       overtime:  !!d.bOvertime,
@@ -737,8 +770,8 @@ const sdkJS = `(function () {
     onGoalScored:        makeOn('GoalScored'),
     onBallHit:           makeOn('BallHit'),
     onCrossbarHit:       makeOn('CrossbarHit'),
-    onStatfeed:          makeOn('Statfeed'),
-    onClockUpdated:      makeOn('ClockUpdated'),
+    onStatfeedEvent:     makeOn('StatfeedEvent'),
+    onClockUpdatedSeconds: makeOn('ClockUpdatedSeconds'),
 
     onMatchCreated:      makeOn('MatchCreated'),
     onMatchInitialized:  makeOn('MatchInitialized'),
@@ -828,8 +861,8 @@ const sdkJS = `(function () {
     { name: 'GoalScored',        category: 'scoring',   shape: 'goal',       livePhases: ['live','replay'],     desc: 'Scorer + assister + last touch + impact.' },
     { name: 'BallHit',           category: 'play',      shape: 'ballhit',    livePhases: ['live'],              desc: 'Ball touched. Pre/post speed and location.' },
     { name: 'CrossbarHit',       category: 'play',      shape: 'crossbar',   livePhases: ['live'],              desc: 'Ball hit a crossbar.' },
-    { name: 'Statfeed',          category: 'stat',      shape: 'stat',       livePhases: ['live','replay'],     desc: 'Player earned a stat (demo, save, epic save, etc).' },
-    { name: 'ClockUpdated',      category: 'play',      shape: 'clock',      livePhases: ['live','countdown'],  desc: 'Match clock changed by ≥1 second.' },
+    { name: 'StatfeedEvent',       category: 'stat',      shape: 'stat',       livePhases: ['live','replay'],     desc: 'Player earned a stat (demo, save, epic save, etc).' },
+    { name: 'ClockUpdatedSeconds', category: 'play',      shape: 'clock',      livePhases: ['live','countdown'],  desc: 'Match clock changed by ≥1 second.' },
 
     // Lifecycle
     { name: 'MatchCreated',      category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'All teams replicated; lobby ready.' },
