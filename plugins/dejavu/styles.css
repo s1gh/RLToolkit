@@ -418,17 +418,18 @@ body.overlay-mode {
   letter-spacing: 0.14em;
   vertical-align: middle;
 }
-/* BOT tag — used both inline next to a name and on leaderboard rows. Uses
-   cyan so it reads distinct from YOU (violet) and DÉJÀ VU (gold). */
+/* BOT tag — used both inline next to a name and on leaderboard rows.
+   Muted on purpose: bots are noise relative to the humans this plugin
+   exists to track, so the tag should label without competing visually. */
 .bot-tag {
   display: inline-block;
   margin-left: 8px;
   font-family: var(--ui);
   font-size: 9px;
-  font-weight: 800;
-  color: var(--cyan);
-  background: rgba(34,211,238,0.10);
-  border: 1px solid var(--cyan);
+  font-weight: 700;
+  color: var(--txt-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
   padding: 2px 6px;
   border-radius: 4px;
   letter-spacing: 0.14em;
