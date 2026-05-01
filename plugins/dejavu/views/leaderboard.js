@@ -34,14 +34,15 @@ DV.leaderboard = (function () {
       .filter(([id]) => id !== RLT.me.id)
       .map(([id, e]) => {
         const isBot = id === BOT_ID;
-        // For the bot aggregate, the names array is the full set of bot
-        // identities we've encountered — surface that as the alias list
-        // and label the row "Bots" instead of whichever bot was last seen.
+        // Both human and bot rows show the most-recent name in the name
+        // slot. Bots additionally surface every prior bot identity in the
+        // alias line ("incl. Bandit · Hound · …"), so the BOT tag plus the
+        // aliases make it obvious it's the aggregate AI bucket.
         return {
           id,
           isBot,
-          name: isBot ? 'Bots' : (e.names[e.names.length - 1] || 'Unknown'),
-          aliases: isBot ? (e.names || []) : e.names.slice(0, -1),
+          name: e.names[e.names.length - 1] || (isBot ? 'Bot' : 'Unknown'),
+          aliases: isBot ? (e.names ? e.names.slice(0, -1) : []) : e.names.slice(0, -1),
           count: e.count || 1,
           wins:   e.wins   | 0,
           losses: e.losses | 0,
