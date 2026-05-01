@@ -11,6 +11,36 @@ dashboards, persistence, and debugging.
 
 ---
 
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Anatomy of a plugin](#anatomy-of-a-plugin)
+  - [`manifest.json`](#manifestjson)
+  - [`overlay.html`](#overlayhtml)
+- [Subscribing to events](#subscribing-to-events)
+  - [The `events` map](#the-events-map)
+  - [The full event catalog](#the-full-event-catalog)
+  - [Lifecycle gating](#lifecycle-gating)
+  - [Convenience subscriptions](#convenience-subscriptions)
+  - [Enriched match state](#enriched-match-state)
+- [Overlay vs. dashboard mode](#overlay-vs-dashboard-mode)
+  - [How the overlay is composed](#how-the-overlay-is-composed)
+- [Building a dashboard view](#building-a-dashboard-view)
+- [Widget mode (desktop)](#widget-mode-desktop)
+  - [`autoSize` — track content height *and* width](#autosize--track-content-height-and-width)
+  - [`fitWidth` — grow only, never shrink](#fitwidth--grow-only-never-shrink)
+- [Persisting data](#persisting-data)
+- [Identity and encounters (shared)](#identity-and-encounters-shared)
+  - [Who is "me"?](#who-is-me)
+  - [Encounter ledger](#encounter-ledger)
+- [UI helpers](#ui-helpers)
+- [Manual subscription (escape hatch)](#manual-subscription-escape-hatch)
+- [Disposing a plugin](#disposing-a-plugin)
+- [Debugging](#debugging)
+- [A complete plugin](#a-complete-plugin)
+
+---
+
 ## Quick start
 
 From the toolkit directory:
@@ -770,7 +800,7 @@ Here's a working "last goal speed" overlay in one file:
         GoalScored(g) {
           speedEl.classList.remove('empty');
           speedEl.textContent = uuToKph(g.goalSpeed || 0) + ' kph';
-          whoEl.textContent   = (g.scorer && g.scorer.player && g.scorer.player.name) || g.scorer.name;
+          whoEl.textContent   = g.scorer.name;
         },
       },
 

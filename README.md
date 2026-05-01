@@ -43,43 +43,50 @@ Visit `http://localhost:8080` in your browser. You'll see loaded plugins and con
 
 ## Overlay Display
 
-The toolkit serves plugin overlays as web pages. There are several ways to
-display them on top of your game:
+The toolkit serves plugin overlays as web pages. There are three ways to
+get them onto your screen:
 
-### Method A: OBS Browser Source (recommended for streamers)
+### Method A: Desktop widget (recommended for players)
+
+The toolkit ships with `rl-widget` — a transparent, frameless, always-on-top
+window backed by [Tauri](https://tauri.app). On Linux it uses
+`wlr-layer-shell` to sit above other windows with no compositor config; on
+Windows / macOS it uses the platform's standard always-on-top + click-through
+primitives.
+
+```bash
+./overlay-app/src-tauri/target/release/rl-widget --plugin=dejavu
+```
+
+One process per plugin, anchored from the manifest's `anchor` /
+`offset_x` / `offset_y`. Click-through, so you can play through it.
+
+> **Note:** RL needs to be in **borderless windowed** mode (the default).
+> No compositor-level overlay can sit above an exclusively-fullscreen game.
+
+Build instructions and per-OS prereqs are in **[BUILD.md](BUILD.md)**.
+
+### Method B: OBS Browser Source (recommended for streamers)
 
 1. In OBS, add a **Browser Source**
 2. Set URL to `http://localhost:8080/overlay`
 3. Set width/height to your monitor resolution
 4. Enable **"Shutdown source when not visible"**
 
-This composites all plugin overlays at their configured screen positions.
+This composites every plugin's overlay at their configured screen
+positions, baked into the broadcast.
 
-### Method B: Browser on a second monitor
+### Method C: Direct browser
 
-Open `http://localhost:8080/plugins/dejavu/overlay.html` in a browser on
-your second monitor.
-
-### Method C: Windows overlay (transparent topmost window)
-
-Run the included PowerShell script (requires Edge WebView2, pre-installed
-on Windows 10/11):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File overlay.ps1
-```
-
-Or use any tool that can display a transparent, always-on-top browser window
-pointed at `http://localhost:8080/overlay`.
-
-### Method D: Individual plugin overlays
-
-Each plugin can be opened directly:
+Each plugin's overlay page is a regular URL:
 
 ```
-http://localhost:8080/plugins/dejavu/overlay.html          (with background)
-http://localhost:8080/plugins/dejavu/overlay.html?overlay=1 (transparent)
+http://localhost:8080/plugins/dejavu/overlay.html              (control page)
+http://localhost:8080/plugins/dejavu/overlay.html?overlay=1    (transparent overlay view)
 ```
+
+Useful for: a second monitor, a tablet, or any browser-based overlay tool
+(Rainmeter, eww, Übersicht) pointed at the URL.
 
 ---
 
@@ -104,95 +111,24 @@ Data persists across sessions in `data/dejavu.json`.
 
 ## Writing Plugins
 
-Plugins are folders inside `plugins/` containing a `manifest.json` and an
-`overlay.html`:
+Scaffold a working plugin in one command:
 
-```
-plugins/
-└── my-plugin/
-    ├── manifest.json
-    └── overlay.html
+```bash
+./rl-toolkit new my-plugin
 ```
 
-### manifest.json
+That creates `plugins/my-plugin/{manifest.json,overlay.html}` from a
+working template. Refresh the dashboard and your plugin appears.
 
-```json
-{
-  "name": "my-plugin",
-  "title": "My Plugin",
-  "version": "1.0.0",
-  "author": "you",
-  "overlay": {
-    "file": "overlay.html",
-    "width": 300,
-    "height": 200,
-    "anchor": "bottom-left",
-    "offset_x": 16,
-    "offset_y": 16,
-    "opacity": 0.9,
-    "click_through": true
-  }
-}
+The full authoring guide — events, overlay vs. dashboard mode, the
+desktop widget API, persistence, identity, encounters, debugging — lives
+in **[docs/PLUGINS.md](docs/PLUGINS.md)**.
+
+For a quick reference of every event you can subscribe to:
+
+```bash
+curl http://localhost:8080/api/events
 ```
-
-`anchor` can be `top-left`, `top-right`, `bottom-left`, or `bottom-right`.
-
-### Event Stream
-
-Connect to the live event stream via Server-Sent Events:
-
-```javascript
-const es = new EventSource('/events');
-es.onmessage = (e) => {
-  const msg = JSON.parse(e.data);
-  // msg.Event = "UpdateState" | "GoalScored" | "BallHit" | ...
-  // msg.Data  = event payload (see RL Stats API docs)
-};
-```
-
-### Data Persistence
-
-Store and retrieve plugin data via the REST API:
-
-```javascript
-// Save
-await fetch('/api/data/my-plugin/some-key', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ hello: 'world' })
-});
-
-// Load
-const resp = await fetch('/api/data/my-plugin/some-key');
-const data = await resp.json();
-
-// Load all keys
-const all = await fetch('/api/data/my-plugin');
-
-// Delete
-await fetch('/api/data/my-plugin/some-key', { method: 'DELETE' });
-```
-
-Data is stored in `data/{plugin-name}.json`.
-
-### Available Events
-
-| Event | Description |
-|---|---|
-| `UpdateState` | Full match state (players, scores, ball, teams) at configured tick rate |
-| `GoalScored` | Goal with scorer, assister, speed, impact location |
-| `BallHit` | Ball hit with pre/post speed and location |
-| `StatfeedEvent` | Player earned a stat (demo, save, epic save, etc.) |
-| `CrossbarHit` | Ball hit the crossbar |
-| `MatchCreated` | Match lobby created |
-| `MatchInitialized` | First countdown started |
-| `RoundStarted` | Countdown finished, play begins |
-| `MatchEnded` | Winner decided |
-| `MatchDestroyed` | Left the match |
-| `MatchPaused` / `MatchUnpaused` | Match paused/resumed |
-| `GoalReplayStart` / `GoalReplayEnd` | Goal replay lifecycle |
-| `ClockUpdatedSeconds` | Game clock changed |
-| `_ConnectionStatus` | Framework event: RL API connection state changed |
 
 ---
 
@@ -209,18 +145,21 @@ Data is stored in `data/{plugin-name}.json`.
 
 ## Building from Source
 
-Requires Go 1.22+:
+The project has two binaries — `rl-toolkit` (Go server) and `rl-widget`
+(Rust + Tauri overlay). Per-OS prerequisites and full instructions live in
+**[BUILD.md](BUILD.md)**. The short version:
 
 ```bash
-# Native build
+# Toolkit (Go 1.22+, no system deps)
 go build -o rl-toolkit .
 
-# Cross-compile for Windows
-GOOS=windows GOARCH=amd64 go build -o rl-toolkit.exe .
-
-# Cross-compile for macOS
-GOOS=darwin GOARCH=arm64 go build -o rl-toolkit-mac .
+# Widget (Linux: needs webkit2gtk-4.1 + gtk-layer-shell)
+cd overlay-app/src-tauri && cargo build --release
 ```
+
+The toolkit cross-compiles cleanly with `GOOS=windows`/`darwin`. The
+widget needs a real Windows or macOS box for those targets — Tauri's
+webview crate doesn't cross-compile.
 
 ---
 
