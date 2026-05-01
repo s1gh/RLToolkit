@@ -314,7 +314,8 @@ const sdkJS = `(function () {
     const ev = emitter();
     let cur = null;       // null when no match
     let lastFingerprint = '';
-    let registeredGuid = null; // last guid we recorded encounters for
+    let registeredGuid = null;     // last guid we recorded encounters for
+    let lastFinalizedGuid = null;  // last guid we recorded W/L for (dedup)
 
     function build(d) {
       const guid = d.MatchGuid || 'local';
@@ -409,12 +410,35 @@ const sdkJS = `(function () {
 
     function clear() {
       registeredGuid = null;
+      lastFinalizedGuid = null;
       if (!cur) return;
       cur = null;
       lastFingerprint = '';
       ev.emit('change', null);
       ev.emit('tick', null);
     }
+
+    // Commit W/L exactly once per match. Requires:
+    //   - the user has claimed identity AND has a known team in the
+    //     current roster (otherwise we can't determine outcome),
+    //   - WinnerTeamNum is present on the event,
+    //   - the current match guid hasn't been finalized already.
+    bus.on('MatchEnded', (d) => {
+      if (!d || !cur) return;
+      if (lastFinalizedGuid === cur.guid) return;
+      const winnerTeam = (typeof d.WinnerTeamNum === 'number') ? d.WinnerTeamNum : null;
+      if (winnerTeam === null) return;
+      const me = cur.players.find((p) => p.isMe);
+      if (!me || typeof me.team !== 'number') return;
+      const won = me.team === winnerTeam;
+      const seen = new Set();
+      for (const p of cur.players) {
+        if (!p.id || seen.has(p.id)) continue;
+        seen.add(p.id);
+        encounters._recordOutcome(p.id, won);
+      }
+      lastFinalizedGuid = cur.guid;
+    });
 
     bus.on('MatchDestroyed', clear);
     bus.on('_status', (s) => { if (s === 'disconnected') clear(); });
