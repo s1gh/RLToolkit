@@ -217,8 +217,11 @@ body.overlay-mode {
   color: var(--txt-3);
   font-size: 12px;
 }
+/* Display-toggle is driven entirely by data-mode on the strip — base
+   .il-expanded must NOT set display, otherwise it stays visible after
+   collapse (overrides the [hidden] attribute set by JS). */
 .il-expanded {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
@@ -226,7 +229,7 @@ body.overlay-mode {
 }
 .il-expanded .input { flex: 1 1 280px; min-width: 0; }
 .identity-strip[data-mode="expanded"] .il-collapsed { display: none; }
-.identity-strip[data-mode="expanded"] .il-expanded  { display: flex !important; }
+.identity-strip[data-mode="expanded"] .il-expanded  { display: flex; }
 .input {
   background: var(--bg-0);
   border: 1px solid var(--line);
