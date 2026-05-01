@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"sync"
+	"time"
 )
 
 // EventBus fans out raw RL messages to all SSE subscribers.
@@ -18,12 +19,29 @@ type subscriber struct {
 }
 
 type EventBus struct {
-	mu   sync.RWMutex
-	subs map[*subscriber]struct{}
+	mu      sync.RWMutex
+	subs    map[*subscriber]struct{}
+	metrics *busMetrics
 }
 
 func NewEventBus() *EventBus {
-	return &EventBus{subs: make(map[*subscriber]struct{})}
+	return &EventBus{
+		subs:    make(map[*subscriber]struct{}),
+		metrics: newBusMetrics(),
+	}
+}
+
+// Subscribers returns the current subscriber count. Cheap; uses the read lock.
+func (b *EventBus) Subscribers() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.subs)
+}
+
+// Metrics exposes the bus's instrumentation snapshot. Read-only; safe
+// for concurrent use.
+func (b *EventBus) Metrics() metricsSnapshot {
+	return b.metrics.snapshot(b.Subscribers())
 }
 
 // Subscribe returns a receive-only channel and a cancel func. The cancel
@@ -64,6 +82,8 @@ func (b *EventBus) removeLocked(s *subscriber) {
 // is full) are evicted from the bus — keeping a stuck SSE client around
 // would block the read loop and eventually freeze the upstream connection.
 func (b *EventBus) Publish(data []byte) {
+	start := time.Now()
+
 	// Snapshot under read lock so we don't hold it during sends.
 	b.mu.RLock()
 	dst := make([]*subscriber, 0, len(b.subs))
@@ -73,21 +93,30 @@ func (b *EventBus) Publish(data []byte) {
 	b.mu.RUnlock()
 
 	var slow []*subscriber
+	delivered := 0
 	for _, s := range dst {
 		select {
 		case <-s.closed:
 		case s.ch <- data:
+			delivered++
 		default:
 			slow = append(slow, s)
 		}
 	}
-	if len(slow) == 0 {
-		return
+	if len(slow) > 0 {
+		b.mu.Lock()
+		for _, s := range slow {
+			b.removeLocked(s)
+		}
+		b.mu.Unlock()
+		log.Printf("[bus] dropped %d slow subscriber(s)", len(slow))
 	}
-	b.mu.Lock()
-	for _, s := range slow {
-		b.removeLocked(s)
-	}
-	b.mu.Unlock()
-	log.Printf("[bus] dropped %d slow subscriber(s)", len(slow))
+
+	b.metrics.recordPublish(
+		time.Since(start).Nanoseconds(),
+		delivered,
+		0, // skipped: filled in once per-subscriber filtering lands
+		len(slow),
+		delivered*len(data),
+	)
 }

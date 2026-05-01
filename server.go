@@ -30,6 +30,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/events", s.handleEventCatalog)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/lifecycle", s.handleLifecycle)
+	mux.HandleFunc("/api/metrics", s.handleMetrics)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -271,6 +272,14 @@ func (s *Server) handleLifecycle(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, s.lifecycle.Snapshot())
+}
+
+// handleMetrics exposes the event-bus telemetry: subscriber count,
+// publish/delivery counters, eviction count, throughput, and publish
+// latency percentiles over a recent window. Cheap to call (single
+// snapshot read + small sort); fine for /api/metrics-style polling.
+func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, s.bus.Metrics())
 }
 
 // ── Static / embedded assets ────────────────────────────────
