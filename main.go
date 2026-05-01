@@ -65,12 +65,15 @@ func runServe() {
 	bus := NewEventBus()
 	pm := NewPluginManager(cfg.PluginDir)
 	client := NewRLClient(cfg.RLAddr, bus)
+	lifecycle := NewLifecycleTracker(bus)
+	client.AttachLifecycle(lifecycle)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, client: client, config: cfg}
+	srv := &Server{bus: bus, store: store, plugins: pm, client: client, lifecycle: lifecycle, config: cfg}
 	go client.Run(ctx)
+	go lifecycle.Run(ctx)
 
 	hs := &http.Server{Addr: fmt.Sprintf(":%d", cfg.HTTPPort), Handler: srv.routes()}
 	go func() {

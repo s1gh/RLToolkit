@@ -47,6 +47,10 @@ type RLClient struct {
 	addr string
 	bus  *EventBus
 
+	// lifecycle, if set, is fed every packet before bus.Publish so it can
+	// drive the gameplay-state machine without re-subscribing.
+	lifecycle *LifecycleTracker
+
 	mu     sync.RWMutex
 	status RLStatus
 
@@ -64,6 +68,10 @@ func NewRLClient(addr string, bus *EventBus) *RLClient {
 	}
 }
 
+// AttachLifecycle wires a LifecycleTracker so it observes every packet
+// the dispatcher publishes. Call before Run.
+func (c *RLClient) AttachLifecycle(t *LifecycleTracker) { c.lifecycle = t }
+
 func (c *RLClient) Status() RLStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -80,6 +88,9 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 		case msg, ok := <-c.outbox:
 			if !ok {
 				return
+			}
+			if c.lifecycle != nil {
+				c.lifecycle.Feed(msg)
 			}
 			c.bus.Publish(msg)
 		}

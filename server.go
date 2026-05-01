@@ -13,11 +13,12 @@ import (
 // and RLClient. It owns no goroutines of its own; long-lived per-request
 // goroutines (notably handleSSE) listen on r.Context().
 type Server struct {
-	bus     *EventBus
-	store   *DataStore
-	plugins *PluginManager
-	client  *RLClient
-	config  Config
+	bus       *EventBus
+	store     *DataStore
+	plugins   *PluginManager
+	client    *RLClient
+	lifecycle *LifecycleTracker
+	config    Config
 }
 
 func (s *Server) routes() http.Handler {
@@ -28,6 +29,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/events", s.handleEventCatalog)
 	mux.HandleFunc("/api/status", s.handleStatus)
+	mux.HandleFunc("/api/lifecycle", s.handleLifecycle)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -132,6 +134,23 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	if !writeFrame(sseDataPrefix, newStatusEvent(s.client.Status()), sseRecordEnd) {
 		return
+	}
+	// Initial lifecycle snapshot so the SDK doesn't have to wait for the
+	// next state change to know what's going on. Same convention as
+	// _ConnectionStatus — push current state on connect.
+	if s.lifecycle != nil {
+		snap := s.lifecycle.Snapshot()
+		if init, err := json.Marshal(lifecycleEvent{
+			Event:       "_Lifecycle",
+			MatchActive: snap.MatchActive,
+			Phase:       snap.Phase,
+			MatchGUID:   snap.MatchGUID,
+			Since:       snap.Since,
+		}); err == nil {
+			if !writeFrame(sseDataPrefix, init, sseRecordEnd) {
+				return
+			}
+		}
 	}
 
 	hb := time.NewTicker(sseHeartbeat)
@@ -240,6 +259,18 @@ func (s *Server) handleEventCatalog(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, map[string]RLStatus{"rl_api": s.client.Status()})
+}
+
+// handleLifecycle returns the current authoritative gameplay snapshot
+// (match_active, phase, match_guid, since). Useful for poll-based
+// consumers that don't subscribe to SSE — dashboards, eww/ags widgets,
+// the desktop widget supervisor, etc.
+func (s *Server) handleLifecycle(w http.ResponseWriter, _ *http.Request) {
+	if s.lifecycle == nil {
+		writeJSON(w, LifecycleSnapshot{Phase: PhaseNone, Since: time.Now()})
+		return
+	}
+	writeJSON(w, s.lifecycle.Snapshot())
 }
 
 // ── Static / embedded assets ────────────────────────────────
