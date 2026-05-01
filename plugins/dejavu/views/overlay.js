@@ -5,6 +5,11 @@ window.DV = window.DV || {};
 
 DV.overlay = (function () {
   const $ = DV.dom.$;
+  // Same reason as the leaderboard view: render is wired to onTick (~60Hz)
+  // but the overlay's content is purely a function of the roster +
+  // encounter counts. Skipping no-op rebuilds prevents the staggered
+  // fade-in animation from restarting every frame.
+  let lastFp = '';
 
   function render() {
     const body = $('ov-body');
@@ -12,9 +17,15 @@ DV.overlay = (function () {
     const m = RLT.match.current;
 
     if (!m) {
+      if (lastFp === 'EMPTY') return;
+      lastFp = 'EMPTY';
       body.innerHTML = '<div class="ov-empty">awaiting contact</div>';
       return;
     }
+
+    const fp = m.players.map((p) => p.id + ':' + p.team + ':' + p.encounterCount + ':' + p.name).join('|');
+    if (fp === lastFp) return;
+    lastFp = fp;
 
     // i is a global stagger index across both teams so rows fade in sequentially.
     let i = 0;
