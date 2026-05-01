@@ -20,6 +20,22 @@ DV.match = (function () {
       buildScaffold(host, m);
     }
     patchValues(host, m);
+    updateBadge(m);
+  }
+
+  // The "offline | live | lobby | …" pill in the card header. Reflects
+  // whether we're connected to RL, whether a match exists, and whether
+  // its roster has populated yet.
+  function updateBadge(m) {
+    const badge = $('match-badge');
+    if (!badge) return;
+    let label = 'offline';
+    if (RLT.status() === 'connected') {
+      if (!m) label = 'idle';
+      else if (!m.players || m.players.length === 0) label = 'lobby';
+      else label = RLT.match.lifecycle?.phase || 'live';
+    }
+    if (badge.textContent !== label) badge.textContent = label;
   }
 
   function invalidate() { lastKey = ''; }
@@ -36,7 +52,15 @@ DV.match = (function () {
         + players.map(playerRow).join('')
         + '</div>';
     };
-    host.innerHTML = '<div class="teams-stack">' + teamBlock(m.blue, 'blue') + teamBlock(m.orange, 'orange') + '</div>';
+    const inner = teamBlock(m.blue, 'blue') + teamBlock(m.orange, 'orange');
+    // Match exists but no players have populated yet — common while sitting
+    // in a lobby waiting for opponents to load. Show an empty state instead
+    // of a blank panel.
+    if (!inner) {
+      host.innerHTML = '<div class="card-empty"><div class="em-icon">◇</div>waiting for players…</div>';
+      return;
+    }
+    host.innerHTML = '<div class="teams-stack">' + inner + '</div>';
   }
 
   function playerRow(p) {
@@ -52,9 +76,10 @@ DV.match = (function () {
       ? '<button class="claim-btn" data-claim-id="' + RLT.ui.escAttr(p.id) + '">this is me</button>'
       : '<span></span>';
 
-    const platform = p.platform
-      ? '<span class="pr-platform">' + RLT.ui.esc(p.platform) + '</span>'
-      : '';
+    const icon = RLT.ui.platformIcon(p.platform);
+    const platform = icon
+      ? '<span class="pr-platform" title="' + RLT.ui.escAttr(p.platform) + '">' + icon + '</span>'
+      : '<span class="pr-platform pr-platform-empty" title="' + RLT.ui.escAttr(p.platform || 'Unknown') + '"></span>';
 
     return '<div class="' + cls.join(' ') + '" data-pid="' + RLT.ui.escAttr(p.id) + '">' +
       '<div class="pr-badge" data-cell="enc">' + p.encounterCount + '</div>' +

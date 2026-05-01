@@ -425,20 +425,25 @@ body.overlay-mode {
   margin-top: 2px;
 }
 .pr-platform {
-  font-family: var(--ui);
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--txt-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--txt-2);
   background: var(--bg-0);
   border: 1px solid var(--line);
-  padding: 4px 8px;
-  border-radius: 99px;
-  white-space: nowrap;
-  min-width: 72px;
-  text-align: center;
+  border-radius: 50%;
   box-sizing: border-box;
+  flex: 0 0 auto;
+}
+.pr-platform .rlt-platform-icon { width: 14px; height: 14px; display: block; }
+.pr-platform-empty::before {
+  content: '?';
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--txt-3);
 }
 .claim-btn {
   background: var(--bg-0);
@@ -536,19 +541,25 @@ body.overlay-mode {
   white-space: nowrap;
 }
 .lb-platform {
-  font-family: var(--ui);
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--txt-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--txt-2);
   background: var(--bg-0);
   border: 1px solid var(--line);
-  padding: 4px 8px;
-  border-radius: 99px;
-  min-width: 72px;
-  text-align: center;
+  border-radius: 50%;
   box-sizing: border-box;
+  flex: 0 0 auto;
+}
+.lb-platform .rlt-platform-icon { width: 14px; height: 14px; display: block; }
+.lb-platform-empty::before {
+  content: '?';
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--txt-3);
 }
 .lb-time {
   font-family: var(--mono);
@@ -615,7 +626,12 @@ body.overlay-mode .ov {
   max-width: 100%;
   height: auto;
   max-height: 100%;
-  padding: 4px 4px 4px 0;
+  /* Asymmetric padding: gold-pulse glow on returning rows extends ~18px
+     past the row's layout box. Right and bottom need that breathing room
+     so the glow isn't clipped at the surface edge. Left stays flush
+     because that's the anchor edge; top is small because rows stack
+     upward into open space. */
+  padding: 4px 20px 20px 0;
   animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 

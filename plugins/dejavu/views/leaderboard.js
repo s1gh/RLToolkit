@@ -66,7 +66,13 @@ DV.leaderboard = (function () {
           '<div class="lb-name">' + RLT.ui.esc(p.name) + '</div>' +
           aliases +
         '</div>' +
-        '<div class="lb-platform">' + RLT.ui.esc(p.platform) + '</div>' +
+        (function () {
+          const icon = RLT.ui.platformIcon(p.platform);
+          const title = RLT.ui.escAttr(p.platform || 'Unknown');
+          return icon
+            ? '<div class="lb-platform" title="' + title + '">' + icon + '</div>'
+            : '<div class="lb-platform lb-platform-empty" title="' + title + '"></div>';
+        })() +
         wlCell(p.wins, p.losses) +
         '<div class="lb-time">' + RLT.ui.timeAgo(p.last) + '</div>' +
       '</div>';
