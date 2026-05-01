@@ -720,13 +720,13 @@ body.overlay-mode .ov-card {
 .ov-team.blue   .ov-tname { color: var(--blue);   }
 .ov-team.orange .ov-tname { color: var(--orange); }
 
-/* The row itself — three-column tag: count | name | (optional aside).
+/* The row itself — three-column tag: count | platform | name.
    Background is per-row so the iframe shows through between rows. */
 .ov-row {
   position: relative;
   display: grid;
-  grid-template-columns: 1.8rem 1fr;
-  gap: 0.6rem;
+  grid-template-columns: 1.8rem 1.1rem 1fr;
+  gap: 0.5rem;
   align-items: center;
   padding: 0.3rem 0.6rem 0.3rem 0.5rem;
   background: rgba(10, 12, 20, 0.62);
@@ -773,6 +773,31 @@ body.overlay-mode .ov-card {
 .ov-row.returning .ov-r-num {
   color: var(--gold);
   text-shadow: 0 0 8px rgba(251, 191, 36, 0.55);
+}
+
+/* Platform glyph column — small, dim by default; gold on returning rows
+   so the visual emphasis is consistent with the count. The empty state
+   keeps the column width so rows don't jitter when one player has a
+   known platform and the next doesn't. */
+.ov-r-platform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--txt-3);
+}
+.ov-r-platform .rlt-platform-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  display: block;
+}
+.ov-row.returning .ov-r-platform {
+  color: var(--gold);
+}
+.ov-r-platform-empty {
+  /* No icon — keep the slot transparent. The column still takes up its
+     1.1rem so the name column starts in the same place across rows. */
 }
 
 /* Name + aliases share a column. */

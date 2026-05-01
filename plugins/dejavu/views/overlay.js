@@ -23,7 +23,7 @@ DV.overlay = (function () {
       return;
     }
 
-    const fp = m.players.map((p) => p.id + ':' + p.team + ':' + p.encounterCount + ':' + p.name).join('|');
+    const fp = m.players.map((p) => p.id + ':' + p.team + ':' + p.encounterCount + ':' + p.name + ':' + p.platform).join('|');
     if (fp === lastFp) return;
     lastFp = fp;
 
@@ -54,8 +54,18 @@ DV.overlay = (function () {
           const num = p.encounterCount > 1
             ? '×' + p.encounterCount
             : p.encounterCount;
+          // Platform icon — SVG inherits currentColor so the gold/team
+          // accents apply naturally. Falls back to an empty placeholder
+          // div so the grid column stays the same width whether or not
+          // the platform is known; otherwise rows would visually jitter
+          // as platform-having and platform-unknown rows alternate.
+          const icon = RLT.ui.platformIcon(p.platform);
+          const platform = icon
+            ? '<div class="ov-r-platform" title="' + RLT.ui.escAttr(p.platform) + '">' + icon + '</div>'
+            : '<div class="ov-r-platform ov-r-platform-empty" title="' + RLT.ui.escAttr(p.platform || 'Unknown') + '"></div>';
           return '<div class="' + cls.join(' ') + '" style="--ov-i:' + idx + '">' +
             '<div class="ov-r-num">' + num + '</div>' +
+            platform +
             '<div class="ov-r-name">' + RLT.ui.esc(p.name) + aliases + '</div>' +
           '</div>';
         }).join('') +
