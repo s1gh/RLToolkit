@@ -66,6 +66,19 @@ DV.leaderboard = (function () {
       return;
     }
 
+    // Mark the top 5 non-bot rows with count > 1 as "returning" so they
+    // get the gold left-accent. Bots are excluded from the highlight: the
+    // accent is meant to flag humans you've actually played repeatedly,
+    // not the aggregate AI bucket.
+    let returningRank = 0;
+    const RETURNING_TOP_N = 5;
+    for (const p of all) {
+      if (!p.isBot && p.count > 1 && returningRank < RETURNING_TOP_N) {
+        p._isReturningTop = true;
+        returningRank++;
+      }
+    }
+
     host.innerHTML = all.map((p) => {
       // Bot row shows the full roster of bot names (e.g. "Bandit · Hound · …");
       // human rows show prior aliases (last 2). Same slot, different content.
@@ -76,7 +89,7 @@ DV.leaderboard = (function () {
         : '';
       const botTag = p.isBot ? '<span class="bot-tag">BOT</span>' : '';
       const rowCls = ['lb-row'];
-      if (p.count > 1) rowCls.push('returning');
+      if (p._isReturningTop) rowCls.push('returning');
       if (p.isBot) rowCls.push('is-bot');
 
       const platform = (function () {
