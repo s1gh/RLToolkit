@@ -21,6 +21,7 @@ dashboards, persistence, and debugging.
   - [The `events` map](#the-events-map)
   - [The full event catalog](#the-full-event-catalog)
   - [Things worth knowing when handling events](#things-worth-knowing-when-handling-events)
+  - [How event delivery is filtered](#how-event-delivery-is-filtered-and-why-your-plugin-gets-only-what-it-asked-for)
   - [Lifecycle gating](#lifecycle-gating)
   - [Convenience subscriptions](#convenience-subscriptions)
   - [Enriched match state](#enriched-match-state)
@@ -446,6 +447,48 @@ original RL data under `.raw`. If the SDK didn't surface a field you
 need, it's still reachable: `goal.raw.SomeFieldRLAdded`. Don't fork
 the SDK to add a field — read it from `raw` in your plugin and, if
 it's broadly useful, send a PR upstream.
+
+### How event delivery is filtered (and why your plugin gets only what it asked for)
+
+You don't need to think about this most of the time, but it's
+useful to understand when something doesn't fire when you expected.
+
+The toolkit's SSE stream supports per-subscriber filtering:
+
+```
+EventSource('/events?events=GoalScored,StatfeedEvent')
+```
+
+The SDK builds that URL automatically by tracking which events your
+handlers request. When you write `events: { GoalScored }` or call
+`RLT.events.onBallHit(fn)`, the SDK adds the event name to the
+filter and (if already connected) reconnects the EventSource with
+the new list. This means your plugin's webview only does
+`JSON.parse` on events you actually subscribed to — important at
+60Hz, more important at 120Hz.
+
+The filter always includes a few events the SDK needs to drive
+its own state, regardless of what you subscribed to:
+
+  - `UpdateState` — feeds `RLT.match` (rosters, scores, ball state).
+    Without it, `g.scorer.player`, `g.scorer.isMe`, and
+    `g.scorer.encounter` would be empty even when `GoalScored` fires.
+  - All RL lifecycle events (`MatchCreated`, `RoundStarted`,
+    `MatchEnded`, etc.) — these drive phase tracking and the reset
+    semantics on `RLT.match.lifecycle`.
+
+Synthetic events with a `_` prefix (`_ConnectionStatus`,
+`_Lifecycle`) bypass the filter entirely on the server side —
+they're framing signals every subscriber needs.
+
+**Wildcard catchalls** (`'*'` in `spec.events` or `RLT.on('*', fn)`)
+fire on whatever the bus *already* gets. They don't widen the
+filter, so a wildcard handler in a plugin that only declared
+`GoalScored` will still only see `GoalScored` (plus the SDK's
+internal essentials and the synthetic events).
+
+**To see the active filter** for an open page, check the EventSource
+URL in DevTools → Network → EventStream tab.
 
 ### Lifecycle gating
 
