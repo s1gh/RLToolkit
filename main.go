@@ -57,6 +57,11 @@ func runServe() {
 	cfg := parseFlags()
 	log.SetFlags(log.Ltime)
 
+	// Print the welcome + setup banner first so the user sees a clean
+	// intro before any timestamped operational log lines start.
+	printStartupBanner(cfg)
+	printRLSetupNotice()
+
 	store, err := NewDataStore(cfg.DataDir)
 	if err != nil {
 		log.Fatalf("[server] %v", err)
@@ -77,10 +82,6 @@ func runServe() {
 
 	hs := &http.Server{Addr: fmt.Sprintf(":%d", cfg.HTTPPort), Handler: srv.routes()}
 	go func() {
-		log.Printf("[server] Dashboard → http://localhost:%d", cfg.HTTPPort)
-		log.Printf("[server] Overlay   → http://localhost:%d/overlay", cfg.HTTPPort)
-		log.Printf("[server] Waiting for Rocket League Stats API on %s …", cfg.RLAddr)
-		printRLSetupNotice()
 		if err := hs.ListenAndServe(); err != http.ErrServerClosed {
 			log.Fatalf("[server] %v", err)
 		}
@@ -177,19 +178,51 @@ func awaitSignal() {
 	<-sig
 }
 
+// printStartupBanner is the first thing the user sees on launch:
+// the URLs they actually need (dashboard, overlay) and the address
+// the toolkit will listen for RL on. Printed to stderr without the
+// log prefix so the URLs stand out cleanly above the timestamped
+// operational logs that follow.
+func printStartupBanner(cfg Config) {
+	fmt.Fprintf(os.Stderr, `
+  rl-toolkit
+
+    Dashboard   →  http://localhost:%d
+    Overlay     →  http://localhost:%d/overlay
+    Stats API   →  %s
+
+`, cfg.HTTPPort, cfg.HTTPPort, cfg.RLAddr)
+}
+
 // printRLSetupNotice reminds the user that RL's Stats API is OFF by
 // default. Without PacketSendRate > 0 in DefaultStatsAPI.ini, RL never
 // opens the local socket and the toolkit will sit at "disconnected"
 // forever. This is the single most common first-run failure, so we
 // surface the requirement up-front instead of letting users debug it
 // from "Connection refused" logs.
+//
+// Printed to stderr without the log prefix so the banner reads as one
+// coherent block instead of a wall of timestamped, [server]-prefixed
+// lines.
 func printRLSetupNotice() {
-	log.Println("[server] ────────────────────────────────────────────────────")
-	log.Println("[server] First-run check: RL's Stats API is OFF by default.")
-	log.Println("[server] Edit  <RL Install>/TAGame/Config/DefaultStatsAPI.ini")
-	log.Println("[server] before launching Rocket League and set:")
-	log.Println("[server]     PacketSendRate=60   (or up to 120)")
-	log.Println("[server]     Port=49123          (toolkit's default)")
-	log.Println("[server] Changes only take effect on a fresh RL launch.")
-	log.Println("[server] ────────────────────────────────────────────────────")
+	fmt.Fprint(os.Stderr, `
+  ┌──────────────────────────────────────────────────────────────┐
+  │  Rocket League Stats API setup                               │
+  ├──────────────────────────────────────────────────────────────┤
+  │                                                              │
+  │  RL's Stats API is OFF by default. Edit:                     │
+  │                                                              │
+  │      <RL Install>/TAGame/Config/DefaultStatsAPI.ini          │
+  │                                                              │
+  │  set:                                                        │
+  │                                                              │
+  │      PacketSendRate = 10     (10 Hz; up to 120 if you want)  │
+  │      Port           = 49123  (toolkit's default)             │
+  │                                                              │
+  │  Then start (or restart) Rocket League. Edits made while     │
+  │  RL is running do not take effect.                           │
+  │                                                              │
+  └──────────────────────────────────────────────────────────────┘
+
+`)
 }
