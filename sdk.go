@@ -101,9 +101,46 @@ const sdkJS = `(function () {
   let status = 'disconnected';
   let es = null;
 
+  // Server-side event filter (?events=...). The SDK always needs
+  // UpdateState (drives RLT.match enrichment) plus every lifecycle
+  // event (drives RLT.match.lifecycle and reset semantics). Plugins
+  // extend this set by registering handlers — see register() below.
+  // Synthetic events ("_ConnectionStatus", "_Lifecycle") bypass the
+  // server's filter entirely; we don't list them here.
+  const requiredEvents = new Set([
+    'UpdateState',
+    'MatchCreated', 'MatchInitialized',
+    'CountdownBegin', 'RoundStarted',
+    'MatchPaused', 'MatchUnpaused',
+    'GoalReplayStart', 'GoalReplayWillEnd', 'GoalReplayEnd',
+    'MatchEnded', 'PodiumStart', 'MatchDestroyed',
+    'ReplayCreated',
+  ]);
+  const subscribedEvents = new Set(requiredEvents);
+
+  // addEvent records that a plugin handler wants 'name' and reconnects
+  // the EventSource if we already opened one with a stale filter.
+  // Idempotent — re-registering a handler for the same event is free.
+  function addEvent(name) {
+    if (!name || subscribedEvents.has(name)) return;
+    subscribedEvents.add(name);
+    if (es) {
+      // Already connected with the prior filter; reconnect so the
+      // server starts delivering the new event. Cheap on localhost.
+      try { es.close(); } catch (_) {}
+      es = null;
+      connect();
+    }
+  }
+
+  function buildEventsURL() {
+    const events = Array.from(subscribedEvents).join(',');
+    return '/events?events=' + encodeURIComponent(events);
+  }
+
   function connect() {
     if (es) return;
-    es = new EventSource('/events');
+    es = new EventSource(buildEventsURL());
     es.onmessage = (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
@@ -756,10 +793,16 @@ const sdkJS = `(function () {
 
   // Helper that wires RLT.events.onName(fn) and exposes a typed history.
   function makeOn(name) {
-    return (fn) => eventsBus.on(name, fn);
+    return (fn) => {
+      addEvent(name);
+      return eventsBus.on(name, fn);
+    };
   }
   const events = {
-    on:  (name, fn) => eventsBus.on(name, fn),
+    on:  (name, fn) => {
+      addEvent(name);
+      return eventsBus.on(name, fn);
+    },
     off: (name, fn) => eventsBus.off(name, fn),
     recent(name, n) {
       const arr = recentByType.get(name) || [];
@@ -949,7 +992,10 @@ const sdkJS = `(function () {
         for (const evName of Object.keys(spec.events)) {
           const handler = spec.events[evName];
           if (typeof handler !== 'function') continue;
-          // '*' uses the raw bus catchall; named events go through the typed bus.
+          // Tell the server we want this event delivered. '*' is the
+          // raw-bus catchall — it doesn't add anything to the filter
+          // (the catchall fires on whatever the bus already gets).
+          if (evName !== '*') addEvent(evName);
           const sub = (evName === '*')
             ? bus.on('*', gate(spec, handler))
             : eventsBus.on(evName, gate(spec, handler));
@@ -1279,8 +1325,14 @@ const sdkJS = `(function () {
     pluginName: pluginName, // explicit name accessor
     version: 1,
 
-    // raw event bus
-    on: (ev, fn) => bus.on(ev, fn),
+    // raw event bus — adding a handler for a specific event also opts
+    // that event into the server-side filter so the EventSource starts
+    // delivering it. Wildcards ('*') don't add anything; the catchall
+    // fires on whatever the bus already gets.
+    on: (ev, fn) => {
+      if (ev && ev !== '*') addEvent(ev);
+      return bus.on(ev, fn);
+    },
     off: (ev, fn) => bus.off(ev, fn),
 
     // connection
@@ -1299,7 +1351,12 @@ const sdkJS = `(function () {
 
   // Auto-connect on load. Plugins can call RLT._reconnect() to force.
   window.RLT._reconnect = function () { if (es) { es.close(); es = null; } connect(); };
-  connect();
+  // Defer the first connect so synchronous RLT.plugin.register({...})
+  // calls in the page's <script> tags land in the filter before we
+  // open the EventSource. Microtask is enough — most plugin pages
+  // call register() inline. Plugins that register later trigger a
+  // reconnect via addEvent's stale-filter path.
+  Promise.resolve().then(connect);
 })();
 `
 
