@@ -492,8 +492,23 @@ URL in DevTools → Network → EventStream tab.
 
 ### Lifecycle gating
 
-If you only want events while the match is actually playing, add a
-`whilePhase` filter:
+The toolkit tracks two related but distinct signals server-side and
+ships them as a single `_Lifecycle` snapshot:
+
+  - **`match_active`** (bool) — am I in a match? The right question for
+    "should the widget be on screen". True after `MatchCreated`, false
+    after `MatchDestroyed`, the connection drops, OR no `UpdateState`
+    arrives for 5 seconds (catches "user backed out to menu without RL
+    emitting MatchDestroyed").
+  - **`phase`** (enum) — what gameplay phase is happening right now?
+    The right question for "should I count this goal".
+
+The phase enum: `none`, `created`, `countdown`, `live`, `paused`,
+`replay`, `ended`, `podium`. (Older code wrote `'idle'` instead of
+`'none'`; both names are accepted for back-compat.)
+
+If you only want events while the match is actually playing, gate
+with `whilePhase`:
 
 ```js
 RLT.plugin.register({
@@ -504,17 +519,33 @@ RLT.plugin.register({
 });
 ```
 
-The phase machine recognises: `idle`, `created`, `countdown`, `live`,
-`paused`, `replay`, `ended`, `podium`. Subscribe to phase transitions
-explicitly with `onLifecycle`:
+Subscribe to phase transitions with `onLifecycle`, or to the simpler
+match-active question with `onMatchActive`:
 
 ```js
 RLT.plugin.register({
   onLifecycle(phase, prev) {
     console.log('phase changed:', prev, '→', phase);
+  },
+  onMatchActive(active) {
+    // Fires once when match_active flips. Reliable across all the
+    // "user left the match" paths — clean exit, RL crash, alt-tab
+    // away from menu, etc.
+    if (!active) clearMyState();
   }
 });
 ```
+
+For the current values without subscribing:
+
+```js
+RLT.match.lifecycle.phase        // 'live' / 'none' / etc.
+RLT.match.lifecycle.matchActive  // bool
+RLT.match.lifecycle.guid         // current match GUID, or ''
+RLT.match.lifecycle.previous     // previous phase
+```
+
+Or query the server directly: `GET /api/lifecycle`.
 
 ### Convenience subscriptions
 
@@ -529,6 +560,8 @@ have to filter `UpdateState` yourself:
 | `onMatch(state)`| Only when the match's *structure* changes (roster/score/team).  |
 | `onIdentity(id)`| When the user changes which player is "me".                    |
 | `onEncounters(map)` | When the encounter ledger updates.                          |
+| `onLifecycle(phase, prev)` | When the gameplay phase transitions.                  |
+| `onMatchActive(active)` | When `match_active` flips — the simpler "in a match" signal. |
 | `dispose()`     | When `handle.dispose()` is called — clean up here.              |
 
 ```js

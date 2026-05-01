@@ -56,6 +56,12 @@
         const speedEl = document.getElementById("speed");
         const whoEl = document.getElementById("who");
 
+        function reset() {
+          speedEl.textContent = "—";
+          speedEl.classList.add("empty");
+          whoEl.textContent = "";
+        }
+
         // GoalSpeed ships as km/h, not UU/s. The official Stats API doc
         // claims UU/s but its own example value (87.3) and observed values
         // match RL's in-game "x km/h" display directly — a goal RL shows
@@ -75,12 +81,16 @@
             },
           },
 
-          onLifecycle(phase) {
-            if (phase === "idle") {
-              speedEl.textContent = "—";
-              speedEl.classList.add("empty");
-              whoEl.textContent = "";
-            }
+          // Clear the readout the moment we leave the match. The server's
+          // lifecycle tracker flips match_active=false on MatchDestroyed,
+          // _ConnectionStatus drops, OR after 5s of UpdateState silence —
+          // so this fires reliably on every "back out to menu" path,
+          // including the ones where RL doesn't emit MatchDestroyed.
+          //
+          // Prior version watched onLifecycle for phase==='idle' which
+          // missed the menu case entirely; left the goal stuck on screen.
+          onMatchActive(active) {
+            if (!active) reset();
           },
         });
       })();
