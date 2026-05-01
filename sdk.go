@@ -188,17 +188,23 @@ const sdkJS = `(function () {
     let loaded = false;
 
     async function load() {
-      // New shared location:
+      // Important distinction: a stored record with my_id === '' means
+      // the user explicitly cleared their identity — respect it. Only
+      // attempt the legacy migration when there is NO record yet at all.
       let cfg = await storeGet('_rlt', 'identity');
-      if (cfg && cfg.my_id) {
+      if (cfg && typeof cfg.my_id === 'string') {
         myId = cfg.my_id;
       } else {
         // One-time migration from the legacy dejavu-only location.
+        // Always write back (even if empty) so subsequent loads take
+        // the fast path and never look at the legacy slot again.
         const legacy = await storeGet('dejavu', 'config');
         if (legacy && legacy.my_id) {
           myId = legacy.my_id;
-          await storeSet('_rlt', 'identity', { my_id: myId });
         }
+        await storeSet('_rlt', 'identity', { my_id: myId });
+        // Drop the legacy slot so a future Clear can't be undone by it.
+        if (legacy) await storeDelete('dejavu', 'config');
       }
       loaded = true;
       ev.emit('change', myId);
