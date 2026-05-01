@@ -178,20 +178,52 @@ func awaitSignal() {
 	<-sig
 }
 
+// ANSI escape codes. Empty when the terminal can't render them, so
+// the same code path produces clean plain-text in pipes / dumb terms.
+var (
+	cReset  = ansi("\x1b[0m")
+	cDim    = ansi("\x1b[2m")
+	cBold   = ansi("\x1b[1m")
+	cCyan   = ansi("\x1b[36m")
+	cAmber  = ansi("\x1b[33m")
+	cAccent = ansi("\x1b[1;36m") // bold cyan — for the wordmark
+)
+
+// ansi returns the given escape only when output is going to a real
+// terminal that can render it. Honors the de-facto NO_COLOR convention
+// (https://no-color.org) and TERM=dumb so log redirects produce clean
+// text without escape garbage.
+func ansi(seq string) string {
+	if os.Getenv("NO_COLOR") != "" {
+		return ""
+	}
+	if t := os.Getenv("TERM"); t == "" || t == "dumb" {
+		return ""
+	}
+	if fi, err := os.Stderr.Stat(); err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+		return ""
+	}
+	return seq
+}
+
 // printStartupBanner is the first thing the user sees on launch:
 // the URLs they actually need (dashboard, overlay) and the address
 // the toolkit will listen for RL on. Printed to stderr without the
 // log prefix so the URLs stand out cleanly above the timestamped
 // operational logs that follow.
 func printStartupBanner(cfg Config) {
-	fmt.Fprintf(os.Stderr, `
-  rl-toolkit
-
-    Dashboard   →  http://localhost:%d
-    Overlay     →  http://localhost:%d/overlay
-    Stats API   →  %s
-
-`, cfg.HTTPPort, cfg.HTTPPort, cfg.RLAddr)
+	fmt.Fprintf(os.Stderr, "\n  %srl-toolkit%s %s· stats overlay host%s\n",
+		cAccent, cReset, cDim, cReset)
+	fmt.Fprintf(os.Stderr, "  %s───────────────────────────────────────%s\n\n",
+		cDim, cReset)
+	row := func(label, value string) {
+		fmt.Fprintf(os.Stderr, "    %s%-11s%s  %s%s%s\n",
+			cDim, label, cReset, cCyan, value, cReset)
+	}
+	row("Dashboard", fmt.Sprintf("http://localhost:%d", cfg.HTTPPort))
+	row("Overlay",   fmt.Sprintf("http://localhost:%d/overlay", cfg.HTTPPort))
+	row("Stats API", cfg.RLAddr)
+	fmt.Fprintln(os.Stderr)
 }
 
 // printRLSetupNotice reminds the user that RL's Stats API is OFF by
@@ -201,28 +233,27 @@ func printStartupBanner(cfg Config) {
 // surface the requirement up-front instead of letting users debug it
 // from "Connection refused" logs.
 //
-// Printed to stderr without the log prefix so the banner reads as one
-// coherent block instead of a wall of timestamped, [server]-prefixed
-// lines.
+// Visual style: a left-edge accent bar (┃) instead of a heavy box;
+// the bar carries the eye through the block without making it feel
+// like a modal dialog.
 func printRLSetupNotice() {
-	fmt.Fprint(os.Stderr, `
-  ┌──────────────────────────────────────────────────────────────┐
-  │  Rocket League Stats API setup                               │
-  ├──────────────────────────────────────────────────────────────┤
-  │                                                              │
-  │  RL's Stats API is OFF by default. Edit:                     │
-  │                                                              │
-  │      <RL Install>/TAGame/Config/DefaultStatsAPI.ini          │
-  │                                                              │
-  │  set:                                                        │
-  │                                                              │
-  │      PacketSendRate = 10     (10 Hz; up to 120 if you want)  │
-  │      Port           = 49123  (toolkit's default)             │
-  │                                                              │
-  │  Then start (or restart) Rocket League. Edits made while     │
-  │  RL is running do not take effect.                           │
-  │                                                              │
-  └──────────────────────────────────────────────────────────────┘
+	bar := cAmber + "┃" + cReset
+	line := func(s string) { fmt.Fprintf(os.Stderr, "  %s  %s\n", bar, s) }
 
-`)
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "  %s  %sFirst-run setup%s %s· Rocket League Stats API%s\n",
+		bar, cBold, cReset, cDim, cReset)
+	line("")
+	line(fmt.Sprintf("RL's Stats API is %sOFF by default%s. Enable it before starting the game:", cBold, cReset))
+	line("")
+	line(fmt.Sprintf("    %sedit%s  %s<RL Install>/TAGame/Config/DefaultStatsAPI.ini%s",
+		cDim, cReset, cCyan, cReset))
+	line("")
+	line(fmt.Sprintf("    %sPacketSendRate%s = %s10%s     %s10 Hz; up to 120 supported%s",
+		cBold, cReset, cCyan, cReset, cDim, cReset))
+	line(fmt.Sprintf("    %sPort%s           = %s49123%s  %stoolkit's default%s",
+		cBold, cReset, cCyan, cReset, cDim, cReset))
+	line("")
+	line(fmt.Sprintf("%sChanges only take effect on a fresh RL launch.%s", cDim, cReset))
+	fmt.Fprintln(os.Stderr)
 }
