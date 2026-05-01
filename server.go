@@ -102,12 +102,36 @@ var (
 	ssePingFrame  = []byte(": ping\n\n")
 )
 
+// parseEventsFilter turns a comma-separated `?events=A,B,C` query value
+// into a set the bus can check per-publish. Empty input → nil (no
+// filter, all events delivered). Whitespace and empty entries are
+// trimmed; the synthetic "_*" framing events bypass the filter on the
+// bus side, so callers don't need to add them.
+func parseEventsFilter(raw string) map[string]struct{} {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	out := make(map[string]struct{})
+	for _, name := range strings.Split(raw, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		out[name] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	ch, cancel := s.bus.Subscribe()
+	ch, cancel := s.bus.Subscribe(parseEventsFilter(r.URL.Query().Get("events")))
 	defer cancel()
 
 	// Per-write deadline: an Fprintf can block indefinitely against a

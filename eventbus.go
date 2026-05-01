@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"log"
 	"sync"
 	"time"
@@ -16,6 +17,14 @@ import (
 type subscriber struct {
 	ch     chan []byte   // delivered to the SSE handler
 	closed chan struct{} // signals the subscriber has disconnected
+
+	// events is the optional event-name filter. nil means "deliver
+	// everything"; an empty-but-non-nil map means "deliver nothing"
+	// (no plugin would set that, but the distinction matters for
+	// correctness). Synthetic events (those starting with "_") are
+	// always delivered regardless of filter — _ConnectionStatus and
+	// _Lifecycle are framing signals every subscriber needs.
+	events map[string]struct{}
 }
 
 type EventBus struct {
@@ -47,10 +56,16 @@ func (b *EventBus) Metrics() metricsSnapshot {
 // Subscribe returns a receive-only channel and a cancel func. The cancel
 // func is idempotent. The channel is closed when canceled or when the bus
 // drops the subscriber, so receivers must use the `msg, ok := <-ch` form.
-func (b *EventBus) Subscribe() (<-chan []byte, func()) {
+//
+// events optionally filters which RL events the subscriber wants to
+// receive. nil means "all events". Synthetic events with a "_" prefix
+// (e.g. _ConnectionStatus, _Lifecycle) are always delivered — they're
+// framing signals the SDK relies on regardless of plugin opt-in.
+func (b *EventBus) Subscribe(events map[string]struct{}) (<-chan []byte, func()) {
 	s := &subscriber{
 		ch:     make(chan []byte, subscriberBufSize),
 		closed: make(chan struct{}),
+		events: events,
 	}
 	b.mu.Lock()
 	b.subs[s] = struct{}{}
@@ -81,8 +96,16 @@ func (b *EventBus) removeLocked(s *subscriber) {
 // Publish delivers data to every subscriber. Slow subscribers (whose buffer
 // is full) are evicted from the bus — keeping a stuck SSE client around
 // would block the read loop and eventually freeze the upstream connection.
+//
+// Subscribers with an event filter only receive matching events. The
+// event name is extracted once per Publish via substring scan so the
+// 60-120Hz hot path stays JSON-decode-free.
 func (b *EventBus) Publish(data []byte) {
 	start := time.Now()
+
+	// Extract the event name once, used per subscriber below.
+	eventName := extractEventName(data)
+	synthetic := len(eventName) > 0 && eventName[0] == '_'
 
 	// Snapshot under read lock so we don't hold it during sends.
 	b.mu.RLock()
@@ -93,8 +116,16 @@ func (b *EventBus) Publish(data []byte) {
 	b.mu.RUnlock()
 
 	var slow []*subscriber
-	delivered := 0
+	delivered, skipped := 0, 0
 	for _, s := range dst {
+		// Filter check — synthetic events bypass to keep _ConnectionStatus
+		// and _Lifecycle reliable as framing signals.
+		if !synthetic && s.events != nil {
+			if _, ok := s.events[eventName]; !ok {
+				skipped++
+				continue
+			}
+		}
 		select {
 		case <-s.closed:
 		case s.ch <- data:
@@ -115,8 +146,33 @@ func (b *EventBus) Publish(data []byte) {
 	b.metrics.recordPublish(
 		time.Since(start).Nanoseconds(),
 		delivered,
-		0, // skipped: filled in once per-subscriber filtering lands
+		skipped,
 		len(slow),
 		delivered*len(data),
 	)
 }
+
+// extractEventName pulls the "Event":"X" value from an RL-shaped JSON
+// envelope without a full Unmarshal. Returns "" if the field is absent
+// or malformed; callers treat empty as "no filter applies, deliver".
+func extractEventName(raw []byte) string {
+	// Bound the scan to the head of the envelope — Event is reliably
+	// near the start, and a malformed/giant payload shouldn't make us
+	// walk the whole thing.
+	head := raw
+	if len(head) > 96 {
+		head = head[:96]
+	}
+	i := bytes.Index(head, eventKeyMarker)
+	if i < 0 {
+		return ""
+	}
+	rest := raw[i+len(eventKeyMarker):]
+	end := bytes.IndexByte(rest, '"')
+	if end < 0 {
+		return ""
+	}
+	return string(rest[:end])
+}
+
+var eventKeyMarker = []byte(`"Event":"`)
