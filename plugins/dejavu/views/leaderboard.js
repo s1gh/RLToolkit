@@ -55,11 +55,18 @@ DV.leaderboard = (function () {
       .sort((a, b) => (b.count - a.count) || (new Date(b.last) - new Date(a.last)))
       .slice(0, TOP_N);
 
-    const fp = all.map((p) =>
+    // Include claim state in the fingerprint so claiming/unclaiming
+    // forces a rebuild (claim button visibility changes per row).
+    const unclaimed = !RLT.me.id;
+    const fp = (unclaimed ? 'U|' : 'C|') + all.map((p) =>
       p.id + ':' + p.count + ':' + p.wins + ':' + p.losses + ':' + p.name + ':' + (p.last || '') + ':' + p.aliases.length
     ).join('|');
     if (fp === lastFp) return;
     lastFp = fp;
+
+    // Toggle host-level class so the row grid gains an extra column for
+    // the claim buttons only when they're actually rendered.
+    host.classList.toggle('lb-host-claimable', unclaimed);
 
     if (cnt) cnt.textContent = all.length;
 
@@ -102,6 +109,13 @@ DV.leaderboard = (function () {
           : '<div class="lb-platform lb-platform-empty" title="' + title + '"></div>';
       })();
 
+      // Claim button: only when identity is unclaimed and the row isn't
+      // a bot. Uses the same data-claim-id attribute the global handler
+      // in identity.js listens for, so no extra wiring needed.
+      const claim = (unclaimed && !p.isBot)
+        ? '<button class="claim-btn lb-claim" data-claim-id="' + RLT.ui.escAttr(p.id) + '" title="Claim as me">+</button>'
+        : '';
+
       return '<div class="' + rowCls.join(' ') + '">' +
         '<div class="lb-count">' + p.count + '<span class="x">×</span></div>' +
         '<div class="lb-info">' +
@@ -111,6 +125,7 @@ DV.leaderboard = (function () {
         platform +
         wlCell(p.wins, p.losses) +
         '<div class="lb-time">' + RLT.ui.timeAgo(p.last) + '</div>' +
+        claim +
       '</div>';
     }).join('');
   }
