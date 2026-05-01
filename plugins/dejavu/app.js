@@ -45,15 +45,23 @@
         c.textContent = s === 'connected' ? 'live' : s;
       });
 
-      // (Earlier we tried RLT.widget.autoSize so the surface would track
-      // .ov's intrinsic size. In practice the layer-shell ↔ webview ↔ GTK
-      // sizing chain didn't propagate cleanly: shrinking the surface
-      // shrank the body, which shrank .ov via max-height:100%, which kept
-      // measuring the same number — content still rendered taller than
-      // the surface and got clipped. Reverted: the manifest width/height
-      // is the surface and the SDK's flex centering pins .ov inside it.
-      // RLT.widget.autoSize stays available for plugins whose layout
-      // doesn't lean on the SDK's body-flex centering.)
+      // Grow the widget's width to fit a long player name. fitWidth is
+      // monotonic — it only widens, never shrinks — so the manifest's
+      // 320px is treated as a minimum. The 'extra' covers the right-side
+      // glow padding on returning rows; the 600px cap stops a pathological
+      // name from blowing up the surface.
+      //
+      // (We tried RLT.widget.autoSize earlier for full content tracking.
+      // The layer-shell ↔ webview ↔ GTK chain shrunk-then-clipped instead
+      // of shrunk-then-redrew, so we picked grow-only fitWidth as the
+      // narrower contract that actually behaves.)
+      if (isOverlay && RLT.widget.isHosted()) {
+        RLT.widget.fitWidth({
+          target: '.ov',
+          maxWidth: 600,
+          extra: 8,
+        });
+      }
     },
 
     ready() {

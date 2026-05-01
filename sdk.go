@@ -1008,6 +1008,8 @@ const sdkJS = `(function () {
       && typeof window.__TAURI_INTERNALS__.invoke === 'function';
     // Stable storage for autoSize across repeated calls.
     const autoSizeState = { observer: null, flush: null, active: false };
+    // Stable storage for fitWidth so retoggling reuses the high-water mark.
+    const fitWidthState = { observer: null };
 
     function invoke(cmd, args) {
       if (!inTauri) return Promise.resolve(false);
@@ -1137,6 +1139,92 @@ const sdkJS = `(function () {
         // a fade-in or slide-in finishing changes nothing observable. We
         // hook animation/transition end and font load — all common sources
         // of post-first-paint layout shift — and re-flush.
+        const onAnimEnd = () => requestAnimationFrame(flush);
+        document.addEventListener('animationend', onAnimEnd, true);
+        document.addEventListener('transitionend', onAnimEnd, true);
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(() => requestAnimationFrame(flush));
+        }
+        return true;
+      },
+
+      /** Grow the host window's width to fit a measurement target's natural
+       *  content width. Width is monotonic — it only grows, never shrinks —
+       *  so there's no feedback loop with body's max-width:100% chain.
+       *  Height is left at the manifest value.
+       *
+       *  Use this for "long player name pushes the row past the manifest
+       *  width" — the surface widens to fit that name and stays widened
+       *  for the session. (Shrinking back when the long name leaves would
+       *  re-introduce the autoSize feedback loop.)
+       *
+       *  Options:
+       *    target   — element OR selector to measure (default: document.body).
+       *    maxWidth — absolute cap so a pathological name (AAAAA...) can't
+       *               widen the surface to 4K. Defaults to 800px.
+       *    extra    — extra px to add beyond measured width (e.g. for
+       *               glow/padding the layout box doesn't include).
+       *               Defaults to 0.
+       *
+       *  Returns false outside Tauri (OBS / browser) — no host to resize. */
+      fitWidth(opts) {
+        if (!inTauri) return false;
+        opts = opts || {};
+        const maxW = (opts.maxWidth | 0) || 800;
+        const extra = (opts.extra | 0) || 0;
+        const resolveTarget = () => {
+          if (opts.target instanceof Element) return opts.target;
+          if (typeof opts.target === 'string') {
+            return document.querySelector(opts.target) || document.body;
+          }
+          return document.body;
+        };
+
+        // Tear down any prior fitWidth observer so options can be retuned.
+        if (fitWidthState.observer) {
+          fitWidthState.observer.disconnect();
+          fitWidthState.observer = null;
+        }
+
+        let pending = false;
+        // We track the largest width we've ever asked the host for. Each
+        // tick we compare the natural content width to that high-water
+        // mark and only invoke widget_size if we've grown.
+        let highWater = 0;
+        const flush = () => {
+          pending = false;
+          const el = resolveTarget();
+          if (!el) return;
+          // scrollWidth is the unconstrained content width — ignores
+          // max-width / overflow:hidden / nowrap clipping. Exactly the
+          // measurement we need: "how wide does this *want* to be".
+          const wanted = Math.min(maxW, el.scrollWidth + extra);
+          if (wanted <= highWater) return;
+          highWater = wanted;
+          // Pass the manifest height through unchanged — we only resize
+          // width here. (window.innerHeight reflects the current surface
+          // height, which is the manifest value at startup and any
+          // explicit resize since.)
+          invoke('widget_size', { width: wanted, height: window.innerHeight });
+        };
+
+        const observer = new ResizeObserver(() => {
+          if (pending) return;
+          pending = true;
+          requestAnimationFrame(flush);
+        });
+        fitWidthState.observer = observer;
+        observer.observe(resolveTarget());
+        // Body too — content reflows that don't change target's box but do
+        // change wrapping behavior (e.g. an iframe-width change) come
+        // through body.
+        if (resolveTarget() !== document.body && document.body) {
+          observer.observe(document.body);
+        }
+        // First-paint kick.
+        requestAnimationFrame(flush);
+        // Re-measure after fade-ins finish and after web fonts arrive
+        // (fonts shift name widths once they replace the system fallback).
         const onAnimEnd = () => requestAnimationFrame(flush);
         document.addEventListener('animationend', onAnimEnd, true);
         document.addEventListener('transitionend', onAnimEnd, true);
