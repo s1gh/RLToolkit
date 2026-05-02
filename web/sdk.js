@@ -299,14 +299,18 @@
     }
     load();
 
+    // Returns true when the count was created or bumped (i.e. a new
+    // player-match pair was observed). The per-tick top-up uses the
+    // return value to decide whether to rebuild the cached match
+    // snapshot — same-guid re-records are no-ops on the count.
     function record(id, name, guid) {
-      if (!id) return;
+      if (!id) return false;
       const now = new Date().toISOString();
       if (!map[id]) {
         map[id] = { names: [name], count: 1, first_seen: now, last_seen: now, matches: [guid], wins: 0, losses: 0 };
         ev.emit('change', map);
         persistShared();
-        return;
+        return true;
       }
       const e = map[id];
       if (!e.matches) e.matches = [];
@@ -314,7 +318,7 @@
         e.last_seen = now;
         if (!e.names.includes(name)) e.names.push(name);
         persistShared();
-        return;
+        return false;
       }
       e.count++;
       e.last_seen = now;
@@ -323,6 +327,7 @@
       if (e.matches.length > 50) e.matches = e.matches.slice(-50);
       ev.emit('change', map);
       persistShared();
+      return true;
     }
 
     // Apply a per-player W/L delta. Lazy-upgrades legacy records that
@@ -354,16 +359,23 @@
   // encounterCount, aliases, etc. Plugins should generally use this rather
   // than parsing UpdateState themselves.
   //
-  // Encounter recording is decoupled from build() — registerCurrentMatch()
-  // runs once per match transition (driven off RL's lifecycle events), not
-  // every tick. This is robust across match-end → new-match transitions
-  // where build() might otherwise miss the GUID change for a frame.
+  // Encounter recording happens inside the UpdateState handler, gated on
+  // lifecycle phase: only count players we actually played (countdown
+  // through podium-adjacent phases), not lobby no-shows. The ledger
+  // dedups per (player, guid) so the per-tick scan is idempotent and
+  // late-joiners / rejoiners get picked up automatically.
   const match = (function () {
     const ev = emitter();
     let cur = null;       // null when no match
     let lastFingerprint = '';
-    let registeredGuid = null;     // last guid we recorded encounters for
     let lastFinalizedGuid = null;  // last guid we recorded W/L for (dedup)
+    // Phases where the player is actually engaged in a match — kickoff
+    // through final whistle. Lobby/menu phases are excluded so a player
+    // who dodges before countdown doesn't get counted. Late-joiners and
+    // rejoiners are picked up automatically because we re-scan the
+    // roster on every tick while in these phases; the ledger's
+    // per-(id, guid) dedup keeps this idempotent.
+    const RECORDING_PHASES = new Set(['countdown', 'live', 'paused', 'replay']);
 
     function build(d) {
       const guid = d.MatchGuid || 'local';
@@ -494,28 +506,22 @@
       };
     }
 
-    // Record every player in the current match exactly once per match.
-    // The Go-side reconnects on MatchDestroyed, so each new match arrives on
-    // a fresh TCP connection with a fresh guid — we don't have to defend
-    // against half-emptied lobby states or stale podium UpdateStates here.
-    function registerCurrentMatch() {
-      if (!cur) return;
-      if (cur.guid === registeredGuid) return;
-      const recorded = [];
+    // Record everyone on the current roster against this match guid.
+    // Only meaningful during recording phases — caller is responsible
+    // for that gate. Returns true if any player triggered a count
+    // create/bump, so the caller can rebuild `cur` so encounterCount
+    // reflects the new ledger.
+    function recordRoster() {
+      if (!cur) return false;
+      let bumped = false;
       const seen = new Set();
       for (const p of cur.raw.Players || []) {
         const id = p.PrimaryId || '';
         if (!id || seen.has(id)) continue;
         seen.add(id);
-        encounters._record(id, p.Name || 'Unknown', cur.guid);
-        recorded.push(p.Name);
+        if (encounters._record(id, p.Name || 'Unknown', cur.guid)) bumped = true;
       }
-      if (recorded.length === 0) return; // wait for the roster to populate
-      registeredGuid = cur.guid;
-      // Rebuild so encounterCount/aliases reflect the new ledger.
-      cur = build(cur.raw);
-      lastFingerprint = '';
-      ev.emit('change', cur);
+      return bumped;
     }
 
     bus.on('UpdateState', (d) => {
@@ -523,8 +529,16 @@
       cur = build(d);
       ev.emit('tick', cur);
 
-      if (cur.guid !== registeredGuid && cur.players.length > 0) {
-        registerCurrentMatch();
+      // Record the roster only once we're past the lobby. The
+      // ledger dedups per-(player, guid), so calling this every tick
+      // while in a match is idempotent — it only does work when a
+      // never-seen-this-match player is on the roster (kickoff,
+      // late-joiners, rejoiners after a quit).
+      if (RECORDING_PHASES.has(lifecycle.phase) && cur.players.length > 0) {
+        if (recordRoster()) {
+          cur = build(cur.raw);
+          lastFingerprint = '';
+        }
       }
 
       const fp = cur.guid + '|' + identity.id + '|' +
@@ -536,7 +550,6 @@
     });
 
     function clear() {
-      registeredGuid = null;
       lastFinalizedGuid = null;
       if (!cur) return;
       cur = null;
