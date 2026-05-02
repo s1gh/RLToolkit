@@ -28,12 +28,6 @@ url = "2"
 gtk = "0.18"
 gtk-layer-shell = "0.8"
 
-# Windows-only: DWM bindings to extend the frame into the entire client
-# area, which suppresses the faint 1px outline DWM draws on transparent
-# layered top-level windows (overlays).
-[target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_Controls"] }
-
 [profile.release]
 opt-level = "s"
 lto = true

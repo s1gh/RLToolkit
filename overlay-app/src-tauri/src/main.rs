@@ -25,11 +25,6 @@
 //     ignore_cursor_events=true. Tauri handles WS_EX_TRANSPARENT,
 //     NSWindow.level, and X11 _NET_WM_STATE_ABOVE per platform.
 //
-//   Windows-only quirk: DWM draws a faint 1px outline at the boundary of
-//   the client area on transparent layered top-level windows. We suppress
-//   it by extending the DWM frame across the entire client area
-//   (DwmExtendFrameIntoClientArea with all-(-1) margins).
-//
 // Plugins can also reshape their own widget at runtime via Tauri commands
 // (RLT.widget.* in the SDK) — see the `widget_*` handlers below.
 //
@@ -405,37 +400,6 @@ fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
     let _ = window.set_position(*monitor.position());
 }
 
-/// Suppress the faint 1px frame DWM draws at the boundary of the client
-/// area on transparent layered top-level windows. Calling
-/// DwmExtendFrameIntoClientArea with all-(-1) margins tells DWM to treat
-/// the entire window as client area, which removes the outline.
-///
-/// Best-effort: errors retrieving the HWND or non-zero HRESULTs are
-/// swallowed — the window still works, just with the cosmetic line.
-#[cfg(target_os = "windows")]
-fn apply_windows_borderless(window: &tauri::WebviewWindow) {
-    use windows_sys::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
-    use windows_sys::Win32::UI::Controls::MARGINS;
-
-    let Ok(hwnd) = window.hwnd() else { return };
-    // Tauri returns windows::Win32::Foundation::HWND (the typed `windows`
-    // crate); windows-sys takes a raw *mut c_void. Same underlying
-    // pointer — just unwrap the tuple struct.
-    let hwnd_raw = hwnd.0;
-    let margins = MARGINS {
-        cxLeftWidth: -1,
-        cxRightWidth: -1,
-        cyTopHeight: -1,
-        cyBottomHeight: -1,
-    };
-    // Safety: hwnd is a valid window handle owned by Tauri's window for
-    // its full lifetime, and DwmExtendFrameIntoClientArea only reads the
-    // MARGINS struct synchronously. No invariants to uphold beyond that.
-    unsafe {
-        let _ = DwmExtendFrameIntoClientArea(hwnd_raw, &margins);
-    }
-}
-
 /// Build the tray icon with a Quit menu item. Best-effort: any error is
 /// returned to the caller, which logs and continues. The hotkey is the
 /// guaranteed exit path; the tray is a discoverability aid.
@@ -588,9 +552,6 @@ fn main() {
             {
                 let _ = window.set_ignore_cursor_events(true);
             }
-
-            #[cfg(target_os = "windows")]
-            apply_windows_borderless(&window);
 
             match &mode_for_setup {
                 Mode::Plugin { manifest, .. } => {
