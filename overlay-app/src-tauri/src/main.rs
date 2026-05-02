@@ -25,6 +25,14 @@
 //     ignore_cursor_events=true. Tauri handles WS_EX_TRANSPARENT,
 //     NSWindow.level, and X11 _NET_WM_STATE_ABOVE per platform.
 //
+//   Windows 11 also paints a hairline frame around the window via DWM
+//   that survives decorations(false). It's compositor chrome (verified:
+//   Discord's window-share doesn't see it, full-screen-share does), so
+//   the suppression has to happen at the OS level. apply_windows_no_border
+//   turns off DWMWA_BORDER_COLOR, the rounded-corner pass, non-client
+//   rendering, and strips WS_THICKFRAME — see that function for the
+//   per-knob rationale.
+//
 // Plugins can also reshape their own widget at runtime via Tauri commands
 // (RLT.widget.* in the SDK) — see the `widget_*` handlers below.
 //
@@ -401,6 +409,117 @@ fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
     let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
 }
 
+/// Suppress the Windows 11 hairline frame around the overlay window.
+///
+/// The artifact is compositor-painted: Discord's per-window screen
+/// share doesn't capture it, but full-screen share does. So we have to
+/// turn it off at the DWM / window-style level — HTML/CSS can't reach
+/// it, and `decorations(false)` doesn't either.
+///
+/// Four independent knobs, all best-effort. Each is harmless on
+/// Windows builds that don't recognize it (the API just returns a
+/// non-zero HRESULT we ignore) or where the bit isn't set:
+///
+///   1. DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE — explicit "no border
+///      color" on the window. Win11 22000+. May not be enough on its
+///      own (the prior attempt at this didn't fix the bug) but it's
+///      free to set.
+///   2. DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_DONOTROUND — opt out
+///      of the Win11 rounded-corner pass, which can paint a frame as
+///      part of the corner treatment.
+///   3. DWMWA_NCRENDERING_POLICY = DWMNCRP_DISABLED — disable
+///      non-client rendering on this HWND. Kills DWM-drawn frame
+///      chrome including the drop-shadow edge.
+///   4. Strip WS_THICKFRAME and re-apply with SWP_FRAMECHANGED.
+///      Tauri's decorations(false) clears WS_CAPTION but typically
+///      leaves the sizing border so the window stays programmatically
+///      resizable. We don't need that — `resizable(false)` is set —
+///      and the 1px sizing frame is a likely outline source.
+#[cfg(target_os = "windows")]
+fn apply_windows_no_border(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMNCRP_DISABLED, DWMWA_BORDER_COLOR,
+        DWMWA_NCRENDERING_POLICY, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+        DWMWA_COLOR_NONE,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_STYLE, SWP_FRAMECHANGED,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_THICKFRAME,
+    };
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    // Tauri returns windows::Win32::Foundation::HWND (typed `windows`
+    // crate, a tuple struct around *mut c_void). windows-sys aliases
+    // HWND to that same raw pointer, so the inner field is the value
+    // we pass to all the Win32 calls below.
+    let hwnd: HWND = hwnd.0;
+
+    // (1) DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE.
+    // Safety: hwnd is a valid window handle owned by Tauri for the
+    // lifetime of this window. DwmSetWindowAttribute reads
+    // `cbAttribute` bytes synchronously and returns. sizeof(COLORREF)
+    // = sizeof(u32) = 4.
+    unsafe {
+        let color: u32 = DWMWA_COLOR_NONE;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR as u32,
+            &color as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+
+    // (2) DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_DONOTROUND.
+    // Safety: same as above; the attribute is a 32-bit enum value.
+    unsafe {
+        let pref: u32 = DWMWCP_DONOTROUND as u32;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &pref as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+
+    // (3) DWMWA_NCRENDERING_POLICY = DWMNCRP_DISABLED.
+    // Safety: same as above; the attribute is a 32-bit enum value.
+    unsafe {
+        let policy: u32 = DWMNCRP_DISABLED as u32;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_NCRENDERING_POLICY as u32,
+            &policy as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+
+    // (4) Strip WS_THICKFRAME and notify the frame changed.
+    // Safety: hwnd is a valid HWND; GetWindowLongPtrW / SetWindowLongPtrW
+    // take a pointer-sized integer style word and return the previous
+    // value. SetWindowPos with SWP_FRAMECHANGED forces DWM to recompute
+    // the non-client area against the new style. SWP_NOMOVE | NOSIZE |
+    // NOZORDER | NOACTIVATE means we don't actually move/resize/restack.
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        if style != 0 {
+            let new_style = style & !(WS_THICKFRAME as isize);
+            if new_style != style {
+                SetWindowLongPtrW(hwnd, GWL_STYLE, new_style);
+                let _ = SetWindowPos(
+                    hwnd,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
+        }
+    }
+}
+
 /// Build the tray icon with a Quit menu item. Best-effort: any error is
 /// returned to the caller, which logs and continues. The hotkey is the
 /// guaranteed exit path; the tray is a discoverability aid.
@@ -553,6 +672,9 @@ fn main() {
             {
                 let _ = window.set_ignore_cursor_events(true);
             }
+
+            #[cfg(target_os = "windows")]
+            apply_windows_no_border(&window);
 
             match &mode_for_setup {
                 Mode::Plugin { manifest, .. } => {
