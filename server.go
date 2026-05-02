@@ -431,8 +431,8 @@ func (s *Server) knownPlugin(name string) bool {
 // overrides map changes. The shape mirrors the GET endpoint so
 // subscribers can reuse merge code unchanged.
 type overridesChangedEnvelope struct {
-	Event string                       `json:"Event"`
-	Data  map[string]OverlayOverride   `json:"Data"`
+	Event string                     `json:"Event"`
+	Data  map[string]OverlayOverride `json:"Data"`
 }
 
 // marshalOverridesChanged builds the JSON envelope for an
