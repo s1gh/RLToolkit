@@ -19,6 +19,47 @@
   document.documentElement.style.background = '#0a0c14';
   document.body.style.background = '#0a0c14';
 
+  // ─── Top bar ──────────────────────────────────────────────
+  // Sticky bar across the viewport. Overlays the canvas (z-index 100)
+  // rather than displacing it, so edit-mode widget positions stay
+  // visually identical to production — top-anchored widgets that
+  // happen to sit under the bar can be dragged out of the way.
+  const topbar = document.createElement('div');
+  topbar.style.cssText =
+    'position:fixed;top:0;left:0;right:0;height:32px;' +
+    'display:flex;align-items:center;gap:12px;padding:0 14px;' +
+    'background:rgba(15,19,32,0.95);border-bottom:1px solid #232a44;' +
+    'color:#a9b0cf;font:600 11px Inter,system-ui,sans-serif;' +
+    'letter-spacing:.05em;z-index:100';
+  topbar.innerHTML =
+    '<span style="color:#22d3ee;text-transform:uppercase">Overlay editor</span>' +
+    '<span style="opacity:.6">Drag to position · Drop to save</span>' +
+    '<span style="flex:1"></span>' +
+    '<span style="opacity:.6;text-transform:none;letter-spacing:.02em;font-weight:500">8px grid · hold Shift for fine adjust</span>' +
+    '<button data-role="reset-all" style="' +
+      'padding:6px 12px;background:#1d2238;color:#a9b0cf;' +
+      'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
+      'font:600 10px Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase' +
+    '">Reset all</button>';
+  document.body.appendChild(topbar);
+
+  topbar.querySelector('[data-role="reset-all"]').addEventListener('click', async () => {
+    if (!confirm('Reset all widget positions to their manifest defaults?')) return;
+    try {
+      // Sequential DELETEs — N is small (one per plugin) so a parallel
+      // burst gains nothing and would muddle error reporting.
+      for (const w of widgets) {
+        const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(w.plugin.name), {
+          method: 'DELETE',
+        });
+        if (!r.ok) throw new Error(w.plugin.name + ' → HTTP ' + r.status);
+      }
+      location.reload();
+    } catch (err) {
+      toast('Reset all failed: ' + err.message);
+    }
+  });
+
   // Per-widget state. `el` is the wrapper div that owns positioning;
   // `iframe` is the live preview; `capture` is the transparent overlay
   // that intercepts mouse events so iframe content never sees them.
