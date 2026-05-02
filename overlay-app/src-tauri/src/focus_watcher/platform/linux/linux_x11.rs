@@ -22,6 +22,8 @@ struct X11State {
     root: Window,
     net_active_window: u32,
     net_wm_pid: u32,
+    net_wm_name: u32,
+    utf8_string: u32,
 }
 
 static STATE: OnceLock<Option<X11State>> = OnceLock::new();
@@ -44,11 +46,15 @@ fn init_state() -> Result<X11State, String> {
     let root = conn.setup().roots[screen_num].root;
     let net_active_window = intern(&conn, b"_NET_ACTIVE_WINDOW")?;
     let net_wm_pid = intern(&conn, b"_NET_WM_PID")?;
+    let net_wm_name = intern(&conn, b"_NET_WM_NAME")?;
+    let utf8_string = intern(&conn, b"UTF8_STRING")?;
     Ok(X11State {
         conn,
         root,
         net_active_window,
         net_wm_pid,
+        net_wm_name,
+        utf8_string,
     })
 }
 
@@ -108,9 +114,7 @@ fn read_pid(s: &X11State, win: Window) -> Option<u32> {
 
 fn read_title(s: &X11State, win: Window) -> Option<String> {
     // Prefer _NET_WM_NAME (UTF-8) over WM_NAME (latin-1).
-    let utf8 = intern(&s.conn, b"_NET_WM_NAME").ok()?;
-    let utf8_str = intern(&s.conn, b"UTF8_STRING").ok()?;
-    if let Some(reply) = read_prop(&s.conn, win, utf8, utf8_str) {
+    if let Some(reply) = read_prop(&s.conn, win, s.net_wm_name, s.utf8_string) {
         if !reply.value.is_empty() {
             return Some(String::from_utf8_lossy(&reply.value).into_owned());
         }
