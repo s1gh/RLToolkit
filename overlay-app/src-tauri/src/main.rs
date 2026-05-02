@@ -140,6 +140,28 @@ fn urlencoding_minimal(s: &str) -> String {
     s.replace(' ', "%20")
 }
 
+/// URL of the toolkit's aggregator overlay page (renders all enabled
+/// plugins in one viewport). Used in unified mode.
+fn unified_url(toolkit: &str) -> String {
+    format!("{}/overlay", toolkit.trim_end_matches('/'))
+}
+
+/// Liveness check used by unified mode. Hits /api/status with the same
+/// 2-second timeout as the per-plugin manifest fetch. Logs on failure
+/// but never errors out — the webview will retry on its own once the
+/// toolkit comes up.
+fn probe_toolkit(toolkit: &str) {
+    let url = format!("{}/api/status", toolkit.trim_end_matches('/'));
+    match ureq::get(&url).timeout(std::time::Duration::from_secs(2)).call() {
+        Ok(_) => {}
+        Err(e) => eprintln!(
+            "[rl-widget] toolkit unreachable at {}: {}; opening window anyway",
+            toolkit.trim_end_matches('/'),
+            e
+        ),
+    }
+}
+
 // ─── Tauri commands (the RLT.widget.* surface) ──────────────────
 //
 // Each command applies the change to BOTH:
