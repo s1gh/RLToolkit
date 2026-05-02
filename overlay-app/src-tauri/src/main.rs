@@ -181,6 +181,21 @@ fn probe_toolkit(toolkit: &str) {
 //      protocol that ignores xdg-toplevel positioning)
 // and updates the shared WidgetState so re-anchoring / re-margining can
 // reuse the previously-set values.
+//   3. Gates on Mode — no-ops with a log line in unified mode (where the
+//      window is shared across all plugins and per-plugin reshape is wrong).
+
+/// Returns true when the widget is in unified mode. Each command
+/// handler calls this to decide whether to run or no-op + log.
+///
+/// `tauri::State<'_, Mode>` derefs to `&Mode`, so a single `*` peels
+/// it back into a `Mode` we can pattern-match on.
+fn ignored_in_unified(mode: &tauri::State<'_, Mode>, fn_name: &str) -> bool {
+    if matches!(**mode, Mode::Unified) {
+        eprintln!("[rl-widget] {} ignored in unified mode", fn_name);
+        return true;
+    }
+    false
+}
 
 #[tauri::command]
 fn widget_size(
@@ -188,7 +203,11 @@ fn widget_size(
     height: u32,
     window: tauri::WebviewWindow,
     state: tauri::State<'_, Mutex<WidgetState>>,
+    mode: tauri::State<'_, Mode>,
 ) -> Result<(), String> {
+    if ignored_in_unified(&mode, "widget_size") {
+        return Ok(());
+    }
     let _ = window.set_size(LogicalSize::new(width as f64, height as f64));
     if let Ok(mut s) = state.lock() {
         s.width = width as i32;
@@ -204,7 +223,11 @@ fn widget_anchor(
     anchor: String,
     window: tauri::WebviewWindow,
     state: tauri::State<'_, Mutex<WidgetState>>,
+    mode: tauri::State<'_, Mode>,
 ) -> Result<(), String> {
+    if ignored_in_unified(&mode, "widget_anchor") {
+        return Ok(());
+    }
     if let Ok(mut s) = state.lock() {
         s.anchor = anchor.clone();
     }
@@ -221,7 +244,11 @@ fn widget_margin(
     y: i32,
     window: tauri::WebviewWindow,
     state: tauri::State<'_, Mutex<WidgetState>>,
+    mode: tauri::State<'_, Mode>,
 ) -> Result<(), String> {
+    if ignored_in_unified(&mode, "widget_margin") {
+        return Ok(());
+    }
     if let Ok(mut s) = state.lock() {
         s.margin_x = x;
         s.margin_y = y;
@@ -234,7 +261,14 @@ fn widget_margin(
 }
 
 #[tauri::command]
-fn widget_opacity(opacity: f64, window: tauri::WebviewWindow) -> Result<(), String> {
+fn widget_opacity(
+    opacity: f64,
+    window: tauri::WebviewWindow,
+    mode: tauri::State<'_, Mode>,
+) -> Result<(), String> {
+    if ignored_in_unified(&mode, "widget_opacity") {
+        return Ok(());
+    }
     // Tauri exposes opacity on each platform's underlying window. On Linux
     // it's gtk_window.set_opacity; on Windows it's WS_EX_LAYERED alpha; on
     // macOS it's NSWindow.alphaValue. All clamp 0..=1.
@@ -255,7 +289,14 @@ fn widget_opacity(opacity: f64, window: tauri::WebviewWindow) -> Result<(), Stri
 }
 
 #[tauri::command]
-fn widget_visible(visible: bool, window: tauri::WebviewWindow) -> Result<(), String> {
+fn widget_visible(
+    visible: bool,
+    window: tauri::WebviewWindow,
+    mode: tauri::State<'_, Mode>,
+) -> Result<(), String> {
+    if ignored_in_unified(&mode, "widget_visible") {
+        return Ok(());
+    }
     if visible {
         let _ = window.show();
     } else {
