@@ -35,14 +35,12 @@ struct ToplevelInfo {
 struct WaylandState {
     conn: Connection,
     queue: EventQueue<AppData>,
-    qh: QueueHandle<AppData>,
     app_data: AppData,
 }
 
 #[derive(Default)]
 struct AppData {
     toplevels: Vec<(ZwlrForeignToplevelHandleV1, ToplevelInfo)>,
-    pending: std::collections::HashMap<u32, ToplevelInfo>,
 }
 
 static STATE: OnceLock<Option<Mutex<WaylandState>>> = OnceLock::new();
@@ -61,7 +59,6 @@ fn try_init() -> Result<WaylandState, String> {
     Ok(WaylandState {
         conn,
         queue,
-        qh,
         app_data,
     })
 }
