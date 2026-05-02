@@ -72,8 +72,21 @@
     badge.style.pointerEvents = 'none';
     el.appendChild(badge);
 
+    // Resize handle in the bottom-right corner. Only visible when
+    // selected — handled by toggling its display in select().
+    const resize = document.createElement('div');
+    resize.style.position = 'absolute';
+    resize.style.right = '0';
+    resize.style.bottom = '0';
+    resize.style.width = '12px';
+    resize.style.height = '12px';
+    resize.style.background = 'rgba(34, 211, 238, 1)';
+    resize.style.cursor = 'nwse-resize';
+    resize.style.display = 'none';
+    el.appendChild(resize);
+
     document.body.appendChild(el);
-    return { plugin, overlay, el, iframe, capture, badge };
+    return { plugin, overlay, el, iframe, capture, badge, resize };
   }
 
   // applyAnchor sets the four positional CSS properties on `el` so that
@@ -95,9 +108,16 @@
 
   function select(w) {
     if (selected === w) return;
-    if (selected) selected.el.style.outline = '1px solid rgba(34, 211, 238, 0.4)';
+    if (selected) {
+      selected.el.style.outline = '1px solid rgba(34, 211, 238, 0.4)';
+      selected.resize.style.display = 'none';
+    }
     selected = w;
-    if (selected) selected.el.style.outline = '2px solid rgba(34, 211, 238, 1)';
+    if (selected) {
+      selected.el.style.outline = '2px solid rgba(34, 211, 238, 1)';
+      selected.resize.style.display = 'block';
+    }
+    renderPanel();
   }
 
   for (const w of widgets) {
@@ -187,6 +207,66 @@
     target.addEventListener('pointercancel', end);
   }
 
+  // ─── Drag to resize ──────────────────────────────────────
+  for (const w of widgets) {
+    w.resize.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();   // don't also trigger the widget's drag handler
+      select(w);
+      startResize(w, e);
+    });
+  }
+
+  function startResize(w, downEv) {
+    const startX = downEv.clientX;
+    const startY = downEv.clientY;
+    const startW = w.el.offsetWidth;
+    const startH = w.el.offsetHeight;
+    const target = downEv.currentTarget;
+    const pointerId = downEv.pointerId;
+    try { target.setPointerCapture(pointerId); } catch (_) {}
+    const token = (w._resizeToken = (w._resizeToken | 0) + 1);
+
+    function move(ev) {
+      if (ev.pointerId !== pointerId) return;
+      ev.preventDefault();
+      const nw = clamp(startW + (ev.clientX - startX), 16);
+      const nh = clamp(startH + (ev.clientY - startY), 16);
+      w.overlay.width  = nw;
+      w.overlay.height = nh;
+      w.el.style.width  = nw + 'px';
+      w.el.style.height = nh + 'px';
+    }
+    function end(ev) {
+      if (ev.pointerId !== pointerId) return;
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', end);
+      target.removeEventListener('pointercancel', end);
+      try { target.releasePointerCapture(pointerId); } catch (_) {}
+
+      if (!ev.shiftKey) {
+        w.overlay.width  = Math.round(w.overlay.width  / SNAP) * SNAP;
+        w.overlay.height = Math.round(w.overlay.height / SNAP) * SNAP;
+        w.el.style.width  = w.overlay.width  + 'px';
+        w.el.style.height = w.overlay.height + 'px';
+      }
+      saveOverride(w, {
+        width:  w.overlay.width,
+        height: w.overlay.height,
+      }).catch((err) => {
+        if (w._resizeToken !== token) return;
+        w.overlay.width  = startW;
+        w.overlay.height = startH;
+        w.el.style.width  = startW + 'px';
+        w.el.style.height = startH + 'px';
+        toast('Save failed: ' + err.message);
+      });
+    }
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', end);
+    target.addEventListener('pointercancel', end);
+  }
+
   function clamp(v, min) { return v < min ? min : v; }
 
   // ─── Persistence ──────────────────────────────────────────
@@ -218,6 +298,152 @@
     requestAnimationFrame(() => { t.style.opacity = '1'; });
     clearTimeout(t._timer);
     t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+  }
+
+  // ─── Floating control panel ──────────────────────────────
+  // Single panel that rebinds itself to the selected widget. Lives in
+  // the top-right of the viewport so it never overlaps a widget that's
+  // anchored bottom-left.
+  const panel = document.createElement('div');
+  panel.style.cssText =
+    'position:fixed;top:48px;right:16px;width:240px;' +
+    'background:#161b2c;border:1px solid #232a44;border-radius:10px;' +
+    'padding:14px;color:#e6e9f5;font:500 12px Inter,system-ui,sans-serif;' +
+    'box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:50;display:none';
+  document.body.appendChild(panel);
+
+  function renderPanel() {
+    if (!selected) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    const o = selected.overlay;
+    const a = o.anchor || 'top-right';
+    panel.innerHTML =
+      '<div style="font:700 11px Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#22d3ee;margin-bottom:10px">' +
+        escapeHtml(selected.plugin.title || selected.plugin.name) +
+      '</div>' +
+
+      '<div style="margin-bottom:10px">Anchor</div>' +
+      '<div data-role="anchors" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">' +
+        anchorBtn('top-left',     a) +
+        anchorBtn('top-right',    a) +
+        anchorBtn('bottom-left',  a) +
+        anchorBtn('bottom-right', a) +
+      '</div>' +
+
+      '<div style="display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-bottom:14px">' +
+        '<label>Width</label>'  + numInput('width',  o.width)  +
+        '<label>Height</label>' + numInput('height', o.height) +
+      '</div>' +
+
+      '<div style="margin-bottom:6px">Opacity <span data-role="opacity-val">' + (o.opacity == null ? 1 : o.opacity).toFixed(2) + '</span></div>' +
+      '<input data-role="opacity" type="range" min="0" max="1" step="0.01" value="' +
+        (o.opacity == null ? 1 : o.opacity) + '" style="width:100%;margin-bottom:14px">' +
+
+      '<button data-role="reset" style="' +
+        'width:100%;padding:8px;background:#1d2238;color:#a9b0cf;' +
+        'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
+        'font:600 11px Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase">' +
+        'Reset to manifest' +
+      '</button>';
+
+    wirePanel(selected);
+  }
+
+  function anchorBtn(name, current) {
+    const active = name === current;
+    return '<button data-anchor="' + name + '" style="' +
+      'padding:6px;background:' + (active ? '#22d3ee' : '#1d2238') + ';' +
+      'color:' + (active ? '#0a0c14' : '#a9b0cf') + ';' +
+      'border:1px solid ' + (active ? '#22d3ee' : '#232a44') + ';' +
+      'border-radius:6px;cursor:pointer;font:600 10px Inter,sans-serif;' +
+      'letter-spacing:.05em;text-transform:uppercase' +
+    '">' + name.replace('-', ' ') + '</button>';
+  }
+
+  function numInput(role, value) {
+    return '<input data-role="' + role + '" type="number" min="0" value="' + (value | 0) + '" style="' +
+      'width:100%;padding:6px 8px;background:#0f1320;color:#e6e9f5;' +
+      'border:1px solid #232a44;border-radius:6px;font:500 12px JetBrains Mono,monospace">';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  function wirePanel(w) {
+    panel.querySelectorAll('[data-anchor]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const next = btn.getAttribute('data-anchor');
+        const prev = w.overlay.anchor || 'top-right';
+        if (next === prev) return;
+        // Recompute offsets so the widget visually stays in place under
+        // the new anchor. Read the live viewport so the math works
+        // regardless of editor browser size.
+        const r = w.el.getBoundingClientRect();
+        let nx, ny;
+        if (next.indexOf('-left') >= 0) nx = Math.max(0, Math.round(r.left));
+        else                            nx = Math.max(0, Math.round(window.innerWidth  - r.right));
+        if (next.indexOf('top')   === 0) ny = Math.max(0, Math.round(r.top));
+        else                             ny = Math.max(0, Math.round(window.innerHeight - r.bottom));
+        w.overlay.anchor   = next;
+        w.overlay.offset_x = nx;
+        w.overlay.offset_y = ny;
+        applyAnchor(w.el, next, nx, ny);
+        saveOverride(w, { anchor: next, offset_x: nx, offset_y: ny })
+          .catch((err) => toast('Save failed: ' + err.message));
+        renderPanel();
+      });
+    });
+
+    const wInput = panel.querySelector('[data-role="width"]');
+    const hInput = panel.querySelector('[data-role="height"]');
+    wInput.addEventListener('change', () => commitSize(w, +wInput.value, w.overlay.height));
+    hInput.addEventListener('change', () => commitSize(w, w.overlay.width, +hInput.value));
+
+    const op = panel.querySelector('[data-role="opacity"]');
+    const opVal = panel.querySelector('[data-role="opacity-val"]');
+    op.addEventListener('input', () => {
+      // Live preview while sliding; persist on release (change).
+      const v = +op.value;
+      w.overlay.opacity = v;
+      w.iframe.style.opacity = v;
+      opVal.textContent = v.toFixed(2);
+    });
+    op.addEventListener('change', () => {
+      saveOverride(w, { opacity: +op.value })
+        .catch((err) => toast('Save failed: ' + err.message));
+    });
+
+    panel.querySelector('[data-role="reset"]').addEventListener('click', () => resetWidget(w));
+  }
+
+  function commitSize(w, width, height) {
+    width  = Math.max(0, width  | 0);
+    height = Math.max(0, height | 0);
+    w.overlay.width  = width;
+    w.overlay.height = height;
+    w.el.style.width  = width + 'px';
+    w.el.style.height = height + 'px';
+    saveOverride(w, { width, height })
+      .catch((err) => toast('Save failed: ' + err.message));
+  }
+
+  async function resetWidget(w) {
+    try {
+      const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(w.plugin.name), {
+        method: 'DELETE',
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+    } catch (err) {
+      toast('Reset failed: ' + err.message);
+      return;
+    }
+    // Reload the page so the manifest defaults flow back through the
+    // normal merge path; avoids us re-implementing the merge logic
+    // client-side and duplicating drift risk.
+    location.reload();
   }
 
   console.log('[overlay-editor] rendered', widgets.length, 'widget(s)');
