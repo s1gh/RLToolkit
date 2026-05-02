@@ -23,5 +23,6 @@ overlay-app/src-tauri/gen/
 
 # Local agent / session notes / archives
 .claude/
-docs/
+docs/*
+!docs/superpowers/
 *.zip
