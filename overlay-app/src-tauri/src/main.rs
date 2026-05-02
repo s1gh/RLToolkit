@@ -103,40 +103,24 @@ impl WidgetState {
     }
 }
 
-fn fetch_manifest(toolkit: &str, plugin: &str) -> OverlayCfg {
+/// Per-plugin mode startup: fetch /api/plugins and return the entry's
+/// overlay block. Returns Err on network failure, JSON parse failure, or
+/// when the plugin isn't in the catalog. Treated as fatal by main() —
+/// see the comment on probe_toolkit for why we don't open a window when
+/// the toolkit can't be reached.
+fn fetch_manifest(toolkit: &str, plugin: &str) -> Result<OverlayCfg, String> {
     let url = format!("{}/api/plugins", toolkit.trim_end_matches('/'));
-    let resp = match ureq::get(&url).timeout(std::time::Duration::from_secs(2)).call() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("[rl-widget] manifest fetch failed: {e}");
-            return default_overlay();
-        }
-    };
-    let list: Vec<PluginManifest> = match resp.into_json() {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("[rl-widget] manifest parse failed: {e}");
-            return default_overlay();
-        }
-    };
+    let resp = ureq::get(&url)
+        .timeout(std::time::Duration::from_secs(2))
+        .call()
+        .map_err(|e| format!("manifest fetch failed: {e}"))?;
+    let list: Vec<PluginManifest> = resp
+        .into_json()
+        .map_err(|e| format!("manifest parse failed: {e}"))?;
     list.into_iter()
         .find(|p| p.name == plugin)
         .map(|p| p.overlay)
-        .unwrap_or_else(|| {
-            eprintln!("[rl-widget] plugin {plugin:?} not in /api/plugins; using defaults");
-            default_overlay()
-        })
-}
-
-fn default_overlay() -> OverlayCfg {
-    OverlayCfg {
-        file: "overlay.html".into(),
-        width: 320,
-        height: 240,
-        anchor: "bottom-left".into(),
-        offset_x: 12,
-        offset_y: 12,
-    }
+        .ok_or_else(|| format!("plugin {plugin:?} not in {}/api/plugins", toolkit.trim_end_matches('/')))
 }
 
 fn plugin_url(toolkit: &str, plugin: &str, file: &str, anchor: &str) -> String {
@@ -160,20 +144,22 @@ fn unified_url(toolkit: &str) -> String {
     format!("{}/overlay", toolkit.trim_end_matches('/'))
 }
 
-/// Liveness check used by unified mode. Hits /api/status with the same
-/// 2-second timeout as the per-plugin manifest fetch. Logs on failure
-/// but never errors out — the webview will retry on its own once the
-/// toolkit comes up.
-fn probe_toolkit(toolkit: &str) {
-    let url = format!("{}/api/status", toolkit.trim_end_matches('/'));
-    match ureq::get(&url).timeout(std::time::Duration::from_secs(2)).call() {
-        Ok(_) => {}
-        Err(e) => eprintln!(
-            "[rl-widget] toolkit unreachable at {}: {}; opening window anyway",
-            toolkit.trim_end_matches('/'),
-            e
-        ),
-    }
+/// Liveness check used by unified mode. Hits /api/status with a 2-second
+/// timeout. Returns Err on failure — main() treats this as fatal and
+/// refuses to open the window. We can't gracefully recover: the unified
+/// window is fullscreen, click-through, undecorated, and skip-taskbar.
+/// If we open it on a webview-error page (e.g. ERR_CONNECTION_REFUSED),
+/// the user can't click on or focus anything underneath it and has no
+/// path to close it short of Task Manager. Better to fail loudly at
+/// startup than to lock up the desktop.
+fn probe_toolkit(toolkit: &str) -> Result<(), String> {
+    let base = toolkit.trim_end_matches('/');
+    let url = format!("{}/api/status", base);
+    ureq::get(&url)
+        .timeout(std::time::Duration::from_secs(2))
+        .call()
+        .map(|_| ())
+        .map_err(|e| format!("toolkit unreachable at {}: {}", base, e))
 }
 
 // ─── Tauri commands (the RLT.widget.* surface) ──────────────────
@@ -395,14 +381,25 @@ fn main() {
 
     let (mode, url, title) = match args.plugin.clone() {
         Some(name) if !name.is_empty() => {
-            let manifest = fetch_manifest(&args.toolkit, &name);
+            let manifest = match fetch_manifest(&args.toolkit, &name) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("[rl-widget] {}", e);
+                    eprintln!("[rl-widget] start the toolkit first (e.g. ./rl-toolkit) and retry");
+                    std::process::exit(1);
+                }
+            };
             let url = plugin_url(&args.toolkit, &name, &manifest.file, &manifest.anchor);
             eprintln!("[rl-widget] plugin={} url={}", name, url);
             let title = format!("RL Toolkit – {}", name);
             (Mode::Plugin { manifest }, url, title)
         }
         _ => {
-            probe_toolkit(&args.toolkit);
+            if let Err(e) = probe_toolkit(&args.toolkit) {
+                eprintln!("[rl-widget] {}", e);
+                eprintln!("[rl-widget] start the toolkit first (e.g. ./rl-toolkit) and retry");
+                std::process::exit(1);
+            }
             let url = unified_url(&args.toolkit);
             eprintln!("[rl-widget] unified mode url={}", url);
             (Mode::Unified, url, "RL Toolkit – Overlay".to_string())
