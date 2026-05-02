@@ -72,18 +72,20 @@
     badge.style.pointerEvents = 'none';
     el.appendChild(badge);
 
-    // Resize handle in the bottom-right corner. Only visible when
-    // selected — handled by toggling its display in select().
+    // Resize handle on the corner opposite the anchor — i.e., the corner
+    // that's free to move when the widget grows. For a top-right widget
+    // the right edge is pinned, so the handle goes on the LEFT-bottom;
+    // for bottom-right both right and bottom are pinned, handle goes
+    // top-left; etc. Re-positioned by positionResizeHandle whenever the
+    // anchor changes. Cursor is anchor-aware too.
     const resize = document.createElement('div');
     resize.style.position = 'absolute';
-    resize.style.right = '0';
-    resize.style.bottom = '0';
     resize.style.width = '12px';
     resize.style.height = '12px';
     resize.style.background = 'rgba(34, 211, 238, 1)';
-    resize.style.cursor = 'nwse-resize';
     resize.style.display = 'none';
     el.appendChild(resize);
+    positionResizeHandle(resize, a);
 
     document.body.appendChild(el);
     return { plugin, overlay, el, iframe, capture, badge, resize };
@@ -99,6 +101,24 @@
     else                                el.style.bottom = oy + 'px';
     if (anchor.indexOf('-left')  >= 0)  el.style.left   = ox + 'px';
     else                                el.style.right  = ox + 'px';
+  }
+
+  // positionResizeHandle places the handle on the corner opposite the
+  // anchor — the only corner that can actually grow when the widget
+  // resizes. Also picks the appropriate diagonal-resize cursor.
+  function positionResizeHandle(handle, anchor) {
+    handle.style.top = handle.style.bottom = handle.style.left = handle.style.right = '';
+    const onTop  = anchor.indexOf('top')   === 0;
+    const onLeft = anchor.indexOf('-left') >= 0;
+    if (onTop)  handle.style.bottom = '0'; else handle.style.top  = '0';
+    if (onLeft) handle.style.right  = '0'; else handle.style.left = '0';
+    // Cursor matches the diagonal the handle sits on:
+    //   top-left + handle on bottom-right     → nwse-resize
+    //   top-right + handle on bottom-left     → nesw-resize
+    //   bottom-left + handle on top-right     → nesw-resize
+    //   bottom-right + handle on top-left     → nwse-resize
+    const cursor = (onTop === onLeft) ? 'nwse-resize' : 'nesw-resize';
+    handle.style.cursor = cursor;
   }
 
   // ─── Selection ────────────────────────────────────────────
@@ -222,6 +242,15 @@
     const startY = downEv.clientY;
     const startW = w.el.offsetWidth;
     const startH = w.el.offsetHeight;
+    const anchor = w.overlay.anchor || 'top-right';
+    // The handle sits on the anchor-opposite corner, so the cursor's
+    // direction-of-growth matches the anchor: a left-anchored widget
+    // grows when the cursor moves +x (handle on right edge), a right-
+    // anchored widget grows when the cursor moves -x (handle on left
+    // edge). Same logic for the y axis. Same sign multipliers as
+    // startDrag uses for offsets.
+    const sx = (anchor.indexOf('-left') >= 0) ? +1 : -1;
+    const sy = (anchor.indexOf('top')   === 0) ? +1 : -1;
     const target = downEv.currentTarget;
     const pointerId = downEv.pointerId;
     try { target.setPointerCapture(pointerId); } catch (_) {}
@@ -230,8 +259,8 @@
     function move(ev) {
       if (ev.pointerId !== pointerId) return;
       ev.preventDefault();
-      const nw = clamp(startW + (ev.clientX - startX), 16);
-      const nh = clamp(startH + (ev.clientY - startY), 16);
+      const nw = clamp(startW + sx * (ev.clientX - startX), 16);
+      const nh = clamp(startH + sy * (ev.clientY - startY), 16);
       w.overlay.width  = nw;
       w.overlay.height = nh;
       w.el.style.width  = nw + 'px';
@@ -391,6 +420,7 @@
         w.overlay.offset_x = nx;
         w.overlay.offset_y = ny;
         applyAnchor(w.el, next, nx, ny);
+        positionResizeHandle(w.resize, next);
         saveOverride(w, { anchor: next, offset_x: nx, offset_y: ny })
           .catch((err) => toast('Save failed: ' + err.message));
         renderPanel();
@@ -420,8 +450,11 @@
   }
 
   function commitSize(w, width, height) {
-    width  = Math.max(0, width  | 0);
-    height = Math.max(0, height | 0);
+    // Clamp to the same minimum the resize handle uses (16px). 0 would
+    // produce an invisible widget that can't be re-selected. Snap to
+    // the same 8px grid that drag-resize uses on release.
+    width  = Math.round(Math.max(16, width  | 0) / SNAP) * SNAP;
+    height = Math.round(Math.max(16, height | 0) / SNAP) * SNAP;
     w.overlay.width  = width;
     w.overlay.height = height;
     w.el.style.width  = width + 'px';
