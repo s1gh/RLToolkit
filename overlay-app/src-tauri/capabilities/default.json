@@ -12,6 +12,11 @@
     "core:window:allow-set-position",
     "core:window:allow-show",
     "core:window:allow-hide",
-    "core:webview:default"
+    "core:webview:default",
+    "core:tray:default",
+    "core:menu:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
   ]
 }

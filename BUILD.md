@@ -50,6 +50,18 @@ cargo build --release
 ./overlay-app/src-tauri/target/release/rl-widget --plugin=dejavu
 ```
 
+### Stopping the widget
+
+The overlay window is click-through, undecorated, and skip-taskbar — by
+design, you can't reach it with the mouse or alt-tab. Two exit paths:
+
+- **Global hotkey** (default `Ctrl+Shift+Q`). Always available; if the
+  default conflicts with another app, override with
+  `--quit-hotkey=<COMBO>` (Tauri shortcut syntax — e.g. `Alt+F4`,
+  `CmdOrCtrl+W`).
+- **Tray icon** — right-click → *Quit*. Best-effort; some minimal
+  desktops can't host a tray.
+
 ---
 
 ## Windows

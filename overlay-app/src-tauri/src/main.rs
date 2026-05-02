@@ -6,6 +6,15 @@
 // anchored from the plugin's manifest). In both cases the window is
 // transparent, frameless, click-through, and pinned above all others.
 //
+// Because the window is click-through + skip-taskbar + undecorated +
+// unfocused, it cannot be closed by clicking, alt-tabbing, or any
+// in-window UI. Two exit paths are wired at startup:
+//   - global hotkey (default Ctrl+Shift+Q, --quit-hotkey to override)
+//     — REQUIRED. If registration fails (collision with another app),
+//     startup aborts; the user picks a different combo.
+//   - tray icon with a Quit menu item — best-effort. Logged-and-ignored
+//     if the desktop environment can't host one (rare).
+//
 // Per-platform overlay primitive:
 //   Linux/Wayland: wlr-layer-shell (overlay layer + anchored margins). The
 //     compositor handles placement; no windowrule config required.
@@ -17,16 +26,20 @@
 // (RLT.widget.* in the SDK) — see the `widget_*` handlers below.
 //
 // CLI:
-//   rl-widget [--plugin=<name>] [--toolkit=http://localhost:8080]
+//   rl-widget [--plugin=<name>] [--toolkit=URL] [--quit-hotkey=COMBO]
 
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 use clap::Parser;
 use serde::Deserialize;
 use std::sync::Mutex;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::AppHandle;
 #[cfg(not(target_os = "linux"))]
-use tauri::{LogicalPosition, Manager};
+use tauri::LogicalPosition;
 use tauri::{LogicalSize, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "rl-widget", about = "RL Toolkit overlay widget")]
@@ -41,6 +54,15 @@ struct Args {
     /// Toolkit base URL.
     #[arg(long, default_value = "http://localhost:8080")]
     toolkit: String,
+
+    /// Global hotkey to quit the overlay. Format follows Tauri's
+    /// shortcut syntax — e.g. "Ctrl+Shift+Q", "Alt+F4", "CmdOrCtrl+W".
+    /// Required: the overlay window is unfocusable, undecorated, and
+    /// click-through, so the hotkey is the user's guaranteed exit.
+    /// If registration fails (already taken by another app), startup
+    /// aborts so the user picks something else.
+    #[arg(long, default_value = "Ctrl+Shift+Q")]
+    quit_hotkey: String,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -376,6 +398,57 @@ fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
     let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
 }
 
+/// Build the tray icon with a Quit menu item. Best-effort: any error is
+/// returned to the caller, which logs and continues. The hotkey is the
+/// guaranteed exit path; the tray is a discoverability aid.
+fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| "no default window icon".to_string())?;
+
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)
+        .map_err(|e| format!("build menu item: {e}"))?;
+    let menu =
+        Menu::with_items(app, &[&quit]).map_err(|e| format!("build tray menu: {e}"))?;
+
+    TrayIconBuilder::new()
+        .icon(icon)
+        .tooltip(tooltip)
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| {
+            if event.id.as_ref() == "quit" {
+                app.exit(0);
+            }
+        })
+        .build(app)
+        .map_err(|e| format!("build tray icon: {e}"))?;
+    Ok(())
+}
+
+/// Register the global quit hotkey. REQUIRED — see the Args::quit_hotkey
+/// doc comment for why. Returns Err on parse failure or if the OS reports
+/// the combo is already taken; the caller turns that into a startup
+/// abort with a stderr message telling the user to pick another combo.
+fn setup_hotkey(app: &AppHandle, combo: &str) -> Result<(), String> {
+    let shortcut: Shortcut = combo
+        .parse()
+        .map_err(|e| format!("could not parse quit hotkey {combo:?}: {e}"))?;
+
+    let app_for_handler = app.clone();
+    let shortcut_for_handler = shortcut;
+
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |_app, sc, _event| {
+            if *sc == shortcut_for_handler {
+                app_for_handler.exit(0);
+            }
+        })
+        .map_err(|e| format!("could not register quit hotkey {combo:?}: {e}"))?;
+    Ok(())
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -421,8 +494,11 @@ fn main() {
     };
 
     let mode_for_setup = mode.clone();
+    let quit_hotkey = args.quit_hotkey.clone();
+    let tray_tooltip = title.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(Mutex::new(widget_state))
         .manage(mode.clone())
         .invoke_handler(tauri::generate_handler![
@@ -433,6 +509,25 @@ fn main() {
             widget_visible,
         ])
         .setup(move |app| {
+            // Register the quit hotkey FIRST. If it can't be claimed,
+            // bail before opening the window — without this combo the
+            // user has no in-app exit path.
+            if let Err(e) = setup_hotkey(app.handle(), &quit_hotkey) {
+                eprintln!("[rl-widget] {}", e);
+                eprintln!("[rl-widget] pick a different combo with --quit-hotkey=<COMBO>");
+                std::process::exit(1);
+            }
+            eprintln!("[rl-widget] quit hotkey: {}", quit_hotkey);
+
+            // Tray is best-effort. Some minimal Linux desktops can't
+            // host one; the hotkey still works.
+            if let Err(e) = setup_tray(app.handle(), &tray_tooltip) {
+                eprintln!(
+                    "[rl-widget] tray icon failed to register ({}); use {} to quit",
+                    e, quit_hotkey
+                );
+            }
+
             let parsed = url::Url::parse(&url).map_err(|e| format!("bad url {url}: {e}"))?;
 
             let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
