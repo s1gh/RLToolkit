@@ -1164,6 +1164,7 @@
       if (typeof spec.onEncounters  === 'function') unsubs.push(encounters.onChange(gate(spec, spec.onEncounters)));
       if (typeof spec.onLifecycle   === 'function') unsubs.push(lifecycle.onChange(isolate(spec, spec.onLifecycle)));
       if (typeof spec.onMatchActive === 'function') unsubs.push(lifecycle.onMatchActive(isolate(spec, spec.onMatchActive)));
+      if (typeof spec.onFocusChange === 'function') unsubs.push(focus.onChange(isolate(spec, spec.onFocusChange)));
 
       const handle = {
         name,
@@ -1474,6 +1475,44 @@
     };
   })();
 
+  // ─── RLT.focus ─────────────────────────────────────────────
+  //
+  // Foreground-window detection. Powered by the rl-widget Rust process,
+  // which polls the OS every 250ms and emits a 'rlt://focus-change' Tauri
+  // event with payload { active: bool }. We mirror that into the SDK's
+  // emitter shape so plugins can subscribe with onChange(fn) the same way
+  // they subscribe to onMatchActive, onIdentity, etc.
+  //
+  // Outside Tauri (browser-tab access via the toolkit's /overlay page),
+  // the listener simply isn't registered — onChange remains callable but
+  // never fires. That's correct: a browser tab has no meaningful "game
+  // focus" concept, so plugins should default to visible there.
+  const focus = (function () {
+    const ev = emitter();
+
+    const inTauri = typeof window !== 'undefined'
+      && !!window.__TAURI_INTERNALS__
+      && !!window.__TAURI_INTERNALS__.event
+      && typeof window.__TAURI_INTERNALS__.event.listen === 'function';
+
+    if (inTauri) {
+      try {
+        window.__TAURI_INTERNALS__.event.listen('rlt://focus-change', (msg) => {
+          const active = !!(msg && msg.payload && msg.payload.active);
+          ev.emit('change', active);
+        });
+      } catch (e) {
+        console.warn('[RLT.focus] listener registration failed:', e);
+      }
+    }
+
+    return {
+      /** Subscribe to focus-change events. fn receives a boolean (true =
+       *  game is foreground, false = not). Returns an unsub function. */
+      onChange(fn) { return ev.on('change', fn); },
+    };
+  })();
+
   // ─── Public API ────────────────────────────────────────────
   window.RLT = {
     plugin: plugin,         // registration API; .name kept below for back-compat
@@ -1503,6 +1542,7 @@
     events,
     stats,
     widget,
+    focus,
   };
 
   // Auto-connect on load. Plugins can call RLT._reconnect() to force.
