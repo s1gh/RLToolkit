@@ -18,9 +18,17 @@
 // Per-platform overlay primitive:
 //   Linux/Wayland: wlr-layer-shell (overlay layer + anchored margins). The
 //     compositor handles placement; no windowrule config required.
+//     Click-through is NOT free here — layer-shell only handles where the
+//     surface lives; pointer input is still claimed by the GTK window
+//     unless we install an empty input shape (cairo region) on top of it.
 //   Windows / X11 / macOS: regular always-on-top frameless window with
 //     ignore_cursor_events=true. Tauri handles WS_EX_TRANSPARENT,
 //     NSWindow.level, and X11 _NET_WM_STATE_ABOVE per platform.
+//
+//   Windows-only quirk: DWM draws a faint 1px outline at the boundary of
+//   the client area on transparent layered top-level windows. We suppress
+//   it by extending the DWM frame across the entire client area
+//   (DwmExtendFrameIntoClientArea with all-(-1) margins).
 //
 // Plugins can also reshape their own widget at runtime via Tauri commands
 // (RLT.widget.* in the SDK) — see the `widget_*` handlers below.
@@ -384,18 +392,48 @@ fn apply_pixel_position(
     let _ = window.set_position(LogicalPosition::new(x, y));
 }
 
-/// Unified-mode fullscreen pass on non-Linux platforms. Sets the window
-/// size to the current monitor's logical size and positions at (0, 0).
-/// The toolkit's /overlay page handles per-plugin positioning inside.
+/// Unified-mode fullscreen pass on non-Linux platforms. Sizes and
+/// positions the window in physical pixels — going through logical
+/// pixels first would lose subpixels at fractional DPI scales (125%,
+/// 150%, 175%) and leave a hairline strip on one or two edges where
+/// the desktop shows through. monitor.position() also handles the
+/// multi-monitor case correctly (the primary isn't always at 0,0).
 #[cfg(not(target_os = "linux"))]
 fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
     let Ok(Some(monitor)) = window.current_monitor() else { return };
-    let mon_size = monitor.size();
-    let scale = monitor.scale_factor();
-    let mon_w = mon_size.width as f64 / scale;
-    let mon_h = mon_size.height as f64 / scale;
-    let _ = window.set_size(LogicalSize::new(mon_w, mon_h));
-    let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
+    let _ = window.set_size(*monitor.size());
+    let _ = window.set_position(*monitor.position());
+}
+
+/// Suppress the faint 1px frame DWM draws at the boundary of the client
+/// area on transparent layered top-level windows. Calling
+/// DwmExtendFrameIntoClientArea with all-(-1) margins tells DWM to treat
+/// the entire window as client area, which removes the outline.
+///
+/// Best-effort: errors retrieving the HWND or non-zero HRESULTs are
+/// swallowed — the window still works, just with the cosmetic line.
+#[cfg(target_os = "windows")]
+fn apply_windows_borderless(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+    use windows_sys::Win32::UI::Controls::MARGINS;
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    // Tauri returns windows::Win32::Foundation::HWND (the typed `windows`
+    // crate); windows-sys takes a raw *mut c_void. Same underlying
+    // pointer — just unwrap the tuple struct.
+    let hwnd_raw = hwnd.0;
+    let margins = MARGINS {
+        cxLeftWidth: -1,
+        cxRightWidth: -1,
+        cyTopHeight: -1,
+        cyBottomHeight: -1,
+    };
+    // Safety: hwnd is a valid window handle owned by Tauri's window for
+    // its full lifetime, and DwmExtendFrameIntoClientArea only reads the
+    // MARGINS struct synchronously. No invariants to uphold beyond that.
+    unsafe {
+        let _ = DwmExtendFrameIntoClientArea(hwnd_raw, &margins);
+    }
 }
 
 /// Build the tray icon with a Quit menu item. Best-effort: any error is
@@ -551,6 +589,9 @@ fn main() {
                 let _ = window.set_ignore_cursor_events(true);
             }
 
+            #[cfg(target_os = "windows")]
+            apply_windows_borderless(&window);
+
             match &mode_for_setup {
                 Mode::Plugin { manifest, .. } => {
                     #[cfg(target_os = "linux")]
@@ -608,6 +649,19 @@ fn init_layer_shell_common(window: &tauri::WebviewWindow) -> Option<gtk::Window>
     gtk_window.set_layer(Layer::Overlay);
     gtk_window.set_keyboard_interactivity(false);
     gtk_window.set_exclusive_zone(0);
+
+    // Click-through. Without this the overlay still grabs every pointer
+    // event even though it's transparent — clicks on the game underneath
+    // never reach RL. An empty input shape tells GDK "this surface has
+    // no interactive area," so the compositor routes input to whatever's
+    // beneath.
+    //
+    // realize() must run first: input_shape_combine_region needs the
+    // backing GdkWindow to exist, and on a not-yet-shown GTK window the
+    // call would silently no-op.
+    gtk_window.realize();
+    let empty_region = gtk::cairo::Region::create();
+    gtk_window.input_shape_combine_region(Some(&empty_region));
 
     Some(gtk_window.into())
 }
