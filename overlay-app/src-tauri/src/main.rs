@@ -84,6 +84,17 @@ struct Args {
     /// shown).
     #[arg(long)]
     game_match: Option<String>,
+
+    /// Output index to bind the overlay to on Linux/Wayland (0-based,
+    /// matches the order in `hyprctl monitors` or compositor enumeration).
+    /// Default: primary monitor. Ignored on Windows/macOS — those use the
+    /// current monitor at window-build time.
+    ///
+    /// Why this exists: wlr-layer-shell layer surfaces with no bound
+    /// output are fanned across all connected outputs. Binding to a
+    /// specific monitor pins the overlay to one screen.
+    #[arg(long)]
+    monitor: Option<usize>,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -690,7 +701,7 @@ fn main() {
             match &mode_for_setup {
                 Mode::Plugin { manifest, .. } => {
                     #[cfg(target_os = "linux")]
-                    apply_layer_shell_plugin(&window, manifest);
+                    apply_layer_shell_plugin(&window, manifest, args_for_setup.monitor);
 
                     #[cfg(not(target_os = "linux"))]
                     {
@@ -700,7 +711,7 @@ fn main() {
                 }
                 Mode::Unified => {
                     #[cfg(target_os = "linux")]
-                    apply_layer_shell_unified(&window);
+                    apply_layer_shell_unified(&window, args_for_setup.monitor);
 
                     #[cfg(not(target_os = "linux"))]
                     apply_fullscreen_position(&window);
@@ -728,7 +739,10 @@ fn main() {
 /// layer, disables keyboard focus, and clears any exclusive zone.
 /// Sizing and anchoring are mode-specific and applied separately.
 #[cfg(target_os = "linux")]
-fn init_layer_shell_common(window: &tauri::WebviewWindow) -> Option<gtk::Window> {
+fn init_layer_shell_common(
+    window: &tauri::WebviewWindow,
+    monitor_index: Option<usize>,
+) -> Option<gtk::Window> {
     use gtk::prelude::*;
     use gtk_layer_shell::{Layer, LayerShell};
 
@@ -748,6 +762,41 @@ fn init_layer_shell_common(window: &tauri::WebviewWindow) -> Option<gtk::Window>
     gtk_window.set_app_paintable(true);
 
     gtk_window.init_layer_shell();
+
+    // Resolve which GDK monitor to bind the layer surface to. Without this
+    // wlr-layer-shell fans the surface across every connected output
+    // simultaneously. We bind to the primary monitor by default; --monitor=N
+    // overrides for users whose game lives on a non-primary display.
+    //
+    // set_monitor() is a LayerShell trait method — it must be called AFTER
+    // init_layer_shell(), which installs the LayerShell state on the window.
+    let chosen_monitor = if let Some(display) = gtk::gdk::Display::default() {
+        let mon = if let Some(n) = monitor_index {
+            display.monitor(n as i32)
+        } else {
+            display.primary_monitor().or_else(|| display.monitor(0))
+        };
+        if mon.is_none() {
+            eprintln!(
+                "[rl-widget] could not resolve a GDK monitor (index={monitor_index:?}); \
+                 layer surface will fan across all outputs"
+            );
+        }
+        mon
+    } else {
+        eprintln!("[rl-widget] no default GDK display; layer surface will fan across all outputs");
+        None
+    };
+
+    if let Some(ref monitor) = chosen_monitor {
+        gtk_window.set_monitor(monitor);
+        let label = monitor
+            .model()
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| format!("index {:?}", monitor_index.unwrap_or(0)));
+        eprintln!("[rl-widget] layer-shell bound to monitor: {label:?}");
+    }
+
     gtk_window.set_layer(Layer::Overlay);
     gtk_window.set_keyboard_interactivity(false);
     gtk_window.set_exclusive_zone(0);
@@ -771,11 +820,15 @@ fn init_layer_shell_common(window: &tauri::WebviewWindow) -> Option<gtk::Window>
 /// Per-plugin mode: anchor two edges from the manifest, fixed size,
 /// margins from the manifest's offset_x/offset_y.
 #[cfg(target_os = "linux")]
-fn apply_layer_shell_plugin(window: &tauri::WebviewWindow, cfg: &OverlayCfg) {
+fn apply_layer_shell_plugin(
+    window: &tauri::WebviewWindow,
+    cfg: &OverlayCfg,
+    monitor_index: Option<usize>,
+) {
     use gtk::prelude::*;
     use gtk_layer_shell::LayerShell;
 
-    let Some(gtk_window) = init_layer_shell_common(window) else { return };
+    let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else { return };
 
     gtk_window.set_size_request(cfg.width as i32, cfg.height as i32);
     gtk_window.set_default_size(cfg.width as i32, cfg.height as i32);
@@ -792,10 +845,10 @@ fn apply_layer_shell_plugin(window: &tauri::WebviewWindow, cfg: &OverlayCfg) {
 /// size — the compositor sizes the surface to the output, which is the
 /// standard fullscreen-overlay layer-shell idiom.
 #[cfg(target_os = "linux")]
-fn apply_layer_shell_unified(window: &tauri::WebviewWindow) {
+fn apply_layer_shell_unified(window: &tauri::WebviewWindow, monitor_index: Option<usize>) {
     use gtk_layer_shell::{Edge, LayerShell};
 
-    let Some(gtk_window) = init_layer_shell_common(window) else { return };
+    let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else { return };
 
     for e in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
         gtk_window.set_anchor(e, true);
