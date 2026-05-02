@@ -87,5 +87,15 @@
     onEncounters: scheduleRender,
     onMatch:      scheduleRender,
     onTick:       scheduleRender,
+
+    // Hide the overlay card when the game loses focus. Only meaningful in
+    // overlay mode — the control page in a browser tab has no game-focus
+    // concept, and the SDK's listener isn't registered there anyway, so
+    // this handler simply never fires outside Tauri.
+    onFocusChange(active) {
+      if (!isOverlay) return;
+      const ov = DV.dom.$('ov');
+      if (ov) ov.style.display = active ? '' : 'none';
+    },
   });
 })();
