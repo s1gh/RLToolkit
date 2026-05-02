@@ -642,19 +642,23 @@
   //     i.e. NO PrimaryId — only a name + spectator shortcut. We resolve those
   //     against the current match.players list (matched by shortcut, then
   //     name) so the caller still gets isMe/encounter/full player object.
-  function resolvePlayer(ref) {
+  // Resolve a {Name, Shortcut, TeamNum} or {Name, PrimaryId, ...} stub
+  // against an explicit roster (the array of enriched player objects
+  // produced by build()). Returns the same enriched shape regardless of
+  // which input shape the API used. roster may be null/empty — the result
+  // still carries name/shortcut/team from the stub itself.
+  function resolvePlayerIn(roster, ref) {
     if (!ref) return null;
-    const cur = match.current;
     let player = null;
-    if (cur) {
+    if (roster && roster.length) {
       if (ref.PrimaryId) {
-        player = cur.players.find((p) => p.id === ref.PrimaryId) || null;
+        player = roster.find((p) => p.id === ref.PrimaryId) || null;
       }
       if (!player && typeof ref.Shortcut === 'number') {
-        player = cur.players.find((p) => (p.raw && p.raw.Shortcut === ref.Shortcut)) || null;
+        player = roster.find((p) => (p.raw && p.raw.Shortcut === ref.Shortcut)) || null;
       }
       if (!player && ref.Name) {
-        player = cur.players.find((p) => p.name === ref.Name) || null;
+        player = roster.find((p) => p.name === ref.Name) || null;
       }
     }
     const id = (player && player.id) || ref.PrimaryId || '';
@@ -665,10 +669,17 @@
       team: typeof ref.TeamNum === 'number' ? ref.TeamNum : (player ? player.team : null),
       id,
       isMe: identity._isMe(id),
-      player,        // full enriched player from match.players, or null
+      player,        // full enriched player from the roster, or null
       encounter: enc, // full encounter record from the ledger, or null
       raw: ref,
     };
+  }
+
+  // Backwards-compatible wrapper used by every existing caller (typed
+  // event normalizers): resolves against the live match.current roster.
+  function resolvePlayer(ref) {
+    const cur = match.current;
+    return resolvePlayerIn(cur ? cur.players : null, ref);
   }
 
   // Recent-events ring buffer so plugins booting mid-match can show context.
