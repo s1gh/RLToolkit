@@ -41,6 +41,8 @@
 
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
+mod focus_watcher;
+
 use clap::Parser;
 use serde::Deserialize;
 use std::sync::Mutex;
