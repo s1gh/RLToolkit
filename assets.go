@@ -5,7 +5,7 @@ import "embed"
 // webFS holds the dashboard, overlay, and SDK assets, served straight
 // from the binary so we don't depend on the cwd at runtime.
 //
-//go:embed web/dashboard.html web/overlay.html web/sdk.js web/sdk.css
+//go:embed web/dashboard.html web/overlay.html web/sdk.js web/sdk.css web/overlay-editor.js
 var webFS embed.FS
 
 // faviconSVG mirrors the dashboard's logo gradient so the browser tab and
@@ -32,6 +32,7 @@ var (
 	faviconSVGBytes = []byte(faviconSVG)
 	dashboardHTML   = mustReadEmbed("web/dashboard.html")
 	overlayHTML     = mustReadEmbed("web/overlay.html")
+	overlayEditorJS = mustReadEmbed("web/overlay-editor.js")
 )
 
 func mustReadEmbed(path string) []byte {

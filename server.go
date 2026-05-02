@@ -39,6 +39,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
+	mux.HandleFunc("/overlay-editor.js", s.handleOverlayEditorJS)
 	mux.HandleFunc("/favicon.ico", s.handleFavicon)
 	mux.Handle("/plugins/", http.StripPrefix("/plugins/",
 		http.FileServer(http.Dir(s.config.PluginDir))))
@@ -316,6 +317,10 @@ func (s *Server) handleSDKJS(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleSDKCSS(w http.ResponseWriter, _ *http.Request) {
 	writeAsset(w, "text/css; charset=utf-8", "no-cache", sdkCSSBytes)
+}
+
+func (s *Server) handleOverlayEditorJS(w http.ResponseWriter, _ *http.Request) {
+	writeAsset(w, "application/javascript; charset=utf-8", "no-cache", overlayEditorJS)
 }
 
 func (s *Server) handleFavicon(w http.ResponseWriter, _ *http.Request) {
