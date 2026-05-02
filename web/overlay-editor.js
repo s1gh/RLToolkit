@@ -88,5 +88,114 @@
     else                                el.style.right  = ox + 'px';
   }
 
+  // ─── Selection ────────────────────────────────────────────
+  // Single-select: clicking a widget's capture div selects it; clicking
+  // outside any widget deselects. Selected widget gets a brighter outline.
+  let selected = null;
+
+  function select(w) {
+    if (selected === w) return;
+    if (selected) selected.el.style.outline = '1px solid rgba(34, 211, 238, 0.4)';
+    selected = w;
+    if (selected) selected.el.style.outline = '2px solid rgba(34, 211, 238, 1)';
+  }
+
+  for (const w of widgets) {
+    w.capture.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      select(w);
+      startDrag(w, e);
+    });
+  }
+  document.addEventListener('mousedown', (e) => {
+    // Click outside any widget capture (e.g., on the body) → deselect.
+    if (e.target === document.body || e.target === document.documentElement) {
+      select(null);
+    }
+  });
+
+  // ─── Drag to move ─────────────────────────────────────────
+  // Mouse-down on a widget's capture starts a drag. We mutate `w.overlay`
+  // in place during drag so the on-screen position tracks the cursor; on
+  // mouse-up we snap to the 8px grid (Shift to bypass) and PUT to the API.
+  const SNAP = 8;
+
+  function startDrag(w, downEv) {
+    const startX = downEv.clientX;
+    const startY = downEv.clientY;
+    const startOX = w.overlay.offset_x | 0;
+    const startOY = w.overlay.offset_y | 0;
+    const anchor = w.overlay.anchor || 'top-right';
+    // x grows toward right; for right-anchored widgets, dragging right
+    // increases offset_x is wrong — it should DECREASE offset_x. Same
+    // for the y axis with bottom anchors. Sign multipliers handle that.
+    const sx = (anchor.indexOf('-left') >= 0) ? +1 : -1;
+    const sy = (anchor.indexOf('top')   === 0) ? +1 : -1;
+
+    function move(ev) {
+      ev.preventDefault();
+      const nx = clamp(startOX + sx * (ev.clientX - startX), 0);
+      const ny = clamp(startOY + sy * (ev.clientY - startY), 0);
+      w.overlay.offset_x = nx;
+      w.overlay.offset_y = ny;
+      applyAnchor(w.el, anchor, nx, ny);
+    }
+    function up(ev) {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      // Snap on release (unless Shift held), then persist.
+      if (!ev.shiftKey) {
+        w.overlay.offset_x = Math.round(w.overlay.offset_x / SNAP) * SNAP;
+        w.overlay.offset_y = Math.round(w.overlay.offset_y / SNAP) * SNAP;
+        applyAnchor(w.el, anchor, w.overlay.offset_x, w.overlay.offset_y);
+      }
+      saveOverride(w, {
+        offset_x: w.overlay.offset_x,
+        offset_y: w.overlay.offset_y,
+      }).catch((err) => {
+        // Roll back on failure: restore start position and surface the error.
+        w.overlay.offset_x = startOX;
+        w.overlay.offset_y = startOY;
+        applyAnchor(w.el, anchor, startOX, startOY);
+        toast('Save failed: ' + err.message);
+      });
+    }
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
+
+  function clamp(v, min) { return v < min ? min : v; }
+
+  // ─── Persistence ──────────────────────────────────────────
+  async function saveOverride(w, partial) {
+    const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(w.plugin.name), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(partial),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (await r.text()).trim());
+  }
+
+  // ─── Toast ────────────────────────────────────────────────
+  // Tiny ephemeral notification at the top of the screen for save failures.
+  function toast(msg) {
+    let t = document.getElementById('__rlt_editor_toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '__rlt_editor_toast';
+      t.style.cssText =
+        'position:fixed;top:48px;left:50%;transform:translateX(-50%);' +
+        'background:#7f1d1d;color:#fee2e2;padding:8px 14px;border-radius:6px;' +
+        'font:600 12px Inter,system-ui,sans-serif;letter-spacing:.04em;' +
+        'box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:9999;opacity:0;' +
+        'transition:opacity .15s';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    requestAnimationFrame(() => { t.style.opacity = '1'; });
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+  }
+
   console.log('[overlay-editor] rendered', widgets.length, 'widget(s)');
 })();
