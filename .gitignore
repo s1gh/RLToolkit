@@ -20,3 +20,8 @@ overlay-app/node_modules/
 overlay-app/src-tauri/target/
 overlay-app/src-tauri/gen/
 **/node_modules/
+
+# Local agent / session notes / archives
+.claude/
+docs/
+*.zip
