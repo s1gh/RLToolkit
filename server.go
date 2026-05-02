@@ -20,6 +20,7 @@ type Server struct {
 	plugins   *PluginManager
 	client    *RLClient
 	lifecycle *LifecycleTracker
+	overrides *OverridesStore
 	config    Config
 }
 
@@ -33,6 +34,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/lifecycle", s.handleLifecycle)
 	mux.HandleFunc("/api/metrics", s.handleMetrics)
+	mux.HandleFunc("/api/overlay/overrides", s.handleOverlayOverridesAll)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -325,4 +327,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeAsset(w, "text/html; charset=utf-8", "", dashboardHTML)
+}
+
+// ── Overlay overrides API ───────────────────────────────────
+
+// handleOverlayOverridesAll serves the full overrides map. Used by both
+// the editor (to seed UI state) and the production /overlay page (to
+// merge per-plugin overrides over manifest defaults).
+func (s *Server) handleOverlayOverridesAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, s.overrides.GetAll())
 }

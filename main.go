@@ -78,10 +78,15 @@ func runServe() {
 	lifecycle := NewLifecycleTracker(bus)
 	client.AttachLifecycle(lifecycle)
 
+	overrides, err := NewOverridesStore(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("[server] %v", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, client: client, lifecycle: lifecycle, config: cfg}
+	srv := &Server{bus: bus, store: store, plugins: pm, client: client, lifecycle: lifecycle, overrides: overrides, config: cfg}
 	go client.Run(ctx)
 	go lifecycle.Run(ctx)
 
