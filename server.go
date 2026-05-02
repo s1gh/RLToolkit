@@ -426,3 +426,26 @@ func (s *Server) knownPlugin(name string) bool {
 	}
 	return false
 }
+
+// overridesChangedEnvelope is the SSE payload published whenever the
+// overrides map changes. The shape mirrors the GET endpoint so
+// subscribers can reuse merge code unchanged.
+type overridesChangedEnvelope struct {
+	Event string                       `json:"Event"`
+	Data  map[string]OverlayOverride   `json:"Data"`
+}
+
+// marshalOverridesChanged builds the JSON envelope for an
+// _OverridesChanged event. Returns nil bytes on marshal failure (logged
+// and treated as "no event published") rather than panicking.
+func marshalOverridesChanged(data map[string]OverlayOverride) []byte {
+	b, err := json.Marshal(overridesChangedEnvelope{
+		Event: "_OverridesChanged",
+		Data:  data,
+	})
+	if err != nil {
+		log.Printf("[overrides] marshal _OverridesChanged: %v", err)
+		return nil
+	}
+	return b
+}

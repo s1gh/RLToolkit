@@ -83,6 +83,20 @@ func runServe() {
 		log.Fatalf("[server] %v", err)
 	}
 
+	overrides.Notify = func() {
+		// Re-snapshot the full overrides map and publish to subscribers.
+		// Cheap: the file is tiny (one entry per plugin) and Notify only
+		// fires on user-driven editor changes, not in any hot loop.
+		// Note: GetAll re-acquires the store's RLock, so a concurrent
+		// writer could land between the persist that triggered us and
+		// this snapshot — meaning what we publish reflects the latest
+		// state, not necessarily the write that fired us. Latest-wins
+		// is the right semantics for live reflow.
+		if env := marshalOverridesChanged(overrides.GetAll()); env != nil {
+			bus.Publish(env)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
