@@ -12,7 +12,10 @@
 //! incrementally on each event-pump.
 
 use crate::focus_watcher::ForegroundInfo;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex, OnceLock,
+};
 use wayland_client::protocol::wl_registry;
 use wayland_client::{
     globals::{registry_queue_init, GlobalListContents},
@@ -30,6 +33,7 @@ struct ToplevelInfo {
     title: String,
     activated: bool,
     pid: u32, // wlr-foreign-toplevel doesn't expose PID; left at 0
+    closed: bool,
 }
 
 struct WaylandState {
@@ -44,6 +48,7 @@ struct AppData {
 }
 
 static STATE: OnceLock<Option<Mutex<WaylandState>>> = OnceLock::new();
+static DISPATCH_ERR_LOGGED: AtomicBool = AtomicBool::new(false);
 
 fn try_init() -> Result<WaylandState, String> {
     let conn = Connection::connect_to_env().map_err(|e| format!("connect: {e}"))?;
@@ -88,9 +93,16 @@ pub fn query_foreground() -> Option<ForegroundInfo> {
     // closed / state changed). dispatch_pending reads from the socket.
     // Split the borrow explicitly so the borrow-checker sees disjoint fields.
     {
-        let WaylandState { queue, app_data, conn, .. } = &mut *s;
-        let _ = queue.dispatch_pending(app_data);
+        let WaylandState { queue, app_data, conn } = &mut *s;
+        let dispatch_result = queue.dispatch_pending(app_data);
+        if let Err(e) = dispatch_result {
+            if !DISPATCH_ERR_LOGGED.swap(true, Ordering::Relaxed) {
+                eprintln!("[rl-widget] wayland dispatch failed (compositor restart?): {e}; \
+                           focus-gating effectively disabled until process restart");
+            }
+        }
         let _ = conn.flush();
+        app_data.toplevels.retain(|(_, info)| !info.closed);
     }
 
     let active = s
@@ -156,20 +168,18 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppData {
         match event {
             HandleEvent::Title { title } => info.title = title,
             HandleEvent::State { state: bytes } => {
-                // wlr-foreign-toplevel-state is a byte array of u32 enum
-                // values (little-endian). Each chunk of 4 bytes is one
-                // state. "activated" is enum variant 2.
+                // wlr-foreign-toplevel-state is a byte array of u32 enum values
+                // (host byte order — wayland-client has already byte-swapped on
+                // receive). "activated" is enum variant 2.
                 info.activated = bytes
                     .chunks_exact(4)
                     .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
                     .any(|v| v == 2);
             }
             HandleEvent::Closed => {
-                // Mark for cleanup after the dispatch returns. We can't
-                // mutate state.toplevels while iterating to find this
-                // entry, so flag and prune below.
-                info.title.clear();
-                info.activated = false;
+                info.closed = true;
+                // We also tell the server we're done with this proxy. The actual
+                // Vec entry is pruned by query_foreground below.
             }
             _ => {}
         }
