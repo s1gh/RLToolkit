@@ -195,6 +195,18 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for AppData {
             state.toplevels.push((toplevel, ToplevelInfo::default()));
         }
     }
+
+    // The manager's `toplevel` event (opcode 0) creates a new
+    // ZwlrForeignToplevelHandleV1 object. wayland-client needs to know
+    // which Dispatch impl to attach to that child; without this override,
+    // it panics with "Missing event_created_child specialization for
+    // event opcode 0". The user_data is `()` since we look up state by
+    // proxy identity in the Handle dispatch impl.
+    wayland_client::event_created_child!(
+        AppData,
+        ZwlrForeignToplevelManagerV1,
+        [0 => (ZwlrForeignToplevelHandleV1, ())]
+    );
 }
 
 impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppData {
