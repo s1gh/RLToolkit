@@ -35,6 +35,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/lifecycle", s.handleLifecycle)
 	mux.HandleFunc("/api/metrics", s.handleMetrics)
 	mux.HandleFunc("/api/overlay/overrides", s.handleOverlayOverridesAll)
+	mux.HandleFunc("/api/overlay/overrides/", s.handleOverlayOverridesOne)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -340,4 +341,74 @@ func (s *Server) handleOverlayOverridesAll(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, s.overrides.GetAll())
+}
+
+// handleOverlayOverridesOne handles PUT (merge a partial override onto an
+// existing entry) and DELETE (reset that plugin to manifest defaults).
+// The plugin name comes from the URL tail and must match a known plugin
+// — we don't allow writes for nonexistent plugins, otherwise stale
+// entries pile up forever.
+func (s *Server) handleOverlayOverridesOne(w http.ResponseWriter, r *http.Request) {
+	plugin := strings.TrimPrefix(r.URL.Path, "/api/overlay/overrides/")
+	if plugin == "" || strings.Contains(plugin, "/") {
+		http.Error(w, "plugin name required", http.StatusBadRequest)
+		return
+	}
+	if !pluginNamePattern.MatchString(plugin) {
+		http.Error(w, "invalid plugin name", http.StatusBadRequest)
+		return
+	}
+	if !s.knownPlugin(plugin) {
+		http.Error(w, "unknown plugin", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPut:
+		s.handleOverridePut(w, r, plugin)
+	case http.MethodDelete:
+		if err := s.overrides.Delete(plugin); err != nil {
+			httpError(w, "delete override", err, http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+// handleOverridePut decodes the body strictly (rejects unknown fields so
+// the on-disk schema stays clean), validates it via the store, and
+// returns the merged entry.
+func (s *Server) handleOverridePut(w http.ResponseWriter, r *http.Request, plugin string) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
+	if err != nil {
+		httpError(w, "read body", err, http.StatusInternalServerError)
+		return
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	var partial OverlayOverride
+	if err := dec.Decode(&partial); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	merged, err := s.overrides.MergeOne(plugin, partial)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, merged)
+}
+
+// knownPlugin returns true if `name` is in the current plugin catalog.
+// The catalog re-scans on its own, so this reflects the live set —
+// disabling/removing a plugin folder makes its overrides PUTs return 404.
+func (s *Server) knownPlugin(name string) bool {
+	for _, p := range s.plugins.List() {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
 }
