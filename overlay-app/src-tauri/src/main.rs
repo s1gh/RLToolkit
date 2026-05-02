@@ -14,7 +14,7 @@
 // (RLT.widget.* in the SDK) — see the `widget_*` handlers below.
 //
 // CLI:
-//   rl-widget --plugin=<name> [--toolkit=http://localhost:8080]
+//   rl-widget [--plugin=<name>] [--toolkit=http://localhost:8080]
 
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
@@ -332,6 +332,20 @@ fn apply_pixel_position(
     let _ = window.set_position(LogicalPosition::new(x, y));
 }
 
+/// Unified-mode fullscreen pass on non-Linux platforms. Sets the window
+/// size to the current monitor's logical size and positions at (0, 0).
+/// The toolkit's /overlay page handles per-plugin positioning inside.
+#[cfg(not(target_os = "linux"))]
+fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
+    let Ok(Some(monitor)) = window.current_monitor() else { return };
+    let mon_size = monitor.size();
+    let scale = monitor.scale_factor();
+    let mon_w = mon_size.width as f64 / scale;
+    let mon_h = mon_size.height as f64 / scale;
+    let _ = window.set_size(LogicalSize::new(mon_w, mon_h));
+    let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -404,7 +418,7 @@ fn main() {
             match &mode_for_setup {
                 Mode::Plugin { manifest, .. } => {
                     #[cfg(target_os = "linux")]
-                    apply_layer_shell(&window, manifest);
+                    apply_layer_shell_plugin(&window, manifest);
 
                     #[cfg(not(target_os = "linux"))]
                     {
@@ -413,10 +427,11 @@ fn main() {
                     }
                 }
                 Mode::Unified => {
-                    // Sizing/anchoring lands in Task 4. For now the
-                    // window opens at Tauri's default size/position;
-                    // the next task replaces this with the real
-                    // fullscreen pass.
+                    #[cfg(target_os = "linux")]
+                    apply_layer_shell_unified(&window);
+
+                    #[cfg(not(target_os = "linux"))]
+                    apply_fullscreen_position(&window);
                 }
             }
 
@@ -428,8 +443,13 @@ fn main() {
 }
 
 // ─── Linux: wlr-layer-shell init ────────────────────────────────
+
+/// Layer-shell setup shared by both modes. Makes the GTK surface
+/// alpha-aware, binds the layer-shell protocol, parks on the overlay
+/// layer, disables keyboard focus, and clears any exclusive zone.
+/// Sizing and anchoring are mode-specific and applied separately.
 #[cfg(target_os = "linux")]
-fn apply_layer_shell(window: &tauri::WebviewWindow, cfg: &OverlayCfg) {
+fn init_layer_shell_common(window: &tauri::WebviewWindow) -> Option<gtk::Window> {
     use gtk::prelude::*;
     use gtk_layer_shell::{Layer, LayerShell};
 
@@ -437,11 +457,10 @@ fn apply_layer_shell(window: &tauri::WebviewWindow, cfg: &OverlayCfg) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("[rl-widget] gtk_window unavailable, skipping layer-shell: {e}");
-            return;
+            return None;
         }
     };
 
-    // Make the GTK surface alpha-aware before layer-shell binds it.
     if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&gtk_window) {
         if let Some(visual) = screen.rgba_visual() {
             gtk_window.set_visual(Some(&visual));
@@ -454,6 +473,18 @@ fn apply_layer_shell(window: &tauri::WebviewWindow, cfg: &OverlayCfg) {
     gtk_window.set_keyboard_interactivity(false);
     gtk_window.set_exclusive_zone(0);
 
+    Some(gtk_window.into())
+}
+
+/// Per-plugin mode: anchor two edges from the manifest, fixed size,
+/// margins from the manifest's offset_x/offset_y.
+#[cfg(target_os = "linux")]
+fn apply_layer_shell_plugin(window: &tauri::WebviewWindow, cfg: &OverlayCfg) {
+    use gtk::prelude::*;
+    use gtk_layer_shell::LayerShell;
+
+    let Some(gtk_window) = init_layer_shell_common(window) else { return };
+
     gtk_window.set_size_request(cfg.width as i32, cfg.height as i32);
     gtk_window.set_default_size(cfg.width as i32, cfg.height as i32);
     gtk_window.set_resizable(false);
@@ -463,6 +494,21 @@ fn apply_layer_shell(window: &tauri::WebviewWindow, cfg: &OverlayCfg) {
     gtk_window.set_anchor(horiz_edge, true);
     gtk_window.set_layer_shell_margin(vert_edge, cfg.offset_y);
     gtk_window.set_layer_shell_margin(horiz_edge, cfg.offset_x);
+}
+
+/// Unified mode: anchor all four edges, all margins zero. Don't pin a
+/// size — the compositor sizes the surface to the output, which is the
+/// standard fullscreen-overlay layer-shell idiom.
+#[cfg(target_os = "linux")]
+fn apply_layer_shell_unified(window: &tauri::WebviewWindow) {
+    use gtk_layer_shell::{Edge, LayerShell};
+
+    let Some(gtk_window) = init_layer_shell_common(window) else { return };
+
+    for e in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
+        gtk_window.set_anchor(e, true);
+        gtk_window.set_layer_shell_margin(e, 0);
+    }
 }
 
 #[cfg(target_os = "linux")]
