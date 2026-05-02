@@ -463,9 +463,18 @@
         blueTeam,
         orangeTeam,
         replayInfo,
-        // Ball is { Speed, TeamNum }. TeamNum is 255 if the ball hasn't
-        // been touched yet (per the spec) — treat that as null.
-        ball: game && game.Ball ? game.Ball : null,
+        // Ball state. Lowercase keys + .raw mirror the resolved-player
+        // pattern used elsewhere in the SDK. TeamNum 255 is the API's
+        // "ball has not been touched yet" sentinel; lastTouchTeam
+        // normalizes it to null so plugins don't have to remember.
+        ball: (game && game.Ball) ? {
+          speed: typeof game.Ball.Speed === 'number' ? game.Ball.Speed : null,
+          teamNum: typeof game.Ball.TeamNum === 'number' ? game.Ball.TeamNum : null,
+          lastTouchTeam: (typeof game.Ball.TeamNum === 'number' && game.Ball.TeamNum !== 255)
+            ? game.Ball.TeamNum
+            : null,
+          raw: game.Ball,
+        } : null,
         // Spectator camera target — only meaningful when bHasTarget.
         target: game && game.bHasTarget ? (game.Target || null) : null,
         raw: d,
