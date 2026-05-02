@@ -687,12 +687,6 @@ body.overlay-mode {
 body.overlay-mode .page { display: none !important; }
 body.overlay-mode .ov   { display: block !important; }
 .ov { display: none; }
-/* Hide the overlay card when the host signals the game has lost focus
-   (RLT.focus.onChange → false). Wins against the `display: block
-   !important` above because the selector is more specific AND has
-   !important. App.js toggles body.focus-inactive in the onFocusChange
-   handler. */
-body.overlay-mode.focus-inactive .ov { display: none !important; }
 
 /* The SDK applies display:flex to <body> with align-items:flex-start (left)
    and justify-content:flex-end (bottom). .ov is one flex child; we let it

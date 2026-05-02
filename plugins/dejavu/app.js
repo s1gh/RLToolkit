@@ -36,6 +36,24 @@
     author:  'rl-toolkit',
 
     init() {
+      // Default-hide the overlay card until the host signals the game is
+      // foreground. The watcher starts in `Inactive` and only emits on
+      // transitions, so without this the widget would flash visible
+      // between page load and the first onFocusChange(true) emit.
+      //
+      // We also kill the appear-animation here — without that, every
+      // onFocusChange(true) replays the fade-in defined in styles.css,
+      // which reads as flicker on tab-back rather than a first-time
+      // entrance. Inline !important wins against the non-important
+      // stylesheet rule.
+      if (isOverlay) {
+        const ov = DV.dom.$('ov');
+        if (ov) {
+          ov.style.setProperty('animation', 'none', 'important');
+          ov.style.setProperty('display', 'none', 'important');
+        }
+      }
+
       // Connection-status pill is dejavu chrome, not match data, so it
       // lives outside the per-view render path.
       RLT.onStatus((s) => {
@@ -88,16 +106,20 @@
     onMatch:      scheduleRender,
     onTick:       scheduleRender,
 
-    // Hide the overlay card when the game loses focus. Only meaningful in
-    // overlay mode — the control page in a browser tab has no game-focus
-    // concept, and the SDK's listener isn't registered there anyway, so
-    // this handler simply never fires outside Tauri.
+    // Hide the overlay card when the game loses focus, show on return.
+    // Only meaningful in overlay mode — the control page in a browser
+    // tab has no game-focus concept, and the SDK's listener isn't
+    // registered there anyway, so this handler simply never fires
+    // outside Tauri.
     onFocusChange(active) {
       if (!isOverlay) return;
-      // Toggle body.focus-inactive — the styles.css rule with !important
-      // wins against the existing `body.overlay-mode .ov { display: block
-      // !important; }` rule. Inline `style.display` would lose to that.
-      document.body.classList.toggle('focus-inactive', !active);
+      const ov = DV.dom.$('ov');
+      if (!ov) return;
+      if (active) {
+        ov.style.removeProperty('display');
+      } else {
+        ov.style.setProperty('display', 'none', 'important');
+      }
     },
   });
 })();

@@ -99,12 +99,15 @@ pub struct StepOutcome {
 }
 
 impl DebounceState {
-    /// Initial state. We assume RL is foreground until proven otherwise so
-    /// the overlay shows immediately on launch (the alternative — Inactive
-    /// — would briefly hide the widget for the first 250ms after startup
-    /// while the first poll runs).
+    /// Initial state. We start in `Inactive` so plugins that default
+    /// hidden stay hidden until the watcher confirms RL is foreground.
+    /// On the first matching poll (≤ POLL_INTERVAL after spawn) the
+    /// debouncer transitions to `Active` and emits `Some(true)` —
+    /// instant-show is asymmetric with the 500ms hide debounce, so the
+    /// overlay appears within ~250ms of launch when RL is already focused
+    /// and never appears at all otherwise.
     pub fn initial() -> Self {
-        Self::Active
+        Self::Inactive
     }
 
     /// Advance the state by one tick.
@@ -418,9 +421,7 @@ fn post_focus_message(app: &AppHandle, active: bool) -> Result<(), String> {
     let mut sent_to_at_least_one = false;
     for (label, webview) in app.webviews().iter() {
         match webview.eval(&js) {
-            Ok(_) => {
-                sent_to_at_least_one = true;
-            }
+            Ok(_) => sent_to_at_least_one = true,
             Err(e) => errors.push(format!("{label}: {e}")),
         }
     }
