@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -84,7 +85,17 @@ func runServe() {
 	go client.Run(ctx)
 	go lifecycle.Run(ctx)
 
-	hs := &http.Server{Addr: fmt.Sprintf(":%d", cfg.HTTPPort), Handler: srv.routes()}
+	hs := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
+		Handler: srv.routes(),
+		// BaseContext makes every request's r.Context() a child of the
+		// app's lifetime ctx. On shutdown we cancel ctx first so
+		// long-lived handlers (notably the SSE stream) wake up via
+		// <-r.Context().Done() instead of waiting for the shutdown
+		// grace period to elapse — which used to manifest as
+		// "shutdown: context deadline exceeded" on Ctrl+C.
+		BaseContext: func(_ net.Listener) context.Context { return ctx },
+	}
 	go func() {
 		if err := hs.ListenAndServe(); err != http.ErrServerClosed {
 			log.Fatalf("[server] %v", err)
@@ -92,12 +103,19 @@ func runServe() {
 	}()
 
 	awaitSignal()
-	log.Println("[server] Shutting down …")
+	log.Println("[server] shutting down")
+	// Cancel the app ctx first. With BaseContext above, this cancels
+	// every in-flight r.Context() — wakes up the SSE handlers so they
+	// return promptly instead of waiting on the next event/heartbeat.
 	cancel()
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), httpShutdown)
 	defer shutCancel()
 	if err := hs.Shutdown(shutCtx); err != nil {
-		log.Printf("[server] shutdown: %v", err)
+		// "context deadline exceeded" here means an in-flight handler
+		// didn't honor ctx cancellation in time. Log it as a warning
+		// rather than a generic [server] line so users notice the
+		// difference between a clean shutdown and a forced one.
+		log.Printf("[server] forced shutdown after %s: %v", httpShutdown, err)
 	}
 }
 
@@ -176,10 +194,19 @@ func executableDir() string {
 	return "."
 }
 
+// awaitSignal blocks until SIGINT/SIGTERM. After the first signal it
+// returns so the main goroutine can run shutdown; a SECOND signal in
+// the grace window force-exits, so an impatient Ctrl+C, Ctrl+C
+// doesn't wait for the HTTP shutdown deadline.
 func awaitSignal() {
-	sig := make(chan os.Signal, 1)
+	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
+	go func() {
+		<-sig
+		fmt.Fprintln(os.Stderr, "  forced exit")
+		os.Exit(130) // 128 + SIGINT
+	}()
 }
 
 // ANSI escape codes. Empty when the terminal can't render them, so

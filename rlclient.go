@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,6 +57,13 @@ type RLClient struct {
 
 	outbox  chan []byte
 	dropLog rateLimitedLogger
+
+	// lastDialMsg is the most recently logged dial-failure message.
+	// We log a new failure only when the explanation changes (e.g.
+	// "connection refused" → "no such host") instead of repeating the
+	// same line on every retry. A successful connect resets it so the
+	// next failure logs again.
+	lastDialMsg string
 }
 
 func NewRLClient(addr string, bus *EventBus) *RLClient {
@@ -123,6 +131,7 @@ func (c *RLClient) setStatus(s RLStatus) {
 func (c *RLClient) Run(ctx context.Context) {
 	go c.dispatcher(ctx)
 
+	first := true
 	for {
 		select {
 		case <-ctx.Done():
@@ -131,13 +140,29 @@ func (c *RLClient) Run(ctx context.Context) {
 		}
 
 		c.setStatus(StatusConnecting)
-		log.Printf("[rl-api] Connecting to %s …", c.addr)
+		// Only announce "connecting to ..." on the first attempt. On
+		// retry loops the user already saw the failure message; another
+		// "connecting" line would just add noise.
+		if first {
+			log.Printf("[rl-api] connecting to %s", c.addr)
+			first = false
+		}
 
 		dialer := net.Dialer{Timeout: dialTimeout}
 		conn, err := dialer.DialContext(ctx, "tcp", c.addr)
 		if err != nil {
 			c.setStatus(StatusDisconnected)
-			log.Printf("[rl-api] Failed: %v  (retry in %s)", err, dialTimeout)
+			// User-actionable message for the common case (RL not
+			// running, or PacketSendRate=0 in DefaultStatsAPI.ini)
+			// instead of leaking the raw syscall error. Log only when
+			// the explanation changes — repeating the same "RL isn't
+			// running" line every 5s just clutters the terminal until
+			// the user starts the game.
+			msg := reasonForDialFailure(err, c.addr)
+			if msg != c.lastDialMsg {
+				log.Println(msg)
+				c.lastDialMsg = msg
+			}
 			if !sleepCtx(ctx, dialTimeout) {
 				return
 			}
@@ -150,11 +175,24 @@ func (c *RLClient) Run(ctx context.Context) {
 		}
 
 		c.setStatus(StatusConnected)
-		log.Printf("[rl-api] Connected!")
+		log.Printf("[rl-api] connected to %s", c.addr)
+		// Forget the prior failure message so a future failure logs
+		// again — useful when RL goes down mid-session and we want
+		// users to see the new dial error rather than have it
+		// silenced as a "duplicate."
+		c.lastDialMsg = ""
+		// Reset the drop-log timer so a subsequent disconnect logs
+		// immediately instead of being silenced by the prior failure.
+		c.dropLog.reset()
 		c.readLoop(ctx, conn)
 		_ = conn.Close()
 		c.setStatus(StatusDisconnected)
-		log.Printf("[rl-api] Disconnected — reconnecting in %s …", reconnectDelay)
+		// Don't log on shutdown — the "[server] shutting down" line
+		// already explains why we disconnected; an extra "disconnected,
+		// reconnecting" right after would be noise.
+		if ctx.Err() == nil {
+			log.Printf("[rl-api] disconnected; reconnecting in %s", reconnectDelay)
+		}
 
 		if !sleepCtx(ctx, reconnectDelay) {
 			return
@@ -210,6 +248,25 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+// reasonForDialFailure turns a raw net dial error into a one-line
+// human-readable explanation. The vast majority of localhost dial
+// failures here mean exactly one thing — RL isn't running with the
+// Stats API enabled — so we say that plainly instead of pasting the
+// Go stdlib error string the user can't do anything with.
+func reasonForDialFailure(err error, addr string) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "connection refused"):
+		return "[rl-api] " + addr + " is not accepting connections — is RL running with PacketSendRate>0?"
+	case strings.Contains(msg, "i/o timeout"), strings.Contains(msg, "deadline exceeded"):
+		return "[rl-api] timed out reaching " + addr + " — check the address (is RL on a different host?)"
+	case strings.Contains(msg, "no such host"):
+		return "[rl-api] cannot resolve " + addr + " — check the host part of -rl-addr"
+	default:
+		return "[rl-api] connect failed: " + msg
+	}
+}
+
 // rateLimitedLogger emits at most one log line per `interval`. Used for
 // drop logging on the 60Hz hot path so we know dropping is happening
 // without spamming at the packet rate.
@@ -227,4 +284,14 @@ func (r *rateLimitedLogger) log(msg string) {
 	}
 	r.last = time.Now()
 	log.Println(msg)
+}
+
+// reset clears the rate limiter so the next log() call fires
+// immediately. Useful after a state change (reconnect succeeded,
+// match started) where we don't want a stale "still failing" timer
+// to swallow the first new failure.
+func (r *rateLimitedLogger) reset() {
+	r.mu.Lock()
+	r.last = time.Time{}
+	r.mu.Unlock()
 }
