@@ -387,17 +387,18 @@ fn apply_pixel_position(
     let _ = window.set_position(LogicalPosition::new(x, y));
 }
 
-/// Unified-mode fullscreen pass on non-Linux platforms. Sizes and
-/// positions the window in physical pixels — going through logical
-/// pixels first would lose subpixels at fractional DPI scales (125%,
-/// 150%, 175%) and leave a hairline strip on one or two edges where
-/// the desktop shows through. monitor.position() also handles the
-/// multi-monitor case correctly (the primary isn't always at 0,0).
+/// Unified-mode fullscreen pass on non-Linux platforms. Sets the window
+/// size to the current monitor's logical size and positions at (0, 0).
+/// The toolkit's /overlay page handles per-plugin positioning inside.
 #[cfg(not(target_os = "linux"))]
 fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
     let Ok(Some(monitor)) = window.current_monitor() else { return };
-    let _ = window.set_size(*monitor.size());
-    let _ = window.set_position(*monitor.position());
+    let mon_size = monitor.size();
+    let scale = monitor.scale_factor();
+    let mon_w = mon_size.width as f64 / scale;
+    let mon_h = mon_size.height as f64 / scale;
+    let _ = window.set_size(LogicalSize::new(mon_w, mon_h));
+    let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
 }
 
 /// Build the tray icon with a Quit menu item. Best-effort: any error is
