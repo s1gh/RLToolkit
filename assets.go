@@ -2,10 +2,10 @@ package main
 
 import "embed"
 
-// webFS holds the dashboard + composite overlay HTML, served straight
+// webFS holds the dashboard, overlay, and SDK assets, served straight
 // from the binary so we don't depend on the cwd at runtime.
 //
-//go:embed web/dashboard.html web/overlay.html
+//go:embed web/dashboard.html web/overlay.html web/sdk.js web/sdk.css
 var webFS embed.FS
 
 // faviconSVG mirrors the dashboard's logo gradient so the browser tab and
@@ -24,10 +24,11 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 </svg>`
 
 // Precomputed byte slices for assets we serve verbatim. Avoids a fresh
-// allocation+copy on every request.
+// allocation+copy on every request. The sdkJSBytes / sdkCSSBytes names
+// are preserved so server.go's handlers don't need to change.
 var (
-	sdkJSBytes      = []byte(sdkJS)
-	sdkCSSBytes     = []byte(sdkCSS)
+	sdkJSBytes      = mustReadEmbed("web/sdk.js")
+	sdkCSSBytes     = mustReadEmbed("web/sdk.css")
 	faviconSVGBytes = []byte(faviconSVG)
 	dashboardHTML   = mustReadEmbed("web/dashboard.html")
 	overlayHTML     = mustReadEmbed("web/overlay.html")
