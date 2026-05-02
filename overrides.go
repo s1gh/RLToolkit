@@ -102,6 +102,13 @@ type OverridesStore struct {
 
 	mu   sync.RWMutex
 	data map[string]OverlayOverride
+
+	// Notify, if set, is called on the goroutine performing the write
+	// after every successful persist (MergeOne and Delete). Wired by
+	// main to publish a synthetic _OverridesChanged SSE event so
+	// production /overlay clients can reflow in place. Not held under
+	// any lock — the callback is free to take its own.
+	Notify func()
 }
 
 // NewOverridesStore loads the existing file (or starts with an empty map
@@ -160,7 +167,6 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 		return OverlayOverride{}, err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	prev, hadPrev := s.data[plugin]
 	merged := prev.merge(partial)
 	// Validate after the merge too: a hand-edited file could have
@@ -168,6 +174,7 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 	// touch, and we don't want a "successful" PUT to confirm a value
 	// the editor never set.
 	if err := merged.validate(); err != nil {
+		s.mu.Unlock()
 		return OverlayOverride{}, err
 	}
 	s.data[plugin] = merged
@@ -179,7 +186,13 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 		} else {
 			delete(s.data, plugin)
 		}
+		s.mu.Unlock()
 		return OverlayOverride{}, err
+	}
+	notify := s.Notify
+	s.mu.Unlock()
+	if notify != nil {
+		notify()
 	}
 	return merged, nil
 }
@@ -188,16 +201,22 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 // entry is not an error.
 func (s *OverridesStore) Delete(plugin string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	prev, ok := s.data[plugin]
 	if !ok {
+		s.mu.Unlock()
 		return nil
 	}
 	delete(s.data, plugin)
 	if err := s.persistLocked(); err != nil {
 		// Roll back so in-memory matches disk.
 		s.data[plugin] = prev
+		s.mu.Unlock()
 		return err
+	}
+	notify := s.Notify
+	s.mu.Unlock()
+	if notify != nil {
+		notify()
 	}
 	return nil
 }
