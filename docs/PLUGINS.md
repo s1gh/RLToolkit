@@ -1068,3 +1068,32 @@ lowercase-key + `.raw` pattern used everywhere else in the SDK.
   player splits.
 - `match.current.replayInfo` — `null` outside replays;
   `{ frame, elapsed }` while a replay is active.
+
+## Overlay editor
+
+Open `http://localhost:8080/overlay?edit=1` in a real desktop browser
+(Chrome, Firefox) — separate from OBS — to drag-position your plugin
+widgets directly. Drag the body of a widget to move it; drag the
+bottom-right handle to resize. Click a widget to reveal a control panel
+in the top-right corner with anchor, width, height, opacity, and a
+"Reset to manifest" button. The top bar has a "Reset all" that clears
+every override.
+
+Edits save automatically on drop / commit to
+`data/overlay-overrides.json`. The file is keyed by plugin name and
+holds only the fields you've changed; everything else falls back to the
+plugin's `manifest.json` `overlay` block. So plugin updates don't
+clobber your layout, and the same plugin can ship to two streamers with
+different positions on each side.
+
+Drag offsets snap to an 8px grid; hold Shift while dragging to bypass
+the snap. Switching anchor corners recomputes offsets so the widget
+visually stays in place.
+
+OBS browser sources never see `?edit=1` — you only put `/overlay` in
+OBS — so the editor chrome can never accidentally render in your
+stream.
+
+For predictable results, edit at the same browser window size as your
+OBS canvas (typically 1920×1080); the saved offsets are pixel values
+relative to the visible viewport.
