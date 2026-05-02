@@ -986,7 +986,7 @@
   // available without reading source.
   events.catalog = [
     // Per-tick stream
-    { name: 'UpdateState',       category: 'tick',      shape: 'matchstate', livePhases: ['live','replay','paused','countdown'], desc: 'Match snapshot at PacketSendRate (raw envelope payload).' },
+    { name: 'UpdateState',       category: 'tick',      shape: 'matchstate', livePhases: ['live','replay','paused','countdown'], desc: 'Match snapshot at PacketSendRate. Includes derived teams/blueTeam/orangeTeam, replayInfo, and resolved per-player attacker.' },
 
     // In-play events
     { name: 'GoalScored',        category: 'scoring',   shape: 'goal',       livePhases: ['live','replay'],     desc: 'Scorer + assister + last touch + impact.' },

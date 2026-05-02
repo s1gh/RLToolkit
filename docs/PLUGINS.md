@@ -1035,3 +1035,36 @@ Here's a working "last goal speed" overlay in one file:
 That's the whole plugin. Drop it under
 `plugins/last-goal-speed/overlay.html` with a manifest (run `rl-toolkit
 new last-goal-speed` and edit), and you're done.
+
+## Migration notes
+
+### 2026-05-02 — Normalized shapes for `ball` and `player.attacker`
+
+Two fields on `RLT.match.current` have been migrated from raw
+wire-shape passthroughs (PascalCase keys) to the enriched
+lowercase-key + `.raw` pattern used everywhere else in the SDK.
+
+- **`match.current.ball`** — was `{ Speed, TeamNum }`; is now
+  `{ speed, teamNum, lastTouchTeam, raw }`. `lastTouchTeam`
+  normalizes the API's `TeamNum === 255` "ball has not been
+  touched yet" sentinel to `null`.
+  - `m.ball.Speed` → `m.ball.speed` (or `m.ball.raw.Speed`).
+  - `m.ball.TeamNum === 255` → `m.ball.lastTouchTeam === null`.
+
+- **`match.current.players[i].attacker`** — was the raw
+  `{ Name, Shortcut, TeamNum }` stub; is now the same enriched
+  shape used by typed event payloads: `{ name, shortcut, team,
+  id, isMe, player, encounter, raw }`. The original wire stub
+  is on `attacker.raw`.
+  - `player.attacker.Name` → `player.attacker.name`
+    (or `player.attacker.raw.Name`).
+
+### New fields (additive, no migration needed)
+
+- `match.current.teams` — array of `{ teamNum, name, score,
+  colorPrimary, colorSecondary, raw }`. Hex colors are raw (no `#`).
+- `match.current.blueTeam` / `match.current.orangeTeam` — split
+  shortcuts mirroring the existing `match.blue` / `match.orange`
+  player splits.
+- `match.current.replayInfo` — `null` outside replays;
+  `{ frame, elapsed }` while a replay is active.
