@@ -26,11 +26,14 @@ use tauri::{LogicalPosition, Manager};
 use tauri::{LogicalSize, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "rl-widget", about = "RL Toolkit per-plugin overlay widget")]
+#[command(name = "rl-widget", about = "RL Toolkit overlay widget")]
 struct Args {
     /// Plugin name — must exist in toolkit's /api/plugins response.
+    /// When omitted, the widget runs in unified mode and loads the
+    /// toolkit's /overlay aggregator page (all enabled plugins, one
+    /// fullscreen click-through window).
     #[arg(long)]
-    plugin: String,
+    plugin: Option<String>,
 
     /// Toolkit base URL.
     #[arg(long, default_value = "http://localhost:8080")]
@@ -298,12 +301,15 @@ fn apply_pixel_position(
 
 fn main() {
     let args = Args::parse();
-    let manifest = fetch_manifest(&args.toolkit, &args.plugin);
+    let plugin_name = args.plugin.clone().unwrap_or_else(|| {
+        eprintln!("[rl-widget] unified mode not yet implemented; --plugin is required");
+        std::process::exit(2);
+    });
+    let manifest = fetch_manifest(&args.toolkit, &plugin_name);
 
-    let url = plugin_url(&args.toolkit, &args.plugin, &manifest.file, &manifest.anchor);
-    eprintln!("[rl-widget] plugin={} url={}", args.plugin, url);
+    let url = plugin_url(&args.toolkit, &plugin_name, &manifest.file, &manifest.anchor);
+    eprintln!("[rl-widget] plugin={} url={}", plugin_name, url);
 
-    let plugin_name = args.plugin.clone();
     let manifest_for_setup = manifest.clone();
 
     tauri::Builder::default()
