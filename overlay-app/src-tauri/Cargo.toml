@@ -28,6 +28,13 @@ url = "2"
 gtk = "0.18"
 gtk-layer-shell = "0.8"
 
+# Windows-only: DWM bindings so we can disable the Win11 window border
+# (DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE). Without this, transparent
+# always-on-top decoration-less windows still get a 1px frame outlined
+# by the Win11 compositor — visible against the desktop.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+
 [profile.release]
 opt-level = "s"
 lto = true

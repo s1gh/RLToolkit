@@ -25,6 +25,12 @@
 //     ignore_cursor_events=true. Tauri handles WS_EX_TRANSPARENT,
 //     NSWindow.level, and X11 _NET_WM_STATE_ABOVE per platform.
 //
+//   Windows 11 also paints a 1px window border via DWM regardless of
+//   decorations(false). We turn that off explicitly with
+//   DwmSetWindowAttribute(DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE). The
+//   call is harmless on Windows 10 — the attribute didn't exist there
+//   and DwmSetWindowAttribute just returns a non-zero HRESULT we ignore.
+//
 // Plugins can also reshape their own widget at runtime via Tauri commands
 // (RLT.widget.* in the SDK) — see the `widget_*` handlers below.
 //
@@ -401,6 +407,40 @@ fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
     let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
 }
 
+/// Disable the Windows 11 DWM border on this window. The visible
+/// "frame" some users report tracing the overlay's edge is the Win11
+/// compositor border, which DWM paints regardless of the WS_BORDER /
+/// decorations setting on transparent always-on-top windows.
+///
+/// DWMWA_BORDER_COLOR was introduced in Windows 11 22000. Calling
+/// DwmSetWindowAttribute with it on Windows 10 returns a non-zero
+/// HRESULT and does nothing — that's fine, the bug we're fixing only
+/// exists on Win11 anyway.
+#[cfg(target_os = "windows")]
+fn apply_windows_no_border(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+    };
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    // Tauri returns windows::Win32::Foundation::HWND (typed `windows`
+    // crate); windows-sys takes a raw *mut c_void. Same pointer.
+    let hwnd_raw = hwnd.0;
+    let color: u32 = DWMWA_COLOR_NONE;
+    // Safety: hwnd is a valid window handle owned by Tauri's window for
+    // its full lifetime; DwmSetWindowAttribute reads `cbAttribute` bytes
+    // from `pvAttribute` synchronously and returns. The attribute size
+    // for DWMWA_BORDER_COLOR is sizeof(COLORREF) = 4 bytes = sizeof(u32).
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd_raw,
+            DWMWA_BORDER_COLOR as u32,
+            &color as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+}
+
 /// Build the tray icon with a Quit menu item. Best-effort: any error is
 /// returned to the caller, which logs and continues. The hotkey is the
 /// guaranteed exit path; the tray is a discoverability aid.
@@ -553,6 +593,9 @@ fn main() {
             {
                 let _ = window.set_ignore_cursor_events(true);
             }
+
+            #[cfg(target_os = "windows")]
+            apply_windows_no_border(&window);
 
             match &mode_for_setup {
                 Mode::Plugin { manifest, .. } => {
