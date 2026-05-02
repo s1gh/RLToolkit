@@ -375,6 +375,7 @@ pub fn spawn(app: AppHandle, rule: MatchRule) {
 
 fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
     let mut state = DebounceState::initial();
+    let mut last_emit_log_at: Option<Instant> = None;
     loop {
         let matched_opt = poll_once(&rule, self_pid);
         let now = Instant::now();
@@ -382,8 +383,16 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
             let outcome = state.clone().step(matched, now);
             state = outcome.next;
             if let Some(active) = outcome.emit {
-                if let Err(e) = app.emit(FOCUS_EVENT, FocusPayload { active }) {
-                    eprintln!("[rl-widget] focus-change emit failed: {e}");
+                let emit_result = app.emit(FOCUS_EVENT, FocusPayload { active });
+                if let Err(e) = emit_result {
+                    let should_log = match last_emit_log_at {
+                        None => true,
+                        Some(prev) => now.duration_since(prev) >= Duration::from_secs(1),
+                    };
+                    if should_log {
+                        eprintln!("[rl-widget] focus-change emit failed: {e}");
+                        last_emit_log_at = Some(now);
+                    }
                 }
                 eprintln!("[rl-widget] focus → {}", if active { "active" } else { "inactive" });
             }
