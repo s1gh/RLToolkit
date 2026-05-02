@@ -431,6 +431,17 @@
       const blueTeam = teams.find((t) => t.teamNum === 0) || null;
       const orangeTeam = teams.find((t) => t.teamNum === 1) || null;
 
+      // Conditional replay-only fields. The API emits Frame and Elapsed
+      // only while a replay is active (goal replay or match-history
+      // replay). Group them under a single nullable object so plugins
+      // can gate with `if (m.replayInfo) { … }`.
+      const hasFrame = game && typeof game.Frame === 'number';
+      const hasElapsed = game && typeof game.Elapsed === 'number';
+      const replayInfo = (hasFrame || hasElapsed) ? {
+        frame:   hasFrame   ? game.Frame   : null,
+        elapsed: hasElapsed ? game.Elapsed : null,
+      } : null;
+
       return {
         guid,
         players, blue, orange, me,
@@ -451,6 +462,7 @@
         teams,
         blueTeam,
         orangeTeam,
+        replayInfo,
         // Ball is { Speed, TeamNum }. TeamNum is 255 if the ball hasn't
         // been touched yet (per the spec) — treat that as null.
         ball: game && game.Ball ? game.Ball : null,
