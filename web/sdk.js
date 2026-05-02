@@ -424,6 +424,7 @@
               score: t.Score | 0,
               colorPrimary: t.ColorPrimary || '',
               colorSecondary: t.ColorSecondary || '',
+              raw: t,
             }))
             .sort((a, b) => a.teamNum - b.teamNum)
         : [];
