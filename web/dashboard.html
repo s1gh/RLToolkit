@@ -358,7 +358,6 @@ fetch('/api/plugins').then(r => r.json()).then(ps => {
     const overlay = p.overlay && p.overlay.file
       ? '/plugins/' + p.name + '/' + p.overlay.file
       : null;
-    const transparent = overlay ? overlay + '?overlay=1' : null;
     const initials = (p.title || p.name || '?').replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '◇';
     const desc = p.description
       ? esc(p.description)
@@ -378,7 +377,6 @@ fetch('/api/plugins').then(r => r.json()).then(ps => {
       + '<p class="card-desc">' + desc + '</p>'
       + '<div class="card-actions">'
         + (overlay ? '<a class="btn primary" href="' + overlay + '" target="_blank">Open <span class="arrow">→</span></a>' : '')
-        + (transparent ? '<a class="btn" href="' + transparent + '" target="_blank">Transparent</a>' : '')
       + '</div>'
     + '</article>';
   }).join('');
