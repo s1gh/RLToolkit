@@ -4,27 +4,56 @@
   html,body{margin:0;padding:0;width:100vw;height:100vh;background:transparent;overflow:hidden}
   .pf{position:absolute;border:none;background:transparent}
 </style></head><body><script>
-fetch('/api/plugins').then(r=>r.json()).then(plugins=>{
-  plugins.forEach(p=>{
-    if(!p.overlay||!p.overlay.file)return;
-    const a = p.overlay.anchor || 'top-right';
+// Shallow-merge per-user overrides on top of each plugin's manifest
+// overlay block. Manifests are author-controlled defaults; overrides are
+// user-controlled customizations stored in data/overlay-overrides.json.
+(async function(){
+  const params = new URLSearchParams(location.search);
+  const editMode = params.get('edit') === '1';
+
+  const [plugins, overrides] = await Promise.all([
+    fetch('/api/plugins').then(r => r.json()),
+    fetch('/api/overlay/overrides').then(r => r.json()).catch(() => ({})),
+  ]);
+
+  // Build the final overlay config per plugin: manifest first, override on top.
+  const merged = plugins
+    .filter(p => p.overlay && p.overlay.file)
+    .map(p => ({
+      plugin: p,
+      overlay: Object.assign({}, p.overlay, overrides[p.name] || {}),
+    }));
+
+  if (editMode) {
+    // Hand off to the editor. It reads window.__rltOverlayContext for the
+    // resolved overlay config + raw plugin list, then takes over rendering
+    // (production iframe placement, edit chrome, drag handlers, etc.).
+    window.__rltOverlayContext = { merged, plugins, overrides };
+    const s = document.createElement('script');
+    s.src = '/overlay-editor.js';
+    document.body.appendChild(s);
+    return;
+  }
+
+  // Production path: render iframes exactly as before, just using the
+  // merged overlay config instead of the raw manifest.
+  for (const { plugin, overlay } of merged) {
+    const a = overlay.anchor || 'top-right';
     const f = document.createElement('iframe');
     f.className = 'pf';
-    // Pass the anchor through to the iframe so the SDK can align the
-    // plugin's content inside the iframe to the same corner the iframe
-    // itself is anchored to. Without this, the visible content would sit
-    // top-left within the iframe regardless of where the iframe lives.
-    f.src = '/plugins/' + p.name + '/' + p.overlay.file + '?overlay=1&anchor=' + encodeURIComponent(a);
-    f.style.width = p.overlay.width + 'px';
-    f.style.height = p.overlay.height + 'px';
-    f.style.opacity = p.overlay.opacity || 1;
+    f.src = '/plugins/' + plugin.name + '/' + overlay.file +
+            '?overlay=1&anchor=' + encodeURIComponent(a);
+    f.style.width  = overlay.width  + 'px';
+    f.style.height = overlay.height + 'px';
+    f.style.opacity = overlay.opacity || 1;
     f.setAttribute('allowtransparency', 'true');
     f.setAttribute('frameborder', '0');
-    const ox = (p.overlay.offset_x||0)+'px', oy = (p.overlay.offset_y||0)+'px';
-    if (a.includes('top'))  f.style.top = oy;    else f.style.bottom = oy;
-    if (a.includes('left')) f.style.left = ox;   else f.style.right = ox;
-    if (p.overlay.click_through) f.style.pointerEvents = 'none';
+    const ox = (overlay.offset_x || 0) + 'px';
+    const oy = (overlay.offset_y || 0) + 'px';
+    if (a.includes('top'))  f.style.top  = oy; else f.style.bottom = oy;
+    if (a.includes('left')) f.style.left = ox; else f.style.right  = ox;
+    if (overlay.click_through) f.style.pointerEvents = 'none';
     document.body.appendChild(f);
-  });
-});
+  }
+})();
 </script></body></html>
