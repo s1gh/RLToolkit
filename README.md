@@ -1,7 +1,20 @@
 # RL Toolkit
 
-A lightweight, plugin-based framework for the Rocket League Stats API.  
-Zero dependencies — runs as a single executable on Windows, Linux, or macOS.
+A lightweight, plugin-based framework for the Rocket League Stats API.
+
+RL Toolkit consists of two components:
+- **Server** (`rl-toolkit`) - A Go application that connects to Rocket League's Stats API and serves plugin data via HTTP
+- **Overlay** (`rl-widget`) - A Rust/Tauri desktop widget that displays plugin overlays on top of your game
+
+Both run natively on **Windows**, **Linux**, and **macOS**.
+
+---
+
+## What You'll Need Before Starting
+
+- **Rocket League** installed and updated
+- The `rl-toolkit` server running (either pre-built or compiled from source)
+- *(Optional)* The `rl-widget` overlay app for desktop overlays
 
 ---
 
@@ -9,13 +22,19 @@ Zero dependencies — runs as a single executable on Windows, Linux, or macOS.
 
 ### 1. Enable the Rocket League Stats API
 
-Edit the file at:
+Rocket League needs to be configured to send game data. Edit this file:
 
+**Windows:**
 ```
-<Rocket League Install Dir>\TAGame\Config\DefaultStatsAPI.ini
+C:\Program Files\Epic Games\RocketLeague\TAGame\Config\DefaultStatsAPI.ini
 ```
 
-Set these values:
+**Linux (Proton/Steam):**
+```
+~/.steam/steam/steamapps/common/rocketleague/TAGame/Config/DefaultStatsAPI.ini
+```
+
+Add or modify these lines:
 
 ```ini
 [TAGame.MatchStatsExporter_TA]
@@ -23,116 +42,186 @@ PacketSendRate=60
 Port=49123
 ```
 
-Restart Rocket League after saving.
+**Save the file and restart Rocket League.**
 
-### 2. Run RL Toolkit
+### 2. Start the RL Toolkit Server
 
-**Windows:** double-click `rl-toolkit.exe`  
-**Linux:** `./rl-toolkit`
+The server is the core of RL Toolkit. It receives game data and makes it available to plugins.
 
-The toolkit will:
-- Start a local web server on `http://localhost:8080`
-- Auto-connect to the RL Stats API on `localhost:49123`
-- Load all plugins from the `plugins/` directory
+**Windows:**
+```powershell
+# If you have the pre-built binary
+.\rl-toolkit.exe
+
+# Or run from source (requires Go - see Building section below)
+go run .
+```
+
+**Linux:**
+```bash
+# If you have the pre-built binary
+./rl-toolkit
+
+# Or run from source (requires Go - see Building section below)
+go run .
+```
+
+When started, the server will:
+- Connect to Rocket League on `localhost:49123`
+- Start a web dashboard at `http://localhost:8080`
+- Load all plugins from the `plugins/` folder
+
+You should see output like:
+```
+2026/05/02 12:00:00 RL Toolkit listening on :8080
+2026/05/02 12:00:00 Connected to RL Stats API at 127.0.0.1:49123
+```
 
 ### 3. Open the Dashboard
 
-Visit `http://localhost:8080` in your browser. You'll see loaded plugins and connection status.
+Open `http://localhost:8080` in your browser. This shows:
+- Connection status to Rocket League
+- Loaded plugins and their status
+- Links to individual plugin pages
 
 ---
 
-## Overlay Display
+## Using the Overlay
 
-The toolkit serves plugin overlays as web pages. There are three ways to
-get them onto your screen:
+The overlay displays plugin information on top of Rocket League while you play. You have three options:
 
-### Method A: Desktop widget (recommended for players)
+### Option 1: Desktop Widget (Recommended for Players)
 
-The toolkit ships with `rl-widget` — a transparent, frameless, always-on-top
-window backed by [Tauri](https://tauri.app). On Linux it uses
-`wlr-layer-shell` to sit above other windows with no compositor config; on
-Windows / macOS it uses the platform's standard always-on-top + click-through
-primitives.
+The `rl-widget` is a transparent, click-through window that stays on top of your game.
 
+**Important:** Rocket League must be in **borderless windowed** mode (Settings → Video). Overlays cannot appear above exclusive fullscreen.
+
+**Linux:**
 ```bash
+./overlay-app/src-tauri/target/release/rl-widget
+# Or for a specific plugin:
 ./overlay-app/src-tauri/target/release/rl-widget --plugin=dejavu
 ```
 
-One process per plugin, anchored from the manifest's `anchor` /
-`offset_x` / `offset_y`. Click-through, so you can play through it.
+**Windows:**
+```powershell
+.\overlay-app\src-tauri\target\release\rl-widget.exe
+# Or for a specific plugin:
+.\overlay-app\src-tauri\target\release\rl-widget.exe --plugin=dejavu
+```
 
-> **Note:** RL needs to be in **borderless windowed** mode (the default).
-> No compositor-level overlay can sit above an exclusively-fullscreen game.
+The widget will appear as a transparent overlay. You can click through it to play normally.
 
-Build instructions and per-OS prereqs are in **[BUILD.md](BUILD.md)**.
+**Building the widget** requires Rust and Tauri. See the Building section below.
 
-### Method B: OBS Browser Source (recommended for streamers)
+### Option 2: OBS Browser Source (Recommended for Streamers)
+
+If you're streaming and don't need to see the overlay yourself:
 
 1. In OBS, add a **Browser Source**
 2. Set URL to `http://localhost:8080/overlay`
-3. Set width/height to your monitor resolution
+3. Set width/height to your monitor resolution (e.g., 1920x1080)
 4. Enable **"Shutdown source when not visible"**
 
-This composites every plugin's overlay at their configured screen
-positions, baked into the broadcast.
+This bakes the overlay directly into your stream output.
 
-### Method C: Direct browser
+### Option 3: Browser on Second Monitor
 
-Each plugin's overlay page is a regular URL:
+Open any plugin's overlay in a regular browser:
 
 ```
-http://localhost:8080/plugins/dejavu/overlay.html              (control page)
-http://localhost:8080/plugins/dejavu/overlay.html?overlay=1    (transparent overlay view)
+# Control page (shows settings)
+http://localhost:8080/plugins/dejavu/overlay.html
+
+# Transparent overlay view
+http://localhost:8080/plugins/dejavu/overlay.html?overlay=1
 ```
 
-Useful for: a second monitor, a tablet, or any browser-based overlay tool
-(Rainmeter, eww, Übersicht) pointed at the URL.
+Move the browser window to a second monitor. The overlay view removes all chrome and backgrounds.
 
 ---
 
-## Included Plugin: Déjà Vu
+## Plugin: Déjà Vu (Included)
 
-Tracks every player you encounter and alerts you when you see a returning
-player. Shows:
+Déjà Vu is a player tracker that comes with RL Toolkit. It shows:
 
-- Encounter count (highlighted badge for returning players)
-- Previous usernames / aliases
-- Platform (Steam, Epic, etc.)
-- Live match stats (goals, assists, saves, shots, demos)
-- Match score and time
+- **Encounter count** - How many times you've played against each player
+- **Player history** - Previous usernames and aliases
+- **Platform** - Steam, Epic, PlayStation, Xbox
+- **Live match stats** - Goals, assists, saves, shots, demos (real-time)
+- **Match info** - Score and time remaining
 
-**Setting your ID:** Click your own name in the overlay during a match, or
-manually enter your `PrimaryId` (e.g. `Steam|12345|0`) in the input at the
-bottom.
+**First-time setup:** When you first use Déjà Vu, you need to tell it who you are:
 
-Data persists across sessions in `data/dejavu.json`.
+1. Join a match
+2. Look for your name in the overlay
+3. Click your name, OR
+4. Manually enter your `PrimaryId` at the bottom (format: `Steam|12345|0`)
+
+Your player data is saved in `data/dejavu.json` and persists between sessions.
 
 ---
 
-## Writing Plugins
+## Building from Source
 
-Scaffold a working plugin in one command:
+### Prerequisites
 
+**Both platforms need:**
+- [Go 1.22+](https://go.dev/dl/) (for the server)
+- [Rust](https://rustup.rs) (for the overlay widget)
+
+**Linux additional:**
 ```bash
-./rl-toolkit new my-plugin
+# Arch/Manjaro
+sudo pacman -S base-devel webkit2gtk-4.1 gtk-layer-shell pkg-config
+
+# Ubuntu 24.04+
+sudo apt install libwebkit2gtk-4.1-dev libgtk-layer-shell-dev libgtk-3-dev
 ```
 
-That creates `plugins/my-plugin/{manifest.json,overlay.html}` from a
-working template. Refresh the dashboard and your plugin appears.
+**Windows additional:**
+- [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/) with "Desktop development with C++"
+- WebView2 runtime (pre-installed on Windows 11, may need [manual install](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) on older Windows 10)
 
-The full authoring guide — events, overlay vs. dashboard mode, the
-desktop widget API, persistence, identity, encounters, debugging — lives
-in **[docs/PLUGINS.md](docs/PLUGINS.md)**.
+### Building the Server (rl-toolkit)
 
-For a quick reference of every event you can subscribe to:
-
+**Linux:**
 ```bash
-curl http://localhost:8080/api/events
+go build -o rl-toolkit .
 ```
+
+**Windows:**
+```powershell
+go build -o rl-toolkit.exe .
+# Or cross-compile from Linux:
+# GOOS=windows GOARCH=amd64 go build -o rl-toolkit.exe .
+```
+
+The server has no system dependencies and cross-compiles easily.
+
+### Building the Overlay Widget (rl-widget)
+
+**Linux:**
+```bash
+cd overlay-app/src-tauri
+cargo build --release
+# Output: overlay-app/src-tauri/target/release/rl-widget
+```
+
+**Windows:**
+```powershell
+cd overlay-app\src-tauri
+cargo install tauri-cli --version "^2.0" --locked
+cargo tauri build
+# Output: overlay-app\src-tauri\target\release\rl-widget.exe
+# Also creates: overlay-app\src-tauri\target\release\bundle\msi\rl-widget_0.1.0_x64_*.msi
+```
+
+**Note:** The widget must be built on its target operating system. Tauri's webview library links native OS libraries and cannot be cross-compiled.
 
 ---
 
-## CLI Options
+## Command Line Options
 
 ```
   -rl-addr string    RL Stats API address (default "127.0.0.1:49123")
@@ -141,36 +230,59 @@ curl http://localhost:8080/api/events
   -data string       Data directory path (default "data")
 ```
 
----
-
-## Building from Source
-
-The project has two binaries — `rl-toolkit` (Go server) and `rl-widget`
-(Rust + Tauri overlay). Per-OS prerequisites and full instructions live in
-**[BUILD.md](BUILD.md)**. The short version:
-
+Example: Run on a different port with custom plugin location
 ```bash
-# Toolkit (Go 1.22+, no system deps)
-go build -o rl-toolkit .
-
-# Widget (Linux: needs webkit2gtk-4.1 + gtk-layer-shell)
-cd overlay-app/src-tauri && cargo build --release
+./rl-toolkit -port 9000 -plugins ./my-plugins -data ./my-data
 ```
 
-The toolkit cross-compiles cleanly with `GOOS=windows`/`darwin`. The
-widget needs a real Windows or macOS box for those targets — Tauri's
-webview crate doesn't cross-compile.
+---
+
+## Writing Plugins
+
+Create a new plugin:
+
+```bash
+./rl-toolkit new my-plugin
+```
+
+This creates `plugins/my-plugin/` with a working template (`manifest.json` and `overlay.html`).
+
+For full documentation on events, the widget API, persistence, and debugging, see **[docs/PLUGINS.md](docs/PLUGINS.md)**.
+
+View all available events:
+```bash
+curl http://localhost:8080/api/events
+```
+
+---
+
+## Troubleshooting
+
+**"Connection refused" or server won't start**
+- Make sure Rocket League is running with the Stats API enabled (see Step 1)
+- Check if port 49123 is already in use: `netstat -an | grep 49123` (Linux) or `netstat -an | findstr 49123` (Windows)
+
+**Overlay not appearing**
+- Rocket League must be in borderless windowed mode, not exclusive fullscreen
+- On Linux: make sure you're using a Wayland compositor or have the required GTK libraries installed
+
+**Widget won't build on Linux**
+- Install `webkit2gtk-4.1` and `gtk-layer-shell` for your distribution
+- Make sure `pkg-config` is installed
+
+**SmartScreen warning on Windows**
+- The executables are unsigned. Click "More info" → "Run anyway"
 
 ---
 
 ## Plugin Ideas
 
-A few things the Stats API makes possible:
+What you can build with the Stats API:
 
-- **Boost tracker** — real-time boost meter overlay with usage history
-- **Session stats** — aggregate stats across multiple matches in a session
-- **Goal analysis** — shot placement maps from GoalScored impact locations
-- **Demo tracker** — who's demolishing who, with sound effects
-- **Match timeline** — visual timeline of goals, demos, and stat events
-- **Speed tracker** — ball and car speed graphs in real-time
-- **Crossbar counter** — the ultimate tilt tracker
+- **Boost tracker** — Real-time boost meter with usage history
+- **Session stats** — Aggregate stats across multiple matches
+- **Goal analysis** — Shot placement heatmaps from goal data
+- **Demo tracker** — Demolition stats with sound effects
+- **Match timeline** — Visual timeline of goals, demos, and events
+- **Speed tracker** — Ball and car speed graphs
+- **Crossbar counter** — Track those near-misses
