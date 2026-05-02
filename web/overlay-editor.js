@@ -101,7 +101,7 @@
   }
 
   for (const w of widgets) {
-    w.capture.addEventListener('mousedown', (e) => {
+    w.capture.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       select(w);
       startDrag(w, e);
@@ -127,12 +127,27 @@
     const startOY = w.overlay.offset_y | 0;
     const anchor = w.overlay.anchor || 'top-right';
     // x grows toward right; for right-anchored widgets, dragging right
-    // increases offset_x is wrong — it should DECREASE offset_x. Same
-    // for the y axis with bottom anchors. Sign multipliers handle that.
+    // should DECREASE offset_x (offset is measured from the right edge).
+    // Same for the y axis with bottom anchors.
     const sx = (anchor.indexOf('-left') >= 0) ? +1 : -1;
     const sy = (anchor.indexOf('top')   === 0) ? +1 : -1;
 
+    // Capture the pointer on the widget itself so subsequent pointermove /
+    // pointerup events route here regardless of where the cursor goes —
+    // off-window, over the iframe, anywhere. Without this, releasing the
+    // mouse outside the browser viewport leaks the move listener and the
+    // drag becomes "stuck" until the next click.
+    const target = downEv.currentTarget;
+    const pointerId = downEv.pointerId;
+    try { target.setPointerCapture(pointerId); } catch (_) {}
+
+    // Token used to detect a stale rollback: if a second drag starts on
+    // this widget before this drag's save resolves, w._dragToken changes,
+    // and our save .catch ignores its own rollback.
+    const token = (w._dragToken = (w._dragToken | 0) + 1);
+
     function move(ev) {
+      if (ev.pointerId !== pointerId) return;
       ev.preventDefault();
       const nx = clamp(startOX + sx * (ev.clientX - startX), 0);
       const ny = clamp(startOY + sy * (ev.clientY - startY), 0);
@@ -140,9 +155,13 @@
       w.overlay.offset_y = ny;
       applyAnchor(w.el, anchor, nx, ny);
     }
-    function up(ev) {
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
+    function end(ev) {
+      if (ev.pointerId !== pointerId) return;
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', end);
+      target.removeEventListener('pointercancel', end);
+      try { target.releasePointerCapture(pointerId); } catch (_) {}
+
       // Snap on release (unless Shift held), then persist.
       if (!ev.shiftKey) {
         w.overlay.offset_x = Math.round(w.overlay.offset_x / SNAP) * SNAP;
@@ -153,15 +172,19 @@
         offset_x: w.overlay.offset_x,
         offset_y: w.overlay.offset_y,
       }).catch((err) => {
-        // Roll back on failure: restore start position and surface the error.
+        // Skip the rollback if the user already started another drag on
+        // this widget — applying our stale start values would clobber
+        // their in-progress work.
+        if (w._dragToken !== token) return;
         w.overlay.offset_x = startOX;
         w.overlay.offset_y = startOY;
         applyAnchor(w.el, anchor, startOX, startOY);
         toast('Save failed: ' + err.message);
       });
     }
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', end);
+    target.addEventListener('pointercancel', end);
   }
 
   function clamp(v, min) { return v < min ? min : v; }
