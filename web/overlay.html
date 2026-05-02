@@ -55,5 +55,9 @@
     if (overlay.click_through) f.style.pointerEvents = 'none';
     document.body.appendChild(f);
   }
-})();
+})().catch((err) => {
+  // OBS browser sources can't show toasts; at least log so the failure
+  // is visible in the source's "Inspect" devtools.
+  console.error('[rlt overlay]', err);
+});
 </script></body></html>
