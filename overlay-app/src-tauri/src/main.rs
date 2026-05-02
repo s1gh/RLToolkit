@@ -628,6 +628,7 @@ fn main() {
     let mode_for_setup = mode.clone();
     let quit_hotkey = args.quit_hotkey.clone();
     let tray_tooltip = title.clone();
+    let args_for_setup = args.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -707,6 +708,13 @@ fn main() {
             }
 
             window.show()?;
+
+            // Start the foreground-window watcher. It owns a clone of the
+            // app handle and runs until the process exits. Disabled (early
+            // return) when --game-match="".
+            let rule = focus_watcher::match_rule_from_arg(args_for_setup.game_match.as_deref());
+            focus_watcher::spawn(app.handle().clone(), rule);
+
             Ok(())
         })
         .run(tauri::generate_context!())
