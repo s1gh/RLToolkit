@@ -1,7 +1,10 @@
-// rl-widget — per-plugin overlay window.
+// rl-widget — overlay widget for RL Toolkit.
 //
-// One process per plugin. Loads the toolkit's plugin overlay URL into a
-// transparent, frameless, click-through window pinned above all others.
+// Two modes: unified (no flag — one fullscreen window loading the
+// toolkit's /overlay aggregator, which positions all enabled plugins)
+// and per-plugin (--plugin=<name> — one window per plugin, sized and
+// anchored from the plugin's manifest). In both cases the window is
+// transparent, frameless, click-through, and pinned above all others.
 //
 // Per-platform overlay primitive:
 //   Linux/Wayland: wlr-layer-shell (overlay layer + anchored margins). The
@@ -391,14 +394,14 @@ fn main() {
     let args = Args::parse();
 
     let (mode, url, title) = match args.plugin.clone() {
-        Some(name) => {
+        Some(name) if !name.is_empty() => {
             let manifest = fetch_manifest(&args.toolkit, &name);
             let url = plugin_url(&args.toolkit, &name, &manifest.file, &manifest.anchor);
             eprintln!("[rl-widget] plugin={} url={}", name, url);
             let title = format!("RL Toolkit – {}", name);
             (Mode::Plugin { manifest }, url, title)
         }
-        None => {
+        _ => {
             probe_toolkit(&args.toolkit);
             let url = unified_url(&args.toolkit);
             eprintln!("[rl-widget] unified mode url={}", url);
