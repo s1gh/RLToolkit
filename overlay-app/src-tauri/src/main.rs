@@ -74,6 +74,14 @@ struct Args {
     /// aborts so the user picks something else.
     #[arg(long, default_value = "Ctrl+Shift+Q")]
     quit_hotkey: String,
+
+    /// Window-title substring (Linux/macOS) or exe basename (Windows) that
+    /// identifies the game window. Defaults are platform-specific:
+    /// "RocketLeague.exe" on Windows, "Rocket League" on Linux/macOS.
+    /// Pass an empty string to disable focus-gating entirely (overlay always
+    /// shown).
+    #[arg(long)]
+    game_match: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
