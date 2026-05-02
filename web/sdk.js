@@ -412,6 +412,24 @@
       const game   = d.Game || null;
       const me     = players.find((p) => p.isMe) || null;
 
+      // Normalize Game.Teams into lowercase-keyed entries plus blue/orange
+      // split shortcuts. ColorPrimary/ColorSecondary are raw hex strings
+      // (no '#' prefix) — plugins prepend '#' when applying.
+      const teams = game && Array.isArray(game.Teams)
+        ? game.Teams
+            .filter((t) => t && typeof t.TeamNum === 'number')
+            .map((t) => ({
+              teamNum: t.TeamNum,
+              name: t.Name || '',
+              score: t.Score | 0,
+              colorPrimary: t.ColorPrimary || '',
+              colorSecondary: t.ColorSecondary || '',
+            }))
+            .sort((a, b) => a.teamNum - b.teamNum)
+        : [];
+      const blueTeam = teams.find((t) => t.teamNum === 0) || null;
+      const orangeTeam = teams.find((t) => t.teamNum === 1) || null;
+
       return {
         guid,
         players, blue, orange, me,
@@ -427,6 +445,11 @@
         winner:     game ? (game.Winner || '') : '',
         scoreBlue:   game && game.Teams ? ((game.Teams.find((t) => t.TeamNum === 0) || game.Teams[0] || {}).Score | 0) : 0,
         scoreOrange: game && game.Teams ? ((game.Teams.find((t) => t.TeamNum === 1) || game.Teams[1] || {}).Score | 0) : 0,
+        // Normalized team metadata: full array plus blue/orange shortcuts
+        // (mirroring the existing match.blue / match.orange split).
+        teams,
+        blueTeam,
+        orangeTeam,
         // Ball is { Speed, TeamNum }. TeamNum is 255 if the ball hasn't
         // been touched yet (per the spec) — treat that as null.
         ball: game && game.Ball ? game.Ball : null,
