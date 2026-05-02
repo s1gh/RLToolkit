@@ -395,9 +395,11 @@
           demolished:   !!p.bDemolished,
           supersonic:   !!p.bSupersonic,
           hasCar:       !!p.bHasCar,
-          // Present only on the frame this player was demolished. Shape is
-          // {Name, Shortcut, TeamNum} — same as event-level player refs.
-          attacker: p.Attacker || null,
+          // Present only on the frame this player was demolished. Resolved
+          // to the enriched player-ref shape in a second pass below, once
+          // the full roster is built. Stash the raw stub here for now.
+          attackerRaw: p.Attacker || null,
+          attacker: null,
           encounterCount: enc ? enc.count : 1,
           aliases: enc ? enc.names.filter((n) => n !== name) : [],
           firstSeen: enc ? enc.first_seen : null,
@@ -406,6 +408,17 @@
           raw: p,
         };
       });
+
+      // Resolve attackers now that the roster exists. resolvePlayerIn
+      // looks up the attacker against the just-built `players` array, so
+      // attacker.player / attacker.isMe / attacker.encounter are all
+      // populated when the attacker is in the same match.
+      for (const p of players) {
+        if (p.attackerRaw) {
+          p.attacker = resolvePlayerIn(players, p.attackerRaw);
+        }
+        delete p.attackerRaw;
+      }
 
       const blue   = players.filter((p) => p.team === 0);
       const orange = players.filter((p) => p.team === 1);
