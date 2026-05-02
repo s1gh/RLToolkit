@@ -34,6 +34,12 @@ var validAnchors = map[string]struct{}{
 	"bottom-right": {},
 }
 
+// maxOverlayPixel caps overlay dimensions and offsets at a value larger
+// than any practical streaming canvas (8K wide is 7680px). Rejects
+// hand-edited junk that would otherwise render off-screen and become
+// unrecoverable from the editor UI.
+const maxOverlayPixel = 8192
+
 // validate returns an error if any present field carries a disallowed
 // value. Absent fields (nil pointers) are always allowed — they mean
 // "fall back to the manifest."
@@ -43,17 +49,17 @@ func (o *OverlayOverride) validate() error {
 			return fmt.Errorf("anchor %q must be top-left, top-right, bottom-left, or bottom-right", *o.Anchor)
 		}
 	}
-	if o.OffsetX != nil && *o.OffsetX < 0 {
-		return fmt.Errorf("offset_x must be >= 0, got %d", *o.OffsetX)
+	if o.OffsetX != nil && (*o.OffsetX < 0 || *o.OffsetX > maxOverlayPixel) {
+		return fmt.Errorf("offset_x must be between 0 and %d, got %d", maxOverlayPixel, *o.OffsetX)
 	}
-	if o.OffsetY != nil && *o.OffsetY < 0 {
-		return fmt.Errorf("offset_y must be >= 0, got %d", *o.OffsetY)
+	if o.OffsetY != nil && (*o.OffsetY < 0 || *o.OffsetY > maxOverlayPixel) {
+		return fmt.Errorf("offset_y must be between 0 and %d, got %d", maxOverlayPixel, *o.OffsetY)
 	}
-	if o.Width != nil && *o.Width < 0 {
-		return fmt.Errorf("width must be >= 0, got %d", *o.Width)
+	if o.Width != nil && (*o.Width < 0 || *o.Width > maxOverlayPixel) {
+		return fmt.Errorf("width must be between 0 and %d, got %d", maxOverlayPixel, *o.Width)
 	}
-	if o.Height != nil && *o.Height < 0 {
-		return fmt.Errorf("height must be >= 0, got %d", *o.Height)
+	if o.Height != nil && (*o.Height < 0 || *o.Height > maxOverlayPixel) {
+		return fmt.Errorf("height must be between 0 and %d, got %d", maxOverlayPixel, *o.Height)
 	}
 	if o.Opacity != nil && (*o.Opacity < 0 || *o.Opacity > 1) {
 		return fmt.Errorf("opacity must be between 0 and 1, got %g", *o.Opacity)
@@ -155,9 +161,24 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	merged := s.data[plugin].merge(partial)
+	prev, hadPrev := s.data[plugin]
+	merged := prev.merge(partial)
+	// Validate after the merge too: a hand-edited file could have
+	// landed an out-of-range value in s.data that the partial doesn't
+	// touch, and we don't want a "successful" PUT to confirm a value
+	// the editor never set.
+	if err := merged.validate(); err != nil {
+		return OverlayOverride{}, err
+	}
 	s.data[plugin] = merged
 	if err := s.persistLocked(); err != nil {
+		// Roll back the in-memory mutation so the API's "save failed"
+		// matches the actual store state.
+		if hadPrev {
+			s.data[plugin] = prev
+		} else {
+			delete(s.data, plugin)
+		}
 		return OverlayOverride{}, err
 	}
 	return merged, nil
@@ -168,11 +189,17 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 func (s *OverridesStore) Delete(plugin string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.data[plugin]; !ok {
+	prev, ok := s.data[plugin]
+	if !ok {
 		return nil
 	}
 	delete(s.data, plugin)
-	return s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		// Roll back so in-memory matches disk.
+		s.data[plugin] = prev
+		return err
+	}
+	return nil
 }
 
 // persistLocked writes the full map to disk. Caller must hold s.mu.
