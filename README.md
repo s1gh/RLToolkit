@@ -211,10 +211,8 @@ cargo build --release
 **Windows:**
 ```powershell
 cd overlay-app\src-tauri
-cargo install tauri-cli --version "^2.0" --locked
-cargo tauri build
+cargo build --release
 # Output: overlay-app\src-tauri\target\release\rl-widget.exe
-# Also creates: overlay-app\src-tauri\target\release\bundle\msi\rl-widget_0.1.0_x64_*.msi
 ```
 
 **Note:** The widget must be built on its target operating system. Tauri's webview library links native OS libraries and cannot be cross-compiled.
