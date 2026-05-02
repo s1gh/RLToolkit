@@ -698,8 +698,9 @@
   //   - In UpdateState / its derivatives: { Name, PrimaryId, TeamNum, ... }
   //   - In sub-events (BallHit, GoalScored, …): { Name, Shortcut, TeamNum }
   //     i.e. NO PrimaryId — only a name + spectator shortcut. We resolve those
-  //     against the current match.players list (matched by shortcut, then
-  //     name) so the caller still gets isMe/encounter/full player object.
+  //     against the roster (matched by shortcut, then name) so the caller
+  //     still gets isMe/encounter/full player object.
+
   // Resolve a {Name, Shortcut, TeamNum} or {Name, PrimaryId, ...} stub
   // against an explicit roster (the array of enriched player objects
   // produced by build()). Returns the same enriched shape regardless of
