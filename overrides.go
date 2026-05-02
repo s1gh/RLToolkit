@@ -191,9 +191,7 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 	}
 	notify := s.Notify
 	s.mu.Unlock()
-	if notify != nil {
-		notify()
-	}
+	s.fireNotify(notify)
 	return merged, nil
 }
 
@@ -215,10 +213,24 @@ func (s *OverridesStore) Delete(plugin string) error {
 	}
 	notify := s.Notify
 	s.mu.Unlock()
-	if notify != nil {
-		notify()
-	}
+	s.fireNotify(notify)
 	return nil
+}
+
+// fireNotify invokes the supplied callback with panic protection so a
+// buggy subscriber can't tear down the HTTP handler that triggered the
+// write — at that point the persist has already committed to disk and
+// the client deserves a clean response, not a torn connection.
+func (s *OverridesStore) fireNotify(notify func()) {
+	if notify == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[overrides] notify panic: %v", r)
+		}
+	}()
+	notify()
 }
 
 // persistLocked writes the full map to disk. Caller must hold s.mu.
