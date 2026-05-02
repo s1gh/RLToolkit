@@ -94,8 +94,10 @@
     // this handler simply never fires outside Tauri.
     onFocusChange(active) {
       if (!isOverlay) return;
-      const ov = DV.dom.$('ov');
-      if (ov) ov.style.display = active ? '' : 'none';
+      // Toggle body.focus-inactive — the styles.css rule with !important
+      // wins against the existing `body.overlay-mode .ov { display: block
+      // !important; }` rule. Inline `style.display` would lose to that.
+      document.body.classList.toggle('focus-inactive', !active);
     },
   });
 })();
