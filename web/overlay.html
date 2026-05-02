@@ -92,6 +92,21 @@
     if (!env || env.Event !== '_OverridesChanged') return;
     applyConfig(mergeConfig(env.Data || {}));
   };
+  // EventSource auto-reconnects on transport failure. On every successful
+  // (re)open AFTER the first, refetch the overrides snapshot so we catch
+  // up on changes that happened while the connection was down — without
+  // this the overlay would show stale positions until the next edit.
+  let firstOpen = true;
+  es.onopen = () => {
+    if (firstOpen) { firstOpen = false; return; }
+    fetch('/api/overlay/overrides')
+      .then(r => r.json())
+      .then(o => applyConfig(mergeConfig(o)))
+      .catch((err) => console.warn('[rlt overlay] resync failed', err));
+  };
+  es.onerror = (e) => {
+    console.warn('[rlt overlay] SSE connection lost; auto-reconnecting', e);
+  };
 })().catch((err) => {
   // OBS browser sources can't show toasts; at least log so the failure
   // is visible in the source's "Inspect" devtools.
