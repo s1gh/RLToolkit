@@ -224,6 +224,40 @@ button{font-family:inherit}
 .btn .arrow{ font-size:11px; transition:transform .2s ease; }
 .btn.primary:hover .arrow{ transform:translateX(2px); }
 
+/* ─── Per-plugin toggle ────────────────────────────────────── */
+/* Toggle in the card head, opposite the icon. Visually obvious so
+   the user can see which plugins are active at a glance. The card
+   itself dims to ~60% when disabled so the inactive set reads
+   instantly across a long list. */
+.card.disabled{ opacity:0.6; }
+.card.disabled .card-icon{ filter:grayscale(0.7); }
+.card-head{ position:relative; }
+.toggle{
+  position:absolute; top:0; right:0;
+  display:inline-flex; align-items:center; gap:8px;
+  font-size:11px; color:var(--txt-3);
+  text-transform:uppercase; letter-spacing:0.06em; font-weight:600;
+  cursor:pointer; user-select:none;
+}
+.toggle input{ position:absolute; opacity:0; pointer-events:none; }
+.toggle .knob{
+  width:32px; height:18px; background:var(--bg-3);
+  border:1px solid var(--line); border-radius:99px;
+  position:relative; transition:all .15s ease;
+}
+.toggle .knob::after{
+  content:''; position:absolute; top:1px; left:1px;
+  width:14px; height:14px; border-radius:50%;
+  background:var(--txt-3); transition:all .15s ease;
+}
+.toggle input:checked + .knob{
+  background:linear-gradient(135deg, var(--cyan), var(--violet));
+  border-color:transparent;
+}
+.toggle input:checked + .knob::after{
+  left:15px; background:var(--bg-0);
+}
+
 /* ─── Empty state ──────────────────────────────────────────── */
 .empty{
   grid-column:1 / -1;
@@ -341,11 +375,41 @@ pingStatus();
 setInterval(pingStatus, 5000);
 
 // ─── Plugin list ───────────────────────────────────────────
-fetch('/api/plugins').then(r => r.json()).then(ps => {
-  const c = document.getElementById('pl');
-  document.getElementById('stat-count').textContent = (ps || []).length;
+// Fetch plugins + overrides together so the per-card enabled toggle
+// renders with the correct initial state. Subscribes to _OverridesChanged
+// (synthetic, bypasses the SSE filter) so toggling from another tab —
+// or from /overlay?edit=1 — re-renders the list in place.
+let plugins = [];
+let overrides = {};
 
-  if (!ps || ps.length === 0) {
+Promise.all([
+  fetch('/api/plugins').then(r => r.json()).catch(() => []),
+  fetch('/api/overlay/overrides').then(r => r.json()).catch(() => ({})),
+]).then(([ps, ov]) => {
+  plugins = ps || [];
+  overrides = ov || {};
+  renderPlugins();
+
+  const es = new EventSource('/events?events=__none__');
+  es.onmessage = (e) => {
+    let env;
+    try { env = JSON.parse(e.data); } catch (_) { return; }
+    if (!env || env.Event !== '_OverridesChanged') return;
+    overrides = env.Data || {};
+    renderPlugins();
+  };
+});
+
+function isEnabled(name) {
+  const ov = overrides[name];
+  return !ov || ov.enabled !== false;
+}
+
+function renderPlugins() {
+  const c = document.getElementById('pl');
+  document.getElementById('stat-count').textContent = plugins.length;
+
+  if (plugins.length === 0) {
     c.innerHTML = '<div class="empty">'
       + '<div class="em-icon">◇</div>'
       + '<h3>No plugins yet</h3>'
@@ -354,7 +418,7 @@ fetch('/api/plugins').then(r => r.json()).then(ps => {
     return;
   }
 
-  c.innerHTML = ps.map(p => {
+  c.innerHTML = plugins.map(p => {
     const overlay = p.overlay && p.overlay.file
       ? '/plugins/' + p.name + '/' + p.overlay.file
       : null;
@@ -362,8 +426,9 @@ fetch('/api/plugins').then(r => r.json()).then(ps => {
     const desc = p.description
       ? esc(p.description)
       : '<span style="color:var(--txt-3);font-style:italic">No description provided.</span>';
+    const enabled = isEnabled(p.name);
 
-    return '<article class="card">'
+    return '<article class="card' + (enabled ? '' : ' disabled') + '" data-plugin="' + esc(p.name) + '">'
       + '<div class="card-head">'
         + '<div class="card-icon">' + esc(initials) + '</div>'
         + '<div class="card-meta">'
@@ -373,6 +438,10 @@ fetch('/api/plugins').then(r => r.json()).then(ps => {
             + (p.author ? '<span class="author">@' + esc(p.author) + '</span>' : '')
           + '</div>'
         + '</div>'
+        + '<label class="toggle" title="' + (enabled ? 'Disable' : 'Enable') + ' overlay">'
+          + '<input type="checkbox" data-role="enabled"' + (enabled ? ' checked' : '') + '>'
+          + '<span class="knob"></span>'
+        + '</label>'
       + '</div>'
       + '<p class="card-desc">' + desc + '</p>'
       + '<div class="card-actions">'
@@ -380,7 +449,31 @@ fetch('/api/plugins').then(r => r.json()).then(ps => {
       + '</div>'
     + '</article>';
   }).join('');
-});
+
+  // Wire toggles
+  c.querySelectorAll('.card').forEach(card => {
+    const name = card.getAttribute('data-plugin');
+    const cb = card.querySelector('input[data-role="enabled"]');
+    cb.addEventListener('change', () => setEnabled(name, cb.checked, cb));
+  });
+}
+
+async function setEnabled(name, enabled, cb) {
+  try {
+    const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(name), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    // The SSE _OverridesChanged event will re-render. No optimistic
+    // local mutation needed — keeps the dashboard's view of overrides
+    // exactly in sync with the server's.
+  } catch (err) {
+    cb.checked = !enabled; // roll back the visible toggle
+    console.error('[dashboard] toggle failed', err);
+  }
+}
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({

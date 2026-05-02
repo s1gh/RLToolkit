@@ -22,6 +22,11 @@ type OverlayOverride struct {
 	Width   *int     `json:"width,omitempty"`
 	Height  *int     `json:"height,omitempty"`
 	Opacity *float64 `json:"opacity,omitempty"`
+	// Enabled gates whether the plugin's overlay iframe is mounted at
+	// all. Pointer so nil means "no preference; default = true". When
+	// explicitly false, /overlay skips the plugin entirely (iframe
+	// unmounts, EventSource closes, no event consumption).
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // validAnchors are the four corner strings the production overlay
@@ -88,6 +93,9 @@ func (o OverlayOverride) merge(partial OverlayOverride) OverlayOverride {
 	}
 	if partial.Opacity != nil {
 		o.Opacity = partial.Opacity
+	}
+	if partial.Enabled != nil {
+		o.Enabled = partial.Enabled
 	}
 	return o
 }

@@ -65,7 +65,13 @@
   // that intercepts mouse events so iframe content never sees them.
   // `overlay` is the live override values (with manifest defaults filled
   // in) — mutated by drag/resize/anchor/opacity changes.
-  const widgets = ctx.merged.map(({ plugin, overlay }) => buildWidget(plugin, overlay));
+  // Skip plugins the user has disabled — they're managed from the
+  // dashboard, not the editor. Re-enabling on the dashboard reloads
+  // the editor naturally (the SSE-driven reflow only affects the
+  // production /overlay page, not this editor session).
+  const widgets = ctx.merged
+    .filter(({ overlay }) => overlay.enabled !== false)
+    .map(({ plugin, overlay }) => buildWidget(plugin, overlay));
 
   function buildWidget(plugin, overlay) {
     const a = overlay.anchor || 'top-right';
