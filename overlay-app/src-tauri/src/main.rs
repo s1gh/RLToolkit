@@ -64,6 +64,17 @@ struct PluginManifest {
     overlay: OverlayCfg,
 }
 
+/// Which mode the widget is running in.
+///
+/// `Plugin` carries the resolved manifest so the window builder can
+/// size/anchor the surface from it without re-fetching. `Unified` carries
+/// no extra data — the toolkit's /overlay page handles per-plugin layout.
+#[derive(Debug, Clone)]
+enum Mode {
+    Plugin { name: String, manifest: OverlayCfg },
+    Unified,
+}
+
 /// Live widget state — what the plugin has reshaped via RLT.widget.*.
 /// Held behind a Mutex so the Tauri command handlers can mutate it from
 /// any thread. The state seeds from the manifest and drifts as the plugin
@@ -323,19 +334,42 @@ fn apply_pixel_position(
 
 fn main() {
     let args = Args::parse();
-    let plugin_name = args.plugin.clone().unwrap_or_else(|| {
-        eprintln!("[rl-widget] unified mode not yet implemented; --plugin is required");
-        std::process::exit(2);
-    });
-    let manifest = fetch_manifest(&args.toolkit, &plugin_name);
 
-    let url = plugin_url(&args.toolkit, &plugin_name, &manifest.file, &manifest.anchor);
-    eprintln!("[rl-widget] plugin={} url={}", plugin_name, url);
+    let (mode, url, title) = match args.plugin.clone() {
+        Some(name) => {
+            let manifest = fetch_manifest(&args.toolkit, &name);
+            let url = plugin_url(&args.toolkit, &name, &manifest.file, &manifest.anchor);
+            eprintln!("[rl-widget] plugin={} url={}", name, url);
+            let title = format!("RL Toolkit – {}", name);
+            (Mode::Plugin { name, manifest }, url, title)
+        }
+        None => {
+            probe_toolkit(&args.toolkit);
+            let url = unified_url(&args.toolkit);
+            eprintln!("[rl-widget] unified mode url={}", url);
+            (Mode::Unified, url, "RL Toolkit – Overlay".to_string())
+        }
+    };
 
-    let manifest_for_setup = manifest.clone();
+    // Seed WidgetState. In Plugin mode, from the manifest. In Unified
+    // mode, a default — the value is never read because the widget_*
+    // command handlers gate on Mode and early-return.
+    let widget_state = match &mode {
+        Mode::Plugin { manifest, .. } => WidgetState::from_manifest(manifest),
+        Mode::Unified => WidgetState {
+            width: 0,
+            height: 0,
+            anchor: String::new(),
+            margin_x: 0,
+            margin_y: 0,
+        },
+    };
+
+    let mode_for_setup = mode.clone();
 
     tauri::Builder::default()
-        .manage(Mutex::new(WidgetState::from_manifest(&manifest)))
+        .manage(Mutex::new(widget_state))
+        .manage(mode.clone())
         .invoke_handler(tauri::generate_handler![
             widget_size,
             widget_anchor,
@@ -344,37 +378,46 @@ fn main() {
             widget_visible,
         ])
         .setup(move |app| {
-            let title = format!("RL Toolkit – {}", plugin_name);
             let parsed = url::Url::parse(&url).map_err(|e| format!("bad url {url}: {e}"))?;
 
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
+            let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
                 .title(&title)
-                .inner_size(
-                    manifest_for_setup.width as f64,
-                    manifest_for_setup.height as f64,
-                )
                 .decorations(false)
                 .transparent(true)
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .resizable(false)
                 .focused(false)
-                .visible(false)
-                .build()?;
+                .visible(false);
+
+            if let Mode::Plugin { manifest, .. } = &mode_for_setup {
+                builder = builder.inner_size(manifest.width as f64, manifest.height as f64);
+            }
+
+            let window = builder.build()?;
 
             #[cfg(not(target_os = "linux"))]
             {
                 let _ = window.set_ignore_cursor_events(true);
             }
 
-            #[cfg(target_os = "linux")]
-            apply_layer_shell(&window, &manifest_for_setup);
+            match &mode_for_setup {
+                Mode::Plugin { manifest, .. } => {
+                    #[cfg(target_os = "linux")]
+                    apply_layer_shell(&window, manifest);
 
-            #[cfg(not(target_os = "linux"))]
-            {
-                // Pixel-position pass for non-Linux platforms.
-                let state = app.state::<Mutex<WidgetState>>();
-                apply_pixel_position(&window, &state);
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        let state = app.state::<Mutex<WidgetState>>();
+                        apply_pixel_position(&window, &state);
+                    }
+                }
+                Mode::Unified => {
+                    // Sizing/anchoring lands in Task 4. For now the
+                    // window opens at Tauri's default size/position;
+                    // the next task replaces this with the real
+                    // fullscreen pass.
+                }
             }
 
             window.show()?;
