@@ -293,3 +293,113 @@ mod match_rule_tests {
         assert!(r.is_disabled());
     }
 }
+
+use serde::Serialize;
+use std::thread;
+use tauri::{AppHandle, Emitter};
+
+/// Tauri event payload. JS side: payload.active.
+#[derive(Serialize, Clone)]
+struct FocusPayload {
+    active: bool,
+}
+
+/// Tauri event channel name. Constants live here so the SDK side has a
+/// single source of truth (referenced in a comment in web/sdk.js).
+pub const FOCUS_EVENT: &str = "rlt://focus-change";
+
+/// How often we ask the OS what's foreground. Tuned so 4 polls/sec stays
+/// well under 1% CPU on every supported platform.
+pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Per-platform default needle. The watcher uses this when --game-match was
+/// not passed.
+pub fn default_match_rule() -> MatchRule {
+    #[cfg(target_os = "windows")]
+    {
+        MatchRule::new("RocketLeague.exe", MatchStrategy::ExeEquals)
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        MatchRule::new("Rocket League", MatchStrategy::TitleSubstring)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        // Unknown platform: behave as the empty-needle escape hatch.
+        MatchRule::new("", MatchStrategy::TitleSubstring)
+    }
+}
+
+/// Build a MatchRule from a user-supplied --game-match value. None →
+/// platform default. Some(empty) → disabled. Some(s) → that needle with the
+/// platform's strategy.
+pub fn match_rule_from_arg(arg: Option<&str>) -> MatchRule {
+    match arg {
+        None => default_match_rule(),
+        Some(s) => {
+            let strategy = if cfg!(target_os = "windows") {
+                MatchStrategy::ExeEquals
+            } else {
+                MatchStrategy::TitleSubstring
+            };
+            MatchRule::new(s, strategy)
+        }
+    }
+}
+
+/// Spawn the background watcher thread. Owns a clone of AppHandle for the
+/// app's lifetime; no shutdown signal — process exit reclaims the thread.
+pub fn spawn(app: AppHandle, rule: MatchRule) {
+    if rule.is_disabled() {
+        eprintln!("[rl-widget] focus-gating disabled (--game-match=\"\")");
+        return;
+    }
+    eprintln!("[rl-widget] focus watcher: poll every {:?}, hide debounce {:?}",
+              POLL_INTERVAL, HIDE_DEBOUNCE);
+
+    let self_pid = std::process::id();
+    thread::Builder::new()
+        .name("rlt-focus-watcher".to_string())
+        .spawn(move || {
+            // Catch panics so a bug in a platform query doesn't take down
+            // the watcher silently. On panic we log once and exit the
+            // thread; overlay reverts to always-visible.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_loop(app, rule, self_pid);
+            }));
+            eprintln!("[rl-widget] focus watcher exiting (panic or natural). \
+                       Overlay will remain visible until restart.");
+        })
+        .expect("focus watcher thread spawn failed");
+}
+
+fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
+    let mut state = DebounceState::initial();
+    loop {
+        let matched_opt = poll_once(&rule, self_pid);
+        let now = Instant::now();
+        if let Some(matched) = matched_opt {
+            let outcome = state.clone().step(matched, now);
+            state = outcome.next;
+            if let Some(active) = outcome.emit {
+                if let Err(e) = app.emit(FOCUS_EVENT, FocusPayload { active }) {
+                    eprintln!("[rl-widget] focus-change emit failed: {e}");
+                }
+                eprintln!("[rl-widget] focus → {}", if active { "active" } else { "inactive" });
+            }
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
+/// One poll cycle. Returns:
+///   None              — no signal this tick (transient query failure or self-PID).
+///                       The debouncer treats this as "state unchanged."
+///   Some(true|false)  — RL is / is not foreground.
+fn poll_once(rule: &MatchRule, self_pid: u32) -> Option<bool> {
+    let info = platform::query_foreground()?;
+    if info.pid == self_pid {
+        return None; // self-exception: never count our own process as RL
+    }
+    Some(rule.apply(&info))
+}
