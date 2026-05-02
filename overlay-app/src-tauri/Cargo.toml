@@ -45,6 +45,11 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_ProcessStatus",
 ] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSRunningApplication"] }
+objc2-foundation = "0.2"
+
 [profile.release]
 opt-level = "s"
 lto = true
