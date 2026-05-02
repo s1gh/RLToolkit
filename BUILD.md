@@ -5,7 +5,7 @@ Two binaries make up RL Toolkit:
 | Binary       | Source                | Stack            | Purpose                          |
 |--------------|-----------------------|------------------|----------------------------------|
 | `rl-toolkit` | `./` (root)           | Go               | HTTP server, SSE bus, plugin host |
-| `rl-widget`  | `./overlay-app`       | Rust + Tauri 2   | Per-plugin overlay window         |
+| `rl-widget`  | `./overlay-app`       | Rust + Tauri 2   | Overlay window (unified or per-plugin) |
 
 The toolkit cross-compiles cleanly from any host. The widget needs to be
 built on its target OS — Tauri's webview crate (`wry`) links native
@@ -45,6 +45,8 @@ cargo build --release
 
 ```bash
 ./rl-toolkit &                                          # background
+./overlay-app/src-tauri/target/release/rl-widget        # unified: all enabled plugins, fullscreen
+# or, single-plugin mode:
 ./overlay-app/src-tauri/target/release/rl-widget --plugin=dejavu
 ```
 
@@ -107,6 +109,8 @@ Both produce identical binaries.
 
 ```powershell
 .\rl-toolkit.exe                                  # in one terminal
+.\overlay-app\src-tauri\target\release\rl-widget.exe                  # unified: all enabled plugins, fullscreen
+# or, single-plugin mode:
 .\overlay-app\src-tauri\target\release\rl-widget.exe --plugin=dejavu
 ```
 
