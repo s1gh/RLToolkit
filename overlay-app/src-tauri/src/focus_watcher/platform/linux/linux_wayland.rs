@@ -50,9 +50,22 @@ struct AppData {
 static STATE: OnceLock<Option<Mutex<WaylandState>>> = OnceLock::new();
 static DISPATCH_ERR_LOGGED: AtomicBool = AtomicBool::new(false);
 
+fn log_dispatch_error(e: &impl std::fmt::Display) {
+    log_dispatch_error_str(&e.to_string());
+}
+
+fn log_dispatch_error_str(msg: &str) {
+    if !DISPATCH_ERR_LOGGED.swap(true, Ordering::Relaxed) {
+        eprintln!(
+            "[rl-widget] wayland dispatch failed (compositor restart?): {msg}; \
+             focus-gating effectively disabled until process restart"
+        );
+    }
+}
+
 fn try_init() -> Result<WaylandState, String> {
     let conn = Connection::connect_to_env().map_err(|e| format!("connect: {e}"))?;
-    let (globals, queue) = registry_queue_init::<AppData>(&conn).map_err(|e| e.to_string())?;
+    let (globals, mut queue) = registry_queue_init::<AppData>(&conn).map_err(|e| e.to_string())?;
     let qh = queue.handle();
 
     // Bind the foreign-toplevel manager, if advertised.
@@ -60,7 +73,14 @@ fn try_init() -> Result<WaylandState, String> {
         .bind::<ZwlrForeignToplevelManagerV1, _, _>(&qh, 1..=3, ())
         .map_err(|e| format!("bind foreign-toplevel-manager: {e}"))?;
 
-    let app_data = AppData::default();
+    // Pull the initial burst of Toplevel/Title/State events for windows
+    // that already exist. Without this, the first few polls would see an
+    // empty toplevel list while the compositor's reply is still en route.
+    let mut app_data = AppData::default();
+    queue
+        .roundtrip(&mut app_data)
+        .map_err(|e| format!("initial roundtrip: {e}"))?;
+
     Ok(WaylandState {
         conn,
         queue,
@@ -89,19 +109,47 @@ fn state() -> Option<&'static Mutex<WaylandState>> {
 pub fn query_foreground() -> Option<ForegroundInfo> {
     let m = state()?;
     let mut s = m.lock().ok()?;
-    // Drain any pending events from the compositor (toplevel created /
-    // closed / state changed). dispatch_pending reads from the socket.
+    // Pull events off the wayland socket and dispatch them, then prune
+    // closed toplevels.
+    //
+    // dispatch_pending alone is NOT enough: it only processes events
+    // already in the queue's internal buffer. Nothing puts them there
+    // unless we explicitly read from the socket via prepare_read +
+    // ReadEventsGuard::read(). The canonical non-blocking-poll pattern:
+    //
+    //   1. flush our outgoing requests
+    //   2. dispatch anything already buffered
+    //   3. if prepare_read returns Some(guard), call guard.read()
+    //      — WouldBlock means "no events ready this tick"; any other
+    //      Err is a real socket failure
+    //   4. dispatch what we just read
+    //
     // Split the borrow explicitly so the borrow-checker sees disjoint fields.
     {
         let WaylandState { queue, app_data, conn } = &mut *s;
-        let dispatch_result = queue.dispatch_pending(app_data);
-        if let Err(e) = dispatch_result {
-            if !DISPATCH_ERR_LOGGED.swap(true, Ordering::Relaxed) {
-                eprintln!("[rl-widget] wayland dispatch failed (compositor restart?): {e}; \
-                           focus-gating effectively disabled until process restart");
+
+        let _ = conn.flush();
+
+        if let Err(e) = queue.dispatch_pending(app_data) {
+            log_dispatch_error(&e);
+        }
+
+        if let Some(guard) = conn.prepare_read() {
+            match guard.read() {
+                Ok(_) => {
+                    if let Err(e) = queue.dispatch_pending(app_data) {
+                        log_dispatch_error(&e);
+                    }
+                }
+                Err(wayland_client::backend::WaylandError::Io(io_err))
+                    if io_err.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    // No events ready this tick — normal idle path.
+                }
+                Err(e) => log_dispatch_error_str(&format!("read: {e}")),
             }
         }
-        let _ = conn.flush();
+
         app_data.toplevels.retain(|(_, info)| !info.closed);
     }
 
