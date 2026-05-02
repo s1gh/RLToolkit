@@ -7,6 +7,8 @@
 // Shallow-merge per-user overrides on top of each plugin's manifest
 // overlay block. Manifests are author-controlled defaults; overrides are
 // user-controlled customizations stored in data/overlay-overrides.json.
+// Reflows in place when the editor publishes _OverridesChanged — no
+// full reload, no iframe re-mount, plugin in-memory state survives.
 (async function(){
   const params = new URLSearchParams(location.search);
   const editMode = params.get('edit') === '1';
@@ -17,12 +19,16 @@
   ]);
 
   // Build the final overlay config per plugin: manifest first, override on top.
-  const merged = plugins
-    .filter(p => p.overlay && p.overlay.file)
-    .map(p => ({
-      plugin: p,
-      overlay: Object.assign({}, p.overlay, overrides[p.name] || {}),
-    }));
+  function mergeConfig(overridesMap) {
+    return plugins
+      .filter(p => p.overlay && p.overlay.file)
+      .map(p => ({
+        plugin: p,
+        overlay: Object.assign({}, p.overlay, overridesMap[p.name] || {}),
+      }));
+  }
+
+  const merged = mergeConfig(overrides);
 
   if (editMode) {
     // Hand off to the editor. It reads window.__rltOverlayContext for the
@@ -35,26 +41,57 @@
     return;
   }
 
-  // Production path: render iframes exactly as before, just using the
-  // merged overlay config instead of the raw manifest.
-  for (const { plugin, overlay } of merged) {
+  // Production path: track each iframe by plugin name so reflow can
+  // re-apply position/size/opacity in place without re-mounting (which
+  // would reset plugin in-memory state mid-stream).
+  const widgets = new Map(); // plugin.name -> { el, iframe }
+
+  function applyOne(plugin, overlay) {
+    let w = widgets.get(plugin.name);
+    if (!w) {
+      const f = document.createElement('iframe');
+      f.className = 'pf';
+      f.src = '/plugins/' + plugin.name + '/' + overlay.file +
+              '?overlay=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
+      f.setAttribute('allowtransparency', 'true');
+      f.setAttribute('frameborder', '0');
+      document.body.appendChild(f);
+      w = { el: f, iframe: f };
+      widgets.set(plugin.name, w);
+    }
     const a = overlay.anchor || 'top-right';
-    const f = document.createElement('iframe');
-    f.className = 'pf';
-    f.src = '/plugins/' + plugin.name + '/' + overlay.file +
-            '?overlay=1&anchor=' + encodeURIComponent(a);
-    f.style.width  = overlay.width  + 'px';
-    f.style.height = overlay.height + 'px';
-    f.style.opacity = overlay.opacity || 1;
-    f.setAttribute('allowtransparency', 'true');
-    f.setAttribute('frameborder', '0');
+    w.el.style.width  = overlay.width  + 'px';
+    w.el.style.height = overlay.height + 'px';
+    w.el.style.opacity = overlay.opacity == null ? 1 : overlay.opacity;
+    // Anchor change: clear all four sides, re-apply the two we want.
+    w.el.style.top = w.el.style.bottom = w.el.style.left = w.el.style.right = '';
     const ox = (overlay.offset_x || 0) + 'px';
     const oy = (overlay.offset_y || 0) + 'px';
-    if (a.includes('top'))  f.style.top  = oy; else f.style.bottom = oy;
-    if (a.includes('left')) f.style.left = ox; else f.style.right  = ox;
-    if (overlay.click_through) f.style.pointerEvents = 'none';
-    document.body.appendChild(f);
+    if (a.indexOf('top')   === 0) w.el.style.top  = oy; else w.el.style.bottom = oy;
+    if (a.indexOf('-left') >= 0)  w.el.style.left = ox; else w.el.style.right  = ox;
+    w.el.style.pointerEvents = overlay.click_through ? 'none' : '';
   }
+
+  function applyConfig(mergedList) {
+    for (const { plugin, overlay } of mergedList) {
+      applyOne(plugin, overlay);
+    }
+  }
+
+  applyConfig(merged);
+
+  // Subscribe to the SSE bus for live reflow on editor changes. The
+  // ?events=__none__ filter would normally suppress everything, but
+  // synthetic _-prefixed events bypass the filter on the server side
+  // — so we get _OverridesChanged (and _ConnectionStatus, _Lifecycle)
+  // without paying the bandwidth of UpdateState's 60-120Hz stream.
+  const es = new EventSource('/events?events=__none__');
+  es.onmessage = (e) => {
+    let env;
+    try { env = JSON.parse(e.data); } catch (_) { return; }
+    if (!env || env.Event !== '_OverridesChanged') return;
+    applyConfig(mergeConfig(env.Data || {}));
+  };
 })().catch((err) => {
   // OBS browser sources can't show toasts; at least log so the failure
   // is visible in the source's "Inspect" devtools.
