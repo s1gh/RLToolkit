@@ -294,19 +294,19 @@ mod match_rule_tests {
     }
 }
 
-use serde::Serialize;
 use std::thread;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Manager};
 
-/// Tauri event payload. JS side: payload.active.
-#[derive(Serialize, Clone)]
-struct FocusPayload {
-    active: bool,
-}
-
-/// Tauri event channel name. Constants live here so the SDK side has a
-/// single source of truth (referenced in a comment in web/sdk.js).
-pub const FOCUS_EVENT: &str = "rlt://focus-change";
+/// We use webview.eval(...) → window.postMessage(...) instead of Tauri's
+/// app.emit() because Tauri 2's event API (event.listen) is only exposed
+/// via the @tauri-apps/api JS package, which the toolkit's plain-JS SDK
+/// doesn't bundle. window.__TAURI_INTERNALS__ has invoke + ipc primitives
+/// but no event listener — confirmed by reading tauri-2.11.0/scripts/core.js
+/// and src/event/init.js. eval+postMessage is the simplest end-around.
+///
+/// The SDK filters incoming messages on `data.__rlt_focus__ === true` to
+/// distinguish our messages from anything else (Tauri internals, third-
+/// party scripts, the webview's own postMessage traffic).
 
 /// How often we ask the OS what's foreground. Tuned so 4 polls/sec stays
 /// well under 1% CPU on every supported platform.
@@ -383,7 +383,7 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
             let outcome = state.clone().step(matched, now);
             state = outcome.next;
             if let Some(active) = outcome.emit {
-                let emit_result = app.emit(FOCUS_EVENT, FocusPayload { active });
+                let emit_result = post_focus_message(&app, active);
                 if let Err(e) = emit_result {
                     let should_log = match last_emit_log_at {
                         None => true,
@@ -398,6 +398,38 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
             }
         }
         thread::sleep(POLL_INTERVAL);
+    }
+}
+
+/// Find every webview window the app currently owns and dispatch a
+/// `window.postMessage({ __rlt_focus__: true, active: <bool> }, '*')` into
+/// each via webview.eval(). The SDK listens for `message` events with that
+/// shape and fans them out to plugin onFocusChange handlers.
+///
+/// On a per-plugin overlay there's exactly one window ("main"); on a
+/// unified overlay, also one. Iterating webviews keeps this future-proof
+/// if we ever spawn additional surfaces.
+fn post_focus_message(app: &AppHandle, active: bool) -> Result<(), String> {
+    let js = format!(
+        "window.postMessage({{ __rlt_focus__: true, active: {} }}, '*');",
+        if active { "true" } else { "false" }
+    );
+    let mut errors: Vec<String> = Vec::new();
+    let mut sent_to_at_least_one = false;
+    for (label, webview) in app.webviews().iter() {
+        match webview.eval(&js) {
+            Ok(_) => {
+                sent_to_at_least_one = true;
+            }
+            Err(e) => errors.push(format!("{label}: {e}")),
+        }
+    }
+    if sent_to_at_least_one {
+        Ok(())
+    } else if errors.is_empty() {
+        Err("no webviews to post to".to_string())
+    } else {
+        Err(errors.join("; "))
     }
 }
 

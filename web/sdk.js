@@ -1478,32 +1478,29 @@
   // ─── RLT.focus ─────────────────────────────────────────────
   //
   // Foreground-window detection. Powered by the rl-widget Rust process,
-  // which polls the OS every 250ms and emits a 'rlt://focus-change' Tauri
-  // event with payload { active: bool }. We mirror that into the SDK's
-  // emitter shape so plugins can subscribe with onChange(fn) the same way
-  // they subscribe to onMatchActive, onIdentity, etc.
+  // which polls the OS every 250ms and pushes focus-change signals into
+  // the webview via webview.eval('window.postMessage({ __rlt_focus__:
+  // true, active }, "*")'). We listen for those messages and re-emit via
+  // the SDK's emitter shape so plugins can subscribe with onChange(fn)
+  // the same way they subscribe to onMatchActive, onIdentity, etc.
   //
-  // Outside Tauri (browser-tab access via the toolkit's /overlay page),
-  // the listener simply isn't registered — onChange remains callable but
-  // never fires. That's correct: a browser tab has no meaningful "game
-  // focus" concept, so plugins should default to visible there.
+  // Why postMessage and not Tauri's event.listen: Tauri 2's user-facing
+  // event API only exists in the @tauri-apps/api JS package, which this
+  // plain-JS SDK doesn't bundle. window.__TAURI_INTERNALS__ exposes the
+  // IPC invoke primitive but no event listener. postMessage is the
+  // simplest cross-runtime channel — it works inside Tauri *and* in any
+  // browser tab (where the listener just sits idle waiting for messages
+  // that never come, since browser pages have no game-focus concept).
   const focus = (function () {
     const ev = emitter();
 
-    const inTauri = typeof window !== 'undefined'
-      && !!window.__TAURI_INTERNALS__
-      && !!window.__TAURI_INTERNALS__.event
-      && typeof window.__TAURI_INTERNALS__.event.listen === 'function';
-
-    if (inTauri) {
-      try {
-        window.__TAURI_INTERNALS__.event.listen('rlt://focus-change', (msg) => {
-          const active = !!(msg && msg.payload && msg.payload.active);
-          ev.emit('change', active);
-        });
-      } catch (e) {
-        console.warn('[RLT.focus] listener registration failed:', e);
-      }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('message', (msg) => {
+        // Filter on the sentinel field so we ignore unrelated postMessage
+        // traffic (Tauri internals, devtools, third-party scripts).
+        if (!msg || !msg.data || msg.data.__rlt_focus__ !== true) return;
+        ev.emit('change', !!msg.data.active);
+      });
     }
 
     return {
