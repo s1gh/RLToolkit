@@ -71,7 +71,7 @@ struct PluginManifest {
 /// no extra data — the toolkit's /overlay page handles per-plugin layout.
 #[derive(Debug, Clone)]
 enum Mode {
-    Plugin { name: String, manifest: OverlayCfg },
+    Plugin { manifest: OverlayCfg },
     Unified,
 }
 
@@ -341,7 +341,7 @@ fn main() {
             let url = plugin_url(&args.toolkit, &name, &manifest.file, &manifest.anchor);
             eprintln!("[rl-widget] plugin={} url={}", name, url);
             let title = format!("RL Toolkit – {}", name);
-            (Mode::Plugin { name, manifest }, url, title)
+            (Mode::Plugin { manifest }, url, title)
         }
         None => {
             probe_toolkit(&args.toolkit);
