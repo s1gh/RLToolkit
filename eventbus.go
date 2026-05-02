@@ -32,9 +32,15 @@ type EventBus struct {
 	subs    map[*subscriber]struct{}
 	metrics *busMetrics
 
+	// publishMu serializes calls to Publish. Cheap (held only for the
+	// scratch snapshot, not for per-subscriber sends) and lets HTTP
+	// handlers publish synthetic events alongside the RL dispatcher
+	// goroutine — used by /api/overlay/overrides to push reflow events.
+	publishMu sync.Mutex
+
 	// scratch is reused by Publish to snapshot subscribers without
-	// allocating per call. Safe because only the single dispatcher
-	// goroutine calls Publish (serialized through RLClient.dispatcher).
+	// allocating per call. Guarded by publishMu — concurrent publishers
+	// would otherwise race on the slice append.
 	scratch []*subscriber
 }
 
@@ -112,17 +118,23 @@ func (b *EventBus) Publish(data []byte) {
 	eventName := extractEventName(data)
 	synthetic := len(eventName) > 0 && eventName[0] == '_'
 
-	// Snapshot under read lock so we don't hold it during sends.
+	// Snapshot under read lock + publishMu so we don't race the scratch
+	// slice with another publisher. We copy into a fresh slice owned by
+	// this call so the subsequent send loop doesn't share storage with
+	// the next publish.
+	b.publishMu.Lock()
 	b.mu.RLock()
 	if cap(b.scratch) < len(b.subs) {
 		b.scratch = make([]*subscriber, 0, len(b.subs))
 	}
-	dst := b.scratch[:0]
+	tmp := b.scratch[:0]
 	for s := range b.subs {
-		dst = append(dst, s)
+		tmp = append(tmp, s)
 	}
-	b.scratch = dst
+	b.scratch = tmp
+	dst := append([]*subscriber(nil), tmp...)
 	b.mu.RUnlock()
+	b.publishMu.Unlock()
 
 	var slow []*subscriber
 	delivered, skipped := 0, 0
