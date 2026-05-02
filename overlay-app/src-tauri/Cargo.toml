@@ -27,6 +27,7 @@ url = "2"
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 gtk-layer-shell = "0.8"
+x11rb = "0.13"
 
 # Windows-only: DWM + window-style bindings for the no-border pass on
 # the overlay window. Win11 paints a 1px frame around transparent
