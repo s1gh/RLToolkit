@@ -1027,7 +1027,10 @@
   //
   // To discover new ones, run the debug plugin and watch for entries
   // here that aren't in this list — then add them.
-  const stats = Object.freeze({
+  // `known` is attached BEFORE the freeze so plugins can do
+  // stats.known.has(s.eventName) when filtering against the verified
+  // set. (Adding it after Object.freeze would throw in strict mode.)
+  const stats = {
     SHOT:        'Shot',         // type: "Shot on Goal"
     GOAL:        'Goal',         // also fires GoalScored
     AERIAL_GOAL: 'AerialGoal',
@@ -1038,10 +1041,9 @@
     DEMOLISH:    'Demolish',     // secondaryTarget = demolished player
     FLIP_RESET:  'FlipReset',
     WIN:         'Win',
-  });
-  // Reverse lookup so plugins can do stats.known.has(s.eventName)
-  // when filtering against the verified set.
+  };
   stats.known = new Set(Object.values(stats));
+  Object.freeze(stats);
 
   // ─── Plugin registration API ───────────────────────────────
   // Declarative way for plugins to wire themselves up. Built on top of the
