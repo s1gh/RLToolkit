@@ -37,7 +37,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::AppHandle;
 #[cfg(not(target_os = "linux"))]
-use tauri::LogicalPosition;
+use tauri::{LogicalPosition, Manager};
 use tauri::{LogicalSize, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
