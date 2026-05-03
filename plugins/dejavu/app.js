@@ -94,20 +94,14 @@
       scheduleRender();
     },
     onEncounters: scheduleRender,
-    onMatch: scheduleRender,
-    // No onTick. onMatch is the deduped view — the SDK only emits
-    // 'change' when the roster fingerprint (id/team/encounterCount)
-    // moves, which covers late-joiners, leavers, and team shuffles.
-    // dejavu reads roster identity, not per-frame physics state, so
-    // a 60Hz onTick would just schedule paints the overlay's own
-    // fingerprint check would short-circuit anyway.
-    //
-    // Heads up: onMatch is implemented on top of UpdateState (the
-    // SDK builds its view inside the UpdateState handler), so opting
-    // into onMatch still pulls the 60-120Hz UpdateState stream off
-    // the wire. The win here is just CPU on the iframe side: fewer
-    // wasted rAF schedules, no extra bandwidth saved. A future
-    // synthetic _RosterChanged event would let dejavu skip
-    // UpdateState entirely.
+    // onRoster fires only when the player list itself moves (join,
+    // leave, team-switch, match guid flip) — typically a handful of
+    // events per match. dejavu reads roster identity (id, name, team,
+    // platform, encounterCount), not per-frame physics state, so the
+    // 60-120Hz UpdateState stream we'd pull via onMatch is wasted
+    // bandwidth. onRoster is built on the toolkit's synthetic
+    // _RosterChanged event (see backend/roster_tracker.go) and does
+    // not subscribe to UpdateState.
+    onRoster: scheduleRender,
   });
 })();
