@@ -1291,6 +1291,18 @@
           lastPhaseTickAt = performance.now();
         }
 
+        // End-of-match cleanup. Wipes everything that's scoped to a
+        // single match — per-victim counts, the LAST chip's name,
+        // current streak. allTimeBestStreak survives (that's the
+        // whole point of "all-time"). Idempotent: safe to call from
+        // both MatchDestroyed and the match_active=false backstop.
+        function cleanupMatchState() {
+          currentGuid = null;
+          current = {};
+          lastMatchVictim = '';
+          resetComboState();
+        }
+
         function resetComboState() {
           currentStreak = 0;
           lastDemoAt = 0;
@@ -1697,28 +1709,41 @@
 
               render();
             },
+
+            // Match boundary handling. Two discrete events drive
+            // this:
+            //   MatchCreated   — capture the new guid so demos in
+            //                    this match get counted against it.
+            //   MatchDestroyed — wipe per-match state for the next
+            //                    match's clean start.
+            // Both bypass the UpdateState filter (they're in the
+            // SDK's required-events baseline), so demos pays no
+            // bandwidth for them. More semantically honest than
+            // gating on roster identity changes — what we actually
+            // care about is "did the match end" and "did a new
+            // match start", not "did the player roster move".
+            MatchCreated(e) {
+              currentGuid = e?.matchGuid || null;
+              render();
+            },
+            MatchDestroyed() {
+              cleanupMatchState();
+              render();
+            },
           },
 
-          // Match boundary — guid changes on every new match. Reset the
-          // per-match counters here. (We don't reset on phase changes,
-          // because replay/paused are still the same match.)
-          //
-          // We use onRoster instead of onMatch because the only thing
-          // we read from the match payload is `guid`. onMatch is built
-          // on top of UpdateState (~60-120Hz, the heaviest event), so
-          // subscribing for a guid we'd see at most once per match is
-          // a huge waste of bandwidth. onRoster fires on the synthetic
-          // _RosterChanged event (a handful per match) and carries the
-          // same guid field — same outcome, no UpdateState pulled.
-          onRoster(m) {
-            const g = m ? m.guid : null;
-            if (g !== currentGuid) {
-              currentGuid = g;
-              current = {};
-              lastMatchVictim = '';
-              resetComboState();
+          // Backstop for the "user backed out without RL emitting
+          // MatchDestroyed" path. The lifecycle tracker's 5-second
+          // silence watchdog flips match_active=false when
+          // UpdateState stops arriving, so we hook that flip to
+          // mirror the cleanup. cleanupMatchState is idempotent —
+          // running it twice in quick succession just clears
+          // already-empty state.
+          onMatchActive(active) {
+            if (!active) {
+              cleanupMatchState();
+              render();
             }
-            render();
           },
 
           // Identity changed — re-render so the "claim your identity"
