@@ -466,9 +466,20 @@ match in some flows) or `RoundStarted` (fires per-round in OT).
 
 **Goal-replay events are real events.** `GoalScored` fires once during
 live play AND, in some RL builds, can fire again as the replay rewinds
-into the goal moment. Use `events.recent('GoalScored')` if you need to
-deduplicate; the dedup key is usually
-`(matchGuid, scorer.id, goalTime)`.
+into the goal moment. Use `RLT.events.recent('GoalScored')` if you need
+to deduplicate; the dedup key is usually
+`(matchGuid, scorer.id, goalTime)`. The SDK keeps a per-event ring
+buffer of the last 50 payloads:
+
+```js
+RLT.events.recent('GoalScored');     // [{ at: 1714659321831, data: {...} }, ...]
+RLT.events.recent('GoalScored', 5);  // last 5
+```
+
+Each entry is `{ at, data }` — `at` is `Date.now()` at the time the
+event was emitted, `data` is the same typed payload your handler
+receives. Events you haven't subscribed to never reach the buffer (the
+SDK doesn't widen the SSE filter for `recent()` lookups).
 
 **Persistence: per-plugin store vs shared encounter ledger.** Anything
 specific to your plugin's logic goes in `RLT.store` (per-plugin
@@ -555,8 +566,11 @@ ships them as a single `_Lifecycle` snapshot:
     The right question for "should I count this goal".
 
 The phase enum: `none`, `created`, `countdown`, `live`, `paused`,
-`replay`, `ended`, `podium`. (Older code wrote `'idle'` instead of
-`'none'`; both names are accepted for back-compat.)
+`replay`, `ended`, `podium`. **Use `'none'`** in new plugins. Older
+code wrote `'idle'` instead — `whilePhase: ['idle']` still matches
+`'none'` for back-compat, but `lifecycle.phase` itself only ever
+reports `'none'`. So `if (phase === 'idle') { … }` will not fire
+in modern plugins; rewrite to `phase === 'none'`.
 
 If you only want events while the match is actually playing, gate
 with `whilePhase`:
@@ -926,6 +940,18 @@ RLT.on('*', (eventName, payload) => { /* every event */ });
 You'll lose error isolation and phase gating, but you can use this for
 one-off integrations that don't fit the declarative model.
 
+The typed accessors on `RLT.events` work the same way:
+
+```js
+const unsubGoal = RLT.events.onGoalScored((g) => { /* ... */ });
+unsubGoal();   // store and call this to detach
+
+// Note: there are no off-by-name typed methods (no `offGoalScored`).
+// The unsub function returned at subscribe time is the only way to
+// detach a typed handler. RLT.events.off(name, fn) does work for
+// generic detach by reference.
+```
+
 ---
 
 ## Disposing a plugin
@@ -1019,7 +1045,7 @@ Here's a working "last goal speed" overlay in one file:
       },
 
       onLifecycle(phase) {
-        if (phase === 'idle') {
+        if (phase === 'none') {
           speedEl.textContent = '—';
           speedEl.classList.add('empty');
           whoEl.textContent = '';

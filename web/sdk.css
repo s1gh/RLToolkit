@@ -64,3 +64,23 @@
   box-shadow:0 0 20px var(--rlt-cyan-glow), 0 0 28px var(--rlt-violet-glow);
   color:var(--rlt-bg-0);
 }
+
+/* Toast. Created by RLT.ui.toast(); plugins can override any token below
+   to restyle without forking the SDK. */
+.rlt-toast{
+  position:fixed;bottom:28px;left:50%;
+  transform:translateX(-50%) translateY(20px);
+  background:linear-gradient(135deg,var(--rlt-cyan),var(--rlt-violet));
+  color:var(--rlt-bg-0);
+  padding:12px 22px;border-radius:8px;
+  font:700 13px var(--rlt-ui);
+  letter-spacing:.04em;text-transform:uppercase;
+  opacity:0;pointer-events:none;
+  transition:opacity .25s, transform .25s;
+  z-index:99999;
+  box-shadow:0 0 30px var(--rlt-cyan-glow), 0 0 50px var(--rlt-violet-glow);
+}
+.rlt-toast--show{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}

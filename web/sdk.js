@@ -1,7 +1,49 @@
+/**
+ * RL Toolkit — Plugin SDK
+ *
+ * Single-file IIFE that exposes a global `window.RLT` object to plugin
+ * pages. Drop it in with one tag:
+ *
+ *   <script src="/sdk.js" data-plugin="my-plugin"></script>
+ *
+ * The SDK opens an SSE connection to the toolkit server, normalizes
+ * Rocket League events into typed payloads, tracks per-player encounter
+ * history, exposes a per-plugin key/value store, and (when running
+ * inside the desktop widget) lets plugins reshape the host window.
+ *
+ * Plugin-author docs: docs/PLUGINS.md.
+ * This file is the source of truth for the public surface — keep the
+ * two in sync when you change either.
+ *
+ * The whole file runs in strict mode. Plugin code does NOT inherit
+ * strict mode unless the plugin opts in via its own `'use strict'`.
+ *
+ * Map of the file (jump targets):
+ *   - Plugin name discovery .................. ~line  43
+ *   - Overlay-mode auto-sizing ................ ~line  60
+ *   - Tiny pub/sub emitter .................... ~line 100
+ *   - SSE bridge + auto-subscription filter ... ~line 125
+ *   - Persistent K/V store wrappers ........... ~line 225
+ *   - Identity (shared, "who is me") .......... ~line 260
+ *   - Encounter ledger (shared) ............... ~line 305
+ *   - Enriched match state .................... ~line 390
+ *   - Per-plugin namespaced store ............. ~line 635
+ *   - UI helpers (icons, esc, toast) .......... ~line 645
+ *   - Typed event layer + payload normalizers . ~line 740
+ *   - Lifecycle (driven by _Lifecycle SSE) .... ~line 960
+ *   - Event catalog (self-documenting) ........ ~line 1030
+ *   - Statfeed eventName registry ............. ~line 1070
+ *   - Plugin registration API ................. ~line 1095
+ *   - Widget control (Tauri host only) ........ ~line 1265
+ *   - Game-foreground focus detection ......... ~line 1430
+ *   - Public API surface (window.RLT) ......... ~line 1465
+ *
+ * @version 1
+ */
 (function () {
   'use strict';
 
-  if (window.RLT) return; // idempotent
+  if (window.RLT) return; // idempotent — second include is a no-op
 
   // ─── Determine plugin name ─────────────────────────────────
   // Plugins identify themselves with <script src="/sdk.js" data-plugin="name">.
@@ -16,7 +58,11 @@
       const m = location.pathname.match(/\/plugins\/([^/]+)\//);
       if (m) pluginName = m[1];
     }
-  } catch (e) {}
+  } catch (_) {
+    // noop: leave pluginName as 'unknown'. document.currentScript is
+    // null when the SDK is loaded as a module or via dynamic import,
+    // and location.pathname is unreadable in some sandboxed contexts.
+  }
 
   // ─── Overlay sizing + anchor honoring ──────────────────────
   // When the page is loaded inside the composite overlay's iframe, the
@@ -58,7 +104,10 @@
       if (document.body) apply();
       else document.addEventListener('DOMContentLoaded', apply, { once: true });
     }
-  } catch (e) {}
+  } catch (_) {
+    // noop: overlay-mode auto-sizing is best-effort. If URL parsing or
+    // style assignment fails, the plugin's manual styles still apply.
+  }
 
   // ─── Tiny pub/sub ──────────────────────────────────────────
   function emitter() {
@@ -87,21 +136,40 @@
     };
   }
 
-  // ─── Internal SSE bridge ───────────────────────────────────
+  // ─── SSE bridge + server-side event filter (auto-subscription) ──
+  //
+  // The toolkit's SSE endpoint takes a comma-separated event filter:
+  //   GET /events?events=GoalScored,StatfeedEvent
+  // and only delivers events on that list. Plugins almost never set
+  // it directly — instead, the SDK tracks which event names plugin
+  // handlers have asked for and rebuilds the filter URL on the fly.
+  // When `addEvent(name)` is called after a connection is already
+  // open, we close and reopen the EventSource so the server starts
+  // delivering the new event.
+  //
+  // Five entry points opt into an event:
+  //   - register({ events: { Foo(...) } })  → addEvent('Foo')
+  //   - RLT.events.on('Foo', fn)            → addEvent('Foo')
+  //   - RLT.events.onFoo(fn)                → addEvent('Foo') via makeOn
+  //   - RLT.match.onTick / onChange / subscribe → addEvent('UpdateState')
+  //   - RLT.on('Foo', fn)                   → addEvent('Foo') (raw bus)
+  //
+  // `requiredEvents` is the always-on baseline — lifecycle events
+  // that drive `RLT.match.lifecycle` and reset semantics. They're
+  // rare (a handful per match) so they're free to subscribe to.
+  //
+  // `UpdateState` is intentionally NOT in the baseline. It's the
+  // heaviest event by far (~1-3 KB at 60-120 Hz, dominates total
+  // bandwidth) and most plugins don't need it. Plugins that only
+  // react to discrete events stay off the tick stream.
+  //
+  // Synthetic events (`_ConnectionStatus`, `_Lifecycle`) bypass the
+  // filter entirely on the server — they're framing signals every
+  // subscriber needs. Don't list them here.
   const bus = emitter();
   let status = 'disconnected';
   let es = null;
 
-  // Server-side event filter (?events=...). The SDK always needs the
-  // lifecycle events (drives RLT.match.lifecycle and reset semantics).
-  //
-  // UpdateState is intentionally NOT in the always-required set — it's
-  // the heaviest event by far (~1-3 KB at 60-120 Hz) and most plugins
-  // don't need it. Plugins opt in by registering an UpdateState/onTick
-  // handler, an onMatch handler, or by calling RLT.match.subscribe().
-  //
-  // Synthetic events ("_ConnectionStatus", "_Lifecycle") bypass the
-  // server's filter entirely; we don't list them here.
   const requiredEvents = new Set([
     'MatchCreated', 'MatchInitialized',
     'CountdownBegin', 'RoundStarted',
@@ -112,8 +180,6 @@
   ]);
   const subscribedEvents = new Set(requiredEvents);
 
-  // addEvent records that a plugin handler wants 'name' and reconnects
-  // the EventSource if we already opened one with a stale filter.
   // Idempotent — re-registering a handler for the same event is free.
   function addEvent(name) {
     if (!name || subscribedEvents.has(name)) return;
@@ -121,7 +187,7 @@
     if (es) {
       // Already connected with the prior filter; reconnect so the
       // server starts delivering the new event. Cheap on localhost.
-      try { es.close(); } catch (_) {}
+      try { es.close(); } catch (_) { /* noop: already-closed sockets throw */ }
       es = null;
       connect();
     }
@@ -133,7 +199,13 @@
   }
 
   function connect() {
-    if (es) return;
+    // Guard reentry: if we already have a healthy (or still-connecting)
+    // EventSource, leave it alone. Only proceed if there's no socket or
+    // the prior one is CLOSED — that catches the race between onerror
+    // firing and the addEvent path also calling connect().
+    //   readyState: 0=CONNECTING, 1=OPEN, 2=CLOSED
+    if (es && es.readyState !== 2) return;
+    es = null;
     es = new EventSource(buildEventsURL());
     es.onmessage = (e) => {
       let msg;
@@ -182,9 +254,13 @@
   // tab close); beforeunload doesn't fire on mobile / bfcache.
   window.addEventListener('pagehide', () => {
     if (es) {
-      try { es.close(); } catch (_) {}
+      try { es.close(); } catch (_) { /* noop: already-closed sockets throw */ }
       es = null;
     }
+    // Tear down widget-watcher observers + their document listeners so
+    // bfcache restores don't end up with stale closures referencing a
+    // disposed flush() function.
+    teardownWatchers();
   });
 
   // ─── Shared store wrappers ─────────────────────────────────
@@ -220,6 +296,20 @@
     return function flush() {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => storeSet(ns, key, getValue()), ms);
+    };
+  }
+
+  // Build a namespaced K/V store. Used both for the page-level
+  // `RLT.store` (scoped to the host plugin) and for the per-plugin
+  // `handle.store` returned by `register()`. Same shape, different
+  // namespace — the only thing that varies is which folder the data
+  // lands in on disk (data/<ns>.json).
+  function makeNamespacedStore(ns) {
+    return {
+      get(key)      { return storeGet(ns, key); },
+      getAll()      { return storeGet(ns, ''); },
+      set(key, val) { return storeSet(ns, key, val); },
+      delete(key)   { return storeDelete(ns, key); },
     };
   }
 
@@ -263,8 +353,10 @@
       },
       async clear() { return this.set(''); },
       onChange(fn) { return ev.on('change', fn); },
-      // exposed so match-state can flag isMe correctly even before load resolves
-      _isMe(id) { return id && id === myId; },
+      // exposed so match-state can flag isMe correctly even before load resolves.
+      // Returns a real boolean (not the empty string) so plugin code that
+      // does `player.isMe === true` behaves predictably.
+      _isMe(id) { return !!id && id === myId; },
     };
   })();
 
@@ -598,12 +690,10 @@
   })();
 
   // ─── Per-plugin store ──────────────────────────────────────
-  const store = {
-    get(key)        { return storeGet(pluginName, key); },
-    getAll()        { return storeGet(pluginName, ''); },
-    set(key, val)   { return storeSet(pluginName, key, val); },
-    delete(key)     { return storeDelete(pluginName, key); },
-  };
+  // Scoped to the host plugin (the one whose page loaded sdk.js).
+  // Plugins registered via RLT.plugin.register() get their own store
+  // on the returned handle, scoped to spec.name — see register().
+  const store = makeNamespacedStore(pluginName);
 
   // ─── UI helpers ────────────────────────────────────────────
   // Platform brand icons (Simple Icons paths, monocolor via fill=currentColor).
@@ -671,34 +761,34 @@
       if (weeks < 5) return weeks + 'w';
       return Math.floor(days / 30) + 'mo';
     },
+    // Safe-escape an arbitrary string for use inside a CSS selector value
+    // (e.g. attribute selectors like `[data-pid="..."]`). Falls back to a
+    // minimal manual escape on older browsers without CSS.escape.
     cssEsc(s) {
       if (window.CSS && CSS.escape) return CSS.escape(s);
       return String(s == null ? '' : s).replace(/["\\]/g, '\\$&');
     },
+    // Brief banner at the bottom-center. Reuses one DOM node across calls.
+    // All visual styling lives in sdk.css under .rlt-toast / .rlt-toast--show
+    // so plugins can override the look without forking the SDK.
     toast(msg, ms) {
       let t = document.getElementById('__rlt_toast');
       if (!t) {
         t = document.createElement('div');
         t.id = '__rlt_toast';
-        t.style.cssText =
-          'position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);' +
-          'background:linear-gradient(135deg,#22d3ee,#a78bfa);color:#0a0c14;' +
-          'padding:12px 22px;border-radius:8px;font:700 13px Inter,system-ui,sans-serif;' +
-          'letter-spacing:.04em;text-transform:uppercase;opacity:0;pointer-events:none;' +
-          'transition:opacity .25s,transform .25s;z-index:99999;' +
-          'box-shadow:0 0 30px rgba(34,211,238,.4),0 0 50px rgba(167,139,250,.4);';
+        t.className = 'rlt-toast';
         document.body.appendChild(t);
       }
       t.textContent = msg;
+      // Two rAFs: the first commits the freshly-appended node so the
+      // transition has a starting state, the second flips the class so
+      // the show animation actually plays (single rAF skips the frame
+      // on first call after creation).
       requestAnimationFrame(() => {
-        t.style.opacity = '1';
-        t.style.transform = 'translateX(-50%) translateY(0)';
+        requestAnimationFrame(() => t.classList.add('rlt-toast--show'));
       });
       clearTimeout(t._timer);
-      t._timer = setTimeout(() => {
-        t.style.opacity = '0';
-        t.style.transform = 'translateX(-50%) translateY(20px)';
-      }, ms || 2000);
+      t._timer = setTimeout(() => t.classList.remove('rlt-toast--show'), ms || 2000);
     },
   };
 
@@ -755,12 +845,14 @@
   }
 
   // Recent-events ring buffer so plugins booting mid-match can show context.
-  const recentByType = new Map(); // ev -> array of { at, data, envelope }
+  // Useful for dedup ("did I already see this GoalScored?") and for "show
+  // the last N events" debug panels. See RLT.events.recent(name, n).
+  const recentByType = new Map(); // ev -> array of { at, data }
   const RECENT_LIMIT = 50;
-  function recordRecent(ev, data, envelope) {
+  function recordRecent(ev, data) {
     let arr = recentByType.get(ev);
     if (!arr) { arr = []; recentByType.set(ev, arr); }
-    arr.push({ at: Date.now(), data, envelope });
+    arr.push({ at: Date.now(), data });
     if (arr.length > RECENT_LIMIT) arr.splice(0, arr.length - RECENT_LIMIT);
   }
 
@@ -854,6 +946,12 @@
     });
   });
 
+  // The other MatchEnded handler (inside the `match` IIFE, above) records
+  // per-encounter W/L and only reads from the bus — it's independent of
+  // this typed-event normalizer. Both handlers fire because the bus
+  // iterates every subscriber for an event; ordering between them is
+  // not guaranteed and shouldn't matter (different concerns, no shared
+  // state beyond `match.current` which is set before either runs).
   bus.on('MatchEnded', (d) => {
     if (!d) return;
     emitTyped('MatchEnded', {
@@ -978,6 +1076,15 @@
     // runs, so we always see them inline with everything else.
     bus.on('_Lifecycle', (snap) => { if (snap) applySnapshot(snap); });
 
+    // SSE disconnect invalidates our snapshot — without this, plugins
+    // polling `lifecycle.phase` after a connection drop would see a
+    // stale "live" value indefinitely. On reconnect the server's first
+    // _Lifecycle replaces this with the authoritative state.
+    bus.on('_status', (s) => {
+      if (s !== 'disconnected') return;
+      applySnapshot({ phase: 'none', match_active: false, match_guid: '', since: null });
+    });
+
     return {
       get phase() { return phase; },
       get previous() { return prevPhase; },
@@ -1006,7 +1113,7 @@
     { name: 'GoalScored',        category: 'scoring',   shape: 'goal',       livePhases: ['live','replay'],     desc: 'Scorer + assister + last touch + impact.' },
     { name: 'BallHit',           category: 'play',      shape: 'ballhit',    livePhases: ['live'],              desc: 'Ball touched. Pre/post speed and location.' },
     { name: 'CrossbarHit',       category: 'play',      shape: 'crossbar',   livePhases: ['live'],              desc: 'Ball hit a crossbar.' },
-    { name: 'StatfeedEvent',       category: 'stat',      shape: 'stat',       livePhases: ['live','replay'],     desc: 'Player earned a stat (demo, save, epic save, etc).' },
+    { name: 'StatfeedEvent',       category: 'stat',      shape: 'statfeed',   livePhases: ['live','replay'],     desc: 'Player earned a stat (demo, save, epic save, etc).' },
     { name: 'ClockUpdatedSeconds', category: 'play',      shape: 'clock',      livePhases: ['live','countdown'],  desc: 'Match clock changed by ≥1 second.' },
 
     // Lifecycle
@@ -1030,6 +1137,12 @@
     (acc[e.category] = acc[e.category] || []).push(e.name);
     return acc;
   }, {});
+
+  // Lock the catalog so plugins can't mutate the source of truth at runtime.
+  // (Plugin code that forks the SDK and adds entries should do so here.)
+  events.catalog.forEach(Object.freeze);
+  Object.freeze(events.catalog);
+  Object.freeze(events.byCategory);
 
   // ─── Statfeed eventName registry ───────────────────────────
   // RL ships StatfeedEvent.eventName as raw asset names ('Demolish',
@@ -1097,41 +1210,102 @@
       return false;
     }
 
-    function gate(spec, fn) {
-      // Wraps a handler with phase gating + error isolation, so a single
-      // plugin throwing doesn't take down others.
+    // Wrap a plugin handler with error isolation (a single plugin throw
+    // never escapes into the dispatcher), and optionally with whilePhase
+    // gating. Pass `{ phaseGated: false }` for transition observers
+    // (onLifecycle, onMatchActive) that need to fire regardless of the
+    // destination phase — without that escape hatch, a plugin with
+    // whilePhase: ['live'] would never see "match_active just went
+    // false" because the destination phase is 'none'.
+    function wrap(spec, fn, opts) {
+      const phaseGated = !opts || opts.phaseGated !== false;
       return function () {
-        if (!shouldFire(spec)) return;
+        if (phaseGated && !shouldFire(spec)) return;
         try { return fn.apply(null, arguments); }
         catch (e) { console.error('[RLT] plugin "' + spec.name + '" handler threw:', e); }
       };
     }
+    const gate    = (spec, fn) => wrap(spec, fn);
+    const isolate = (spec, fn) => wrap(spec, fn, { phaseGated: false });
 
-    function isolate(spec, fn) {
-      // Like gate() but without the whilePhase filter — used for
-      // transition observers (onLifecycle, onMatchActive) that need to
-      // fire regardless of destination phase. Still wraps in try/catch
-      // for error isolation.
-      return function () {
-        try { return fn.apply(null, arguments); }
-        catch (e) { console.error('[RLT] plugin "' + spec.name + '" handler threw:', e); }
-      };
-    }
-
+    /**
+     * Register a plugin against the SDK. Wires up event handlers, lifecycle
+     * gating, error isolation, and a per-plugin storage scope. Returns a
+     * handle for introspection and explicit teardown.
+     *
+     * The SDK auto-subscribes to whatever events your handlers ask for —
+     * declaring `events: { GoalScored }` causes the SDK to widen the
+     * server-side filter and start delivering GoalScored, with no extra
+     * API call. UpdateState is the only opt-in heavyweight: register an
+     * `onTick`, `onMatch`, `events.UpdateState`, or call
+     * `RLT.match.subscribe()` to get it.
+     *
+     * Every handler is wrapped in try/catch — one plugin throwing never
+     * affects another. Event handlers (the `events` map plus `onMatch`,
+     * `onTick`, `onIdentity`, `onEncounters`) are also gated by
+     * `whilePhase` if set; transition observers (`onLifecycle`,
+     * `onMatchActive`, `onFocusChange`) bypass the gate by design so
+     * they can observe transitions out of any phase.
+     *
+     * @param {object}   spec
+     * @param {string}   [spec.name]       Plugin identifier (defaults to the
+     *                                     page's data-plugin attribute or the
+     *                                     URL path segment under /plugins/).
+     *                                     Used as the storage namespace.
+     * @param {string}   [spec.version]    Semantic version, logged on register.
+     * @param {string}   [spec.author]
+     * @param {string|string[]} [spec.whilePhase]
+     *                                     Phase gate for `events`, `onMatch`,
+     *                                     `onTick`, `onIdentity`, `onEncounters`.
+     *                                     One of: 'none', 'created', 'countdown',
+     *                                     'live', 'paused', 'replay', 'ended',
+     *                                     'podium', or '*' (always). 'idle' is
+     *                                     accepted as a back-compat alias for
+     *                                     'none'. Default: '*'.
+     *
+     * @param {object}   [spec.events]     Map of EventName → handler(payload).
+     *                                     Use `'*'` for a catchall on the raw
+     *                                     bus (does not widen the SSE filter).
+     *
+     * @param {function(handle):void} [spec.init]    Called synchronously on register.
+     *                                               DOM setup goes here.
+     * @param {function(handle):void} [spec.ready]   Called once after identity
+     *                                               and the encounter ledger
+     *                                               have finished loading.
+     * @param {function(state):void}  [spec.onTick]      Every UpdateState (~60Hz).
+     * @param {function(state):void}  [spec.onMatch]     Structural match changes only.
+     * @param {function(id):void}     [spec.onIdentity]  User changed which player is "me".
+     * @param {function(map):void}    [spec.onEncounters} Encounter ledger updated.
+     * @param {function(phase, prev):void} [spec.onLifecycle]
+     *                                               Phase transition. Bypasses whilePhase.
+     * @param {function(active):void} [spec.onMatchActive]
+     *                                               match_active flipped. Bypasses whilePhase.
+     * @param {function(active):void} [spec.onFocusChange]
+     *                                               Game window focus changed (Tauri only).
+     *                                               Bypasses whilePhase.
+     * @param {function():void}       [spec.dispose]     Called by handle.dispose().
+     *
+     * @returns {{
+     *   name: string,
+     *   version: ?string,
+     *   author: ?string,
+     *   disposed: boolean,
+     *   store: { get, getAll, set, delete },
+     *   events: string[],
+     *   spec: object,
+     *   dispose: function(): void
+     * }} A handle with the same shape every plugin gets back.
+     */
     function register(spec) {
       spec = spec || {};
       const name = spec.name || pluginName;
       const unsubs = [];
       let disposed = false;
 
-      // Per-plugin scoped store. Falls back to the page-level pluginName if
-      // the spec didn't override it (most plugins won't).
-      const pluginStore = {
-        get(key)      { return storeGet(name, key); },
-        getAll()      { return storeGet(name, ''); },
-        set(key, val) { return storeSet(name, key, val); },
-        delete(key)   { return storeDelete(name, key); },
-      };
+      // Per-plugin scoped store. Defaults to the page-level pluginName
+      // (most plugins won't override `spec.name`). Same shape and
+      // semantics as the top-level RLT.store.
+      const pluginStore = makeNamespacedStore(name);
 
       // Wire event handlers — keys are event names from the catalog.
       if (spec.events) {
@@ -1194,7 +1368,17 @@
         try { spec.init(handle); }
         catch (e) { console.error('[RLT] plugin "' + name + '" init threw:', e); }
       }
+      // Run spec.ready() exactly once, after both the identity record
+      // and the encounter ledger have finished loading. Both stores
+      // emit 'change' on load completion; subscribe to each, and fire
+      // when both report ready. The unsubs are tracked so a dispose()
+      // before ready never fires the callback against a torn-down
+      // plugin.
+      let readyFired = false;
       const fireReady = () => {
+        if (readyFired || disposed) return;
+        if (!(identity.isReady() && encounters.isReady())) return;
+        readyFired = true;
         if (typeof spec.ready === 'function') {
           try { spec.ready(handle); }
           catch (e) { console.error('[RLT] plugin "' + name + '" ready threw:', e); }
@@ -1203,13 +1387,10 @@
       if (identity.isReady() && encounters.isReady()) {
         fireReady();
       } else {
-        // poll cheaply (loaded flips once and stays)
-        const t = setInterval(() => {
-          if (identity.isReady() && encounters.isReady()) {
-            clearInterval(t);
-            if (!disposed) fireReady();
-          }
-        }, 50);
+        // Each store emits 'change' once on initial load. Either may
+        // already be ready; check inside fireReady() before firing.
+        unsubs.push(identity.onChange(fireReady));
+        unsubs.push(encounters.onChange(fireReady));
       }
 
       console.debug('[RLT] plugin registered:', name, spec.version || '(no version)');
@@ -1229,6 +1410,97 @@
     };
   })();
 
+  // ─── Internal: shared sizing helpers used by widget.autoSize/fitWidth ──
+  //
+  // Both methods need the same target-resolution and observer setup. They
+  // differ only in the body of `flush()` (autoSize tracks both dimensions
+  // with min/max clamps; fitWidth grows the width monotonically against a
+  // high-water mark). Factoring the boilerplate out makes each method's
+  // measurement policy fit on a screen.
+
+  // Resolve `target` to a DOM Element. Accepts an Element directly, a CSS
+  // selector string, or undefined (→ document.body). Re-resolved every
+  // call so a deferred-rendered target is picked up automatically once it
+  // mounts.
+  function resolveTarget(target) {
+    if (target instanceof Element) return target;
+    if (typeof target === 'string') {
+      return document.querySelector(target) || document.body;
+    }
+    return document.body;
+  }
+
+  // Tracks every active widget-watcher so pagehide can tear them all down
+  // in one shot. Each entry is { observer, listeners: [{type, fn}] }.
+  const activeWatchers = new Set();
+
+  function teardownWatchers() {
+    for (const w of activeWatchers) {
+      try { w.observer.disconnect(); } catch (_) { /* noop: already disposed */ }
+      for (const { type, fn } of w.listeners) {
+        try { document.removeEventListener(type, fn, true); } catch (_) { /* noop */ }
+      }
+    }
+    activeWatchers.clear();
+  }
+
+  // Wire up a ResizeObserver + the standard "size-might-have-changed but
+  // observer can't see it" signals (animationend, transitionend, font
+  // load). Coalesces all of them through one rAF-debounced `flush`.
+  //
+  // Returns the watcher record so the caller can stash it for explicit
+  // cleanup. The watcher is also added to `activeWatchers` so the global
+  // pagehide handler tears it down on navigation.
+  function startSizeWatcher(getTarget, flush) {
+    let pending = false;
+    const schedule = () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; flush(); });
+    };
+
+    const observer = new ResizeObserver(schedule);
+    observer.observe(getTarget());
+    // Body too — reflows that don't change the target's own box but do
+    // change wrapping (e.g. parent flex container resizes, iframe width
+    // changes) reach us through document.body.
+    if (getTarget() !== document.body && document.body) {
+      observer.observe(document.body);
+    }
+
+    // Kick once: the first paint should size correctly even if no
+    // observer event fires (target measured the same as last time).
+    schedule();
+
+    // ResizeObserver doesn't fire on opacity / transform changes, so a
+    // fade-in finishing alters nothing observable. Web fonts arriving
+    // (Inter, Saira Condensed) shift name widths once they replace the
+    // system fallback. Hook both signals.
+    const listeners = [
+      { type: 'animationend',  fn: schedule },
+      { type: 'transitionend', fn: schedule },
+    ];
+    for (const { type, fn } of listeners) {
+      document.addEventListener(type, fn, true);
+    }
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(schedule);
+    }
+
+    const watcher = { observer, listeners };
+    activeWatchers.add(watcher);
+    return watcher;
+  }
+
+  function stopSizeWatcher(watcher) {
+    if (!watcher) return;
+    try { watcher.observer.disconnect(); } catch (_) { /* noop */ }
+    for (const { type, fn } of watcher.listeners) {
+      try { document.removeEventListener(type, fn, true); } catch (_) { /* noop */ }
+    }
+    activeWatchers.delete(watcher);
+  }
+
   // ─── Widget control (desktop-overlay only) ─────────────────
   // When the plugin's overlay is loaded inside the Tauri-backed rl-widget,
   // these methods reshape the host window at runtime: resize to fit
@@ -1245,10 +1517,16 @@
     const inTauri = typeof window !== 'undefined'
       && !!window.__TAURI_INTERNALS__
       && typeof window.__TAURI_INTERNALS__.invoke === 'function';
-    // Stable storage for autoSize across repeated calls.
-    const autoSizeState = { observer: null, flush: null, active: false };
-    // Stable storage for fitWidth so retoggling reuses the high-water mark.
-    const fitWidthState = { observer: null };
+
+    // One watcher per method. Restart calls dispose the previous watcher
+    // so options take effect, instead of stacking observers.
+    let autoSizeWatcher = null;
+    let fitWidthWatcher = null;
+    // fitWidth tracks the largest width we've ever asked the host for.
+    // We only invoke widget_size when content wants to grow past that
+    // mark — never on shrink — to avoid feedback loops with `max-width:
+    // 100%` chains.
+    let fitWidthHighWater = 0;
 
     function invoke(cmd, args) {
       if (!inTauri) return Promise.resolve(false);
@@ -1295,51 +1573,42 @@
         return invoke('widget_visible', { visible: !!v });
       },
 
-      /** Auto-resize the host window to fit a measurement target. Pass true
-       *  to start, false to stop. Uses ResizeObserver and debounces calls
-       *  to widget_size to one animation frame.
+      /**
+       * Auto-resize the host window to fit a measurement target.
        *
-       *  Options:
-       *    target    — DOM element OR CSS selector to measure. Defaults
-       *                to document.body. Pass the actual content wrapper
-       *                (e.g. '.ov') so the body's flex centering doesn't
-       *                inflate the measurement to the iframe's full size.
-       *    minWidth, minHeight, maxWidth, maxHeight — clamps in CSS px.
+       * Watches the target with a `ResizeObserver` (plus animation/
+       * transition/font-load signals) and pushes new sizes to the host
+       * once per animation frame. Idempotent: a second call replaces
+       * the previous watcher rather than stacking. Returns false outside
+       * Tauri.
        *
-       *  Idempotent: subsequent calls re-target rather than stack. */
+       * @param {boolean} enabled                 true to start, false to stop.
+       * @param {object}  [opts]
+       * @param {Element|string} [opts.target]    Element or CSS selector. Default: document.body.
+       *                                          Pass the content wrapper (e.g. '.ov') — body's
+       *                                          flex centering otherwise inflates the measurement.
+       * @param {number}  [opts.minWidth=1]
+       * @param {number}  [opts.minHeight=1]
+       * @param {number}  [opts.maxWidth=4096]
+       * @param {number}  [opts.maxHeight=4096]
+       * @returns {boolean}
+       */
       autoSize(enabled, opts) {
         if (!inTauri) return false;
         opts = opts || {};
-        const minW = (opts.minWidth | 0) || 1;
+        const minW = (opts.minWidth  | 0) || 1;
         const minH = (opts.minHeight | 0) || 1;
-        const maxW = (opts.maxWidth | 0) || 4096;
+        const maxW = (opts.maxWidth  | 0) || 4096;
         const maxH = (opts.maxHeight | 0) || 4096;
 
-        const resolveTarget = () => {
-          if (opts.target instanceof Element) return opts.target;
-          if (typeof opts.target === 'string') {
-            return document.querySelector(opts.target) || document.body;
-          }
-          return document.body;
-        };
+        // Tear down any previous watcher so new opts take effect.
+        stopSizeWatcher(autoSizeWatcher);
+        autoSizeWatcher = null;
+        if (!enabled) return true;
 
-        // Tear down any previous observer so options take effect.
-        if (autoSizeState.observer) {
-          autoSizeState.observer.disconnect();
-          autoSizeState.observer = null;
-        }
-
-        if (!enabled) {
-          autoSizeState.active = false;
-          return true;
-        }
-
-        let pending = false;
         let lastW = -1, lastH = -1;
         const flush = () => {
-          pending = false;
-          if (!autoSizeState.active) return;
-          const el = resolveTarget();
+          const el = resolveTarget(opts.target);
           if (!el) return;
           // getBoundingClientRect respects transforms and gives us fractional
           // pixels; scrollWidth/Height ignores subpixel layout. The widget
@@ -1353,123 +1622,53 @@
           invoke('widget_size', { width: w, height: h });
         };
 
-        const observer = new ResizeObserver(() => {
-          if (pending) return;
-          pending = true;
-          requestAnimationFrame(flush);
-        });
-        autoSizeState.observer = observer;
-        autoSizeState.flush = flush;
-        autoSizeState.active = true;
-
-        // ResizeObserver only fires on the elements we observe. Watch the
-        // target and document.body — the latter catches reflows that don't
-        // change the target's box but do change its layout (e.g. a parent
-        // flex container resizing).
-        observer.observe(resolveTarget());
-        if (resolveTarget() !== document.body && document.body) {
-          observer.observe(document.body);
-        }
-        // Kick once so the first paint sizes correctly even if no
-        // observer event fires.
-        requestAnimationFrame(flush);
-
-        // ResizeObserver doesn't fire on transform / opacity animations, so
-        // a fade-in or slide-in finishing changes nothing observable. We
-        // hook animation/transition end and font load — all common sources
-        // of post-first-paint layout shift — and re-flush.
-        const onAnimEnd = () => requestAnimationFrame(flush);
-        document.addEventListener('animationend', onAnimEnd, true);
-        document.addEventListener('transitionend', onAnimEnd, true);
-        if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(() => requestAnimationFrame(flush));
-        }
+        autoSizeWatcher = startSizeWatcher(() => resolveTarget(opts.target), flush);
         return true;
       },
 
-      /** Grow the host window's width to fit a measurement target's natural
-       *  content width. Width is monotonic — it only grows, never shrinks —
-       *  so there's no feedback loop with body's max-width:100% chain.
-       *  Height is left at the manifest value.
+      /**
+       * Grow the host window's width to fit the target's natural content.
        *
-       *  Use this for "long player name pushes the row past the manifest
-       *  width" — the surface widens to fit that name and stays widened
-       *  for the session. (Shrinking back when the long name leaves would
-       *  re-introduce the autoSize feedback loop.)
+       * Width is monotonic — only grows, never shrinks — so there's no
+       * feedback loop with `max-width: 100%` chains. Height is left at
+       * the manifest value (we pass `window.innerHeight` through, which
+       * reflects the manifest height at startup and any explicit resize
+       * since). Returns false outside Tauri.
        *
-       *  Options:
-       *    target   — element OR selector to measure (default: document.body).
-       *    maxWidth — absolute cap so a pathological name (AAAAA...) can't
-       *               widen the surface to 4K. Defaults to 800px.
-       *    extra    — extra px to add beyond measured width (e.g. for
-       *               glow/padding the layout box doesn't include).
-       *               Defaults to 0.
+       * Use case: "long player name pushes a row past the manifest
+       * width" — the surface widens once and stays widened for the
+       * session.
        *
-       *  Returns false outside Tauri (OBS / browser) — no host to resize. */
+       * @param {object} [opts]
+       * @param {Element|string} [opts.target]    Element or CSS selector. Default: document.body.
+       * @param {number} [opts.maxWidth=800]      Hard cap so a pathological name can't blow up the surface.
+       * @param {number} [opts.extra=0]           Extra px added beyond measured width (e.g. for glow padding the layout box doesn't include).
+       * @returns {boolean}
+       */
       fitWidth(opts) {
         if (!inTauri) return false;
         opts = opts || {};
-        const maxW = (opts.maxWidth | 0) || 800;
-        const extra = (opts.extra | 0) || 0;
-        const resolveTarget = () => {
-          if (opts.target instanceof Element) return opts.target;
-          if (typeof opts.target === 'string') {
-            return document.querySelector(opts.target) || document.body;
-          }
-          return document.body;
-        };
+        const maxW  = (opts.maxWidth | 0) || 800;
+        const extra = (opts.extra    | 0) || 0;
 
-        // Tear down any prior fitWidth observer so options can be retuned.
-        if (fitWidthState.observer) {
-          fitWidthState.observer.disconnect();
-          fitWidthState.observer = null;
-        }
+        // Restart cleanly with new opts; high-water mark is preserved on
+        // module-level `fitWidthHighWater` so retoggling doesn't shrink.
+        stopSizeWatcher(fitWidthWatcher);
+        fitWidthWatcher = null;
 
-        let pending = false;
-        // We track the largest width we've ever asked the host for. Each
-        // tick we compare the natural content width to that high-water
-        // mark and only invoke widget_size if we've grown.
-        let highWater = 0;
         const flush = () => {
-          pending = false;
-          const el = resolveTarget();
+          const el = resolveTarget(opts.target);
           if (!el) return;
           // scrollWidth is the unconstrained content width — ignores
           // max-width / overflow:hidden / nowrap clipping. Exactly the
           // measurement we need: "how wide does this *want* to be".
           const wanted = Math.min(maxW, el.scrollWidth + extra);
-          if (wanted <= highWater) return;
-          highWater = wanted;
-          // Pass the manifest height through unchanged — we only resize
-          // width here. (window.innerHeight reflects the current surface
-          // height, which is the manifest value at startup and any
-          // explicit resize since.)
+          if (wanted <= fitWidthHighWater) return;
+          fitWidthHighWater = wanted;
           invoke('widget_size', { width: wanted, height: window.innerHeight });
         };
 
-        const observer = new ResizeObserver(() => {
-          if (pending) return;
-          pending = true;
-          requestAnimationFrame(flush);
-        });
-        fitWidthState.observer = observer;
-        observer.observe(resolveTarget());
-        // Body too — content reflows that don't change target's box but do
-        // change wrapping behavior (e.g. an iframe-width change) come
-        // through body.
-        if (resolveTarget() !== document.body && document.body) {
-          observer.observe(document.body);
-        }
-        // First-paint kick.
-        requestAnimationFrame(flush);
-        // Re-measure after fade-ins finish and after web fonts arrive
-        // (fonts shift name widths once they replace the system fallback).
-        const onAnimEnd = () => requestAnimationFrame(flush);
-        document.addEventListener('animationend', onAnimEnd, true);
-        document.addEventListener('transitionend', onAnimEnd, true);
-        if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(() => requestAnimationFrame(flush));
-        }
+        fitWidthWatcher = startSizeWatcher(() => resolveTarget(opts.target), flush);
         return true;
       },
     };
@@ -1542,8 +1741,20 @@
     focus,
   };
 
-  // Auto-connect on load. Plugins can call RLT._reconnect() to force.
-  window.RLT._reconnect = function () { if (es) { es.close(); es = null; } connect(); };
+  // Escape hatch: force-reconnect the SSE stream. Useful when the
+  // browser's auto-reconnect is stuck after a long sleep/wake cycle.
+  window.RLT._reconnect = function () {
+    if (es) { try { es.close(); } catch (_) { /* noop */ } es = null; }
+    connect();
+  };
+
+  // Freeze the public surface so plugin code can't accidentally shadow
+  // `RLT.match`, `RLT.events`, etc. (Sub-objects deliberately stay
+  // mutable: e.g. `RLT.events.recent` reads from a Map that's updated
+  // as events arrive; the catalog and byCategory views are frozen
+  // independently above.)
+  Object.freeze(window.RLT);
+
   // Defer the first connect so synchronous RLT.plugin.register({...})
   // calls in the page's <script> tags land in the filter before we
   // open the EventSource. Microtask is enough — most plugin pages
