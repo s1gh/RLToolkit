@@ -46,6 +46,30 @@
   // would reset plugin in-memory state mid-stream).
   const widgets = new Map(); // plugin.name -> { el, iframe }
 
+  // ─── Game-focus relay ──────────────────────────────────────
+  //
+  // The rl-widget Rust process pushes focus signals via webview.eval,
+  // which evaluates in THIS top-level document only — never inside
+  // iframes. We forward each signal to every plugin iframe so the
+  // SDK's `RLT.focus.onChange` listener (which lives inside the
+  // iframe) fires.
+  //
+  // Edge case: the focus watcher is edge-triggered (only emits on
+  // transition). If the initial "RL is foreground" transition fires
+  // before an iframe finishes loading its SDK, the message is lost.
+  // We remember the last signal and replay it on iframe `load` (see
+  // applyOne below).
+  let lastFocus = null; // null until the first signal arrives
+  window.addEventListener('message', (e) => {
+    if (!e || !e.data || e.data.__rlt_focus__ !== true) return;
+    lastFocus = !!e.data.active;
+    for (const { iframe } of widgets.values()) {
+      if (!iframe || !iframe.contentWindow) continue;
+      try { iframe.contentWindow.postMessage(e.data, '*'); }
+      catch (_) { /* noop: iframe may be navigating or cross-origin */ }
+    }
+  });
+
   function applyOne(plugin, overlay) {
     let w = widgets.get(plugin.name);
     if (!w) {
@@ -55,6 +79,17 @@
               '?overlay=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
       f.setAttribute('allowtransparency', 'true');
       f.setAttribute('frameborder', '0');
+      // Replay the last-known game-focus state to this iframe once its
+      // SDK is loaded. The focus watcher is edge-triggered, so a plugin
+      // that mounts after the initial "RL is foreground" transition
+      // would otherwise stay in its hidden default forever. See the
+      // window.onmessage handler below for the broadcast path.
+      f.addEventListener('load', () => {
+        if (lastFocus !== null && f.contentWindow) {
+          try { f.contentWindow.postMessage({ __rlt_focus__: true, active: lastFocus }, '*'); }
+          catch (_) { /* noop: iframe may be navigating or cross-origin */ }
+        }
+      });
       document.body.appendChild(f);
       w = { el: f, iframe: f };
       widgets.set(plugin.name, w);
