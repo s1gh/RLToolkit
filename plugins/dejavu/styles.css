@@ -876,10 +876,11 @@ body.overlay-mode .ov-card {
   /* Tiny pill so the team label has a backing of its own. */
   align-self: flex-start;
   padding: 0.12rem 0.5rem 0.12rem 0.42rem;
-  background: rgba(10, 12, 20, 0.55);
+  /* No backdrop-filter — bumping alpha is visually equivalent against
+     a moving game and avoids a per-frame compositor blur on every chip.
+     See plugins/demos/overlay.html for the same trade-off. */
+  background: rgba(10, 12, 20, 0.78);
   border-left: 2px solid currentColor;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   /* Subtle text-shadow keeps it legible on bright RL skies. */
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
@@ -899,10 +900,8 @@ body.overlay-mode .ov-card {
   gap: 0.5rem;
   align-items: center;
   padding: 0.3rem 0.6rem 0.3rem 0.5rem;
-  background: rgba(10, 12, 20, 0.62);
+  background: rgba(10, 12, 20, 0.82);
   border-left: 2px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
   /* Sharp HUD edges; only a hair of corner radius. */
   border-radius: 2px;
   /* Animate each row in with a tiny stagger via the inline style index. */
@@ -916,7 +915,15 @@ body.overlay-mode .ov-card {
    This handles the all-met case (everyone is a returner) gracefully:
    five rows with corner stamps still read as five neutral rows, not a
    wall of gold. The standout (when there is one) gets full chrome
-   below and pops because it's the only highlighted row. */
+   below and pops because it's the only highlighted row.
+
+   Add top padding to returning rows so the name underneath sits BELOW
+   the DÉJÀ VU stamp instead of running into it. The stamp anchors at
+   top:4px (set below) so a long name with the row's default 0.3rem
+   top padding would render right behind it. */
+.ov-row.returning {
+  padding-top: 0.85rem;
+}
 .ov-row.returning::after {
   content: "DÉJÀ VU";
   position: absolute;
@@ -936,20 +943,33 @@ body.overlay-mode .ov-card {
    classifyReturners() in lib/returners.js. Full-bleed gold with a soft
    pulse so peripheral vision catches it.
 
-   The pulse is a box-shadow keyframe rather than a sweeping ::after
-   scan-line: on webkit2gtk over a Wayland layer-shell surface, full-row
-   animations with mix-blend-mode flicker because the compositor and
-   webview disagree on the alpha buffer. Plain box-shadow stays on the
-   GPU and stays still. */
+   Pulse architecture: a steady box-shadow lives on the row (cheap,
+   always painted once). A ::before pseudo-element holds the *brighter*
+   shadow and animates opacity 0..1 — opacity is GPU-composited, so the
+   compositor doesn't repaint the row's pixel grid every frame. This
+   replaced an earlier 4-stop box-shadow keyframe that re-rasterised the
+   shadow per frame and stuttered when the overlay was busy. */
 .ov-row.returning-top {
   border-left-color: var(--gold);
-  background: linear-gradient(90deg, rgba(251, 191, 36, 0.16), rgba(10, 12, 20, 0.62) 60%);
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.2), rgba(10, 12, 20, 0.82) 60%);
   box-shadow:
     0 0 0 1px rgba(251, 191, 36, 0.15) inset,
     0 0 18px -2px rgba(251, 191, 36, 0.35);
-  animation:
-    ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
-    ov-pulse 2.4s ease-in-out infinite 320ms;
+  animation: ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.ov-row.returning-top::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  /* Brighter glow that fades on top of the steady one. Same shadow
+     geometry as the steady layer so the two read as one rim. */
+  box-shadow:
+    0 0 0 1px rgba(251, 191, 36, 0.3) inset,
+    0 0 26px -2px rgba(251, 191, 36, 0.55);
+  opacity: 0;
+  animation: ov-pulse 2.4s ease-in-out infinite 320ms;
 }
 
 /* Encounter count — looks like a target-lock readout. */
@@ -1042,10 +1062,8 @@ body.overlay-mode .ov-card {
   text-transform: uppercase;
   color: rgba(169, 176, 207, 0.55);
   padding: 0.25rem 0.55rem;
-  background: rgba(10, 12, 20, 0.45);
+  background: rgba(10, 12, 20, 0.7);
   border-left: 2px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
@@ -1073,14 +1091,10 @@ body.overlay-mode .ov-card {
 @keyframes ov-pulse {
   0%,
   100% {
-    box-shadow:
-      0 0 0 1px rgba(251, 191, 36, 0.15) inset,
-      0 0 18px -2px rgba(251, 191, 36, 0.35);
+    opacity: 0;
   }
   50% {
-    box-shadow:
-      0 0 0 1px rgba(251, 191, 36, 0.3) inset,
-      0 0 26px -2px rgba(251, 191, 36, 0.55);
+    opacity: 1;
   }
 }
 
@@ -1091,7 +1105,8 @@ body.overlay-mode .ov-card {
   body.overlay-mode .ov,
   .ov-row,
   .ov-row.returning,
-  .ov-row.returning-top {
+  .ov-row.returning-top,
+  .ov-row.returning-top::before {
     /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
     animation: none !important;
   }
