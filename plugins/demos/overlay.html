@@ -485,21 +485,20 @@
         position: absolute;
       }
       /* Active layout fills the widget; idle uses inline-flex from .ov.
-         The active subtree is inset from the iframe edges so the tier
-         glow (painted on this element) can fade naturally without being
-         clipped by body { overflow: hidden }. The manifest is sized
-         (320×240) to leave ~24px of breathing room around the content. */
+         No background, no border, no border-radius — the rectangle of
+         this element must stay invisible. Tier "heat" is painted via
+         filter: drop-shadow() on the inner content (text + chip) so the
+         glow follows the letterforms, not the bounding box. */
       .ov-active {
         position: relative;
-        width: calc(100% - 48px);
-        margin: 24px;
+        width: 100%;
+        height: 100%;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 0.1rem;
         padding: 0.5rem 0.7rem 0.8rem;
-        border-radius: 4px;
       }
       .ov-idle {
         position: relative;
@@ -682,7 +681,7 @@
         text-shadow: 0 0 12px rgba(251, 124, 60, 0.6), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-glow[data-mode="active"] .ov-active {
-        box-shadow: 0 0 18px -4px rgba(251, 124, 60, 0.5);
+        filter: drop-shadow(0 0 12px rgba(251, 124, 60, 0.45));
       }
 
       /* tier-hot (x4 ANNIHILATED) — hotter orange, +15% size,
@@ -698,7 +697,7 @@
         text-shadow: 0 0 14px rgba(255, 106, 31, 0.7), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-hot[data-mode="active"] .ov-active {
-        box-shadow: 0 0 24px -4px rgba(255, 106, 31, 0.7);
+        filter: drop-shadow(0 0 16px rgba(255, 106, 31, 0.65));
       }
 
       /* tier-bloom (x5 OBLITERATED) — magenta-orange, +30% size,
@@ -715,12 +714,8 @@
         color: #ff4d8a;
         text-shadow: 0 0 16px rgba(255, 77, 138, 0.8), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      /* Outer-glow only — the rim used to be `inset 1px` but on a
-         transparent overlay that reads as a hard rectangular frame
-         around an empty box. Pure glow keeps the heat without the
-         borderline. */
       .ov.tier-bloom[data-mode="active"] .ov-active {
-        box-shadow: 0 0 36px -2px rgba(255, 77, 138, 0.85);
+        filter: drop-shadow(0 0 22px rgba(255, 77, 138, 0.8));
       }
 
       /* tier-apocalypse (x6+) — red-magenta, +45% size,
@@ -742,8 +737,8 @@
         animation: ov-apocalypse-pulse 1.6s ease-in-out infinite;
       }
       @keyframes ov-apocalypse-pulse {
-        0%, 100% { box-shadow: 0 0 32px -2px rgba(255, 45, 98, 0.85); }
-        50%      { box-shadow: 0 0 48px 0    rgba(255, 45, 98, 1); }
+        0%, 100% { filter: drop-shadow(0 0 22px rgba(255, 45, 98, 0.85)); }
+        50%      { filter: drop-shadow(0 0 32px rgba(255, 45, 98, 1)); }
       }
 
       /* BEST badge picks up the tier color it was earned at */
