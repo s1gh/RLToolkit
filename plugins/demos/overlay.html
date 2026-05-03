@@ -647,7 +647,12 @@
         font-size: 0.78rem;
         font-weight: 600;
         color: var(--rlt-txt);
-        margin-top: 0.45rem;
+        /* Spacing comes from the parent .ov-active's gap. The old
+           explicit margin-top was sized for a centered full-width
+           active block and stacked awkwardly on top of the new
+           parent gap, leaving the victim chip floating below the
+           tier word. */
+        margin-top: 0.25rem;
         padding: 0.2rem 0.65rem;
         background: rgba(10, 12, 20, 0.85);
         border-left: 2px solid var(--rlt-orange);
