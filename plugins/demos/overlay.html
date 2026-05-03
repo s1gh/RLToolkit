@@ -554,22 +554,35 @@
         color: var(--rlt-orange);
       }
 
-      /* ─── Active: timer bar ─────────────────────────────────────
+      /* ─── Top row: DEMOS chip + drain bar ───────────────────────
+         Pairs the chip with its progress indicator on one row so the
+         drain bar reads as the chip's timer rather than a floating
+         line above the streak. */
+      .ov-top-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      /* ─── Drain bar ─────────────────────────────────────────────
          JS-driven drain: renderOverlay sets the fill's inline width
          each frame from computeUiState's timerRemaining01 (driven off
          the playable bank, not wall-clock). No CSS transition — the
          rAF loop interpolates the width directly, and replay/menu
          pauses freeze the bar naturally because the bank itself
          freezes. A 20s CSS transition here was double-animating every
-         JS write, slowing the bar to a crawl. */
+         JS write, slowing the bar to a crawl. Drain bar fills
+         whatever width remains after the DEMOS chip. Hidden in idle
+         (no streak to drain — empty bar would just be visual noise). */
       .ov-bar {
-        width: 50%;
-        max-width: 130px;
+        flex: 1 1 auto;
         height: 3px;
         background: rgba(255, 255, 255, 0.08);
         border-radius: 2px;
         overflow: hidden;
-        margin-bottom: 0.35rem;
+      }
+      .ov[data-mode="idle"] .ov-bar {
+        visibility: hidden;
       }
       .ov-bar-fill {
         width: 0%;
@@ -983,10 +996,16 @@
          .tier-apocalypse, …) are applied to .ov so every descendant
          picks up the right color/size/effect from one source. -->
     <div class="ov" id="ov" data-mode="idle">
-      <!-- Persistent chips, visible in every mode. -->
-      <div class="ov-head">
-        <span class="ov-label">Demos</span>
-        <span class="ov-total" id="ov-total">0</span>
+      <!-- Persistent chips, visible in every mode. The DEMOS chip
+           pairs with the drain bar on one row so the timer reads as
+           the chip's progress indicator, not a floating element.
+           Drain bar is hidden in idle (no streak to drain). -->
+      <div class="ov-top-row">
+        <div class="ov-head">
+          <span class="ov-label">Demos</span>
+          <span class="ov-total" id="ov-total">0</span>
+        </div>
+        <div class="ov-bar" id="ov-bar"><div class="ov-bar-fill" id="ov-bar-fill"></div></div>
       </div>
       <div class="ov-best" id="ov-best" hidden>
         <span class="ov-best-label">BEST</span>
@@ -997,9 +1016,11 @@
       <!-- IDLE bottom slot: victim list. -->
       <div id="ov-list" class="ov-list"></div>
 
-      <!-- ACTIVE / BREAK bottom slot: streak readout + drain bar. -->
+      <!-- ACTIVE / BREAK bottom slot: streak readout. Drain bar is
+           moved up into the chip row so the timer aligns with the
+           DEMOS counter — visual continuity rather than a floating
+           progress line above the streak number. -->
       <div class="ov-active">
-        <div class="ov-bar"><div class="ov-bar-fill" id="ov-bar-fill"></div></div>
         <div class="ov-streak" id="ov-streak">x0</div>
         <div class="ov-word" id="ov-word">TAGGED</div>
         <div class="ov-victim" id="ov-victim">↳ —</div>
