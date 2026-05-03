@@ -508,15 +508,6 @@
         justify-content: center;
         gap: 0.1rem;
         padding: 0.5rem 0.7rem 0.8rem;
-        /* Promote to its own GPU layer so the compositor keeps a
-           stable raster while filter:drop-shadow keyframes interpolate.
-           Without this, fast pulse transitions on the high tiers
-           occasionally flash a rectangular shadow before settling into
-           the alpha-shaped one — the layer gets re-rasterized at the
-           bounding box for a frame. translateZ(0) forces the layer;
-           will-change tells the compositor to keep it alive. */
-        will-change: filter;
-        transform: translateZ(0);
       }
       .ov-idle {
         position: relative;
@@ -784,16 +775,14 @@
         letter-spacing: 0.26em;
         text-shadow: 0 0 8px rgba(255, 26, 77, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
+      /* Static glow — pulse animations on ultra tiers were stressing
+         the compositor on the wry/webkit overlay surface (box-flash
+         artifacts + visible lag). Each ultra tier escalates via static
+         drop-shadow magnitude instead; size, color, and shake still
+         carry the dynamic escalation. APOCALYPSE keeps its slow 1.6s
+         pulse — that one performed fine. */
       .ov.tier-armageddon[data-mode="active"] .ov-active {
-        animation: ov-armageddon-pulse 1.2s ease-in-out infinite;
-      }
-      /* Single drop-shadow per keyframe (not stacked) — multiple
-         drop-shadow filters double the compositor's work and on fast
-         pulses can flash a rectangular fallback for a frame. The close
-         inner glow is carried by text-shadow on the streak/word. */
-      @keyframes ov-armageddon-pulse {
-        0%, 100% { filter: drop-shadow(0 0 28px rgba(255, 26, 77, 0.95)); }
-        50%      { filter: drop-shadow(0 0 42px rgba(255, 26, 77, 1)); }
+        filter: drop-shadow(0 0 32px rgba(255, 26, 77, 0.95));
       }
 
       /* tier-extinction (x10) — color blowing out toward white. The
@@ -818,11 +807,7 @@
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-extinction[data-mode="active"] .ov-active {
-        animation: ov-extinction-pulse 0.9s ease-in-out infinite;
-      }
-      @keyframes ov-extinction-pulse {
-        0%, 100% { filter: drop-shadow(0 0 30px rgba(255, 80, 130, 0.95)); }
-        50%      { filter: drop-shadow(0 0 44px rgba(255, 100, 150, 1)); }
+        filter: drop-shadow(0 0 38px rgba(255, 90, 140, 1));
       }
 
       /* tier-genocide (x12+) — pure white text, massive halo, fastest
@@ -850,11 +835,7 @@
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-genocide[data-mode="active"] .ov-active {
-        animation: ov-genocide-pulse 0.6s ease-in-out infinite;
-      }
-      @keyframes ov-genocide-pulse {
-        0%, 100% { filter: drop-shadow(0 0 34px rgba(255, 80, 130, 0.95)); }
-        50%      { filter: drop-shadow(0 0 50px rgba(255, 100, 150, 1)); }
+        filter: drop-shadow(0 0 46px rgba(255, 100, 150, 1));
       }
 
       /* BEST badge picks up the tier color it was earned at */
