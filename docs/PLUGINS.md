@@ -647,8 +647,9 @@ have to filter `UpdateState` yourself:
 | `onMatch(state)`| Only when the match's *structure* changes (roster/score/team).  |
 | `onIdentity(id)`| When the user changes which player is "me".                    |
 | `onEncounters(map)` | When the encounter ledger updates.                          |
-| `onLifecycle(phase, prev)` | When the gameplay phase transitions.                  |
-| `onMatchActive(active)` | When `match_active` flips — the simpler "in a match" signal. |
+| `onLifecycle(phase, prev)` | When the gameplay phase transitions. Bypasses `whilePhase`. |
+| `onMatchActive(active)` | When `match_active` flips. Bypasses `whilePhase`.        |
+| `onFocusChange(active)` | Game-window foreground/background transition (Tauri only). Bypasses `whilePhase`. |
 | `dispose()`     | When `handle.dispose()` is called — clean up here.              |
 
 ```js

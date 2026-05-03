@@ -807,6 +807,14 @@
         }
       }
 
+      // Fan UpdateState out to the typed events bus so plugins that
+      // register `events: { UpdateState(state) { … } }` receive the
+      // same enriched payload that onTick delivers. Done after the
+      // late-joiner re-build above so subscribers always see counts
+      // consistent with the ledger. recordRecent is reached via
+      // emitTyped, so the ring buffer also gets the fresh payload.
+      emitTyped('UpdateState', cur);
+
       const fp =
         cur.guid +
         '|' +
@@ -1232,6 +1240,7 @@
     },
 
     // typed subscribers
+    onUpdateState: makeOn('UpdateState'),
     onGoalScored: makeOn('GoalScored'),
     onBallHit: makeOn('BallHit'),
     onCrossbarHit: makeOn('CrossbarHit'),
@@ -1544,21 +1553,29 @@
   //
   // Usage:
   //   const me = RLT.plugin.register({
-  //     name: 'boost-meter',
-  //     version: '1.0.0',
-  //     init()  { /* setup */ },
-  //     ready() { /* once identity + encounters loaded */ },
+  //     // Lifecycle hooks
+  //     init()  { /* sync setup, runs at register time */ },
+  //     ready() { /* once identity + encounter ledger have loaded */ },
+  //     dispose() { /* cleanup, runs when handle.dispose() is called */ },
+  //
+  //     // Typed event handlers — keys are names from the event catalog.
+  //     // Each handler receives the typed payload (see catalog for shapes).
+  //     // The SDK auto-subscribes on the SSE filter; no extra opt-in needed.
   //     events: {
-  //       GoalScored(g)  { ... },         // typed payload (g.scorer.player, etc)
-  //       UpdateState(d) { ... },         // raw match update
-  //       '*'(name, p)   { ... },         // catchall
+  //       GoalScored(g)    { ... },       // typed payload (g.scorer.player, etc)
+  //       UpdateState(s)   { ... },       // enriched 60Hz state (same as onTick)
+  //       '*'(name, p)     { ... },       // catchall on the raw bus
   //     },
-  //     whilePhase: ['live', 'replay'],   // optional gate; default = any phase
-  //     onMatch(m)     { ... },           // structural match changes
-  //     onTick(m)      { ... },           // every UpdateState
-  //     onIdentity(id) { ... },
-  //     onEncounters(map) { ... },
-  //     dispose() { /* cleanup */ },
+  //     whilePhase: ['live', 'replay'],   // optional gate for events + on*; '*' = always
+  //
+  //     // Convenience subscribers (gated by whilePhase, except where noted).
+  //     onTick(state)            { ... }, // every UpdateState (~60Hz)
+  //     onMatch(state)           { ... }, // only when match structure changes
+  //     onIdentity(id)           { ... }, // user re-claimed identity
+  //     onEncounters(map)        { ... }, // encounter ledger updated
+  //     onLifecycle(phase, prev) { ... }, // phase transition (bypasses whilePhase)
+  //     onMatchActive(active)    { ... }, // match_active flipped (bypasses whilePhase)
+  //     onFocusChange(active)    { ... }, // game-window focus (bypasses whilePhase)
   //   });
   //   me.dispose();    // tear down all subscriptions, run dispose hook
   const plugin = (function () {
@@ -1668,12 +1685,18 @@
      *   name: string,
      *   version: ?string,
      *   author: ?string,
+     *   title: ?string,
+     *   manifest: ?object,
      *   disposed: boolean,
      *   store: { get, getAll, set, delete },
      *   events: string[],
      *   spec: object,
-     *   dispose: function(): void
-     * }} A handle with the same shape every plugin gets back.
+     *   dispose: () => void
+     * }} A handle every plugin gets back. `name`/`version`/`author`/`title`
+     *    and `manifest` resolve once /api/plugins responds — they're patched
+     *    in-place when the manifest fetch lands. `disposed` is a getter,
+     *    flips true after dispose() runs. `events` lists the event names
+     *    declared on `spec.events` (for introspection by other plugins).
      */
     function register(spec) {
       spec = spec || {};
