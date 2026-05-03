@@ -1348,6 +1348,56 @@
           // banner appears or disappears.
           onIdentity: render,
         });
+
+        // ─── Dev-only test hook (removed before merge) ──────────────
+        // Call window.__demosTest.demo('PlayerName') from DevTools to
+        // simulate a demo without a running RL match. Bypasses the
+        // attacker.isMe check so it works without a claimed identity.
+        window.__demosTest = {
+          demo(name) {
+            const vname = name || 'TestPlayer';
+            const vid = '__test__|' + vname;
+            if (!current[vid]) current[vid] = { name: vname, count: 0 };
+            current[vid].count += 1;
+            if (!totals[vid]) totals[vid] = { name: vname, count: 0 };
+            totals[vid].count += 1;
+
+            const now = performance.now();
+            const sinceLast = lastDemoAt ? now - lastDemoAt : Infinity;
+            currentStreak = sinceLast <= COMBO_WINDOW_MS ? currentStreak + 1 : 1;
+            lastDemoAt = now;
+            lastVictimName = vname;
+            if (currentStreak > bestStreak) {
+              bestStreak = currentStreak;
+              const t = tierFor(currentStreak);
+              bestStreakWord = t ? t.word : '';
+            }
+            const tier = tierFor(currentStreak);
+            if (tier && (tier.cls === 'tier-hot' || tier.cls === 'tier-bloom')) {
+              triggerShake('light');
+            } else if (tier && tier.cls === 'tier-apocalypse') {
+              triggerShake('hard');
+            }
+            resetTimerBar();
+            armBreakTimer();
+            render();
+          },
+          state() {
+            return {
+              currentStreak,
+              lastDemoAt,
+              lastVictimName,
+              bestStreak,
+              bestStreakWord,
+              ui: computeUiState(performance.now()),
+            };
+          },
+          reset() {
+            resetComboState();
+            current = {};
+            render();
+          },
+        };
       })();
     </script>
   </body>
