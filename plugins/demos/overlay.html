@@ -560,6 +560,48 @@
         color: var(--rlt-orange);
       }
 
+      /* ─── LAST chip (most-recent victim) ─────────────────────────
+         Same chip chrome as BEST. Mounts on the first demo of a
+         match and updates each subsequent demo. Intentionally
+         neutral (cream, no tier coloring) — it's a name, not a
+         record being broken. The streak number and tier word in the
+         right column carry the moment-to-moment heat; this chip is
+         steady context. */
+      .ov-last {
+        align-self: flex-start;
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.45rem;
+        padding: 0.22rem 0.6rem 0.22rem 0.55rem;
+        background: rgba(10, 12, 20, 0.85);
+        border-left: 2px solid var(--rlt-txt-3);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+        max-width: 14rem;
+      }
+      .ov-last[hidden] {
+        display: none;
+      }
+      .ov-last-label {
+        font-family: var(--rlt-display);
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--rlt-txt);
+        opacity: 0.7;
+      }
+      .ov-last-name {
+        font-family: var(--rlt-display);
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--rlt-txt);
+        letter-spacing: 0.02em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+
       /* ─── Main two-column layout ─────────────────────────────────
          Left column: DEMOS + BEST chips stacked. Hugs content.
          Right column (.ov-stack): drain bar at top, streak readout
@@ -637,56 +679,13 @@
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
         transition: font-size 220ms ease, color 220ms ease;
       }
-      /* Victim line — its own backing chip so the name reads against any
-         game background (chain-link fences, dirt, sky, etc). Cream text
-         on a translucent dark pill; same backdrop-blur trick as the
-         BEST badge and dejavu's row chrome. The arrow glyph is part of
-         the textContent so it inherits the same color. */
-      .ov-victim {
-        font-family: var(--rlt-display);
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: var(--rlt-txt);
-        /* Spacing comes from the parent .ov-active's gap. The old
-           explicit margin-top was sized for a centered full-width
-           active block and stacked awkwardly on top of the new
-           parent gap, leaving the victim chip floating below the
-           tier word. */
-        margin-top: 0.25rem;
-        padding: 0.2rem 0.65rem;
-        background: rgba(10, 12, 20, 0.85);
-        border-left: 2px solid var(--rlt-orange);
-        max-width: 90%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        text-align: left;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
-        letter-spacing: 0.02em;
-      }
-      /* Tier-tinted left border on the victim chip — subtle visual tie
-         to the streak's heat without recoloring the name itself (the
-         cream text stays readable against any background). */
-      .ov.tier-hot .ov-victim         { border-left-color: #ff6a1f; }
-      .ov.tier-bloom .ov-victim       { border-left-color: #ff4d8a; }
-      .ov.tier-apocalypse .ov-victim  { border-left-color: #ff2d62; }
-      /* Empty-victim case — keep the chip from rendering as an orphan
-         border-left when there's no name yet (first demo of a streak). */
-      .ov-victim:empty {
-        display: none;
-      }
-
-      /* Break state — desaturate, replace subtitle styling */
+      /* Break state — desaturate streak/word so a fizzled combo
+         visually cools off. The victim slot moved out to the LAST
+         chip in the left column, which stays neutral across modes
+         (breaking the combo doesn't change who you last demoed). */
       .ov[data-mode="break"] .ov-streak,
       .ov[data-mode="break"] .ov-word {
         filter: saturate(0.4) brightness(0.7);
-      }
-      .ov[data-mode="break"] .ov-victim {
-        font-family: var(--rlt-display);
-        letter-spacing: 0.32em;
-        text-transform: uppercase;
-        color: var(--rlt-txt-2);
-        font-size: 0.7rem;
       }
 
       /* ─── Tier escalation ───────────────────────────────────────
@@ -877,11 +876,6 @@
       .ov.tier-genocide .ov-best-streak,
       .ov.tier-genocide .ov-best-word { color: #ffffff; }
 
-      /* Victim chip's left-border picks up tier color too */
-      .ov.tier-armageddon .ov-victim { border-left-color: #ff1a4d; }
-      .ov.tier-extinction .ov-victim { border-left-color: #fff0f5; }
-      .ov.tier-genocide   .ov-victim { border-left-color: #ffffff; }
-
       /* ─── Shake on demo ────────────────────────────────────────
          JS adds .shake-light / .shake-hard on every demo at tier-hot+;
          self-removed on animationend. Translate-only so it doesn't
@@ -1025,7 +1019,11 @@
          picks up the right color/size/effect from one source. -->
     <div class="ov" id="ov" data-mode="idle">
       <!-- Layout structure: two-column flex.
-           Left column: DEMOS chip + BEST chip stacked. Hugs content.
+           Left column: DEMOS / BEST / LAST chips stacked. Hugs
+             content. LAST mounts on the first demo of a match and
+             persists for the rest of it (updated on every new
+             victim) — keeps the chip column stable once the action
+             starts.
            Right column (.ov-stack): drain bar + streak readout
              stacked. Fills remaining width. The streak block lives
              underneath the drain bar so they share the same
@@ -1044,13 +1042,16 @@
             <span class="ov-best-streak" id="ov-best-streak">x0</span>
             <span class="ov-best-word" id="ov-best-word"></span>
           </div>
+          <div class="ov-last" id="ov-last" hidden>
+            <span class="ov-last-label">LAST</span>
+            <span class="ov-last-name" id="ov-last-name"></span>
+          </div>
         </div>
         <div class="ov-stack">
           <div class="ov-bar" id="ov-bar"><div class="ov-bar-fill" id="ov-bar-fill"></div></div>
           <div class="ov-active">
             <div class="ov-streak" id="ov-streak">x0</div>
             <div class="ov-word" id="ov-word">TAGGED</div>
-            <div class="ov-victim" id="ov-victim">↳ —</div>
           </div>
         </div>
       </div>
@@ -1239,6 +1240,12 @@
         let currentStreak = 0;
         let lastDemoAt = 0;
         let lastVictimName = '';
+        // Most recent victim's name within this match, persisted across
+        // streak resets (phase exits, end-of-match podium, etc) — only
+        // cleared when the match guid changes. Drives the LAST chip in
+        // the left column, which mounts on the first demo of a match
+        // and stays put for the rest of it.
+        let lastMatchVictim = '';
         // All-time personal record. Persisted via handle.store so it
         // survives across matches, sessions, and toolkit restarts. The
         // BEST badge in the overlay shows this so the player has a
@@ -1413,8 +1420,9 @@
             .join('|');
           const fp =
             ui.mode + '|' + ui.tierClass + '|' +
-            ui.streak + '|' + ui.word + '|' + ui.victim + '|' +
+            ui.streak + '|' + ui.word + '|' +
             ui.bestStreak + '|' + ui.bestStreakWord + '|' +
+            lastMatchVictim + '|' +
             currentGuid + '|' + matchDemoCount() + '|' + matchFp;
           if (fp === lastOverlayFp) return;
           lastOverlayFp = fp;
@@ -1454,6 +1462,18 @@
             best.hidden = true;
           }
 
+          // LAST chip — most-recent victim of THIS match. Mounts on
+          // the first demo and persists for the rest of the match
+          // (lastMatchVictim survives streak resets — only cleared
+          // on match-guid change). Updates each subsequent demo.
+          const last = $('ov-last');
+          if (lastMatchVictim) {
+            last.hidden = false;
+            $('ov-last-name').textContent = '↳ ' + lastMatchVictim;
+          } else {
+            last.hidden = true;
+          }
+
           // Empty state intentionally renders nothing: the DEMOS
           // counter at the top reads 0 and the BEST badge is hidden
           // until the first x2 — together those already tell the
@@ -1475,15 +1495,12 @@
             .join('');
 
           // ── Active/break subtree ──
+          // Streak number + tier word only. The victim moved out to
+          // the LAST chip in the left column where it survives
+          // streak resets and reads as steady context, not as a
+          // line that vanishes the moment a combo fizzles.
           $('ov-streak').textContent = 'x' + ui.streak;
           $('ov-word').textContent = ui.word || '';
-          if (ui.mode === 'break') {
-            $('ov-victim').textContent = 'STREAK ENDED';
-          } else if (ui.victim) {
-            $('ov-victim').textContent = '↳ ' + ui.victim;
-          } else {
-            $('ov-victim').textContent = '';
-          }
         }
 
         // rAF batcher: many SDK callbacks can fire on the same frame
@@ -1632,6 +1649,7 @@
               }
               lastDemoAt = now;
               lastVictimName = vname;
+              lastMatchVictim = vname;
 
               // Update the all-time personal record. The BEST badge
               // shows this, so a new record updates live mid-streak —
@@ -1689,6 +1707,7 @@
             if (g !== currentGuid) {
               currentGuid = g;
               current = {};
+              lastMatchVictim = '';
               resetComboState();
             }
             render();
