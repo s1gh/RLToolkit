@@ -966,7 +966,6 @@
           // Force a reflow so the browser registers the snap-to-100%
           // before we remove the class — without this, the transition
           // gets coalesced and the bar appears not to drain.
-          // biome-ignore lint/suspicious/noUnusedExpressions: deliberate reflow
           fill.offsetWidth;
           fill.classList.remove('reset');
           fill.style.width = '0%';
@@ -981,7 +980,6 @@
           ov.classList.remove('shake-light', 'shake-hard');
           // Reflow so re-adding the same class restarts the animation
           // when consecutive demos hit the same tier.
-          // biome-ignore lint/suspicious/noUnusedExpressions: deliberate reflow
           ov.offsetWidth;
           ov.classList.add(cls);
           const onEnd = () => {
