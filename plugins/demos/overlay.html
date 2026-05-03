@@ -480,25 +480,28 @@
         pointer-events: none;
         position: absolute;
       }
-      /* Active block: the streak readout + drain bar. Sits flush below
-         the persistent chips with a tight gap so the whole widget
-         reads as one composition, not chips floating above an
-         orphaned streak number. Left-aligned to match the chips'
-         flex-start alignment — vertically centering the streak in
-         the remaining space made the layout look broken because the
-         emphasis floated away from where the eye lands after the
-         chips. No background, no border, no radius. Tier "heat" is
-         painted via text-shadow on the streak number/word; filter:
-         drop-shadow caused compositor-stall artifacts on wry/webkit. */
+      /* Active layout fills the widget; idle uses inline-flex from .ov.
+         No background, no border, no border-radius — the rectangle of
+         this element must stay invisible. Tier "heat" is painted via
+         text-shadow on the streak number and word (see tier rules
+         below); we tried filter:drop-shadow first but it caused
+         compositor-stall artifacts on the wry/webkit overlay surface
+         (rectangular flash, lag during pulse animations). The
+         center-alignment matters too: at genocide tier the text-
+         shadow stack is wide enough that flex-start alignment lets
+         the halo bleed against the iframe edge and triggers the same
+         rectangular box-flash. Centering keeps the shadow inside
+         the active block's safe rectangle. */
       .ov-active {
         position: relative;
-        align-self: stretch;
+        width: 100%;
+        flex: 1 1 auto;
         display: flex;
         flex-direction: column;
-        align-items: flex-start;
-        gap: 0.15rem;
-        padding: 0.35rem 0 0;
-        margin-top: 0.15rem;
+        align-items: center;
+        justify-content: center;
+        gap: 0.1rem;
+        padding: 0.5rem 0.7rem 0.8rem;
       }
 
       /* ─── BEST badge (idle) ─────────────────────────────────────
