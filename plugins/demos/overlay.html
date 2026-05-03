@@ -457,27 +457,27 @@
       }
 
       /* ─── Mode toggle ───────────────────────────────────────────
-         The chips (.ov-head, .ov-best) live above this and stay in
-         every mode — they're persistent context. Only the bottom slot
-         swaps: .ov-list in idle, .ov-active in active/break. Both
-         bottom blocks are kept in the DOM so the streak readout and
-         victim list don't have to re-mount across the toggle; we just
-         crossfade them. The hidden one is taken out of flow with
-         position:absolute so it doesn't reserve vertical space. */
+         Just opacity. Earlier iterations also swapped position to
+         absolute on the hidden block, animated a desaturation
+         filter, and toggled pointer-events — all firing on the same
+         frame produced a staggered glitch on break → idle. Plain
+         opacity reads as a clean fade.
+
+         The two blocks (.ov-active in the right column, .ov-list
+         below .ov-main) live in different DOM slots, so a hidden-
+         but-still-in-flow element doesn't cost layout — it just
+         occupies its own empty rectangle. The chip column on the
+         left dominates idle-mode height anyway. */
       .ov-list,
       .ov-active {
         transition: opacity 200ms ease;
       }
       .ov[data-mode="idle"] .ov-active {
         opacity: 0;
-        pointer-events: none;
-        position: absolute;
       }
       .ov[data-mode="active"] .ov-list,
       .ov[data-mode="break"] .ov-list {
         opacity: 0;
-        pointer-events: none;
-        position: absolute;
       }
       /* Active layout fills the widget; idle uses inline-flex from .ov.
          No background, no border, no border-radius — the rectangle of
@@ -678,20 +678,12 @@
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
         transition: font-size 220ms ease, color 220ms ease;
       }
-      /* Desaturate streak/word in break mode (combo cooling off)
-         and also during idle (which is what break decays into). The
-         idle rule matters because the active block fades out via
-         opacity over 200ms; without desaturating idle too, the flip
-         from break → idle yanks the filter off mid-fade and the
-         streak briefly flashes back to full tier color before going
-         transparent. Keeping the filter applied through idle means
-         it fades from "dim" to "invisible" — no bright flicker. */
-      .ov[data-mode="break"] .ov-streak,
-      .ov[data-mode="break"] .ov-word,
-      .ov[data-mode="idle"] .ov-streak,
-      .ov[data-mode="idle"] .ov-word {
-        filter: saturate(0.4) brightness(0.7);
-      }
+      /* Break mode: leave the colors alone. Earlier iterations
+         desaturated the streak/word in break to "cool off" the
+         combo, but combined with the active block's opacity fade
+         and position-absolute swap on the next mode flip it produced
+         a staggered, glitchy disappearance. Cleaner to just let the
+         block fade out with its tier colors intact. */
 
       /* ─── Tier escalation ───────────────────────────────────────
          Each tier class on .ov drives color/size for the active
@@ -913,24 +905,29 @@
         70% { transform: translate(4px, -2px); }
         85% { transform: translate(-2px, 1px); }
       }
-      /* Shake animates the whole widget (.ov), so it lives at the iframe
-         level. Tier pulses animate only the inner .ov-active subtree (so
-         their glow doesn't bleed into the iframe edge), so the two
-         classes of animation target different elements and don't fight. */
-      .ov.shake-light   { animation: ov-shake-light 120ms ease-out; }
-      .ov.shake-hard    { animation: ov-shake-hard 160ms ease-out; }
-      .ov.shake-extreme { animation: ov-shake-extreme 200ms ease-out; }
-      /* Per-tier amplitude scaling: each ultra tier shakes a bit harder
-         by stretching the duration. Genocide gets the longest, most
-         visible jitter so x12+ feels distinct from x8/x10. */
-      .ov.tier-armageddon.shake-extreme { animation-duration: 180ms; }
-      .ov.tier-extinction.shake-extreme { animation-duration: 220ms; }
-      .ov.tier-genocide.shake-extreme   { animation-duration: 260ms; }
+      /* Shake animates ONLY the streak number — the big "xN" the
+         player's eye is locked on during a combo. Earlier the shake
+         was on .ov (the whole widget) which jiggled the chip column
+         too, including the steady DEMOS / BEST / LAST chips that
+         have no business moving. Confined to .ov-streak the shake
+         reads as kinetic feedback on the focal element rather than
+         the whole HUD vibrating. */
+      .ov-streak.shake-light   { animation: ov-shake-light 120ms ease-out; }
+      .ov-streak.shake-hard    { animation: ov-shake-hard 160ms ease-out; }
+      .ov-streak.shake-extreme { animation: ov-shake-extreme 200ms ease-out; }
+      /* Per-tier amplitude scaling: each ultra tier shakes a bit
+         harder by stretching the duration. Genocide gets the
+         longest, most visible jitter so x12+ feels distinct from
+         x8/x10. */
+      .ov.tier-armageddon .ov-streak.shake-extreme { animation-duration: 180ms; }
+      .ov.tier-extinction .ov-streak.shake-extreme { animation-duration: 220ms; }
+      .ov.tier-genocide   .ov-streak.shake-extreme { animation-duration: 260ms; }
 
       /* Honor reduced-motion — keep the static look. */
       @media (prefers-reduced-motion: reduce) {
         body.overlay-mode .ov,
-        .ov-row {
+        .ov-row,
+        .ov-streak {
           /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
           animation: none !important;
         }
@@ -1158,9 +1155,12 @@
 
         // One-shot shake. Class self-removes on animationend.
         // intensity: 'light' | 'hard' | 'extreme'
+        // Targets .ov-streak only (not the root .ov) so the shake
+        // applies to the big "xN" focal number — chips on the left
+        // and the drain bar at top stay still.
         function triggerShake(intensity) {
           if (!isOverlay) return;
-          const ov = document.getElementById('ov');
+          const ov = document.getElementById('ov-streak');
           if (!ov) return;
           const cls =
             intensity === 'extreme' ? 'shake-extreme' :
