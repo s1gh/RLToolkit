@@ -678,12 +678,18 @@
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
         transition: font-size 220ms ease, color 220ms ease;
       }
-      /* Break state — desaturate streak/word so a fizzled combo
-         visually cools off. The victim slot moved out to the LAST
-         chip in the left column, which stays neutral across modes
-         (breaking the combo doesn't change who you last demoed). */
+      /* Desaturate streak/word in break mode (combo cooling off)
+         and also during idle (which is what break decays into). The
+         idle rule matters because the active block fades out via
+         opacity over 200ms; without desaturating idle too, the flip
+         from break → idle yanks the filter off mid-fade and the
+         streak briefly flashes back to full tier color before going
+         transparent. Keeping the filter applied through idle means
+         it fades from "dim" to "invisible" — no bright flicker. */
       .ov[data-mode="break"] .ov-streak,
-      .ov[data-mode="break"] .ov-word {
+      .ov[data-mode="break"] .ov-word,
+      .ov[data-mode="idle"] .ov-streak,
+      .ov[data-mode="idle"] .ov-word {
         filter: saturate(0.4) brightness(0.7);
       }
 
