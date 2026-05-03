@@ -1313,7 +1313,7 @@
 
         // Per-match demo count. The overlay shows this — "all-time
         // total" was nonsense as a HUD metric (it just grew forever).
-        // Per-match resets when the match guid changes (see onMatch).
+        // Per-match resets when the match guid changes (see onRoster).
         function matchDemoCount() {
           let n = 0;
           for (const id in current) n += current[id].count;
@@ -1702,7 +1702,15 @@
           // Match boundary — guid changes on every new match. Reset the
           // per-match counters here. (We don't reset on phase changes,
           // because replay/paused are still the same match.)
-          onMatch(m) {
+          //
+          // We use onRoster instead of onMatch because the only thing
+          // we read from the match payload is `guid`. onMatch is built
+          // on top of UpdateState (~60-120Hz, the heaviest event), so
+          // subscribing for a guid we'd see at most once per match is
+          // a huge waste of bandwidth. onRoster fires on the synthetic
+          // _RosterChanged event (a handful per match) and carries the
+          // same guid field — same outcome, no UpdateState pulled.
+          onRoster(m) {
             const g = m ? m.guid : null;
             if (g !== currentGuid) {
               currentGuid = g;
