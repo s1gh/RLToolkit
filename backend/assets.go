@@ -5,7 +5,14 @@ import "embed"
 // webFS holds the dashboard, overlay, and SDK assets, served straight
 // from the binary so we don't depend on the cwd at runtime.
 //
+// Fonts are bundled too: the overlay used to fetch Saira Condensed,
+// Inter, and JetBrains Mono from fonts.googleapis.com on every launch,
+// which costs a network round-trip and triggers a post-load reflow as
+// the web font swaps in for the system fallback. Self-hosting kills
+// both costs.
+//
 //go:embed web/dashboard.html web/overlay.html web/sdk.js web/sdk.css web/overlay-editor.js
+//go:embed web/fonts/*.woff2
 var webFS embed.FS
 
 // faviconSVG mirrors the dashboard's logo gradient so the browser tab and

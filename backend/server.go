@@ -39,6 +39,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
+	mux.HandleFunc("/fonts/", s.handleFont)
 	mux.HandleFunc("/overlay-editor.js", s.handleOverlayEditorJS)
 	mux.HandleFunc("/favicon.ico", s.handleFavicon)
 	// Plugin assets are served straight from disk so iterating on a plugin
@@ -378,6 +379,26 @@ func (s *Server) handleSDKJS(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleSDKCSS(w http.ResponseWriter, _ *http.Request) {
 	writeAsset(w, "text/css; charset=utf-8", "no-cache", sdkCSSBytes)
+}
+
+// handleFont serves bundled woff2 font files from the embed FS. Path is
+// /fonts/<name>.woff2; only that exact suffix is allowed so a path like
+// /fonts/../sdk.js can't escape into other embedded assets. Long
+// Cache-Control because the bytes are content-addressed (file names map
+// to specific Google Fonts revisions); a font swap would land via a
+// rename, busting the cache.
+func (s *Server) handleFont(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/fonts/")
+	if name == "" || strings.ContainsAny(name, "/\\") || !strings.HasSuffix(name, ".woff2") {
+		http.NotFound(w, r)
+		return
+	}
+	body, err := webFS.ReadFile("web/fonts/" + name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeAsset(w, "font/woff2", "public, max-age=31536000, immutable", body)
 }
 
 func (s *Server) handleOverlayEditorJS(w http.ResponseWriter, _ *http.Request) {
