@@ -7,19 +7,289 @@
     <script src="/sdk.js" data-plugin="crossbar"></script>
   </head>
   <body>
-    <div id="root">crossbar plugin loaded</div>
+    <div id="root"></div>
+    <style>
+      body {
+        font-family: var(--rlt-ui, 'Inter', system-ui, sans-serif);
+        font-size: 13px;
+        color: var(--rlt-txt, #e9ecf2);
+        background: var(--rlt-bg-0, #08090f);
+        margin: 0;
+      }
+      body.overlay-mode { background: transparent; }
+      .settings {
+        padding: 22px 24px;
+        max-width: 560px;
+        margin: 0 auto;
+      }
+      .settings h2 {
+        font-size: 15px;
+        font-weight: 700;
+        margin: 0 0 14px;
+      }
+      .field { margin-bottom: 18px; }
+      .field-label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--rlt-txt-2, #a6abbf);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .radio-row {
+        display: flex; flex-wrap: wrap; gap: 8px;
+      }
+      .radio-row label {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 8px 12px;
+        border: 1px solid var(--rlt-line, #252938);
+        border-radius: 8px;
+        background: var(--rlt-bg-2, #161922);
+        cursor: pointer;
+        font-size: 13px;
+      }
+      .radio-row label:has(input:checked) {
+        border-color: var(--rlt-cyan, #22d3ee);
+        color: var(--rlt-cyan, #22d3ee);
+      }
+      .upload-row {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      }
+      .upload-row input[type=file] { font-size: 12px; }
+      .filename {
+        font-size: 12px;
+        color: var(--rlt-txt-2, #a6abbf);
+        word-break: break-all;
+      }
+      .err {
+        color: #f87171;
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      .slider-row {
+        display: flex; align-items: center; gap: 12px;
+      }
+      .slider-row input[type=range] { flex: 1; }
+      .slider-val {
+        font-family: var(--rlt-mono, ui-monospace, monospace);
+        font-size: 12px;
+        min-width: 38px;
+        text-align: right;
+      }
+      .actions {
+        display: flex; gap: 10px; margin-top: 24px;
+      }
+      .btn {
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--rlt-line, #252938);
+        background: var(--rlt-bg-3, #1f232f);
+        color: var(--rlt-txt, #e9ecf2);
+        font: inherit;
+        font-weight: 600;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .btn.primary {
+        background: var(--rlt-cyan, #22d3ee);
+        color: #08090f;
+        border-color: transparent;
+      }
+      .control { padding: 22px 24px; max-width: 720px; margin: 0 auto; }
+      .control p { margin: 0 0 12px; line-height: 1.5; }
+    </style>
     <script>
       (function () {
-        if (RLT.isSettingsView) {
-          document.getElementById('root').textContent = 'settings view (stub)';
-          return;
-        }
         const params = new URLSearchParams(location.search);
-        if (params.has('overlay')) {
-          document.getElementById('root').textContent = 'overlay view (stub)';
-          return;
+        const isSettings = RLT.isSettingsView;
+        const isOverlay = params.has('overlay');
+
+        const STORE_KEY = 'config';
+        const DEFAULTS = {
+          selected: 'preset:bonk',
+          customDataUrl: null,
+          customName: null,
+          volume: 0.7,
+        };
+        const PRESETS = ['bonk', 'clang', 'airhorn'];
+        const MAX_CUSTOM_BYTES = 500 * 1024;
+
+        async function readConfig() {
+          const cfg = await RLT.store.get(STORE_KEY);
+          return Object.assign({}, DEFAULTS, cfg || {});
         }
-        document.getElementById('root').textContent = 'control view (stub)';
+        async function writeConfig(patch) {
+          const cfg = await readConfig();
+          const merged = Object.assign({}, cfg, patch);
+          await RLT.store.set(STORE_KEY, merged);
+          return merged;
+        }
+        function resolveSoundUrl(cfg) {
+          if (cfg.selected === 'custom' && cfg.customDataUrl) {
+            return cfg.customDataUrl;
+          }
+          let preset = 'bonk';
+          if (typeof cfg.selected === 'string' && cfg.selected.startsWith('preset:')) {
+            const p = cfg.selected.slice('preset:'.length);
+            if (PRESETS.indexOf(p) >= 0) preset = p;
+          }
+          return 'sounds/' + preset + '.mp3';
+        }
+        function playSound(cfg) {
+          try {
+            const audio = new Audio(resolveSoundUrl(cfg));
+            audio.volume = Math.max(0, Math.min(1, cfg.volume ?? 0.7));
+            const p = audio.play();
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+          } catch (_) {
+            // Construction failures are silent — playback is best-effort.
+          }
+        }
+
+        async function renderSettings() {
+          const root = document.getElementById('root');
+          root.innerHTML = `
+            <section class="settings">
+              <h2>Crossbar sound</h2>
+
+              <div class="field">
+                <span class="field-label">Sound source</span>
+                <div class="radio-row" id="src-row">
+                  <label><input type="radio" name="src" value="preset:bonk"> Bonk</label>
+                  <label><input type="radio" name="src" value="preset:clang"> Clang</label>
+                  <label><input type="radio" name="src" value="preset:airhorn"> Airhorn</label>
+                  <label><input type="radio" name="src" value="custom"> Custom upload</label>
+                </div>
+              </div>
+
+              <div class="field" id="custom-field" hidden>
+                <span class="field-label">Custom file</span>
+                <div class="upload-row">
+                  <input type="file" id="upload" accept="audio/*">
+                  <span class="filename" id="custom-name"></span>
+                </div>
+                <div class="err" id="upload-err" hidden></div>
+              </div>
+
+              <div class="field">
+                <span class="field-label">Volume</span>
+                <div class="slider-row">
+                  <input type="range" id="volume" min="0" max="100" step="1">
+                  <span class="slider-val" id="volume-val">70%</span>
+                </div>
+              </div>
+
+              <div class="actions">
+                <button class="btn" id="test" type="button">Test sound</button>
+                <button class="btn primary" id="done" type="button">Done</button>
+              </div>
+            </section>
+          `;
+
+          let cfg = await readConfig();
+
+          const radios = root.querySelectorAll('input[name="src"]');
+          radios.forEach(r => { r.checked = (r.value === cfg.selected); });
+          const customField = root.querySelector('#custom-field');
+          const customNameEl = root.querySelector('#custom-name');
+          const uploadErr = root.querySelector('#upload-err');
+          const volume = root.querySelector('#volume');
+          const volumeVal = root.querySelector('#volume-val');
+          volume.value = String(Math.round((cfg.volume ?? 0.7) * 100));
+          volumeVal.textContent = volume.value + '%';
+          customField.hidden = (cfg.selected !== 'custom');
+          customNameEl.textContent = cfg.customName || '';
+
+          radios.forEach(r => {
+            r.addEventListener('change', async () => {
+              if (!r.checked) return;
+              cfg = await writeConfig({ selected: r.value });
+              customField.hidden = (cfg.selected !== 'custom');
+            });
+          });
+
+          volume.addEventListener('input', () => {
+            volumeVal.textContent = volume.value + '%';
+          });
+          volume.addEventListener('change', async () => {
+            cfg = await writeConfig({ volume: Number(volume.value) / 100 });
+          });
+
+          const upload = root.querySelector('#upload');
+          upload.addEventListener('change', () => {
+            uploadErr.hidden = true;
+            uploadErr.textContent = '';
+            const file = upload.files && upload.files[0];
+            if (!file) return;
+            if (file.size > MAX_CUSTOM_BYTES) {
+              uploadErr.hidden = false;
+              uploadErr.textContent = 'File too large (max 500 KB).';
+              upload.value = '';
+              return;
+            }
+            const reader = new FileReader();
+            reader.onerror = () => {
+              uploadErr.hidden = false;
+              uploadErr.textContent = 'Could not read file.';
+            };
+            reader.onload = async () => {
+              const dataUrl = String(reader.result || '');
+              if (dataUrl.length > MAX_CUSTOM_BYTES * 2) {
+                uploadErr.hidden = false;
+                uploadErr.textContent = 'Encoded file exceeds limit.';
+                return;
+              }
+              cfg = await writeConfig({
+                selected: 'custom',
+                customDataUrl: dataUrl,
+                customName: file.name,
+              });
+              customNameEl.textContent = cfg.customName;
+              radios.forEach(r => { r.checked = (r.value === 'custom'); });
+              customField.hidden = false;
+            };
+            reader.readAsDataURL(file);
+          });
+
+          root.querySelector('#test').addEventListener('click', async () => {
+            cfg = await readConfig();
+            playSound(cfg);
+          });
+
+          root.querySelector('#done').addEventListener('click', () => {
+            RLT.settings.close();
+          });
+        }
+
+        function renderOverlay() {
+          // No visible UI — root stays empty.
+          document.getElementById('root').remove();
+          RLT.plugin.register({
+            name: 'crossbar',
+            events: {
+              async CrossbarHit() {
+                const cfg = await readConfig();
+                playSound(cfg);
+              },
+            },
+          });
+        }
+
+        function renderControl() {
+          const root = document.getElementById('root');
+          root.innerHTML = `
+            <section class="control">
+              <h2 style="font-size:18px;margin:0 0 12px">Crossbar Sound</h2>
+              <p>Plays a configurable sound effect whenever the ball hits a goal crossbar in-game.</p>
+              <p>Configure the sound, upload a custom file, or adjust the volume from the dashboard's <strong>Settings</strong> button on this plugin's card.</p>
+            </section>
+          `;
+        }
+
+        if (isSettings) renderSettings();
+        else if (isOverlay) renderOverlay();
+        else renderControl();
       })();
     </script>
   </body>
