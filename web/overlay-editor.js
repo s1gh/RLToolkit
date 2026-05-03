@@ -5,7 +5,9 @@
 // merged them into window.__rltOverlayContext. This script takes over
 // rendering: production-style iframes for the live preview, plus edit
 // chrome (outlines, badges, capture divs that block iframe mouse events).
-(function(){
+(function () {
+  // Loaded as a classic <script>, not an ES module — strict mode is opt-in.
+  // biome-ignore lint/suspicious/noRedundantUseStrict: classic script
   'use strict';
   const ctx = window.__rltOverlayContext;
   if (!ctx) {
@@ -37,9 +39,9 @@
     '<span style="flex:1"></span>' +
     '<span style="opacity:.6;text-transform:none;letter-spacing:.02em;font-weight:500">8px grid · hold Shift for fine adjust</span>' +
     '<button data-role="reset-all" style="' +
-      'padding:6px 12px;background:#1d2238;color:#a9b0cf;' +
-      'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
-      'font:600 10px Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase' +
+    'padding:6px 12px;background:#1d2238;color:#a9b0cf;' +
+    'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
+    'font:600 10px Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase' +
     '">Reset all</button>';
   document.body.appendChild(topbar);
 
@@ -77,7 +79,7 @@
     const a = overlay.anchor || 'top-right';
     const el = document.createElement('div');
     el.style.position = 'absolute';
-    el.style.width  = overlay.width  + 'px';
+    el.style.width = overlay.width + 'px';
     el.style.height = overlay.height + 'px';
     el.style.outline = '1px solid rgba(34, 211, 238, 0.4)';
     el.style.outlineOffset = '0';
@@ -85,15 +87,15 @@
     applyAnchor(el, a, overlay.offset_x | 0, overlay.offset_y | 0);
 
     const iframe = document.createElement('iframe');
-    iframe.style.width  = '100%';
+    iframe.style.width = '100%';
     iframe.style.height = '100%';
     iframe.style.border = 'none';
     iframe.style.background = 'transparent';
     iframe.style.opacity = overlay.opacity == null ? 1 : overlay.opacity;
     iframe.setAttribute('allowtransparency', 'true');
     iframe.setAttribute('frameborder', '0');
-    iframe.src = '/plugins/' + plugin.name + '/' + overlay.file +
-                 '?overlay=1&anchor=' + encodeURIComponent(a);
+    iframe.src =
+      '/plugins/' + plugin.name + '/' + overlay.file + '?overlay=1&anchor=' + encodeURIComponent(a);
     el.appendChild(iframe);
 
     // Transparent capture div on top of the iframe — intercepts every
@@ -144,10 +146,10 @@
   // when switching from one corner to another.
   function applyAnchor(el, anchor, ox, oy) {
     el.style.top = el.style.bottom = el.style.left = el.style.right = '';
-    if (anchor.indexOf('top')    === 0) el.style.top    = oy + 'px';
-    else                                el.style.bottom = oy + 'px';
-    if (anchor.indexOf('-left')  >= 0)  el.style.left   = ox + 'px';
-    else                                el.style.right  = ox + 'px';
+    if (anchor.indexOf('top') === 0) el.style.top = oy + 'px';
+    else el.style.bottom = oy + 'px';
+    if (anchor.indexOf('-left') >= 0) el.style.left = ox + 'px';
+    else el.style.right = ox + 'px';
   }
 
   // positionResizeHandle places the handle on the corner opposite the
@@ -155,16 +157,18 @@
   // resizes. Also picks the appropriate diagonal-resize cursor.
   function positionResizeHandle(handle, anchor) {
     handle.style.top = handle.style.bottom = handle.style.left = handle.style.right = '';
-    const onTop  = anchor.indexOf('top')   === 0;
+    const onTop = anchor.indexOf('top') === 0;
     const onLeft = anchor.indexOf('-left') >= 0;
-    if (onTop)  handle.style.bottom = '0'; else handle.style.top  = '0';
-    if (onLeft) handle.style.right  = '0'; else handle.style.left = '0';
+    if (onTop) handle.style.bottom = '0';
+    else handle.style.top = '0';
+    if (onLeft) handle.style.right = '0';
+    else handle.style.left = '0';
     // Cursor matches the diagonal the handle sits on:
     //   top-left + handle on bottom-right     → nwse-resize
     //   top-right + handle on bottom-left     → nesw-resize
     //   bottom-left + handle on top-right     → nesw-resize
     //   bottom-right + handle on top-left     → nwse-resize
-    const cursor = (onTop === onLeft) ? 'nwse-resize' : 'nesw-resize';
+    const cursor = onTop === onLeft ? 'nwse-resize' : 'nesw-resize';
     handle.style.cursor = cursor;
   }
 
@@ -216,8 +220,8 @@
     // x grows toward right; for right-anchored widgets, dragging right
     // should DECREASE offset_x (offset is measured from the right edge).
     // Same for the y axis with bottom anchors.
-    const sx = (anchor.indexOf('-left') >= 0) ? +1 : -1;
-    const sy = (anchor.indexOf('top')   === 0) ? +1 : -1;
+    const sx = anchor.indexOf('-left') >= 0 ? +1 : -1;
+    const sy = anchor.indexOf('top') === 0 ? +1 : -1;
 
     // Capture the pointer on the widget itself so subsequent pointermove /
     // pointerup events route here regardless of where the cursor goes —
@@ -226,12 +230,15 @@
     // drag becomes "stuck" until the next click.
     const target = downEv.currentTarget;
     const pointerId = downEv.pointerId;
-    try { target.setPointerCapture(pointerId); } catch (_) {}
+    try {
+      target.setPointerCapture(pointerId);
+    } catch (_) {}
 
     // Token used to detect a stale rollback: if a second drag starts on
     // this widget before this drag's save resolves, w._dragToken changes,
     // and our save .catch ignores its own rollback.
-    const token = (w._dragToken = (w._dragToken | 0) + 1);
+    w._dragToken = (w._dragToken | 0) + 1;
+    const token = w._dragToken;
 
     function move(ev) {
       if (ev.pointerId !== pointerId) return;
@@ -247,7 +254,9 @@
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', end);
       target.removeEventListener('pointercancel', end);
-      try { target.releasePointerCapture(pointerId); } catch (_) {}
+      try {
+        target.releasePointerCapture(pointerId);
+      } catch (_) {}
 
       // Snap on release (unless Shift held), then persist.
       if (!ev.shiftKey) {
@@ -278,7 +287,7 @@
   for (const w of widgets) {
     w.resize.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      e.stopPropagation();   // don't also trigger the widget's drag handler
+      e.stopPropagation(); // don't also trigger the widget's drag handler
       select(w);
       startResize(w, e);
     });
@@ -296,21 +305,24 @@
     // anchored widget grows when the cursor moves -x (handle on left
     // edge). Same logic for the y axis. Same sign multipliers as
     // startDrag uses for offsets.
-    const sx = (anchor.indexOf('-left') >= 0) ? +1 : -1;
-    const sy = (anchor.indexOf('top')   === 0) ? +1 : -1;
+    const sx = anchor.indexOf('-left') >= 0 ? +1 : -1;
+    const sy = anchor.indexOf('top') === 0 ? +1 : -1;
     const target = downEv.currentTarget;
     const pointerId = downEv.pointerId;
-    try { target.setPointerCapture(pointerId); } catch (_) {}
-    const token = (w._resizeToken = (w._resizeToken | 0) + 1);
+    try {
+      target.setPointerCapture(pointerId);
+    } catch (_) {}
+    w._resizeToken = (w._resizeToken | 0) + 1;
+    const token = w._resizeToken;
 
     function move(ev) {
       if (ev.pointerId !== pointerId) return;
       ev.preventDefault();
       const nw = clamp(startW + sx * (ev.clientX - startX), 16);
       const nh = clamp(startH + sy * (ev.clientY - startY), 16);
-      w.overlay.width  = nw;
+      w.overlay.width = nw;
       w.overlay.height = nh;
-      w.el.style.width  = nw + 'px';
+      w.el.style.width = nw + 'px';
       w.el.style.height = nh + 'px';
     }
     function end(ev) {
@@ -318,22 +330,24 @@
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', end);
       target.removeEventListener('pointercancel', end);
-      try { target.releasePointerCapture(pointerId); } catch (_) {}
+      try {
+        target.releasePointerCapture(pointerId);
+      } catch (_) {}
 
       if (!ev.shiftKey) {
-        w.overlay.width  = Math.round(w.overlay.width  / SNAP) * SNAP;
+        w.overlay.width = Math.round(w.overlay.width / SNAP) * SNAP;
         w.overlay.height = Math.round(w.overlay.height / SNAP) * SNAP;
-        w.el.style.width  = w.overlay.width  + 'px';
+        w.el.style.width = w.overlay.width + 'px';
         w.el.style.height = w.overlay.height + 'px';
       }
       saveOverride(w, {
-        width:  w.overlay.width,
+        width: w.overlay.width,
         height: w.overlay.height,
       }).catch((err) => {
         if (w._resizeToken !== token) return;
-        w.overlay.width  = startW;
+        w.overlay.width = startW;
         w.overlay.height = startH;
-        w.el.style.width  = startW + 'px';
+        w.el.style.width = startW + 'px';
         w.el.style.height = startH + 'px';
         toast('Save failed: ' + err.message);
       });
@@ -343,7 +357,9 @@
     target.addEventListener('pointercancel', end);
   }
 
-  function clamp(v, min) { return v < min ? min : v; }
+  function clamp(v, min) {
+    return v < min ? min : v;
+  }
 
   // ─── Persistence ──────────────────────────────────────────
   async function saveOverride(w, partial) {
@@ -371,9 +387,13 @@
       document.body.appendChild(t);
     }
     t.textContent = msg;
-    requestAnimationFrame(() => { t.style.opacity = '1'; });
+    requestAnimationFrame(() => {
+      t.style.opacity = '1';
+    });
     clearTimeout(t._timer);
-    t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+    t._timer = setTimeout(() => {
+      t.style.opacity = '0';
+    }, 3000);
   }
 
   // ─── Floating control panel ──────────────────────────────
@@ -389,37 +409,41 @@
   document.body.appendChild(panel);
 
   function renderPanel() {
-    if (!selected) { panel.style.display = 'none'; return; }
+    if (!selected) {
+      panel.style.display = 'none';
+      return;
+    }
     panel.style.display = 'block';
     const o = selected.overlay;
     const a = o.anchor || 'top-right';
     panel.innerHTML =
       '<div style="font:700 11px Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#22d3ee;margin-bottom:10px">' +
-        escapeHtml(selected.plugin.title || selected.plugin.name) +
+      escapeHtml(selected.plugin.title || selected.plugin.name) +
       '</div>' +
-
       '<div style="margin-bottom:10px">Anchor</div>' +
       '<div data-role="anchors" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">' +
-        anchorBtn('top-left',     a) +
-        anchorBtn('top-right',    a) +
-        anchorBtn('bottom-left',  a) +
-        anchorBtn('bottom-right', a) +
+      anchorBtn('top-left', a) +
+      anchorBtn('top-right', a) +
+      anchorBtn('bottom-left', a) +
+      anchorBtn('bottom-right', a) +
       '</div>' +
-
       '<div style="display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-bottom:14px">' +
-        '<label>Width</label>'  + numInput('width',  o.width)  +
-        '<label>Height</label>' + numInput('height', o.height) +
+      '<label>Width</label>' +
+      numInput('width', o.width) +
+      '<label>Height</label>' +
+      numInput('height', o.height) +
       '</div>' +
-
-      '<div style="margin-bottom:6px">Opacity <span data-role="opacity-val">' + (o.opacity == null ? 1 : o.opacity).toFixed(2) + '</span></div>' +
+      '<div style="margin-bottom:6px">Opacity <span data-role="opacity-val">' +
+      (o.opacity == null ? 1 : o.opacity).toFixed(2) +
+      '</span></div>' +
       '<input data-role="opacity" type="range" min="0" max="1" step="0.01" value="' +
-        (o.opacity == null ? 1 : o.opacity) + '" style="width:100%;margin-bottom:14px">' +
-
+      (o.opacity == null ? 1 : o.opacity) +
+      '" style="width:100%;margin-bottom:14px">' +
       '<button data-role="reset" style="' +
-        'width:100%;padding:8px;background:#1d2238;color:#a9b0cf;' +
-        'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
-        'font:600 11px Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase">' +
-        'Reset to manifest' +
+      'width:100%;padding:8px;background:#1d2238;color:#a9b0cf;' +
+      'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
+      'font:600 11px Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase">' +
+      'Reset to manifest' +
       '</button>';
 
     wirePanel(selected);
@@ -427,25 +451,51 @@
 
   function anchorBtn(name, current) {
     const active = name === current;
-    return '<button data-anchor="' + name + '" style="' +
-      'padding:6px;background:' + (active ? '#22d3ee' : '#1d2238') + ';' +
-      'color:' + (active ? '#0a0c14' : '#a9b0cf') + ';' +
-      'border:1px solid ' + (active ? '#22d3ee' : '#232a44') + ';' +
+    return (
+      '<button data-anchor="' +
+      name +
+      '" style="' +
+      'padding:6px;background:' +
+      (active ? '#22d3ee' : '#1d2238') +
+      ';' +
+      'color:' +
+      (active ? '#0a0c14' : '#a9b0cf') +
+      ';' +
+      'border:1px solid ' +
+      (active ? '#22d3ee' : '#232a44') +
+      ';' +
       'border-radius:6px;cursor:pointer;font:600 10px Inter,sans-serif;' +
       'letter-spacing:.05em;text-transform:uppercase' +
-    '">' + name.replace('-', ' ') + '</button>';
+      '">' +
+      name.replace('-', ' ') +
+      '</button>'
+    );
   }
 
   function numInput(role, value) {
-    return '<input data-role="' + role + '" type="number" min="0" value="' + (value | 0) + '" style="' +
+    return (
+      '<input data-role="' +
+      role +
+      '" type="number" min="0" value="' +
+      (value | 0) +
+      '" style="' +
       'width:100%;padding:6px 8px;background:#0f1320;color:#e6e9f5;' +
-      'border:1px solid #232a44;border-radius:6px;font:500 12px JetBrains Mono,monospace">';
+      'border:1px solid #232a44;border-radius:6px;font:500 12px JetBrains Mono,monospace">'
+    );
   }
 
   function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
+    return String(s).replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        })[c],
+    );
   }
 
   function wirePanel(w) {
@@ -460,16 +510,17 @@
         const r = w.el.getBoundingClientRect();
         let nx, ny;
         if (next.indexOf('-left') >= 0) nx = Math.max(0, Math.round(r.left));
-        else                            nx = Math.max(0, Math.round(window.innerWidth  - r.right));
-        if (next.indexOf('top')   === 0) ny = Math.max(0, Math.round(r.top));
-        else                             ny = Math.max(0, Math.round(window.innerHeight - r.bottom));
-        w.overlay.anchor   = next;
+        else nx = Math.max(0, Math.round(window.innerWidth - r.right));
+        if (next.indexOf('top') === 0) ny = Math.max(0, Math.round(r.top));
+        else ny = Math.max(0, Math.round(window.innerHeight - r.bottom));
+        w.overlay.anchor = next;
         w.overlay.offset_x = nx;
         w.overlay.offset_y = ny;
         applyAnchor(w.el, next, nx, ny);
         positionResizeHandle(w.resize, next);
-        saveOverride(w, { anchor: next, offset_x: nx, offset_y: ny })
-          .catch((err) => toast('Save failed: ' + err.message));
+        saveOverride(w, { anchor: next, offset_x: nx, offset_y: ny }).catch((err) =>
+          toast('Save failed: ' + err.message),
+        );
         renderPanel();
       });
     });
@@ -489,8 +540,7 @@
       opVal.textContent = v.toFixed(2);
     });
     op.addEventListener('change', () => {
-      saveOverride(w, { opacity: +op.value })
-        .catch((err) => toast('Save failed: ' + err.message));
+      saveOverride(w, { opacity: +op.value }).catch((err) => toast('Save failed: ' + err.message));
     });
 
     panel.querySelector('[data-role="reset"]').addEventListener('click', () => resetWidget(w));
@@ -500,14 +550,13 @@
     // Clamp to the same minimum the resize handle uses (16px). 0 would
     // produce an invisible widget that can't be re-selected. Snap to
     // the same 8px grid that drag-resize uses on release.
-    width  = Math.round(Math.max(16, width  | 0) / SNAP) * SNAP;
+    width = Math.round(Math.max(16, width | 0) / SNAP) * SNAP;
     height = Math.round(Math.max(16, height | 0) / SNAP) * SNAP;
-    w.overlay.width  = width;
+    w.overlay.width = width;
     w.overlay.height = height;
-    w.el.style.width  = width + 'px';
+    w.el.style.width = width + 'px';
     w.el.style.height = height + 'px';
-    saveOverride(w, { width, height })
-      .catch((err) => toast('Save failed: ' + err.message));
+    saveOverride(w, { width, height }).catch((err) => toast('Save failed: ' + err.message));
   }
 
   async function resetWidget(w) {

@@ -419,7 +419,7 @@ function renderPlugins() {
   }
 
   c.innerHTML = plugins.map(p => {
-    const overlay = p.overlay && p.overlay.file
+    const overlay = p.overlay?.file
       ? '/plugins/' + p.name + '/' + p.overlay.file
       : null;
     const initials = (p.title || p.name || '?').replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '◇';

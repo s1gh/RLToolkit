@@ -1,17 +1,17 @@
 {
-	"name": "debug",
-	"title": "DebugPlugin",
-	"version": "0.1.0",
-	"author": "rl-toolkit",
-	"description": "Logs all StatfeedEvent eventNames to verify what RL emits",
-	"overlay": {
-		"file": "overlay.html",
-		"width": 400,
-		"height": 500,
-		"anchor": "top-right",
-		"offset_x": 16,
-		"offset_y": 16,
-		"opacity": 1.0,
-		"click_through": false
-	}
+  "name": "debug",
+  "title": "DebugPlugin",
+  "version": "0.1.0",
+  "author": "rl-toolkit",
+  "description": "Logs all StatfeedEvent eventNames to verify what RL emits",
+  "overlay": {
+    "file": "overlay.html",
+    "width": 400,
+    "height": 500,
+    "anchor": "top-right",
+    "offset_x": 16,
+    "offset_y": 16,
+    "opacity": 1.0,
+    "click_through": false
+  }
 }

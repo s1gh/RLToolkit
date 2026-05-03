@@ -33,9 +33,12 @@ DV.overlay = (function () {
     // Fingerprint includes the standout id so a re-classification (e.g.
     // a 7-encounter player joins late and overtakes the previous top)
     // forces a repaint.
-    const fp = (standoutId || '-') + '|' + m.players
-      .map((p) => p.id + ':' + p.team + ':' + p.encounterCount + ':' + p.name + ':' + p.platform)
-      .join('|');
+    const fp =
+      (standoutId || '-') +
+      '|' +
+      m.players
+        .map((p) => p.id + ':' + p.team + ':' + p.encounterCount + ':' + p.name + ':' + p.platform)
+        .join('|');
     if (fp === lastFp) return;
     lastFp = fp;
 
@@ -44,10 +47,16 @@ DV.overlay = (function () {
     const teamHTML = (players, team) => {
       const list = players.filter((p) => !p.isMe);
       if (!list.length) return '';
-      return '<div class="ov-team ' + team + '">' +
-        '<div class="ov-tname">' + team + '</div>' +
+      return (
+        '<div class="ov-team ' +
+        team +
+        '">' +
+        '<div class="ov-tname">' +
+        team +
+        '</div>' +
         list.map((p) => row(p, i++, p.id === standoutId)).join('') +
-      '</div>';
+        '</div>'
+      );
     };
 
     const html = teamHTML(m.blue, 'blue') + teamHTML(m.orange, 'orange');
@@ -62,11 +71,12 @@ DV.overlay = (function () {
 
     // Most-recent prior alias (current name excluded SDK-side). Surfaces
     // the "wait, that's so-and-so" signal in the heat of a queue.
-    const aliases = (!p.isBot && p.aliases.length)
-      ? '<div class="ov-r-aliases"><span class="aka">aka</span>' +
+    const aliases =
+      !p.isBot && p.aliases.length
+        ? '<div class="ov-r-aliases"><span class="aka">aka</span>' +
           RLT.ui.esc(p.aliases.slice(-1)[0]) +
-        '</div>'
-      : '';
+          '</div>'
+        : '';
 
     // Encounter count: bare number for first-meet, "×N" for repeats. The
     // × is a real glyph (not a CSS pseudo) so it stays selectable and
@@ -78,16 +88,27 @@ DV.overlay = (function () {
     // case of a human with no platform string — keeps the column width
     // stable across rows so the layout doesn't jitter.
     const icon = RLT.ui.playerIcon(p);
-    const platformTitle = RLT.ui.escAttr(p.isBot ? 'Bot' : (p.platform || 'Unknown'));
+    const platformTitle = RLT.ui.escAttr(p.isBot ? 'Bot' : p.platform || 'Unknown');
     const platform = icon
       ? '<div class="ov-r-platform" title="' + platformTitle + '">' + icon + '</div>'
       : '<div class="ov-r-platform ov-r-platform-empty" title="' + platformTitle + '"></div>';
 
-    return '<div class="' + cls.join(' ') + '" style="--ov-i:' + idx + '">' +
-      '<div class="ov-r-num">' + num + '</div>' +
+    return (
+      '<div class="' +
+      cls.join(' ') +
+      '" style="--ov-i:' +
+      idx +
+      '">' +
+      '<div class="ov-r-num">' +
+      num +
+      '</div>' +
       platform +
-      '<div class="ov-r-name">' + RLT.ui.esc(p.name) + aliases + '</div>' +
-    '</div>';
+      '<div class="ov-r-name">' +
+      RLT.ui.esc(p.name) +
+      aliases +
+      '</div>' +
+      '</div>'
+    );
   }
 
   return { render };

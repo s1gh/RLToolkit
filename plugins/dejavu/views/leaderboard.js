@@ -13,7 +13,8 @@ DV.leaderboard = (function () {
   let lastFp = '';
 
   function render() {
-    const host = $('lb-host'); const cnt = $('lb-count');
+    const host = $('lb-host');
+    const cnt = $('lb-count');
     if (!host) return;
     const map = RLT.encounters.all();
 
@@ -22,20 +23,25 @@ DV.leaderboard = (function () {
       .map(([id, e]) => ({
         id,
         name: e.names[e.names.length - 1] || 'Unknown',
-        aliases: e.names.slice(0, -1),  // every prior name; current excluded
+        aliases: e.names.slice(0, -1), // every prior name; current excluded
         count: e.count || 1,
         last: e.last_seen,
         platform: id.split('|')[0],
       }))
-      .sort((a, b) => (b.count - a.count) || (new Date(b.last) - new Date(a.last)))
+      .sort((a, b) => b.count - a.count || new Date(b.last) - new Date(a.last))
       .slice(0, TOP_N);
 
     // Include claim state in the fingerprint so claim/unclaim transitions
     // force a rebuild (claim-button visibility changes per row).
     const unclaimed = !RLT.me.id;
-    const fp = (unclaimed ? 'U|' : 'C|') + rows.map((p) =>
-      p.id + ':' + p.count + ':' + p.name + ':' + (p.last || '') + ':' + p.aliases.length
-    ).join('|');
+    const fp =
+      (unclaimed ? 'U|' : 'C|') +
+      rows
+        .map(
+          (p) =>
+            p.id + ':' + p.count + ':' + p.name + ':' + (p.last || '') + ':' + p.aliases.length,
+        )
+        .join('|');
     if (fp === lastFp) return;
     lastFp = fp;
 
@@ -44,7 +50,8 @@ DV.leaderboard = (function () {
     if (cnt) cnt.textContent = rows.length;
 
     if (rows.length === 0) {
-      host.innerHTML = '<div class="card-empty" style="padding:32px 16px">play a few matches and your most-met opponents will show up here</div>';
+      host.innerHTML =
+        '<div class="card-empty" style="padding:32px 16px">play a few matches and your most-met opponents will show up here</div>';
       return;
     }
 
@@ -80,19 +87,31 @@ DV.leaderboard = (function () {
     // Claim button when identity is unclaimed. Wired through the global
     // data-claim-id handler in views/identity.js — no extra binding here.
     const claim = unclaimed
-      ? '<button class="claim-btn lb-claim" data-claim-id="' + RLT.ui.escAttr(p.id) + '" title="Claim as me">+</button>'
+      ? '<button class="claim-btn lb-claim" data-claim-id="' +
+        RLT.ui.escAttr(p.id) +
+        '" title="Claim as me">+</button>'
       : '';
 
-    return '<div class="' + cls.join(' ') + '">' +
-      '<div class="lb-count">' + p.count + '<span class="x">×</span></div>' +
+    return (
+      '<div class="' +
+      cls.join(' ') +
+      '">' +
+      '<div class="lb-count">' +
+      p.count +
+      '<span class="x">×</span></div>' +
       '<div class="lb-info">' +
-        '<div class="lb-name">' + RLT.ui.esc(p.name) + '</div>' +
-        aliases +
+      '<div class="lb-name">' +
+      RLT.ui.esc(p.name) +
+      '</div>' +
+      aliases +
       '</div>' +
       platform +
-      '<div class="lb-time">' + RLT.ui.timeAgo(p.last) + '</div>' +
+      '<div class="lb-time">' +
+      RLT.ui.timeAgo(p.last) +
+      '</div>' +
       claim +
-    '</div>';
+      '</div>'
+    );
   }
 
   return { render };

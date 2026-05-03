@@ -21,13 +21,17 @@ This is the development host. Both binaries build natively here.
 
 ```bash
 sudo pacman -S base-devel rustup go webkit2gtk-4.1 \
-               gtk-layer-shell pkg-config
+               gtk-layer-shell pkg-config nodejs npm
 rustup default stable
 ```
 
 Other distros: install equivalents of `webkit2gtk-4.1`, `gtk-layer-shell`,
 and the GTK 3 dev headers. On Ubuntu 24.04+ that's
 `libwebkit2gtk-4.1-dev`, `libgtk-layer-shell-dev`, and `libgtk-3-dev`.
+
+`nodejs`/`npm` are only needed for the formatter (biome) used on the
+web SDK and plugin sources — not for the runtime. Skip if you don't plan
+to run `make fmt` / `make lint`.
 
 ### Build
 

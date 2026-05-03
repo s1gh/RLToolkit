@@ -24,22 +24,28 @@
   --orange: #fb7c3c;
   --orange-glow: rgba(251, 124, 60, 0.4);
 
-  --display: 'Saira Condensed', system-ui, sans-serif;
-  --ui: 'Inter', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --display: "Saira Condensed", system-ui, sans-serif;
+  --ui: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; }
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+}
 
 body {
   font-family: var(--ui);
   font-size: 13px;
   color: var(--txt);
   background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(167,139,250,0.12), transparent 60%),
-    radial-gradient(1000px 500px at 0% 110%, rgba(34,211,238,0.08), transparent 60%),
-    var(--bg-0);
+    radial-gradient(1200px 600px at 80% -10%, rgba(167, 139, 250, 0.12), transparent 60%),
+    radial-gradient(1000px 500px at 0% 110%, rgba(34, 211, 238, 0.08), transparent 60%), var(--bg-0);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
 }
@@ -47,7 +53,10 @@ body.overlay-mode {
   background: transparent;
   overflow: hidden;
 }
-.mono { font-family: var(--mono); font-feature-settings: 'tnum'; }
+.mono {
+  font-family: var(--mono);
+  font-feature-settings: "tnum";
+}
 
 /* ════════════════════════════════════════════════════════
    CONTROL PAGE
@@ -67,7 +76,9 @@ body.overlay-mode {
   margin-top: 20px;
 }
 @media (max-width: 860px) {
-  .grid { grid-template-columns: 1fr; }
+  .grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .topbar {
@@ -79,15 +90,22 @@ body.overlay-mode {
   background: linear-gradient(135deg, var(--bg-1), var(--bg-2));
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
-.brand { display: flex; align-items: center; gap: 14px; }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
 .brand .logo {
-  width: 36px; height: 36px;
+  width: 36px;
+  height: 36px;
   border-radius: 9px;
   background: linear-gradient(135deg, var(--cyan), var(--violet));
   box-shadow: 0 0 24px var(--violet-glow);
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--display);
   font-weight: 700;
   font-size: 18px;
@@ -111,7 +129,11 @@ body.overlay-mode {
   letter-spacing: 0.02em;
   font-weight: 500;
 }
-.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
 .conn-pill {
   display: inline-flex;
@@ -128,40 +150,52 @@ body.overlay-mode {
   letter-spacing: 0.08em;
 }
 .conn-pill::before {
-  content: '';
-  width: 7px; height: 7px;
+  content: "";
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--txt-3);
 }
 .conn-pill[data-status="connected"]::before {
   background: #22c55e;
-  box-shadow: 0 0 8px rgba(34,197,94,0.9);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
   /* Simple opacity-only breathe on the dot. Single value animated with
      `alternate` direction so there's no loop-point stutter, no
      multi-layer shadow choreography to misalign. */
   animation: pulse 1.4s ease-in-out infinite alternate;
 }
-.conn-pill[data-status="connecting"]::before { background: var(--gold); box-shadow: 0 0 10px var(--gold); }
-.conn-pill[data-status="disconnected"]::before { background: #ef4444; }
+.conn-pill[data-status="connecting"]::before {
+  background: var(--gold);
+  box-shadow: 0 0 10px var(--gold);
+}
+.conn-pill[data-status="disconnected"]::before {
+  background: #ef4444;
+}
 /* Animate opacity only — one channel, no double-shadow interference.
    With `alternate`, the curve reverses at each endpoint so there's no
    stutter at the loop point. */
 @keyframes pulse {
-  from { opacity: 0.55; }
-  to   { opacity: 1;    }
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .icon-btn {
-  width: 34px; height: 34px;
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
   background: var(--bg-3);
   border: 1px solid var(--line);
   color: var(--txt-2);
   cursor: pointer;
   display: inline-flex;
-  align-items: center; justify-content: center;
+  align-items: center;
+  justify-content: center;
   font-size: 15px;
-  transition: all .15s ease;
+  transition: all 0.15s ease;
 }
 .icon-btn:hover {
   border-color: var(--cyan);
@@ -208,11 +242,12 @@ body.overlay-mode {
   background: none;
   border: 1px solid var(--line);
   color: var(--txt-3);
-  width: 24px; height: 24px;
+  width: 24px;
+  height: 24px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  transition: all .15s ease;
+  transition: all 0.15s ease;
 }
 .il-edit:hover {
   border-color: var(--cyan);
@@ -233,9 +268,17 @@ body.overlay-mode {
   flex-wrap: wrap;
   margin-top: 10px;
 }
-.il-expanded .input { flex: 1 1 280px; min-width: 0; }
-.identity-strip[data-mode="expanded"] .il-collapsed { display: none; }
-.identity-strip[data-mode="expanded"] .il-expanded  { display: flex; }
+.il-expanded .input {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.identity-strip[data-mode="expanded"] .il-collapsed {
+  display: none;
+}
+.identity-strip[data-mode="expanded"] .il-expanded {
+  display: flex;
+}
+/* biome-ignore lint/style/noDescendingSpecificity: lower-specificity .input still applies — `.il-expanded .input` only adds layout overrides on top */
 .input {
   background: var(--bg-0);
   border: 1px solid var(--line);
@@ -245,7 +288,7 @@ body.overlay-mode {
   padding: 9px 12px;
   border-radius: 7px;
   flex: 1;
-  transition: all .15s ease;
+  transition: all 0.15s ease;
 }
 .input:focus {
   outline: none;
@@ -262,12 +305,14 @@ body.overlay-mode {
   background: linear-gradient(135deg, var(--cyan), var(--violet));
   color: var(--bg-0);
   cursor: pointer;
-  transition: all .15s ease;
+  transition: all 0.15s ease;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 .btn:hover {
-  box-shadow: 0 0 18px var(--cyan-glow), 0 0 28px var(--violet-glow);
+  box-shadow:
+    0 0 18px var(--cyan-glow),
+    0 0 28px var(--violet-glow);
 }
 .btn.ghost {
   background: var(--bg-3);
@@ -286,10 +331,12 @@ body.overlay-mode {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 20px 22px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
 }
 .card-head {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 14px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
@@ -327,15 +374,31 @@ body.overlay-mode {
 }
 
 /* ─── Match player rows ─────────────────────────────────── */
-.teams-stack { display: flex; flex-direction: column; gap: 16px; }
+.teams-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 .team-block-head {
-  display: flex; align-items: center; gap: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 8px;
   padding: 0 4px;
 }
-.team-block-head .tdot { width: 8px; height: 8px; border-radius: 2px; }
-.team-block.blue   .tdot  { background: var(--blue);   box-shadow: 0 0 10px var(--blue-glow); }
-.team-block.orange .tdot  { background: var(--orange); box-shadow: 0 0 10px var(--orange-glow); }
+.team-block-head .tdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.team-block.blue .tdot {
+  background: var(--blue);
+  box-shadow: 0 0 10px var(--blue-glow);
+}
+.team-block.orange .tdot {
+  background: var(--orange);
+  box-shadow: 0 0 10px var(--orange-glow);
+}
 .team-block-head .tname {
   font-family: var(--display);
   font-size: 11px;
@@ -343,8 +406,12 @@ body.overlay-mode {
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
-.team-block.blue   .tname { color: var(--blue); }
-.team-block.orange .tname { color: var(--orange); }
+.team-block.blue .tname {
+  color: var(--blue);
+}
+.team-block.orange .tname {
+  color: var(--orange);
+}
 
 .player-row {
   display: grid;
@@ -357,25 +424,31 @@ body.overlay-mode {
   border-radius: 9px;
   margin-bottom: 6px;
   position: relative;
-  transition: border-color .15s, background .15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
-.player-row:hover { border-color: var(--line-2); background: var(--bg-3); }
+.player-row:hover {
+  border-color: var(--line-2);
+  background: var(--bg-3);
+}
 .player-row.is-me {
   border-color: var(--violet);
-  background: linear-gradient(135deg, rgba(167,139,250,0.08), var(--bg-2));
-  box-shadow: 0 0 24px rgba(167,139,250,0.15);
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.08), var(--bg-2));
+  box-shadow: 0 0 24px rgba(167, 139, 250, 0.15);
 }
 /* Subtle returner — every other player you've met before. The corner
    stamp says "we've crossed paths"; the row chrome stays close to default
    so the standout treatment below has somewhere to escalate to. */
 .player-row.returning {
   border-color: rgba(251, 191, 36, 0.35);
-  background: linear-gradient(135deg, rgba(251,191,36,0.04), var(--bg-2));
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.04), var(--bg-2));
 }
 .player-row.returning::after {
-  content: 'DÉJÀ VU';
+  content: "DÉJÀ VU";
   position: absolute;
-  top: 6px; right: 14px;
+  top: 6px;
+  right: 14px;
   font-family: var(--display);
   font-size: 8px;
   font-weight: 700;
@@ -389,24 +462,35 @@ body.overlay-mode {
    the badge picks up the full gold treatment below. */
 .player-row.returning-top {
   border-color: var(--gold);
-  background: linear-gradient(135deg, rgba(251,191,36,0.10), var(--bg-2));
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.1), var(--bg-2));
 }
 .player-row.returning-top::after {
   opacity: 0.95;
 }
 
 /* Defensive: self should never get the gold treatment even if a stale
-   class survives somehow. The is-me violet always wins. */
-.player-row.is-me::after { content: none !important; }
+   `returning` class survives somehow. `is-me` adds the same selector
+   weight as `returning`, so to win both `::after` content and border
+   color we need !important — these specifically override the gold
+   treatment in the rules above, which would otherwise reach the same
+   element via the source-order tiebreak. */
+.player-row.is-me::after {
+  /* biome-ignore lint/complexity/noImportantStyles: deliberate override of .returning */
+  content: none !important;
+}
 .player-row.is-me {
+  /* biome-ignore lint/complexity/noImportantStyles: deliberate override of .returning */
   border-color: var(--violet) !important;
 }
 .pr-badge {
-  width: 38px; height: 38px;
+  width: 38px;
+  height: 38px;
   border-radius: 8px;
   background: var(--bg-0);
   border: 1px solid var(--line);
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--display);
   font-weight: 700;
   font-size: 16px;
@@ -426,7 +510,7 @@ body.overlay-mode {
   box-shadow: 0 0 14px var(--gold-glow);
 }
 .player-row.is-me .pr-badge {
-  background: rgba(167,139,250,0.15);
+  background: rgba(167, 139, 250, 0.15);
   border-color: var(--violet);
   color: var(--violet);
   /* The "ME" label is shorter than two digits, so tighten typography to
@@ -434,7 +518,9 @@ body.overlay-mode {
   font-size: 13px;
   letter-spacing: 0.12em;
 }
-.pr-info { min-width: 0; }
+.pr-info {
+  min-width: 0;
+}
 .pr-name {
   font-family: var(--display);
   font-size: 16px;
@@ -452,7 +538,7 @@ body.overlay-mode {
   font-size: 9px;
   font-weight: 800;
   color: var(--violet);
-  background: rgba(167,139,250,0.15);
+  background: rgba(167, 139, 250, 0.15);
   border: 1px solid var(--violet);
   padding: 2px 6px;
   border-radius: 4px;
@@ -469,8 +555,8 @@ body.overlay-mode {
   font-size: 9px;
   font-weight: 700;
   color: #6f9aa8;
-  background: rgba(111,154,168,0.10);
-  border: 1px solid rgba(111,154,168,0.45);
+  background: rgba(111, 154, 168, 0.1);
+  border: 1px solid rgba(111, 154, 168, 0.45);
   padding: 2px 6px;
   border-radius: 4px;
   letter-spacing: 0.14em;
@@ -485,7 +571,9 @@ body.overlay-mode {
   background: var(--bg-2);
 }
 .player-row.is-bot.returning::after,
-.player-row.is-bot.returning-top::after { content: none; }
+.player-row.is-bot.returning-top::after {
+  content: none;
+}
 .pr-aliases {
   font-family: var(--mono);
   font-size: 10px;
@@ -503,9 +591,13 @@ body.overlay-mode {
   border: 0;
   flex: 0 0 auto;
 }
-.pr-platform .rlt-platform-icon { width: 18px; height: 18px; display: block; }
+.pr-platform .rlt-platform-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
 .pr-platform-empty::before {
-  content: '?';
+  content: "?";
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 700;
@@ -529,14 +621,14 @@ body.overlay-mode {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all .15s ease;
+  transition: all 0.15s ease;
   flex: 0 0 auto;
 }
 .claim-btn:hover {
   border-style: solid;
   border-color: var(--violet);
   color: var(--violet);
-  background: rgba(167,139,250,0.08);
+  background: rgba(167, 139, 250, 0.08);
 }
 
 /* ─── Leaderboard ───────────────────────────────────────────────────
@@ -555,7 +647,7 @@ body.overlay-mode {
   background: transparent;
   border: 0;
   border-radius: 6px;
-  transition: background .12s ease;
+  transition: background 0.12s ease;
 }
 /* Extra column for the claim button when identity is unclaimed. */
 .lb-host-claimable .lb-row {
@@ -573,14 +665,18 @@ body.overlay-mode {
 .lb-row + .lb-row {
   border-top: 1px solid var(--line);
 }
-.lb-row:hover { background: rgba(255,255,255,0.02); }
+.lb-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
 /* Returning-player accent: 2px gold bar on the left. Subtle, persistent,
    doesn't crowd the data. No glow — at this scale it just bleeds across
    the row separator and visually erases it for adjacent returning rows. */
 .lb-row.returning::after {
-  content: '';
+  content: "";
   position: absolute;
-  left: 0; top: 6px; bottom: 6px;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
   width: 2px;
   background: var(--gold);
   border-radius: 2px;
@@ -591,7 +687,7 @@ body.overlay-mode {
    a row rather than the row's centerpiece. */
 .lb-count {
   font-family: var(--display);
-  font-feature-settings: 'tnum';
+  font-feature-settings: "tnum";
   font-size: 17px;
   font-weight: 700;
   line-height: 1;
@@ -605,10 +701,14 @@ body.overlay-mode {
   color: var(--txt-3);
   margin-left: 2px;
 }
-.lb-row.returning .lb-count { color: var(--gold); }
+.lb-row.returning .lb-count {
+  color: var(--gold);
+}
 
 /* Name + (optional) aliases line. Aliases are dimmed mono. */
-.lb-info { min-width: 0; }
+.lb-info {
+  min-width: 0;
+}
 .lb-name {
   font-family: var(--ui);
   font-size: 14px;
@@ -638,9 +738,13 @@ body.overlay-mode {
   color: var(--txt-2);
   background: transparent;
 }
-.lb-platform .rlt-platform-icon { width: 18px; height: 18px; display: block; }
+.lb-platform .rlt-platform-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
 .lb-platform-empty::before {
-  content: '?';
+  content: "?";
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 700;
@@ -650,7 +754,7 @@ body.overlay-mode {
 /* Time-ago — dim mono, right-aligned. */
 .lb-time {
   font-family: var(--mono);
-  font-feature-settings: 'tnum';
+  font-feature-settings: "tnum";
   font-size: 11px;
   color: var(--txt-3);
   min-width: 36px;
@@ -673,9 +777,13 @@ body.overlay-mode {
   text-transform: uppercase;
   opacity: 0;
   pointer-events: none;
-  transition: opacity .25s, transform .25s;
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
   z-index: 1000;
-  box-shadow: 0 0 30px var(--cyan-glow), 0 0 50px var(--violet-glow);
+  box-shadow:
+    0 0 30px var(--cyan-glow),
+    0 0 50px var(--violet-glow);
 }
 .toast.show {
   opacity: 1;
@@ -703,9 +811,23 @@ body.overlay-mode {
      dominating the screen. */
   font-size: 17px;
 }
-body.overlay-mode .page { display: none !important; }
-body.overlay-mode .ov   { display: block !important; }
-.ov { display: none; }
+/* The dashboard chrome and the overlay live in the same DOM. !important
+   here forces the display switch to win against any inline styles the
+   SDK may have applied (e.g. the foreground-show/hide path mutates
+   .ov's inline display:none from app.js — without !important this
+   media-driven rule loses to the inline value). */
+body.overlay-mode .page {
+  /* biome-ignore lint/complexity/noImportantStyles: must beat inline display */
+  display: none !important;
+}
+body.overlay-mode .ov {
+  /* biome-ignore lint/complexity/noImportantStyles: must beat inline display */
+  display: block !important;
+}
+/* biome-ignore lint/style/noDescendingSpecificity: the !important above always wins regardless of order */
+.ov {
+  display: none;
+}
 
 /* The SDK applies display:flex to <body> with align-items:flex-start (left)
    and justify-content:flex-end (bottom). .ov is one flex child; we let it
@@ -741,7 +863,9 @@ body.overlay-mode .ov-card {
   gap: 0.18rem;
   margin-top: 0.4rem;
 }
-.ov-team:first-child { margin-top: 0; }
+.ov-team:first-child {
+  margin-top: 0;
+}
 
 .ov-tname {
   font-family: var(--display);
@@ -759,8 +883,12 @@ body.overlay-mode .ov-card {
   /* Subtle text-shadow keeps it legible on bright RL skies. */
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
-.ov-team.blue   .ov-tname { color: var(--blue);   }
-.ov-team.orange .ov-tname { color: var(--orange); }
+.ov-team.blue .ov-tname {
+  color: var(--blue);
+}
+.ov-team.orange .ov-tname {
+  color: var(--orange);
+}
 
 /* The row itself — three-column tag: count | platform | name.
    Background is per-row so the iframe shows through between rows. */
@@ -790,7 +918,7 @@ body.overlay-mode .ov-card {
    wall of gold. The standout (when there is one) gets full chrome
    below and pops because it's the only highlighted row. */
 .ov-row.returning::after {
-  content: 'DÉJÀ VU';
+  content: "DÉJÀ VU";
   position: absolute;
   top: 4px;
   right: 6px;
@@ -815,8 +943,7 @@ body.overlay-mode .ov-card {
    GPU and stays still. */
 .ov-row.returning-top {
   border-left-color: var(--gold);
-  background:
-    linear-gradient(90deg, rgba(251, 191, 36, 0.16), rgba(10, 12, 20, 0.62) 60%);
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.16), rgba(10, 12, 20, 0.62) 60%);
   box-shadow:
     0 0 0 1px rgba(251, 191, 36, 0.15) inset,
     0 0 18px -2px rgba(251, 191, 36, 0.35);
@@ -828,7 +955,7 @@ body.overlay-mode .ov-card {
 /* Encounter count — looks like a target-lock readout. */
 .ov-r-num {
   font-family: var(--display);
-  font-feature-settings: 'tnum';
+  font-feature-settings: "tnum";
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--txt-3);
@@ -862,7 +989,9 @@ body.overlay-mode .ov-card {
 }
 /* Standout platform glyph follows the count's gold treatment. The subtle
    tier keeps the default platform colour; the corner stamp is enough. */
-.ov-row.returning-top .ov-r-platform { color: var(--gold); }
+.ov-row.returning-top .ov-r-platform {
+  color: var(--gold);
+}
 .ov-r-platform-empty {
   /* No icon — keep the slot transparent. The column still takes up its
      1.1rem so the name column starts in the same place across rows. */
@@ -922,32 +1051,48 @@ body.overlay-mode .ov-card {
 
 /* ── Animations ─────────────────────────────────────────── */
 @keyframes ov-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes ov-row-in {
-  from { opacity: 0; transform: translateX(-6px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 @keyframes ov-pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow:
       0 0 0 1px rgba(251, 191, 36, 0.15) inset,
       0 0 18px -2px rgba(251, 191, 36, 0.35);
   }
   50% {
     box-shadow:
-      0 0 0 1px rgba(251, 191, 36, 0.30) inset,
+      0 0 0 1px rgba(251, 191, 36, 0.3) inset,
       0 0 26px -2px rgba(251, 191, 36, 0.55);
   }
 }
 
-/* Honor reduced-motion — kill all the moving bits, keep the static look. */
+/* Honor reduced-motion — kill all the moving bits, keep the static look.
+   !important is correct here: the user's stated preference must win over
+   any explicit `animation:` declaration on the same element. */
 @media (prefers-reduced-motion: reduce) {
   body.overlay-mode .ov,
   .ov-row,
   .ov-row.returning,
   .ov-row.returning-top {
+    /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
     animation: none !important;
   }
 }

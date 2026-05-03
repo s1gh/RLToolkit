@@ -1,13 +1,56 @@
 {
-    "linter": {
-        "rules": {
-            "recommended": true,
-            "complexity": {
-                "useArrowFunction": "off"
-            },
-            "style": {
-                "useTemplate": "off"
-            }
-        }
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": {
+    "includes": [
+      "**",
+      "!node_modules",
+      "!**/node_modules",
+      "!data",
+      "!plugins.zip",
+      "!overlay-app/target",
+      "!overlay-app/src-tauri/target",
+      "!overlay-app/src-tauri/gen",
+      "!overlay-app/dist",
+      "!docs",
+      "!.claude"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "arrowParentheses": "always"
     }
+  },
+  "json": {
+    "formatter": {
+      "indentWidth": 2
+    }
+  },
+  "css": {
+    "formatter": {
+      "enabled": true
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "useArrowFunction": "off"
+      },
+      "style": {
+        "useTemplate": "off"
+      }
+    }
+  },
+  "assist": { "enabled": false }
 }

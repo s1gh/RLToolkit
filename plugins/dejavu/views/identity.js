@@ -11,11 +11,12 @@ DV.identity = (function () {
     const panel = $('id-panel');
     if (!strip) return;
     strip.dataset.mode = mode;
-    if (panel) panel.hidden = (mode !== 'expanded');
+    if (panel) panel.hidden = mode !== 'expanded';
   }
 
   function render() {
-    const val = $('id-val'); const hint = $('id-hint');
+    const val = $('id-val');
+    const hint = $('id-hint');
     if (!val) return;
 
     if (!RLT.me.id) {

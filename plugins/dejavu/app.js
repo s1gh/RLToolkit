@@ -6,15 +6,16 @@
 //   - which view to mount (control page vs. transparent overlay)
 //   - rAF-batched render scheduling
 //   - mapping SDK events to render() / invalidate() calls
+
+// Loaded as a classic <script>, not an ES module — strict mode is opt-in.
+// biome-ignore lint/suspicious/noRedundantUseStrict: classic script
 'use strict';
 
 (function () {
   // The SDK auto-adds body.overlay-mode whenever ?overlay=1, so we only
   // read the flag here to pick which views to mount.
   const isOverlay = new URLSearchParams(location.search).has('overlay');
-  const views = isOverlay
-    ? [DV.overlay]
-    : [DV.identity, DV.match, DV.leaderboard];
+  const views = isOverlay ? [DV.overlay] : [DV.identity, DV.match, DV.leaderboard];
 
   // ─── rAF-batched render ────────────────────────────────────
   // Multiple SDK callbacks may fire on the same frame (a tick triggers
@@ -86,10 +87,14 @@
     ready() {
       // Once the encounter ledger and identity have loaded, do the first
       // paint so the page isn't blank before the first SSE event lands.
-      window.addEventListener('DOMContentLoaded', () => {
-        for (const v of views) v.bind?.();
-        scheduleRender();
-      }, { once: true });
+      window.addEventListener(
+        'DOMContentLoaded',
+        () => {
+          for (const v of views) v.bind?.();
+          scheduleRender();
+        },
+        { once: true },
+      );
       // If DOM is already ready (script ran late), bind + render now.
       if (document.readyState !== 'loading') {
         for (const v of views) v.bind?.();
@@ -104,8 +109,8 @@
       scheduleRender();
     },
     onEncounters: scheduleRender,
-    onMatch:      scheduleRender,
-    onTick:       scheduleRender,
+    onMatch: scheduleRender,
+    onTick: scheduleRender,
 
     // Hide the overlay card when the game loses focus, show on return.
     // Only meaningful in overlay mode — the control page in a browser

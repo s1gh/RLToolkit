@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>RL Toolkit — Overlay</title>
+<html lang="en"><head><meta charset="utf-8"><title>RL Toolkit — Overlay</title>
 <style>
   html,body{margin:0;padding:0;width:100vw;height:100vh;background:transparent;overflow:hidden}
   .pf{position:absolute;border:none;background:transparent}
@@ -21,7 +21,7 @@
   // Build the final overlay config per plugin: manifest first, override on top.
   function mergeConfig(overridesMap) {
     return plugins
-      .filter(p => p.overlay && p.overlay.file)
+      .filter(p => p.overlay?.file)
       .map(p => ({
         plugin: p,
         overlay: Object.assign({}, p.overlay, overridesMap[p.name] || {}),
@@ -61,10 +61,10 @@
   // applyOne below).
   let lastFocus = null; // null until the first signal arrives
   window.addEventListener('message', (e) => {
-    if (!e || !e.data || e.data.__rlt_focus__ !== true) return;
+    if (!e?.data || e.data.__rlt_focus__ !== true) return;
     lastFocus = !!e.data.active;
     for (const { iframe } of widgets.values()) {
-      if (!iframe || !iframe.contentWindow) continue;
+      if (!iframe?.contentWindow) continue;
       try { iframe.contentWindow.postMessage(e.data, '*'); }
       catch (_) { /* noop: iframe may be navigating or cross-origin */ }
     }
@@ -110,7 +110,7 @@
   function unmount(name) {
     const w = widgets.get(name);
     if (!w) return;
-    if (w.el && w.el.parentNode) w.el.parentNode.removeChild(w.el);
+    if (w.el?.parentNode) w.el.parentNode.removeChild(w.el);
     widgets.delete(name);
   }
 

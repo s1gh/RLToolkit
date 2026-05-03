@@ -2,7 +2,9 @@
 window.DV = window.DV || {};
 
 DV.dom = {
-  $(id) { return document.getElementById(id); },
+  $(id) {
+    return document.getElementById(id);
+  },
 
   // Update textContent only when it changed — avoids needless reflows.
   setCell(root, sel, val) {
@@ -17,7 +19,12 @@ DV.dom = {
   // forces a rebuild — that's where the row's `returning` class flips.
   scaffoldKey(m, myId) {
     if (!m) return 'EMPTY';
-    return m.guid + '|' + myId + '|' +
-      m.players.map((p) => p.id + ':' + p.team + ':' + (p.encounterCount > 1 ? 'r' : 'n')).join(',');
+    return (
+      m.guid +
+      '|' +
+      myId +
+      '|' +
+      m.players.map((p) => p.id + ':' + p.team + ':' + (p.encounterCount > 1 ? 'r' : 'n')).join(',')
+    );
   },
 };

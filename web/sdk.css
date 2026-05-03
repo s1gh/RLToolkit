@@ -1,86 +1,121 @@
-:root{
+:root {
   /* surfaces */
-  --rlt-bg-0:#0a0c14; --rlt-bg-1:#0f1320; --rlt-bg-2:#161b2c; --rlt-bg-3:#1d2238;
-  --rlt-line:#232a44; --rlt-line-2:#2f375a;
+  --rlt-bg-0: #0a0c14;
+  --rlt-bg-1: #0f1320;
+  --rlt-bg-2: #161b2c;
+  --rlt-bg-3: #1d2238;
+  --rlt-line: #232a44;
+  --rlt-line-2: #2f375a;
 
   /* text */
-  --rlt-txt:#e6e9f5; --rlt-txt-2:#a9b0cf; --rlt-txt-3:#6c739a;
+  --rlt-txt: #e6e9f5;
+  --rlt-txt-2: #a9b0cf;
+  --rlt-txt-3: #6c739a;
 
   /* accents */
-  --rlt-cyan:#22d3ee;       --rlt-cyan-glow:rgba(34,211,238,0.35);
-  --rlt-violet:#a78bfa;     --rlt-violet-glow:rgba(167,139,250,0.35);
-  --rlt-magenta:#f472b6;
-  --rlt-gold:#fbbf24;
-  --rlt-green:#22c55e;
+  --rlt-cyan: #22d3ee;
+  --rlt-cyan-glow: rgba(34, 211, 238, 0.35);
+  --rlt-violet: #a78bfa;
+  --rlt-violet-glow: rgba(167, 139, 250, 0.35);
+  --rlt-magenta: #f472b6;
+  --rlt-gold: #fbbf24;
+  --rlt-green: #22c55e;
 
   /* team colors */
-  --rlt-blue:#3b82f6;       --rlt-blue-glow:rgba(59,130,246,0.4);
-  --rlt-orange:#fb7c3c;     --rlt-orange-glow:rgba(251,124,60,0.4);
+  --rlt-blue: #3b82f6;
+  --rlt-blue-glow: rgba(59, 130, 246, 0.4);
+  --rlt-orange: #fb7c3c;
+  --rlt-orange-glow: rgba(251, 124, 60, 0.4);
 
   /* typography (load fonts at the top of your overlay) */
-  --rlt-display:'Saira Condensed',system-ui,sans-serif;
-  --rlt-ui:'Inter',system-ui,sans-serif;
-  --rlt-mono:'JetBrains Mono',ui-monospace,monospace;
+  --rlt-display: "Saira Condensed", system-ui, sans-serif;
+  --rlt-ui: "Inter", system-ui, sans-serif;
+  --rlt-mono: "JetBrains Mono", ui-monospace, monospace;
 
   /* shape */
-  --rlt-radius:10px;
-  --rlt-radius-lg:14px;
+  --rlt-radius: 10px;
+  --rlt-radius-lg: 14px;
 }
 
 /* Convenience classes plugins can drop in. */
-.rlt-card{
-  background:linear-gradient(180deg,var(--rlt-bg-1),var(--rlt-bg-2));
-  border:1px solid var(--rlt-line);
-  border-radius:var(--rlt-radius-lg);
-  box-shadow:0 8px 30px rgba(0,0,0,0.3);
-  color:var(--rlt-txt);
+.rlt-card {
+  background: linear-gradient(180deg, var(--rlt-bg-1), var(--rlt-bg-2));
+  border: 1px solid var(--rlt-line);
+  border-radius: var(--rlt-radius-lg);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  color: var(--rlt-txt);
 }
-.rlt-pill{
-  display:inline-flex;align-items:center;gap:8px;
-  padding:6px 12px;
-  background:var(--rlt-bg-3);border:1px solid var(--rlt-line);
-  border-radius:99px;
-  font-family:var(--rlt-ui);font-size:11px;font-weight:600;
-  color:var(--rlt-txt-2);
-  text-transform:uppercase;letter-spacing:0.08em;
+.rlt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--rlt-bg-3);
+  border: 1px solid var(--rlt-line);
+  border-radius: 99px;
+  font-family: var(--rlt-ui);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rlt-txt-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
-.rlt-btn{
-  font-family:var(--rlt-ui);font-size:12px;font-weight:600;
-  padding:9px 14px;border-radius:7px;
-  border:1px solid var(--rlt-line);
-  background:var(--rlt-bg-3);color:var(--rlt-txt);
-  cursor:pointer;transition:all .15s ease;
-  letter-spacing:0.02em;text-transform:uppercase;
+.rlt-btn {
+  font-family: var(--rlt-ui);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--rlt-line);
+  background: var(--rlt-bg-3);
+  color: var(--rlt-txt);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
-.rlt-btn:hover{
-  border-color:var(--rlt-cyan);color:var(--rlt-cyan);
-  box-shadow:0 0 16px var(--rlt-cyan-glow);
+.rlt-btn:hover {
+  border-color: var(--rlt-cyan);
+  color: var(--rlt-cyan);
+  box-shadow: 0 0 16px var(--rlt-cyan-glow);
 }
-.rlt-btn-primary{
-  background:linear-gradient(135deg,var(--rlt-cyan),var(--rlt-violet));
-  color:var(--rlt-bg-0);border-color:transparent;
+.rlt-btn-primary {
+  background: linear-gradient(135deg, var(--rlt-cyan), var(--rlt-violet));
+  color: var(--rlt-bg-0);
+  border-color: transparent;
 }
-.rlt-btn-primary:hover{
-  box-shadow:0 0 20px var(--rlt-cyan-glow), 0 0 28px var(--rlt-violet-glow);
-  color:var(--rlt-bg-0);
+.rlt-btn-primary:hover {
+  box-shadow:
+    0 0 20px var(--rlt-cyan-glow),
+    0 0 28px var(--rlt-violet-glow);
+  color: var(--rlt-bg-0);
 }
 
 /* Toast. Created by RLT.ui.toast(); plugins can override any token below
    to restyle without forking the SDK. */
-.rlt-toast{
-  position:fixed;bottom:28px;left:50%;
-  transform:translateX(-50%) translateY(20px);
-  background:linear-gradient(135deg,var(--rlt-cyan),var(--rlt-violet));
-  color:var(--rlt-bg-0);
-  padding:12px 22px;border-radius:8px;
-  font:700 13px var(--rlt-ui);
-  letter-spacing:.04em;text-transform:uppercase;
-  opacity:0;pointer-events:none;
-  transition:opacity .25s, transform .25s;
-  z-index:99999;
-  box-shadow:0 0 30px var(--rlt-cyan-glow), 0 0 50px var(--rlt-violet-glow);
+.rlt-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: linear-gradient(135deg, var(--rlt-cyan), var(--rlt-violet));
+  color: var(--rlt-bg-0);
+  padding: 12px 22px;
+  border-radius: 8px;
+  font: 700 13px var(--rlt-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
+  z-index: 99999;
+  box-shadow:
+    0 0 30px var(--rlt-cyan-glow),
+    0 0 50px var(--rlt-violet-glow);
 }
-.rlt-toast--show{
-  opacity:1;
-  transform:translateX(-50%) translateY(0);
+.rlt-toast--show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }

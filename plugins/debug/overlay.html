@@ -161,12 +161,6 @@
             .join(" | ");
         }
 
-        function reset() {
-          logEl.innerHTML = "";
-          Object.keys(seen).forEach((k) => delete seen[k]);
-          countsEl.innerHTML = "";
-        }
-
         RLT.plugin.register({
           whilePhase: ["live", "replay", "countdown", "paused"],
 

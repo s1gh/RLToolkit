@@ -80,7 +80,7 @@
   // manifest arrives. Plugin handlers don't depend on these fields, so
   // the patch-after-the-fact is invisible.
   let pluginManifest = null;
-  let manifestLoaded = false;       // distinguishes "still fetching" from "fetched, no entry"
+  let manifestLoaded = false; // distinguishes "still fetching" from "fetched, no entry"
   const manifestSubs = new Set();
   function finalizeManifest(m) {
     pluginManifest = m;
@@ -94,14 +94,20 @@
       // but the toolkit's discoverability surface (dashboard list,
       // unified overlay) won't see it.
       console.warn(
-        '[RLT] no manifest matched plugin name "' + pluginName +
-        '" via /api/plugins. The SDK will use fallback metadata. ' +
-        'If this plugin is hosted by the toolkit, ensure plugins/' +
-        pluginName + '/manifest.json exists and parses.'
+        '[RLT] no manifest matched plugin name "' +
+          pluginName +
+          '" via /api/plugins. The SDK will use fallback metadata. ' +
+          'If this plugin is hosted by the toolkit, ensure plugins/' +
+          pluginName +
+          '/manifest.json exists and parses.',
       );
     }
     for (const fn of manifestSubs) {
-      try { fn(pluginManifest); } catch (e) { console.error('[RLT] onManifest threw:', e); }
+      try {
+        fn(pluginManifest);
+      } catch (e) {
+        console.error('[RLT] onManifest threw:', e);
+      }
     }
     manifestSubs.clear();
   }
@@ -130,7 +136,7 @@
     const anchor = params.get('anchor') || 'top-left';
     if (inOverlay) {
       const vAlign = anchor.indexOf('bottom') >= 0 ? 'flex-end' : 'flex-start';
-      const hAlign = anchor.indexOf('right')  >= 0 ? 'flex-end' : 'flex-start';
+      const hAlign = anchor.indexOf('right') >= 0 ? 'flex-end' : 'flex-start';
       const apply = () => {
         const html = document.documentElement;
         const body = document.body;
@@ -177,14 +183,24 @@
       },
       emit(ev, ...args) {
         const set = subs.get(ev);
-        if (set) for (const fn of set) {
-          try { fn(...args); } catch (e) { console.error('[RLT]', ev, e); }
-        }
+        if (set)
+          for (const fn of set) {
+            try {
+              fn(...args);
+            } catch (e) {
+              console.error('[RLT]', ev, e);
+            }
+          }
         // wildcard
         const all = subs.get('*');
-        if (all) for (const fn of all) {
-          try { fn(ev, ...args); } catch (e) { console.error('[RLT] *', e); }
-        }
+        if (all)
+          for (const fn of all) {
+            try {
+              fn(ev, ...args);
+            } catch (e) {
+              console.error('[RLT] *', e);
+            }
+          }
       },
     };
   }
@@ -224,11 +240,18 @@
   let es = null;
 
   const requiredEvents = new Set([
-    'MatchCreated', 'MatchInitialized',
-    'CountdownBegin', 'RoundStarted',
-    'MatchPaused', 'MatchUnpaused',
-    'GoalReplayStart', 'GoalReplayWillEnd', 'GoalReplayEnd',
-    'MatchEnded', 'PodiumStart', 'MatchDestroyed',
+    'MatchCreated',
+    'MatchInitialized',
+    'CountdownBegin',
+    'RoundStarted',
+    'MatchPaused',
+    'MatchUnpaused',
+    'GoalReplayStart',
+    'GoalReplayWillEnd',
+    'GoalReplayEnd',
+    'MatchEnded',
+    'PodiumStart',
+    'MatchDestroyed',
     'ReplayCreated',
   ]);
   const subscribedEvents = new Set(requiredEvents);
@@ -240,7 +263,11 @@
     if (es) {
       // Already connected with the prior filter; reconnect so the
       // server starts delivering the new event. Cheap on localhost.
-      try { es.close(); } catch (_) { /* noop: already-closed sockets throw */ }
+      try {
+        es.close();
+      } catch (_) {
+        /* noop: already-closed sockets throw */
+      }
       es = null;
       connect();
     }
@@ -265,7 +292,11 @@
       // disconnect-watchdog if one was armed by a recent onerror.
       clearReconnectWatchdog();
       let msg;
-      try { msg = JSON.parse(e.data); } catch { return; }
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
       if (msg.Event === '_ConnectionStatus') {
         status = msg.Status;
         bus.emit('_status', status);
@@ -281,7 +312,11 @@
       // Decode the inner JSON-encoded Data payload — RL ships it as a string.
       let data = msg.Data;
       if (typeof data === 'string') {
-        try { data = JSON.parse(data); } catch { data = null; }
+        try {
+          data = JSON.parse(data);
+        } catch {
+          data = null;
+        }
       }
       bus.emit(msg.Event, data, msg);
     };
@@ -345,7 +380,11 @@
   // tab close); beforeunload doesn't fire on mobile / bfcache.
   window.addEventListener('pagehide', () => {
     if (es) {
-      try { es.close(); } catch (_) { /* noop: already-closed sockets throw */ }
+      try {
+        es.close();
+      } catch (_) {
+        /* noop: already-closed sockets throw */
+      }
       es = null;
     }
     clearReconnectWatchdog();
@@ -363,7 +402,9 @@
       const r = await fetch('/api/data/' + ns + (key ? '/' + key : ''));
       if (!r.ok) return null;
       return await r.json();
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
   async function storeSet(ns, key, val) {
     try {
@@ -373,13 +414,17 @@
         body: JSON.stringify(val),
       });
       return true;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
   async function storeDelete(ns, key) {
     try {
       await fetch('/api/data/' + ns + '/' + key, { method: 'DELETE' });
       return true;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
 
   // Debounced writer to avoid hammering the disk on rapid changes.
@@ -398,10 +443,18 @@
   // lands in on disk (data/<ns>.json).
   function makeNamespacedStore(ns) {
     return {
-      get(key)      { return storeGet(ns, key); },
-      getAll()      { return storeGet(ns, ''); },
-      set(key, val) { return storeSet(ns, key, val); },
-      delete(key)   { return storeDelete(ns, key); },
+      get(key) {
+        return storeGet(ns, key);
+      },
+      getAll() {
+        return storeGet(ns, '');
+      },
+      set(key, val) {
+        return storeSet(ns, key, val);
+      },
+      delete(key) {
+        return storeDelete(ns, key);
+      },
     };
   }
 
@@ -413,7 +466,9 @@
   // string below is internal and may change if RL ever revises its
   // wire format.
   const BOT_PRIMARY_ID = 'Unknown|0|0';
-  function isBotId(id) { return id === BOT_PRIMARY_ID; }
+  function isBotId(id) {
+    return id === BOT_PRIMARY_ID;
+  }
 
   // ─── Identity (shared across all plugins) ──────────────────
   const identity = (function () {
@@ -446,26 +501,36 @@
     load();
 
     return {
-      get id() { return myId; },
-      isReady() { return loaded; },
+      get id() {
+        return myId;
+      },
+      isReady() {
+        return loaded;
+      },
       async set(id) {
         myId = (id || '').trim();
         await storeSet('_rlt', 'identity', { my_id: myId });
         ev.emit('change', myId);
       },
-      async clear() { return this.set(''); },
-      onChange(fn) { return ev.on('change', fn); },
+      async clear() {
+        return this.set('');
+      },
+      onChange(fn) {
+        return ev.on('change', fn);
+      },
       // exposed so match-state can flag isMe correctly even before load resolves.
       // Returns a real boolean (not the empty string) so plugin code that
       // does `player.isMe === true` behaves predictably.
-      _isMe(id) { return !!id && id === myId; },
+      _isMe(id) {
+        return !!id && id === myId;
+      },
     };
   })();
 
   // ─── Encounter ledger (shared across all plugins) ──────────
   const encounters = (function () {
     const ev = emitter();
-    let map = {};                 // PrimaryId -> { names, count, first_seen, last_seen, matches }
+    let map = {}; // PrimaryId -> { names, count, first_seen, last_seen, matches }
     let loaded = false;
     const persistShared = debouncedWriter('_rlt', 'encounters', () => map, 1500);
 
@@ -525,15 +590,23 @@
     }
 
     return {
-      get(id) { return map[id] || null; },
-      all() { return Object.assign({}, map); },
+      get(id) {
+        return map[id] || null;
+      },
+      all() {
+        return Object.assign({}, map);
+      },
       // Whether a ledger key (or any RL PrimaryId) refers to the
       // aggregate-bot record. Use this when iterating the raw ledger
       // — for live-roster players, `Player.isBot` is shorter and the
       // canonical check.
       isBotId,
-      isReady() { return loaded; },
-      onChange(fn) { return ev.on('change', fn); },
+      isReady() {
+        return loaded;
+      },
+      onChange(fn) {
+        return ev.on('change', fn);
+      },
       _record: record,
     };
   })();
@@ -550,7 +623,7 @@
   // late-joiners / rejoiners get picked up automatically.
   const match = (function () {
     const ev = emitter();
-    let cur = null;       // null when no match
+    let cur = null; // null when no match
     let lastFingerprint = '';
     // Phases where the player is actually engaged in a match — kickoff
     // through final whistle. Lobby/menu phases are excluded so a player
@@ -568,7 +641,8 @@
         const name = p.Name || 'Unknown';
         const enc = id ? encounters.get(id) : null;
         return {
-          id, name,
+          id,
+          name,
           team: p.TeamNum,
           isMe: identity._isMe(id),
           isBot: isBotId(id),
@@ -584,13 +658,13 @@
           speed: typeof p.Speed === 'number' ? p.Speed : null,
           // Booleans from the spectator-only block. Absent fields → false,
           // which is what plugins want as a default.
-          boosting:     !!p.bBoosting,
-          onGround:     !!p.bOnGround,
-          onWall:       !!p.bOnWall,
+          boosting: !!p.bBoosting,
+          onGround: !!p.bOnGround,
+          onWall: !!p.bOnWall,
           powersliding: !!p.bPowersliding,
-          demolished:   !!p.bDemolished,
-          supersonic:   !!p.bSupersonic,
-          hasCar:       !!p.bHasCar,
+          demolished: !!p.bDemolished,
+          supersonic: !!p.bSupersonic,
+          hasCar: !!p.bHasCar,
           // Present only on the frame this player was demolished. Resolved
           // to the enriched player-ref shape in a second pass below, once
           // the full roster is built. Stash the raw stub here for now.
@@ -616,17 +690,16 @@
         delete p.attackerRaw;
       }
 
-      const blue   = players.filter((p) => p.team === 0);
+      const blue = players.filter((p) => p.team === 0);
       const orange = players.filter((p) => p.team === 1);
-      const game   = d.Game || null;
-      const me     = players.find((p) => p.isMe) || null;
+      const game = d.Game || null;
+      const me = players.find((p) => p.isMe) || null;
 
       // Normalize Game.Teams into lowercase-keyed entries plus blue/orange
       // split shortcuts. ColorPrimary/ColorSecondary are raw hex strings
       // (no '#' prefix) — plugins prepend '#' when applying.
       const teams = Array.isArray(game?.Teams)
-        ? game.Teams
-            .filter((t) => t && typeof t.TeamNum === 'number')
+        ? game.Teams.filter((t) => t && typeof t.TeamNum === 'number')
             .map((t) => ({
               teamNum: t.TeamNum,
               name: t.Name || '',
@@ -646,26 +719,32 @@
       // can gate with `if (m.replayInfo) { … }`.
       const hasFrame = game && typeof game.Frame === 'number';
       const hasElapsed = game && typeof game.Elapsed === 'number';
-      const replayInfo = (hasFrame || hasElapsed) ? {
-        frame:   hasFrame   ? game.Frame   : null,
-        elapsed: hasElapsed ? game.Elapsed : null,
-      } : null;
+      const replayInfo =
+        hasFrame || hasElapsed
+          ? {
+              frame: hasFrame ? game.Frame : null,
+              elapsed: hasElapsed ? game.Elapsed : null,
+            }
+          : null;
 
       return {
         guid,
-        players, blue, orange, me,
+        players,
+        blue,
+        orange,
+        me,
         game,
         arena: game ? (game.Arena || '').replace(/_P$/, '').replace(/_/g, ' ') : '',
-        clockSeconds: game ? (game.TimeSeconds | 0) : null,
+        clockSeconds: game ? game.TimeSeconds | 0 : null,
         overtime: !!game?.bOvertime,
         // bReplay covers both goal replays and history replays — the
         // authoritative way to detect either, instead of inferring from
         // GoalReplayStart/End edges.
-        replay:     !!game?.bReplay,
-        hasWinner:  !!game?.bHasWinner,
-        winner:     game ? (game.Winner || '') : '',
-        scoreBlue:   ((game?.Teams?.find((t) => t.TeamNum === 0) || game?.Teams?.[0] || {}).Score | 0),
-        scoreOrange: ((game?.Teams?.find((t) => t.TeamNum === 1) || game?.Teams?.[1] || {}).Score | 0),
+        replay: !!game?.bReplay,
+        hasWinner: !!game?.bHasWinner,
+        winner: game?.Winner || '',
+        scoreBlue: (game?.Teams?.find((t) => t.TeamNum === 0) || game?.Teams?.[0])?.Score | 0,
+        scoreOrange: (game?.Teams?.find((t) => t.TeamNum === 1) || game?.Teams?.[1])?.Score | 0,
         // Normalized team metadata: full array plus blue/orange shortcuts
         // (mirroring the existing match.blue / match.orange split).
         teams,
@@ -676,16 +755,19 @@
         // pattern used elsewhere in the SDK. TeamNum 255 is the API's
         // "ball has not been touched yet" sentinel; lastTouchTeam
         // normalizes it to null so plugins don't have to remember.
-        ball: game?.Ball ? {
-          speed: typeof game.Ball.Speed === 'number' ? game.Ball.Speed : null,
-          teamNum: typeof game.Ball.TeamNum === 'number' ? game.Ball.TeamNum : null,
-          lastTouchTeam: (typeof game.Ball.TeamNum === 'number' && game.Ball.TeamNum !== 255)
-            ? game.Ball.TeamNum
-            : null,
-          raw: game.Ball,
-        } : null,
+        ball: game?.Ball
+          ? {
+              speed: typeof game.Ball.Speed === 'number' ? game.Ball.Speed : null,
+              teamNum: typeof game.Ball.TeamNum === 'number' ? game.Ball.TeamNum : null,
+              lastTouchTeam:
+                typeof game.Ball.TeamNum === 'number' && game.Ball.TeamNum !== 255
+                  ? game.Ball.TeamNum
+                  : null,
+              raw: game.Ball,
+            }
+          : null,
         // Spectator camera target — only meaningful when bHasTarget.
-        target: game?.bHasTarget ? (game.Target || null) : null,
+        target: game?.bHasTarget ? game.Target || null : null,
         raw: d,
       };
     }
@@ -725,8 +807,14 @@
         }
       }
 
-      const fp = cur.guid + '|' + identity.id + '|' +
-        cur.players.map((p) => p.id + ':' + p.team + ':' + (p.encounterCount > 1 ? 'r' : 'n')).join(',');
+      const fp =
+        cur.guid +
+        '|' +
+        identity.id +
+        '|' +
+        cur.players
+          .map((p) => p.id + ':' + p.team + ':' + (p.encounterCount > 1 ? 'r' : 'n'))
+          .join(',');
       if (fp !== lastFingerprint) {
         lastFingerprint = fp;
         ev.emit('change', cur);
@@ -742,19 +830,35 @@
     }
 
     bus.on('MatchDestroyed', clear);
-    bus.on('_status', (s) => { if (s === 'disconnected') clear(); });
+    bus.on('_status', (s) => {
+      if (s === 'disconnected') clear();
+    });
 
     // Re-fingerprint when identity changes so isMe is up to date.
-    identity.onChange(() => { lastFingerprint = ''; if (cur) cur = build(cur.raw); ev.emit('change', cur); });
+    identity.onChange(() => {
+      lastFingerprint = '';
+      if (cur) cur = build(cur.raw);
+      ev.emit('change', cur);
+    });
 
     return {
-      get current() { return cur; },
+      get current() {
+        return cur;
+      },
       // onChange / onTick auto-subscribe to UpdateState since they're
       // useless without it. Plugins that read .current synchronously
       // outside a handler should call .subscribe() once at init time.
-      onChange(fn) { addEvent('UpdateState'); return ev.on('change', fn); },
-      onTick(fn)   { addEvent('UpdateState'); return ev.on('tick', fn);   },
-      subscribe()  { addEvent('UpdateState'); },
+      onChange(fn) {
+        addEvent('UpdateState');
+        return ev.on('change', fn);
+      },
+      onTick(fn) {
+        addEvent('UpdateState');
+        return ev.on('tick', fn);
+      },
+      subscribe() {
+        addEvent('UpdateState');
+      },
     };
   })();
 
@@ -768,26 +872,29 @@
   // Platform brand icons (Simple Icons paths, monocolor via fill=currentColor).
   // Keyed by lowercased platform string; values are just the path 'd' attribute.
   const PLATFORM_ICONS = {
-    steam:    'M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658a3.4 3.4 0 0 1 1.912-.59q.094.001.188.006l2.861-4.142V8.91a4.53 4.53 0 0 1 4.524-4.524c2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911l.004.159a3.39 3.39 0 0 1-3.39 3.396a3.41 3.41 0 0 1-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0M7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25a2.551 2.551 0 0 0 3.337-3.324a2.547 2.547 0 0 0-3.255-1.413l1.523.63a1.878 1.878 0 0 1-1.445 3.467zm11.415-9.303a3.02 3.02 0 0 0-3.015-3.015a3.015 3.015 0 1 0 3.015 3.015m-5.273-.005a2.264 2.264 0 1 1 4.531 0a2.267 2.267 0 0 1-2.266 2.265a2.264 2.264 0 0 1-2.265-2.265',
-    epic:     'M3.537 0C2.165 0 1.66.506 1.66 1.879V18.44a4 4 0 0 0 .02.433c.031.3.037.59.316.92c.027.033.311.245.311.245c.153.075.258.13.43.2l8.335 3.491c.433.199.614.276.928.27h.002c.314.006.495-.071.928-.27l8.335-3.492c.172-.07.277-.124.43-.2c0 0 .284-.211.311-.243c.28-.33.285-.621.316-.92a4 4 0 0 0 .02-.434V1.879c0-1.373-.506-1.88-1.878-1.88zm13.366 3.11h.68c1.138 0 1.688.553 1.688 1.696v1.88h-1.374v-1.8c0-.369-.17-.54-.523-.54h-.235c-.367 0-.537.17-.537.539v5.81c0 .369.17.54.537.54h.262c.353 0 .523-.171.523-.54V8.619h1.373v2.143c0 1.144-.562 1.71-1.7 1.71h-.694c-1.138 0-1.7-.566-1.7-1.71V4.82c0-1.144.562-1.709 1.7-1.709zm-12.186.08h3.114v1.274H6.117v2.603h1.648v1.275H6.117v2.774h1.74v1.275h-3.14zm3.816 0h2.198c1.138 0 1.7.564 1.7 1.708v2.445c0 1.144-.562 1.71-1.7 1.71h-.799v3.338h-1.4zm4.53 0h1.4v9.201h-1.4zm-3.13 1.235v3.392h.575c.354 0 .523-.171.523-.54V4.965c0-.368-.17-.54-.523-.54z',
-    playstation: 'M8.984 2.596v17.547l3.915 1.261V6.688c0-.69.304-1.151.794-.991c.636.18.76.814.76 1.505v5.875c2.441 1.193 4.362-.002 4.362-3.152c0-3.237-1.126-4.675-4.438-5.827c-1.307-.448-3.728-1.186-5.39-1.502zm4.656 16.241l6.296-2.275c.715-.258.826-.625.246-.818c-.586-.192-1.637-.139-2.357.123l-4.205 1.5V14.98l.24-.085s1.201-.42 2.913-.615c1.696-.18 3.785.03 5.437.661c1.848.601 2.04 1.472 1.576 2.072c-.465.6-1.622 1.036-1.622 1.036l-8.544 3.107V18.86zM1.807 18.6c-1.9-.545-2.214-1.668-1.352-2.32c.801-.586 2.16-1.052 2.16-1.052l5.615-2.013v2.313L4.205 17c-.705.271-.825.632-.239.826c.586.195 1.637.15 2.343-.12L8.247 17v2.074c-.12.03-.256.044-.39.073c-1.939.331-3.996.196-6.038-.479z',
-    xbox:     'M4.102 21.033A11.95 11.95 0 0 0 12 24a11.96 11.96 0 0 0 7.902-2.967c1.877-1.912-4.316-8.709-7.902-11.417c-3.582 2.708-9.779 9.505-7.898 11.417m11.16-14.406c2.5 2.961 7.484 10.313 6.076 12.912A11.94 11.94 0 0 0 24 12.004a11.95 11.95 0 0 0-3.57-8.536s-.027-.022-.082-.042a.8.8 0 0 0-.281-.045c-.592 0-1.985.434-4.805 3.246M3.654 3.426c-.057.02-.082.041-.086.042A11.96 11.96 0 0 0 0 12.004c0 2.854.998 5.473 2.661 7.533c-1.401-2.605 3.579-9.951 6.08-12.91c-2.82-2.813-4.216-3.245-4.806-3.245a.7.7 0 0 0-.281.046zM12 3.551S9.055 1.828 6.755 1.746c-.903-.033-1.454.295-1.521.339C7.379.646 9.659 0 11.984 0H12c2.334 0 4.605.646 6.766 2.085c-.068-.046-.615-.372-1.52-.339C14.946 1.828 12 3.545 12 3.545z',
-    switch:   'M14.176 24h3.674c3.376 0 6.15-2.774 6.15-6.15V6.15C24 2.775 21.226 0 17.85 0H14.1c-.074 0-.15.074-.15.15v23.7c-.001.076.075.15.226.15m4.574-13.199c1.351 0 2.399 1.125 2.399 2.398c0 1.352-1.125 2.4-2.399 2.4c-1.35 0-2.4-1.049-2.4-2.4c-.075-1.349 1.05-2.398 2.4-2.398M11.4 0H6.15C2.775 0 0 2.775 0 6.15v11.7C0 21.226 2.775 24 6.15 24h5.25c.074 0 .15-.074.15-.149V.15c.001-.076-.075-.15-.15-.15M9.676 22.051H6.15a4.194 4.194 0 0 1-4.201-4.201V6.15A4.194 4.194 0 0 1 6.15 1.949H9.6zM3.75 7.199c0 1.275.975 2.25 2.25 2.25s2.25-.975 2.25-2.25c0-1.273-.975-2.25-2.25-2.25s-2.25.977-2.25 2.25',
+    steam:
+      'M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658a3.4 3.4 0 0 1 1.912-.59q.094.001.188.006l2.861-4.142V8.91a4.53 4.53 0 0 1 4.524-4.524c2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911l.004.159a3.39 3.39 0 0 1-3.39 3.396a3.41 3.41 0 0 1-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0M7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25a2.551 2.551 0 0 0 3.337-3.324a2.547 2.547 0 0 0-3.255-1.413l1.523.63a1.878 1.878 0 0 1-1.445 3.467zm11.415-9.303a3.02 3.02 0 0 0-3.015-3.015a3.015 3.015 0 1 0 3.015 3.015m-5.273-.005a2.264 2.264 0 1 1 4.531 0a2.267 2.267 0 0 1-2.266 2.265a2.264 2.264 0 0 1-2.265-2.265',
+    epic: 'M3.537 0C2.165 0 1.66.506 1.66 1.879V18.44a4 4 0 0 0 .02.433c.031.3.037.59.316.92c.027.033.311.245.311.245c.153.075.258.13.43.2l8.335 3.491c.433.199.614.276.928.27h.002c.314.006.495-.071.928-.27l8.335-3.492c.172-.07.277-.124.43-.2c0 0 .284-.211.311-.243c.28-.33.285-.621.316-.92a4 4 0 0 0 .02-.434V1.879c0-1.373-.506-1.88-1.878-1.88zm13.366 3.11h.68c1.138 0 1.688.553 1.688 1.696v1.88h-1.374v-1.8c0-.369-.17-.54-.523-.54h-.235c-.367 0-.537.17-.537.539v5.81c0 .369.17.54.537.54h.262c.353 0 .523-.171.523-.54V8.619h1.373v2.143c0 1.144-.562 1.71-1.7 1.71h-.694c-1.138 0-1.7-.566-1.7-1.71V4.82c0-1.144.562-1.709 1.7-1.709zm-12.186.08h3.114v1.274H6.117v2.603h1.648v1.275H6.117v2.774h1.74v1.275h-3.14zm3.816 0h2.198c1.138 0 1.7.564 1.7 1.708v2.445c0 1.144-.562 1.71-1.7 1.71h-.799v3.338h-1.4zm4.53 0h1.4v9.201h-1.4zm-3.13 1.235v3.392h.575c.354 0 .523-.171.523-.54V4.965c0-.368-.17-.54-.523-.54z',
+    playstation:
+      'M8.984 2.596v17.547l3.915 1.261V6.688c0-.69.304-1.151.794-.991c.636.18.76.814.76 1.505v5.875c2.441 1.193 4.362-.002 4.362-3.152c0-3.237-1.126-4.675-4.438-5.827c-1.307-.448-3.728-1.186-5.39-1.502zm4.656 16.241l6.296-2.275c.715-.258.826-.625.246-.818c-.586-.192-1.637-.139-2.357.123l-4.205 1.5V14.98l.24-.085s1.201-.42 2.913-.615c1.696-.18 3.785.03 5.437.661c1.848.601 2.04 1.472 1.576 2.072c-.465.6-1.622 1.036-1.622 1.036l-8.544 3.107V18.86zM1.807 18.6c-1.9-.545-2.214-1.668-1.352-2.32c.801-.586 2.16-1.052 2.16-1.052l5.615-2.013v2.313L4.205 17c-.705.271-.825.632-.239.826c.586.195 1.637.15 2.343-.12L8.247 17v2.074c-.12.03-.256.044-.39.073c-1.939.331-3.996.196-6.038-.479z',
+    xbox: 'M4.102 21.033A11.95 11.95 0 0 0 12 24a11.96 11.96 0 0 0 7.902-2.967c1.877-1.912-4.316-8.709-7.902-11.417c-3.582 2.708-9.779 9.505-7.898 11.417m11.16-14.406c2.5 2.961 7.484 10.313 6.076 12.912A11.94 11.94 0 0 0 24 12.004a11.95 11.95 0 0 0-3.57-8.536s-.027-.022-.082-.042a.8.8 0 0 0-.281-.045c-.592 0-1.985.434-4.805 3.246M3.654 3.426c-.057.02-.082.041-.086.042A11.96 11.96 0 0 0 0 12.004c0 2.854.998 5.473 2.661 7.533c-1.401-2.605 3.579-9.951 6.08-12.91c-2.82-2.813-4.216-3.245-4.806-3.245a.7.7 0 0 0-.281.046zM12 3.551S9.055 1.828 6.755 1.746c-.903-.033-1.454.295-1.521.339C7.379.646 9.659 0 11.984 0H12c2.334 0 4.605.646 6.766 2.085c-.068-.046-.615-.372-1.52-.339C14.946 1.828 12 3.545 12 3.545z',
+    switch:
+      'M14.176 24h3.674c3.376 0 6.15-2.774 6.15-6.15V6.15C24 2.775 21.226 0 17.85 0H14.1c-.074 0-.15.074-.15.15v23.7c-.001.076.075.15.226.15m4.574-13.199c1.351 0 2.399 1.125 2.399 2.398c0 1.352-1.125 2.4-2.399 2.4c-1.35 0-2.4-1.049-2.4-2.4c-.075-1.349 1.05-2.398 2.4-2.398M11.4 0H6.15C2.775 0 0 2.775 0 6.15v11.7C0 21.226 2.775 24 6.15 24h5.25c.074 0 .15-.074.15-.149V.15c.001-.076-.075-.15-.15-.15M9.676 22.051H6.15a4.194 4.194 0 0 1-4.201-4.201V6.15A4.194 4.194 0 0 1 6.15 1.949H9.6zM3.75 7.199c0 1.275.975 2.25 2.25 2.25s2.25-.975 2.25-2.25c0-1.273-.975-2.25-2.25-2.25s-2.25.977-2.25 2.25',
     // CPU / chip — used by RLT.ui.playerIcon for AI players. Square chip
     // outline with corner pins so it reads as "computer-controlled" at the
     // small sizes plugin overlays use (12–24px). Filled inner core gives
     // it presence next to the brand icons without overpowering them.
-    bot:      'M9 3v2H7a2 2 0 0 0-2 2v2H3v2h2v2H3v2h2v2a2 2 0 0 0 2 2h2v2h2v-2h2v2h2v-2h2a2 2 0 0 0 2-2v-2h2v-2h-2v-2h2V9h-2V7a2 2 0 0 0-2-2h-2V3h-2v2h-2V3h-2v2H11V3H9zm-2 4h10v10H7V7zm2 2v6h6V9H9z',
+    bot: 'M9 3v2H7a2 2 0 0 0-2 2v2H3v2h2v2H3v2h2v2a2 2 0 0 0 2 2h2v2h2v-2h2v2h2v-2h2a2 2 0 0 0 2-2v-2h2v-2h-2v-2h2V9h-2V7a2 2 0 0 0-2-2h-2V3h-2v2h-2V3h-2v2H11V3H9zm-2 4h10v10H7V7zm2 2v6h6V9H9z',
   };
   // Normalizes RL's PrimaryId platform prefix to an icon key. RL emits
   // values like 'Steam', 'Epic', 'PS4', 'XboxOne', 'Switch', 'Unknown'.
   function platformIconKey(platform) {
     if (!platform) return null;
     const p = String(platform).toLowerCase();
-    if (p === 'steam')   return 'steam';
-    if (p === 'epic')    return 'epic';
-    if (p.startsWith('ps')) return 'playstation';     // PS4, PS5
-    if (p.startsWith('xbox')) return 'xbox';          // XboxOne, Xbox
+    if (p === 'steam') return 'steam';
+    if (p === 'epic') return 'epic';
+    if (p.startsWith('ps')) return 'playstation'; // PS4, PS5
+    if (p.startsWith('xbox')) return 'xbox'; // XboxOne, Xbox
     if (p === 'switch' || p.includes('nintendo')) return 'switch';
     return null; // unknown / unmapped
   }
@@ -798,12 +905,18 @@
   function renderIcon(key) {
     const d = PLATFORM_ICONS[key];
     if (!d) return '';
-    const title = key === 'bot'
-      ? 'Bot'
-      : key.charAt(0).toUpperCase() + key.slice(1);
-    return '<svg class="rlt-platform-icon" viewBox="0 0 24 24" aria-label="' + title + '" role="img">'
-      + '<title>' + title + '</title>'
-      + '<path fill="currentColor" d="' + d + '"/></svg>';
+    const title = key === 'bot' ? 'Bot' : key.charAt(0).toUpperCase() + key.slice(1);
+    return (
+      '<svg class="rlt-platform-icon" viewBox="0 0 24 24" aria-label="' +
+      title +
+      '" role="img">' +
+      '<title>' +
+      title +
+      '</title>' +
+      '<path fill="currentColor" d="' +
+      d +
+      '"/></svg>'
+    );
   }
 
   const ui = {
@@ -825,14 +938,28 @@
       return p.platform ? this.platformIcon(p.platform) : '';
     },
     esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-      }[c]));
+      return String(s == null ? '' : s).replace(
+        /[&<>"']/g,
+        (c) =>
+          ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+          })[c],
+      );
     },
     escAttr(s) {
-      return String(s == null ? '' : s).replace(/[&"']/g, (c) => ({
-        '&': '&amp;', '"': '&quot;', "'": '&#39;',
-      }[c]));
+      return String(s == null ? '' : s).replace(
+        /[&"']/g,
+        (c) =>
+          ({
+            '&': '&amp;',
+            '"': '&quot;',
+            "'": '&#39;',
+          })[c],
+      );
     },
     formatTime(secs, overtime) {
       if (secs == null) return '0:00';
@@ -921,11 +1048,11 @@
     return {
       name: ref.Name || player?.name || 'Unknown',
       shortcut: typeof ref.Shortcut === 'number' ? ref.Shortcut : null,
-      team: typeof ref.TeamNum === 'number' ? ref.TeamNum : (player ? player.team : null),
+      team: typeof ref.TeamNum === 'number' ? ref.TeamNum : player ? player.team : null,
       id,
       isMe: identity._isMe(id),
       isBot: isBotId(id),
-      player,        // full enriched player from the roster, or null
+      player, // full enriched player from the roster, or null
       encounter: enc, // full encounter record from the ledger, or null
       raw: ref,
     };
@@ -945,7 +1072,10 @@
   const RECENT_LIMIT = 50;
   function recordRecent(ev, data) {
     let arr = recentByType.get(ev);
-    if (!arr) { arr = []; recentByType.set(ev, arr); }
+    if (!arr) {
+      arr = [];
+      recentByType.set(ev, arr);
+    }
     arr.push({ at: Date.now(), data });
     if (arr.length > RECENT_LIMIT) arr.splice(0, arr.length - RECENT_LIMIT);
   }
@@ -975,14 +1105,16 @@
     emitTyped('GoalScored', {
       matchGuid: d.MatchGuid || null,
       goalSpeed: d.GoalSpeed != null ? d.GoalSpeed : null,
-      goalTime:  d.GoalTime  != null ? d.GoalTime  : null,
+      goalTime: d.GoalTime != null ? d.GoalTime : null,
       impactLocation: d.ImpactLocation || null,
       scorer,
       assister: d.Assister ? resolvePlayer(d.Assister) : null,
-      ballLastTouch: d.BallLastTouch ? {
-        player: resolvePlayer(d.BallLastTouch.Player),
-        speed: d.BallLastTouch.Speed != null ? d.BallLastTouch.Speed : null,
-      } : null,
+      ballLastTouch: d.BallLastTouch
+        ? {
+            player: resolvePlayer(d.BallLastTouch.Player),
+            speed: d.BallLastTouch.Speed != null ? d.BallLastTouch.Speed : null,
+          }
+        : null,
       raw: d,
     });
   });
@@ -992,9 +1124,9 @@
     emitTyped('BallHit', {
       matchGuid: d.MatchGuid || null,
       players: (d.Players || []).map(resolvePlayer),
-      preSpeed:  d.Ball ? (d.Ball.PreHitSpeed != null ? d.Ball.PreHitSpeed : null) : null,
+      preSpeed: d.Ball ? (d.Ball.PreHitSpeed != null ? d.Ball.PreHitSpeed : null) : null,
       postSpeed: d.Ball ? (d.Ball.PostHitSpeed != null ? d.Ball.PostHitSpeed : null) : null,
-      location:  d.Ball ? (d.Ball.Location || null) : null,
+      location: d.Ball ? d.Ball.Location || null : null,
       raw: d,
     });
   });
@@ -1003,13 +1135,15 @@
     if (!d) return;
     emitTyped('CrossbarHit', {
       matchGuid: d.MatchGuid || null,
-      ballSpeed:   d.BallSpeed   != null ? d.BallSpeed   : null,
+      ballSpeed: d.BallSpeed != null ? d.BallSpeed : null,
       impactForce: d.ImpactForce != null ? d.ImpactForce : null,
       ballLocation: d.BallLocation || null,
-      ballLastTouch: d.BallLastTouch ? {
-        player: resolvePlayer(d.BallLastTouch.Player),
-        speed: d.BallLastTouch.Speed != null ? d.BallLastTouch.Speed : null,
-      } : null,
+      ballLastTouch: d.BallLastTouch
+        ? {
+            player: resolvePlayer(d.BallLastTouch.Player),
+            speed: d.BallLastTouch.Speed != null ? d.BallLastTouch.Speed : null,
+          }
+        : null,
       raw: d,
     });
   });
@@ -1023,8 +1157,8 @@
     emitTyped('StatfeedEvent', {
       matchGuid: d.MatchGuid || null,
       eventName: d.EventName || '',
-      type:      d.Type      || '',
-      mainTarget:      resolvePlayer(d.MainTarget),
+      type: d.Type || '',
+      mainTarget: resolvePlayer(d.MainTarget),
       secondaryTarget: d.SecondaryTarget ? resolvePlayer(d.SecondaryTarget) : null,
       raw: d,
     });
@@ -1034,8 +1168,8 @@
     if (!d) return;
     emitTyped('ClockUpdatedSeconds', {
       matchGuid: d.MatchGuid || null,
-      seconds:   d.TimeSeconds != null ? d.TimeSeconds : null,
-      overtime:  !!d.bOvertime,
+      seconds: d.TimeSeconds != null ? d.TimeSeconds : null,
+      overtime: !!d.bOvertime,
       raw: d,
     });
   });
@@ -1057,11 +1191,19 @@
 
   // Plain pass-through events: nothing to resolve, but we still surface them
   // through the typed bus so plugins have one consistent API.
-  ['MatchCreated','MatchInitialized','MatchDestroyed',
-   'MatchPaused','MatchUnpaused',
-   'CountdownBegin','RoundStarted',
-   'GoalReplayStart','GoalReplayWillEnd','GoalReplayEnd',
-   'PodiumStart','ReplayCreated'
+  [
+    'MatchCreated',
+    'MatchInitialized',
+    'MatchDestroyed',
+    'MatchPaused',
+    'MatchUnpaused',
+    'CountdownBegin',
+    'RoundStarted',
+    'GoalReplayStart',
+    'GoalReplayWillEnd',
+    'GoalReplayEnd',
+    'PodiumStart',
+    'ReplayCreated',
   ].forEach((name) => {
     bus.on(name, (d) => {
       emitTyped(name, {
@@ -1079,7 +1221,7 @@
     };
   }
   const events = {
-    on:  (name, fn) => {
+    on: (name, fn) => {
       addEvent(name);
       return eventsBus.on(name, fn);
     },
@@ -1090,28 +1232,28 @@
     },
 
     // typed subscribers
-    onGoalScored:        makeOn('GoalScored'),
-    onBallHit:           makeOn('BallHit'),
-    onCrossbarHit:       makeOn('CrossbarHit'),
-    onStatfeedEvent:     makeOn('StatfeedEvent'),
+    onGoalScored: makeOn('GoalScored'),
+    onBallHit: makeOn('BallHit'),
+    onCrossbarHit: makeOn('CrossbarHit'),
+    onStatfeedEvent: makeOn('StatfeedEvent'),
     onClockUpdatedSeconds: makeOn('ClockUpdatedSeconds'),
 
-    onMatchCreated:      makeOn('MatchCreated'),
-    onMatchInitialized:  makeOn('MatchInitialized'),
-    onMatchDestroyed:    makeOn('MatchDestroyed'),
-    onMatchEnded:        makeOn('MatchEnded'),
-    onMatchPaused:       makeOn('MatchPaused'),
-    onMatchUnpaused:     makeOn('MatchUnpaused'),
+    onMatchCreated: makeOn('MatchCreated'),
+    onMatchInitialized: makeOn('MatchInitialized'),
+    onMatchDestroyed: makeOn('MatchDestroyed'),
+    onMatchEnded: makeOn('MatchEnded'),
+    onMatchPaused: makeOn('MatchPaused'),
+    onMatchUnpaused: makeOn('MatchUnpaused'),
 
-    onCountdownBegin:    makeOn('CountdownBegin'),
-    onRoundStarted:      makeOn('RoundStarted'),
+    onCountdownBegin: makeOn('CountdownBegin'),
+    onRoundStarted: makeOn('RoundStarted'),
 
-    onGoalReplayStart:   makeOn('GoalReplayStart'),
+    onGoalReplayStart: makeOn('GoalReplayStart'),
     onGoalReplayWillEnd: makeOn('GoalReplayWillEnd'),
-    onGoalReplayEnd:     makeOn('GoalReplayEnd'),
+    onGoalReplayEnd: makeOn('GoalReplayEnd'),
 
-    onPodiumStart:       makeOn('PodiumStart'),
-    onReplayCreated:     makeOn('ReplayCreated'),
+    onPodiumStart: makeOn('PodiumStart'),
+    onReplayCreated: makeOn('ReplayCreated'),
   };
 
   // ─── Lifecycle (driven by the server's _Lifecycle event) ──
@@ -1168,7 +1310,9 @@
     // Wire the server's authoritative event. The bus emits these from
     // the EventSource onmessage path before the typed-event normalizer
     // runs, so we always see them inline with everything else.
-    bus.on('_Lifecycle', (snap) => { if (snap) applySnapshot(snap); });
+    bus.on('_Lifecycle', (snap) => {
+      if (snap) applySnapshot(snap);
+    });
 
     // SSE disconnect invalidates our snapshot — without this, plugins
     // polling `lifecycle.phase` after a connection drop would see a
@@ -1180,13 +1324,27 @@
     });
 
     return {
-      get phase() { return phase; },
-      get previous() { return prevPhase; },
-      get matchActive() { return matchActive; },
-      get guid() { return matchGUID; },
-      get since() { return since; },
-      onChange(fn) { return ev.on('change', fn); },
-      onMatchActive(fn) { return matchActiveEv.on('change', fn); },
+      get phase() {
+        return phase;
+      },
+      get previous() {
+        return prevPhase;
+      },
+      get matchActive() {
+        return matchActive;
+      },
+      get guid() {
+        return matchGUID;
+      },
+      get since() {
+        return since;
+      },
+      onChange(fn) {
+        return ev.on('change', fn);
+      },
+      onMatchActive(fn) {
+        return matchActiveEv.on('change', fn);
+      },
     };
   })();
 
@@ -1201,29 +1359,143 @@
   // available without reading source.
   events.catalog = [
     // Per-tick stream
-    { name: 'UpdateState',       category: 'tick',      shape: 'matchstate', livePhases: ['live','replay','paused','countdown'], desc: 'Match snapshot at PacketSendRate. Includes derived teams/blueTeam/orangeTeam, replayInfo, and resolved per-player attacker.' },
+    {
+      name: 'UpdateState',
+      category: 'tick',
+      shape: 'matchstate',
+      livePhases: ['live', 'replay', 'paused', 'countdown'],
+      desc: 'Match snapshot at PacketSendRate. Includes derived teams/blueTeam/orangeTeam, replayInfo, and resolved per-player attacker.',
+    },
 
     // In-play events
-    { name: 'GoalScored',        category: 'scoring',   shape: 'goal',       livePhases: ['live','replay'],     desc: 'Scorer + assister + last touch + impact.' },
-    { name: 'BallHit',           category: 'play',      shape: 'ballhit',    livePhases: ['live'],              desc: 'Ball touched. Pre/post speed and location.' },
-    { name: 'CrossbarHit',       category: 'play',      shape: 'crossbar',   livePhases: ['live'],              desc: 'Ball hit a crossbar.' },
-    { name: 'StatfeedEvent',       category: 'stat',      shape: 'statfeed',   livePhases: ['live','replay'],     desc: 'Player earned a stat (demo, save, epic save, etc).' },
-    { name: 'ClockUpdatedSeconds', category: 'play',      shape: 'clock',      livePhases: ['live','countdown'],  desc: 'Match clock changed by ≥1 second.' },
+    {
+      name: 'GoalScored',
+      category: 'scoring',
+      shape: 'goal',
+      livePhases: ['live', 'replay'],
+      desc: 'Scorer + assister + last touch + impact.',
+    },
+    {
+      name: 'BallHit',
+      category: 'play',
+      shape: 'ballhit',
+      livePhases: ['live'],
+      desc: 'Ball touched. Pre/post speed and location.',
+    },
+    {
+      name: 'CrossbarHit',
+      category: 'play',
+      shape: 'crossbar',
+      livePhases: ['live'],
+      desc: 'Ball hit a crossbar.',
+    },
+    {
+      name: 'StatfeedEvent',
+      category: 'stat',
+      shape: 'statfeed',
+      livePhases: ['live', 'replay'],
+      desc: 'Player earned a stat (demo, save, epic save, etc).',
+    },
+    {
+      name: 'ClockUpdatedSeconds',
+      category: 'play',
+      shape: 'clock',
+      livePhases: ['live', 'countdown'],
+      desc: 'Match clock changed by ≥1 second.',
+    },
 
     // Lifecycle
-    { name: 'MatchCreated',      category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'All teams replicated; lobby ready.' },
-    { name: 'MatchInitialized',  category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'First countdown started.' },
-    { name: 'CountdownBegin',    category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'Round countdown began.' },
-    { name: 'RoundStarted',      category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'Active gameplay started (countdown ended).' },
-    { name: 'MatchPaused',       category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'Match paused by an admin.' },
-    { name: 'MatchUnpaused',     category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'Match resumed.' },
-    { name: 'GoalReplayStart',   category: 'replay',    shape: 'match',      livePhases: '*',                   desc: 'Goal replay began.' },
-    { name: 'GoalReplayWillEnd', category: 'replay',    shape: 'match',      livePhases: '*',                   desc: 'Ball exploded during replay (fires only if not skipped).' },
-    { name: 'GoalReplayEnd',     category: 'replay',    shape: 'match',      livePhases: '*',                   desc: 'Goal replay ended.' },
-    { name: 'MatchEnded',        category: 'lifecycle', shape: 'matchend',   livePhases: '*',                   desc: 'Match decided. Has WinnerTeamNum.' },
-    { name: 'PodiumStart',       category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'Game entered podium state.' },
-    { name: 'MatchDestroyed',    category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'Player left the match.' },
-    { name: 'ReplayCreated',     category: 'lifecycle', shape: 'match',      livePhases: '*',                   desc: 'Match-history replay loaded (NOT goal replays).' },
+    {
+      name: 'MatchCreated',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'All teams replicated; lobby ready.',
+    },
+    {
+      name: 'MatchInitialized',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'First countdown started.',
+    },
+    {
+      name: 'CountdownBegin',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Round countdown began.',
+    },
+    {
+      name: 'RoundStarted',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Active gameplay started (countdown ended).',
+    },
+    {
+      name: 'MatchPaused',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Match paused by an admin.',
+    },
+    {
+      name: 'MatchUnpaused',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Match resumed.',
+    },
+    {
+      name: 'GoalReplayStart',
+      category: 'replay',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Goal replay began.',
+    },
+    {
+      name: 'GoalReplayWillEnd',
+      category: 'replay',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Ball exploded during replay (fires only if not skipped).',
+    },
+    {
+      name: 'GoalReplayEnd',
+      category: 'replay',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Goal replay ended.',
+    },
+    {
+      name: 'MatchEnded',
+      category: 'lifecycle',
+      shape: 'matchend',
+      livePhases: '*',
+      desc: 'Match decided. Has WinnerTeamNum.',
+    },
+    {
+      name: 'PodiumStart',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Game entered podium state.',
+    },
+    {
+      name: 'MatchDestroyed',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Player left the match.',
+    },
+    {
+      name: 'ReplayCreated',
+      category: 'lifecycle',
+      shape: 'match',
+      livePhases: '*',
+      desc: 'Match-history replay loaded (NOT goal replays).',
+    },
   ];
 
   // Frozen views by category for the common "give me everything in group X" need.
@@ -1252,16 +1524,16 @@
   // stats.known.has(s.eventName) when filtering against the verified
   // set. (Adding it after Object.freeze would throw in strict mode.)
   const stats = {
-    SHOT:        'Shot',         // type: "Shot on Goal"
-    GOAL:        'Goal',         // also fires GoalScored
+    SHOT: 'Shot', // type: "Shot on Goal"
+    GOAL: 'Goal', // also fires GoalScored
     AERIAL_GOAL: 'AerialGoal',
-    LONG_GOAL:   'LongGoal',
+    LONG_GOAL: 'LongGoal',
     TURTLE_GOAL: 'TurtleGoal',
-    HAT_TRICK:   'HatTrick',     // 3+ goals by same player
-    SAVE:        'Save',
-    DEMOLISH:    'Demolish',     // secondaryTarget = demolished player
-    FLIP_RESET:  'FlipReset',
-    WIN:         'Win',
+    HAT_TRICK: 'HatTrick', // 3+ goals by same player
+    SAVE: 'Save',
+    DEMOLISH: 'Demolish', // secondaryTarget = demolished player
+    FLIP_RESET: 'FlipReset',
+    WIN: 'Win',
   };
   stats.known = new Set(Object.values(stats));
   Object.freeze(stats);
@@ -1316,11 +1588,14 @@
       const phaseGated = !opts || opts.phaseGated !== false;
       return (...args) => {
         if (phaseGated && !shouldFire(spec)) return;
-        try { return fn(...args); }
-        catch (e) { console.error('[RLT] plugin "' + spec.name + '" handler threw:', e); }
+        try {
+          return fn(...args);
+        } catch (e) {
+          console.error('[RLT] plugin "' + spec.name + '" handler threw:', e);
+        }
       };
     }
-    const gate    = (spec, fn) => wrap(spec, fn);
+    const gate = (spec, fn) => wrap(spec, fn);
     const isolate = (spec, fn) => wrap(spec, fn, { phaseGated: false });
 
     /**
@@ -1425,9 +1700,10 @@
           // raw-bus catchall — it doesn't add anything to the filter
           // (the catchall fires on whatever the bus already gets).
           if (evName !== '*') addEvent(evName);
-          const sub = (evName === '*')
-            ? bus.on('*', gate(spec, handler))
-            : eventsBus.on(evName, gate(spec, handler));
+          const sub =
+            evName === '*'
+              ? bus.on('*', gate(spec, handler))
+              : eventsBus.on(evName, gate(spec, handler));
           unsubs.push(sub);
         }
       }
@@ -1441,32 +1717,46 @@
       // with whilePhase: ['live'] would never see "match_active just
       // went false" because the destination phase is 'none'.)
       // isolate() gives them error/log handling without phase gating.
-      if (typeof spec.onMatch       === 'function') unsubs.push(match.onChange(gate(spec, spec.onMatch)));
-      if (typeof spec.onTick        === 'function') unsubs.push(match.onTick(gate(spec, spec.onTick)));
-      if (typeof spec.onIdentity    === 'function') unsubs.push(identity.onChange(gate(spec, spec.onIdentity)));
-      if (typeof spec.onEncounters  === 'function') unsubs.push(encounters.onChange(gate(spec, spec.onEncounters)));
-      if (typeof spec.onLifecycle   === 'function') unsubs.push(lifecycle.onChange(isolate(spec, spec.onLifecycle)));
-      if (typeof spec.onMatchActive === 'function') unsubs.push(lifecycle.onMatchActive(isolate(spec, spec.onMatchActive)));
-      if (typeof spec.onFocusChange === 'function') unsubs.push(focus.onChange(isolate(spec, spec.onFocusChange)));
+      if (typeof spec.onMatch === 'function') unsubs.push(match.onChange(gate(spec, spec.onMatch)));
+      if (typeof spec.onTick === 'function') unsubs.push(match.onTick(gate(spec, spec.onTick)));
+      if (typeof spec.onIdentity === 'function')
+        unsubs.push(identity.onChange(gate(spec, spec.onIdentity)));
+      if (typeof spec.onEncounters === 'function')
+        unsubs.push(encounters.onChange(gate(spec, spec.onEncounters)));
+      if (typeof spec.onLifecycle === 'function')
+        unsubs.push(lifecycle.onChange(isolate(spec, spec.onLifecycle)));
+      if (typeof spec.onMatchActive === 'function')
+        unsubs.push(lifecycle.onMatchActive(isolate(spec, spec.onMatchActive)));
+      if (typeof spec.onFocusChange === 'function')
+        unsubs.push(focus.onChange(isolate(spec, spec.onFocusChange)));
 
       const handle = {
         name,
         version: spec.version || pluginManifest?.version || null,
-        author:  spec.author  || pluginManifest?.author  || null,
-        title:   spec.title   || pluginManifest?.title   || null,
+        author: spec.author || pluginManifest?.author || null,
+        title: spec.title || pluginManifest?.title || null,
         manifest: pluginManifest,
-        get disposed() { return disposed; },
+        get disposed() {
+          return disposed;
+        },
         store: pluginStore,
         events: Object.keys(spec.events || {}),
         spec,
         dispose() {
           if (disposed) return;
           disposed = true;
-          for (const u of unsubs) { try { u(); } catch {} }
+          for (const u of unsubs) {
+            try {
+              u();
+            } catch {}
+          }
           unsubs.length = 0;
           if (typeof spec.dispose === 'function') {
-            try { spec.dispose(); }
-            catch (e) { console.error('[RLT] plugin "' + name + '" dispose threw:', e); }
+            try {
+              spec.dispose();
+            } catch (e) {
+              console.error('[RLT] plugin "' + name + '" dispose threw:', e);
+            }
           }
           const i = registry.indexOf(handle);
           if (i >= 0) registry.splice(i, 1);
@@ -1482,17 +1772,20 @@
         manifestPromise.then((m) => {
           if (!m || disposed) return;
           handle.manifest = m;
-          if (!spec.name)    handle.name    = m.name    || handle.name;
+          if (!spec.name) handle.name = m.name || handle.name;
           if (!spec.version) handle.version = m.version || handle.version;
-          if (!spec.author)  handle.author  = m.author  || handle.author;
-          if (!spec.title)   handle.title   = m.title   || handle.title;
+          if (!spec.author) handle.author = m.author || handle.author;
+          if (!spec.title) handle.title = m.title || handle.title;
         });
       }
 
       // init synchronously, ready when identity + encounters have loaded.
       if (typeof spec.init === 'function') {
-        try { spec.init(handle); }
-        catch (e) { console.error('[RLT] plugin "' + name + '" init threw:', e); }
+        try {
+          spec.init(handle);
+        } catch (e) {
+          console.error('[RLT] plugin "' + name + '" init threw:', e);
+        }
       }
       // Run spec.ready() exactly once, after both the identity record
       // and the encounter ledger have finished loading. Both stores
@@ -1506,8 +1799,11 @@
         if (!(identity.isReady() && encounters.isReady())) return;
         readyFired = true;
         if (typeof spec.ready === 'function') {
-          try { spec.ready(handle); }
-          catch (e) { console.error('[RLT] plugin "' + name + '" ready threw:', e); }
+          try {
+            spec.ready(handle);
+          } catch (e) {
+            console.error('[RLT] plugin "' + name + '" ready threw:', e);
+          }
         }
       };
       if (identity.isReady() && encounters.isReady()) {
@@ -1533,12 +1829,16 @@
       register,
       list() {
         return registry.map((h) => ({
-          name: h.name, version: h.version, author: h.author,
+          name: h.name,
+          version: h.version,
+          author: h.author,
           events: h.events.slice(),
           disposed: h.disposed,
         }));
       },
-      get(name) { return registry.find((h) => h.name === name) || null; },
+      get(name) {
+        return registry.find((h) => h.name === name) || null;
+      },
     };
   })();
 
@@ -1568,9 +1868,17 @@
 
   function teardownWatchers() {
     for (const w of activeWatchers) {
-      try { w.observer.disconnect(); } catch (_) { /* noop: already disposed */ }
+      try {
+        w.observer.disconnect();
+      } catch (_) {
+        /* noop: already disposed */
+      }
       for (const { type, fn } of w.listeners) {
-        try { document.removeEventListener(type, fn, true); } catch (_) { /* noop */ }
+        try {
+          document.removeEventListener(type, fn, true);
+        } catch (_) {
+          /* noop */
+        }
       }
     }
     activeWatchers.clear();
@@ -1588,7 +1896,10 @@
     const schedule = () => {
       if (pending) return;
       pending = true;
-      requestAnimationFrame(() => { pending = false; flush(); });
+      requestAnimationFrame(() => {
+        pending = false;
+        flush();
+      });
     };
 
     const observer = new ResizeObserver(schedule);
@@ -1609,7 +1920,7 @@
     // (Inter, Saira Condensed) shift name widths once they replace the
     // system fallback. Hook both signals.
     const listeners = [
-      { type: 'animationend',  fn: schedule },
+      { type: 'animationend', fn: schedule },
       { type: 'transitionend', fn: schedule },
     ];
     for (const { type, fn } of listeners) {
@@ -1626,9 +1937,17 @@
 
   function stopSizeWatcher(watcher) {
     if (!watcher) return;
-    try { watcher.observer.disconnect(); } catch (_) { /* noop */ }
+    try {
+      watcher.observer.disconnect();
+    } catch (_) {
+      /* noop */
+    }
     for (const { type, fn } of watcher.listeners) {
-      try { document.removeEventListener(type, fn, true); } catch (_) { /* noop */ }
+      try {
+        document.removeEventListener(type, fn, true);
+      } catch (_) {
+        /* noop */
+      }
     }
     activeWatchers.delete(watcher);
   }
@@ -1646,9 +1965,10 @@
   // (Tauri 2's invoke bridge). If it isn't present, we don't assume any
   // host capability.
   const widget = (function () {
-    const inTauri = typeof window !== 'undefined'
-      && !!window.__TAURI_INTERNALS__
-      && typeof window.__TAURI_INTERNALS__.invoke === 'function';
+    const inTauri =
+      typeof window !== 'undefined' &&
+      !!window.__TAURI_INTERNALS__ &&
+      typeof window.__TAURI_INTERNALS__.invoke === 'function';
 
     // One watcher per method. Restart calls dispose the previous watcher
     // so options take effect, instead of stacking observers.
@@ -1663,7 +1983,8 @@
     function invoke(cmd, args) {
       if (!inTauri) return Promise.resolve(false);
       try {
-        return window.__TAURI_INTERNALS__.invoke(cmd, args || {})
+        return window.__TAURI_INTERNALS__
+          .invoke(cmd, args || {})
           .then(() => true)
           .catch((e) => {
             console.warn('[RLT.widget]', cmd, 'failed:', e);
@@ -1677,7 +1998,9 @@
 
     return {
       /** True only when running inside the desktop widget (Tauri). */
-      isHosted() { return inTauri; },
+      isHosted() {
+        return inTauri;
+      },
 
       /** Resize the host window. width/height in CSS (logical) pixels. */
       size(width, height) {
@@ -1728,17 +2051,18 @@
       autoSize(enabled, opts) {
         if (!inTauri) return false;
         opts = opts || {};
-        const minW = (opts.minWidth  | 0) || 1;
-        const minH = (opts.minHeight | 0) || 1;
-        const maxW = (opts.maxWidth  | 0) || 4096;
-        const maxH = (opts.maxHeight | 0) || 4096;
+        const minW = opts.minWidth | 0 || 1;
+        const minH = opts.minHeight | 0 || 1;
+        const maxW = opts.maxWidth | 0 || 4096;
+        const maxH = opts.maxHeight | 0 || 4096;
 
         // Tear down any previous watcher so new opts take effect.
         stopSizeWatcher(autoSizeWatcher);
         autoSizeWatcher = null;
         if (!enabled) return true;
 
-        let lastW = -1, lastH = -1;
+        let lastW = -1,
+          lastH = -1;
         const flush = () => {
           const el = resolveTarget(opts.target);
           if (!el) return;
@@ -1750,7 +2074,8 @@
           const w = Math.max(minW, Math.min(maxW, Math.ceil(r.width)));
           const h = Math.max(minH, Math.min(maxH, Math.ceil(r.height)));
           if (w === lastW && h === lastH) return;
-          lastW = w; lastH = h;
+          lastW = w;
+          lastH = h;
           invoke('widget_size', { width: w, height: h });
         };
 
@@ -1780,8 +2105,8 @@
       fitWidth(opts) {
         if (!inTauri) return false;
         opts = opts || {};
-        const maxW  = (opts.maxWidth | 0) || 800;
-        const extra = (opts.extra    | 0) || 0;
+        const maxW = opts.maxWidth | 0 || 800;
+        const extra = opts.extra | 0 || 0;
 
         // Restart cleanly with new opts; high-water mark is preserved on
         // module-level `fitWidthHighWater` so retoggling doesn't shrink.
@@ -1837,7 +2162,9 @@
     return {
       /** Subscribe to focus-change events. fn receives a boolean (true =
        *  game is foreground, false = not). Returns an unsub function. */
-      onChange(fn) { return ev.on('change', fn); },
+      onChange(fn) {
+        return ev.on('change', fn);
+      },
     };
   })();
 
@@ -1857,20 +2184,29 @@
   const STATUS_DOWN_DEBOUNCE_MS = 3000;
   const statusStableState = (function () {
     const ev = emitter();
-    let stable = status;        // mirrors the raw status until a debounce defers it
-    let pending = null;         // pending downgrade timer
+    let stable = status; // mirrors the raw status until a debounce defers it
+    let pending = null; // pending downgrade timer
 
     bus.on('_status', (s) => {
       if (s === 'connected') {
         // Cancel any pending downgrade and reflect the good state now.
-        if (pending) { clearTimeout(pending); pending = null; }
-        if (stable !== s) { stable = s; ev.emit('change', stable); }
+        if (pending) {
+          clearTimeout(pending);
+          pending = null;
+        }
+        if (stable !== s) {
+          stable = s;
+          ev.emit('change', stable);
+        }
         return;
       }
       // Already in a non-connected state? Update label immediately so
       // a connecting → disconnected progression is still visible.
       if (stable !== 'connected') {
-        if (stable !== s) { stable = s; ev.emit('change', stable); }
+        if (stable !== s) {
+          stable = s;
+          ev.emit('change', stable);
+        }
         return;
       }
       // Currently stable on 'connected'; defer the downgrade. Latest
@@ -1878,19 +2214,26 @@
       if (pending) clearTimeout(pending);
       pending = setTimeout(() => {
         pending = null;
-        if (stable !== s) { stable = s; ev.emit('change', stable); }
+        if (stable !== s) {
+          stable = s;
+          ev.emit('change', stable);
+        }
       }, STATUS_DOWN_DEBOUNCE_MS);
     });
 
     return {
-      get() { return stable; },
-      onChange(fn) { return ev.on('change', fn); },
+      get() {
+        return stable;
+      },
+      onChange(fn) {
+        return ev.on('change', fn);
+      },
     };
   })();
 
   // ─── Public API ────────────────────────────────────────────
   window.RLT = {
-    plugin: plugin,         // registration API; .name kept below for back-compat
+    plugin: plugin, // registration API; .name kept below for back-compat
     pluginName: pluginName, // explicit name accessor
     // Plugin manifest, fetched once at startup from /api/plugins.
     // Synchronous read returns null until the fetch resolves (typically
@@ -1900,7 +2243,11 @@
     pluginManifest: () => pluginManifest,
     onManifest: (fn) => {
       if (manifestLoaded) {
-        try { fn(pluginManifest); } catch (e) { console.error('[RLT] onManifest threw:', e); }
+        try {
+          fn(pluginManifest);
+        } catch (e) {
+          console.error('[RLT] onManifest threw:', e);
+        }
         return () => {};
       }
       manifestSubs.add(fn);
@@ -1944,7 +2291,11 @@
   // browser's auto-reconnect is stuck after a long sleep/wake cycle.
   window.RLT._reconnect = function () {
     if (es) {
-      try { es.close(); } catch { /* noop: already-closed sockets throw */ }
+      try {
+        es.close();
+      } catch {
+        /* noop: already-closed sockets throw */
+      }
       es = null;
     }
     connect();
