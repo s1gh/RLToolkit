@@ -13,6 +13,7 @@
     "offset_y": 12,
     "opacity": 1,
     "click_through": true,
-    "hide_when_unfocused": true
+    "hide_when_unfocused": true,
+    "show_during_phase": ["countdown", "live", "paused", "replay"]
   }
 }

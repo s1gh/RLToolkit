@@ -33,6 +33,14 @@ type OverlayConfig struct {
 	// current default (false; show always). Explicit false locks that
 	// behavior even if the SDK default flips later.
 	HideWhenUnfocused *bool `json:"hide_when_unfocused,omitempty"`
+	// ShowDuringPhase whitelists lifecycle phases during which the
+	// widget is visible. Combines with HideWhenUnfocused via AND: the
+	// widget shows only when RL is focused AND the current phase is in
+	// the list. Absent (nil) = show in any phase. Empty array would
+	// mean "never", so we treat that as the absent case to be safe.
+	// Phase strings match LifecyclePhase: none, created, countdown,
+	// live, paused, replay, ended, podium.
+	ShowDuringPhase []string `json:"show_during_phase,omitempty"`
 }
 
 // PluginManager scans the plugin directory and serves manifest listings.

@@ -75,15 +75,18 @@
     if (!w) {
       const f = document.createElement('iframe');
       f.className = 'pf';
-      // hide_when_unfocused: forwarded as a URL flag so the SDK can
-      // synchronously default-hide the body before first paint, no
-      // manifest-fetch race. Editor preview deliberately does NOT
-      // forward this flag — the user is editing in the dashboard tab
-      // where RL isn't focused, and hiding every widget there makes
-      // the editor unusable.
+      // hide_when_unfocused / show_during_phase: forwarded as URL flags
+      // so the SDK can synchronously default-hide the body before first
+      // paint, no manifest-fetch race. Editor preview deliberately does
+      // NOT forward these — the user is editing in the dashboard tab
+      // where RL isn't focused and there's no real lifecycle phase, so
+      // hiding every widget there makes the editor unusable.
       let src = '/plugins/' + plugin.name + '/' + overlay.file +
                 '?overlay=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
       if (overlay.hide_when_unfocused) src += '&hide_when_unfocused=1';
+      if (Array.isArray(overlay.show_during_phase) && overlay.show_during_phase.length) {
+        src += '&phases=' + encodeURIComponent(overlay.show_during_phase.join(','));
+      }
       f.src = src;
       f.setAttribute('allowtransparency', 'true');
       f.setAttribute('frameborder', '0');

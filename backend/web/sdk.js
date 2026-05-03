@@ -131,18 +131,31 @@
   // "flush bottom-left of the iframe", regardless of how big the plugin's
   // content is. No plugin code required.
   //
-  // hide_when_unfocused (URL flag forwarded by the overlay host from the
-  // manifest): when present, default-hide the entire body until the host
-  // signals RL is foreground. Implemented at the SDK level so plugins
-  // don't have to hand-roll the same init/onFocusChange dance every time.
-  // Editor preview never sets this flag — the user is editing in the
-  // dashboard tab where RL isn't focused.
+  // hide_when_unfocused / show_during_phase (URL flags forwarded by the
+  // overlay host from the manifest): when present, default-hide the
+  // entire body until the host signals BOTH that RL is foreground AND
+  // that the current lifecycle phase is in the allowed set. The two
+  // gates AND together — a plugin opted into both must clear both to
+  // appear. Implemented at the SDK level so plugins don't hand-roll
+  // the same init/onFocusChange/onPhase dance every time.
+  //
+  // Editor preview never sets these flags — the user is editing in the
+  // dashboard tab where RL isn't focused and there's no live phase, so
+  // hiding every widget there would make the editor unusable.
   let overlayHideWhenUnfocused = false;
+  let overlayPhaseGate = null; // null = no gate; Set<string> = whitelist
   try {
     const params = new URLSearchParams(location.search);
     const inOverlay = params.has('overlay');
     const anchor = params.get('anchor') || 'top-left';
     overlayHideWhenUnfocused = inOverlay && params.has('hide_when_unfocused');
+    if (inOverlay && params.has('phases')) {
+      const list = (params.get('phases') || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (list.length) overlayPhaseGate = new Set(list);
+    }
     if (inOverlay) {
       const vAlign = anchor.indexOf('bottom') >= 0 ? 'flex-end' : 'flex-start';
       const hAlign = anchor.indexOf('right') >= 0 ? 'flex-end' : 'flex-start';
@@ -163,12 +176,13 @@
         body.style.minHeight = '100%';
         body.style.height = '100%';
         body.style.width = '100%';
-        // Pin content to the manifest's anchor corner. When hide-when-
-        // unfocused is on, start with display:none so nothing paints
-        // before the first onFocusChange(true) emit; the focus subscriber
-        // below restores 'flex' on activation. Otherwise apply 'flex'
-        // immediately (the default behavior every plugin already had).
-        body.style.display = overlayHideWhenUnfocused ? 'none' : 'flex';
+        // Pin content to the manifest's anchor corner. If either gate
+        // is on (hide-when-unfocused or show-during-phase), start with
+        // display:none so nothing paints before the gates clear; the
+        // combined subscriber below restores 'flex' once both pass.
+        // Otherwise apply 'flex' immediately (default behavior).
+        const gated = overlayHideWhenUnfocused || overlayPhaseGate !== null;
+        body.style.display = gated ? 'none' : 'flex';
         body.style.flexDirection = 'column';
         body.style.alignItems = hAlign;
         body.style.justifyContent = vAlign;
@@ -2204,23 +2218,47 @@
     };
   })();
 
-  // ─── hide_when_unfocused: SDK-side body toggle ──────────────
-  // When the manifest opts in (URL flag set by the overlay host), the
-  // SDK already started with body { display: none } in the bootstrap
-  // above. Here we wire focus changes to toggle inline display so the
-  // widget appears on RL foreground and disappears on blur. Plugins
-  // get this for free — no init() default-hide, no onFocusChange
-  // handler needed in plugin code.
+  // ─── Overlay visibility gates: SDK-side body toggle ─────────
+  // When the manifest opts into hide_when_unfocused and/or
+  // show_during_phase, the SDK already started with body {display:none}
+  // in the bootstrap above. Here we wire both signals to toggle inline
+  // display whenever either gate's state changes, with the combined
+  // predicate `focusOK && phaseOK`. Plugins get this for free — no
+  // init() default-hide, no onFocusChange or phase handlers needed.
   //
-  // We restore display to 'flex' on activate (the value the overlay
-  // bootstrap would have set without the hide flag) so the existing
-  // anchor-corner pinning continues to work unchanged.
-  if (overlayHideWhenUnfocused) {
-    focus.onChange((active) => {
+  // We restore display to 'flex' (the value the overlay bootstrap would
+  // have set without gating) so anchor-corner pinning keeps working.
+  //
+  // The host's focus watcher is edge-triggered (only emits on
+  // transitions). focus starts at "unknown" — we treat it as false
+  // until the first emit, so a plugin that mounts before RL gains focus
+  // stays hidden until the first onFocusChange(true).
+  if (overlayHideWhenUnfocused || overlayPhaseGate !== null) {
+    let focusOK = !overlayHideWhenUnfocused; // not gating? always pass
+    const phasePass = (p) => !overlayPhaseGate || overlayPhaseGate.has(p);
+    let phaseOK = phasePass(lifecycle.phase);
+
+    const repaint = () => {
       const body = document.body;
       if (!body) return;
-      body.style.display = active ? 'flex' : 'none';
-    });
+      body.style.display = focusOK && phaseOK ? 'flex' : 'none';
+    };
+
+    if (overlayHideWhenUnfocused) {
+      focus.onChange((active) => {
+        focusOK = !!active;
+        repaint();
+      });
+    }
+    if (overlayPhaseGate !== null) {
+      lifecycle.onChange((newPhase) => {
+        phaseOK = phasePass(newPhase);
+        repaint();
+      });
+    }
+    // Initial paint — handles the case where lifecycle.phase already
+    // matches at bootstrap time (e.g. plugin loaded mid-match).
+    repaint();
   }
 
   // ─── Stable connection status ──────────────────────────────
