@@ -553,7 +553,7 @@ const settingsModalFrame = document.getElementById('settings-modal-frame');
 
 function openSettingsModal(pluginName) {
   const p = plugins.find(x => x.name === pluginName);
-  if (!p || !p.settings) return;
+  if (!p?.settings) return;
   const customTitle = (typeof p.settings === 'object' && p.settings.title) ? p.settings.title : null;
   settingsModalTitle.textContent = customTitle || ((p.title || p.name) + ' — Settings');
   const overlayFile = p.overlay?.file || 'overlay.html';

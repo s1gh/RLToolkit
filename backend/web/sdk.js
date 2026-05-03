@@ -2344,7 +2344,7 @@
       if (window.parent && window.parent !== window) {
         try {
           window.parent.postMessage({ type: 'rlt:settings:close' }, location.origin);
-        } catch (e) {
+        } catch {
           // Cross-origin parent or postMessage rejection — ignore.
         }
       }

@@ -220,7 +220,7 @@
           upload.addEventListener('change', () => {
             uploadErr.hidden = true;
             uploadErr.textContent = '';
-            const file = upload.files && upload.files[0];
+            const file = upload.files?.[0];
             if (!file) return;
             if (file.size > MAX_CUSTOM_BYTES) {
               uploadErr.hidden = false;
