@@ -144,7 +144,8 @@ Two things to notice:
 1. **`<script src="/sdk.js" data-plugin="my-plugin">`** loads the SDK and tells it which plugin namespace to scope storage to. The `data-plugin` attribute should match the manifest `name`.
 2. **`RLT.plugin.register({...})`** is how you wire up handlers. The SDK
    takes care of subscriptions, error isolation, lifecycle gating, and
-   teardown.
+   teardown — and reads your plugin's name, version, and author from
+   `manifest.json` so you don't repeat them here.
 
 You **don't** need to subscribe to the SSE stream yourself. You can — it's
 just `new EventSource('/events')` — but the typed `RLT` API is friendlier
@@ -161,9 +162,6 @@ the catalog and whose values are functions.
 
 ```js
 RLT.plugin.register({
-  name: 'my-plugin',
-  version: '0.1.0',
-
   events: {
     GoalScored(g)      { /* ... */ },
     BallHit(hit)       { /* ... */ },
@@ -174,6 +172,29 @@ RLT.plugin.register({
   },
 });
 ```
+
+> **Plugin metadata comes from `manifest.json`.** Don't repeat `name`,
+> `version`, `author`, or `title` in the `register()` call — the SDK
+> reads them from the manifest the toolkit already serves at
+> `/api/plugins`, so a single source of truth keeps both sides in sync.
+> The handle returned by `register()` exposes the resolved values:
+> `handle.name`, `handle.version`, `handle.author`, `handle.title`,
+> plus the full `handle.manifest` object. You can also access the
+> manifest globally via `RLT.pluginManifest()` (synchronous; returns
+> `null` until the fetch resolves) or `RLT.onManifest(fn)` (fires
+> exactly once when ready). Pass `name`/`version`/`author`/`title` on
+> the spec only when you genuinely need to override the manifest —
+> e.g. tests or dynamically registered plugins.
+>
+> **A valid `manifest.json` is required.** The toolkit's HTTP server
+> blocks requests under `/plugins/<name>/...` when the named plugin
+> has no manifest or the manifest fails to parse — the response is a
+> plain 404 and the watch log shows `[plugins] Bad manifest in <name>:
+> ...`. Fix the manifest and the next request goes through (no server
+> restart needed). The SDK still works in *out-of-toolkit* hosting
+> (e.g. you embed `/sdk.js` from a page on a different origin); in
+> that case `handle.name` falls back to the `data-plugin` attribute
+> or the URL path segment, and `version`/`author`/`title` are `null`.
 
 Handlers are wrapped in `try/catch` automatically — a thrown error in
 your plugin won't take down anyone else's.
@@ -384,6 +405,7 @@ raw RL fields with derived data so you don't re-implement lookups.
   name:           'Squishy Muffinz',
   team:           0,                             // 0 = blue, 1 = orange
   isMe:           false,                         // matches the user's claimed identity
+  isBot:          false,                         // CPU-controlled (RL ships every bot under one sentinel id)
   score:          487,
   goals:          1,
   assists:        2,
@@ -895,9 +917,15 @@ RLT.encounters.get('Steam|76561...|0');
 
 RLT.encounters.all();                  // every record
 RLT.encounters.onChange((map) => {});  // ledger updated
+
+RLT.encounters.isBotId('Unknown|0|0'); // true — same check as Player.isBot,
+                                       // useful when iterating the raw map
+                                       // (Object.entries(encounters.all())).
 ```
 
-Players in `m.players` already carry `encounterCount` and `aliases`.
+Players in `m.players` already carry `encounterCount`, `aliases`, and `isBot`.
+Prefer `p.isBot` over comparing `id` strings — the SDK abstracts RL's
+sentinel format so plugins don't break if it changes.
 
 ---
 
@@ -905,7 +933,11 @@ Players in `m.players` already carry `encounterCount` and `aliases`.
 
 ```js
 RLT.ui.esc(str);            // HTML-escape a string for innerHTML
-RLT.ui.platformIcon(id);    // SVG <path d=...> for Steam/Epic/PSN/Xbox/Switch
+RLT.ui.platformIcon('Steam'); // SVG markup for a platform brand icon
+RLT.ui.playerIcon(p);         // Like platformIcon, but returns a CPU
+                              // icon for bots — prefer this for player
+                              // rows so AI players don't render a blank
+                              // icon slot.
 ```
 
 Design tokens are exposed via `/sdk.css` — use them so your plugin
@@ -974,7 +1006,14 @@ register additional plugins dynamically.
 
 - **Connection state:** `RLT.status()` returns `'connected'` |
   `'connecting'` | `'disconnected'`. Subscribe with
-  `RLT.onStatus(s => ...)`.
+  `RLT.onStatus(s => ...)`. The toolkit's connection to Rocket League
+  cycles every 30s of menu idle by design (TCP idle-timeout reconnect),
+  so this signal will flip connected → connecting → connected several
+  times per session even when nothing is wrong. For visible UI that
+  surfaces "are we live?", prefer the **debounced** view:
+  `RLT.statusStable()` and `RLT.onStatusStable(s => ...)` — same values,
+  but brief reconnect cycles never cross the threshold to non-connected.
+  Coming back to `connected` is instant in both views.
 - **List registered plugins:** `RLT.plugin.list()` in the console.
 - **Force reconnect:** `RLT._reconnect()` if the SSE stream gets stuck.
 - **Inspect every event:** drop a `'*'(name, p)` handler in your `events`
@@ -1031,9 +1070,9 @@ Here's a working "last goal speed" overlay in one file:
     // g.goalSpeed is already in km/h despite what RL's spec text says —
     // see the "Speed units, the messy truth" note above.
 
+    // Name + version come from manifest.json automatically; we only
+    // declare runtime behaviour here.
     RLT.plugin.register({
-      name:    'last-goal-speed',
-      version: '0.1.0',
       whilePhase: ['live', 'replay'],
 
       events: {

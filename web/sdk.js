@@ -41,6 +41,9 @@
  * @version 1
  */
 (function () {
+  // sdk.js is loaded as a classic <script>, not an ES module — the
+  // IIFE-scoped strict mode is intentional and not redundant.
+  // biome-ignore lint/suspicious/noRedundantUseStrict: classic script
   'use strict';
 
   if (window.RLT) return; // idempotent — second include is a no-op
@@ -52,7 +55,7 @@
   let pluginName = 'unknown';
   try {
     const cur = document.currentScript;
-    if (cur && cur.dataset && cur.dataset.plugin) {
+    if (cur?.dataset?.plugin) {
       pluginName = cur.dataset.plugin;
     } else {
       const m = location.pathname.match(/\/plugins\/([^/]+)\//);
@@ -63,6 +66,56 @@
     // null when the SDK is loaded as a module or via dynamic import,
     // and location.pathname is unreadable in some sandboxed contexts.
   }
+
+  // ─── Manifest discovery ────────────────────────────────────
+  // Fetch the plugin's manifest at startup so register() can default
+  // name/version/author from the single source of truth (the manifest
+  // file the toolkit's server already reads). Plugin code can then
+  // call `RLT.plugin.register({ init, events, ... })` with no metadata
+  // duplication.
+  //
+  // The fetch is async; register() may run before it resolves. In that
+  // case the handle's metadata fields start with whatever spec/fallback
+  // values were known synchronously, then get patched in-place once the
+  // manifest arrives. Plugin handlers don't depend on these fields, so
+  // the patch-after-the-fact is invisible.
+  let pluginManifest = null;
+  let manifestLoaded = false;       // distinguishes "still fetching" from "fetched, no entry"
+  const manifestSubs = new Set();
+  function finalizeManifest(m) {
+    pluginManifest = m;
+    manifestLoaded = true;
+    if (!m && pluginName !== 'unknown') {
+      // The server-side requireManifest middleware rejects requests for
+      // any plugin without a valid manifest, so reaching this branch
+      // typically means the plugin's HTML is hosted *outside* the
+      // toolkit (e.g. served from another origin while still importing
+      // /sdk.js). The runtime keeps working with fallback metadata,
+      // but the toolkit's discoverability surface (dashboard list,
+      // unified overlay) won't see it.
+      console.warn(
+        '[RLT] no manifest matched plugin name "' + pluginName +
+        '" via /api/plugins. The SDK will use fallback metadata. ' +
+        'If this plugin is hosted by the toolkit, ensure plugins/' +
+        pluginName + '/manifest.json exists and parses.'
+      );
+    }
+    for (const fn of manifestSubs) {
+      try { fn(pluginManifest); } catch (e) { console.error('[RLT] onManifest threw:', e); }
+    }
+    manifestSubs.clear();
+  }
+  const manifestPromise = fetch('/api/plugins')
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => {
+      finalizeManifest((list || []).find((p) => p?.name === pluginName) || null);
+      return pluginManifest;
+    })
+    .catch((e) => {
+      console.warn('[RLT] manifest fetch failed:', e);
+      finalizeManifest(null);
+      return null;
+    });
 
   // ─── Overlay sizing + anchor honoring ──────────────────────
   // When the page is loaded inside the composite overlay's iframe, the
@@ -204,10 +257,13 @@
     // the prior one is CLOSED — that catches the race between onerror
     // firing and the addEvent path also calling connect().
     //   readyState: 0=CONNECTING, 1=OPEN, 2=CLOSED
-    if (es && es.readyState !== 2) return;
-    es = null;
+    // Already have a healthy (or still-connecting) socket? Nothing to do.
+    if (es !== null && es.readyState !== 2) return;
     es = new EventSource(buildEventsURL());
     es.onmessage = (e) => {
+      // Any message proves the link is alive — cancel a pending
+      // disconnect-watchdog if one was armed by a recent onerror.
+      clearReconnectWatchdog();
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.Event === '_ConnectionStatus') {
@@ -235,13 +291,48 @@
       // 'disconnected' to plugins if the connection is truly CLOSED, so we
       // don't churn plugin state on every blip.
       //   readyState: 0=CONNECTING, 1=OPEN, 2=CLOSED
-      if (es && es.readyState === 2) {
+      if (es !== null && es.readyState === 2) {
+        status = 'disconnected';
+        bus.emit('_status', status);
+        return;
+      }
+      // While CONNECTING (auto-reconnect in flight), most browsers stay in
+      // this state forever when the server is unreachable — they don't
+      // transition to CLOSED. Without a watchdog, the SDK would never
+      // emit 'disconnected' for a stopped server. Arm a timer; if the
+      // connection comes back (onmessage fires, see clearReconnectWatchdog
+      // below) we cancel it. If it doesn't, we declare the link dead.
+      armReconnectWatchdog();
+    };
+  }
+
+  // Watchdog: when EventSource is stuck in CONNECTING after an error, we
+  // give the browser a window to recover. If a real message (or
+  // server-sent _ConnectionStatus) arrives, the watchdog is cancelled
+  // and status reflects whatever the server said. Otherwise we mark the
+  // link disconnected so plugin UI doesn't lie about being live.
+  //
+  // The window is 2× sseHeartbeat (server pings every 15s) so a single
+  // missed ping doesn't trip the watchdog — only a sustained silence.
+  const RECONNECT_WATCHDOG_MS = 30000;
+  let reconnectWatchdog = null;
+  function armReconnectWatchdog() {
+    if (reconnectWatchdog) return;
+    reconnectWatchdog = setTimeout(() => {
+      reconnectWatchdog = null;
+      // Only emit if we haven't recovered in the meantime. Recovery is
+      // detected by a real message arriving (clearReconnectWatchdog
+      // is called from the onmessage path).
+      if (es !== null && es.readyState !== 1 && status !== 'disconnected') {
         status = 'disconnected';
         bus.emit('_status', status);
       }
-      // While CONNECTING (auto-reconnect in flight), stay quiet — the next
-      // _ConnectionStatus message from the server will refresh status.
-    };
+    }, RECONNECT_WATCHDOG_MS);
+  }
+  function clearReconnectWatchdog() {
+    if (!reconnectWatchdog) return;
+    clearTimeout(reconnectWatchdog);
+    reconnectWatchdog = null;
   }
 
   // Close the SSE connection cleanly before the page unloads. Without this,
@@ -257,6 +348,7 @@
       try { es.close(); } catch (_) { /* noop: already-closed sockets throw */ }
       es = null;
     }
+    clearReconnectWatchdog();
     // Tear down widget-watcher observers + their document listeners so
     // bfcache restores don't end up with stale closures referencing a
     // disposed flush() function.
@@ -271,7 +363,7 @@
       const r = await fetch('/api/data/' + ns + (key ? '/' + key : ''));
       if (!r.ok) return null;
       return await r.json();
-    } catch (e) { return null; }
+    } catch { return null; }
   }
   async function storeSet(ns, key, val) {
     try {
@@ -281,13 +373,13 @@
         body: JSON.stringify(val),
       });
       return true;
-    } catch (e) { return false; }
+    } catch { return false; }
   }
   async function storeDelete(ns, key) {
     try {
       await fetch('/api/data/' + ns + '/' + key, { method: 'DELETE' });
       return true;
-    } catch (e) { return false; }
+    } catch { return false; }
   }
 
   // Debounced writer to avoid hammering the disk on rapid changes.
@@ -313,6 +405,16 @@
     };
   }
 
+  // ─── Bot detection ─────────────────────────────────────────
+  // RL ships every CPU-controlled player under the same sentinel
+  // PrimaryId. We don't try to fingerprint individual bots — they share
+  // one record in the ledger and one row in any roster scan. Plugins
+  // should treat `Player.isBot` as the canonical check; the literal
+  // string below is internal and may change if RL ever revises its
+  // wire format.
+  const BOT_PRIMARY_ID = 'Unknown|0|0';
+  function isBotId(id) { return id === BOT_PRIMARY_ID; }
+
   // ─── Identity (shared across all plugins) ──────────────────
   const identity = (function () {
     const ev = emitter();
@@ -323,7 +425,7 @@
       // Important distinction: a stored record with my_id === '' means
       // the user explicitly cleared their identity — respect it. Only
       // attempt the legacy migration when there is NO record yet at all.
-      let cfg = await storeGet('_rlt', 'identity');
+      const cfg = await storeGet('_rlt', 'identity');
       if (cfg && typeof cfg.my_id === 'string') {
         myId = cfg.my_id;
       } else {
@@ -331,7 +433,7 @@
         // Always write back (even if empty) so subsequent loads take
         // the fast path and never look at the legacy slot again.
         const legacy = await storeGet('dejavu', 'config');
-        if (legacy && legacy.my_id) {
+        if (legacy?.my_id) {
           myId = legacy.my_id;
         }
         await storeSet('_rlt', 'identity', { my_id: myId });
@@ -363,7 +465,7 @@
   // ─── Encounter ledger (shared across all plugins) ──────────
   const encounters = (function () {
     const ev = emitter();
-    let map = {};                 // PrimaryId -> { names, count, first_seen, last_seen, matches, wins, losses }
+    let map = {};                 // PrimaryId -> { names, count, first_seen, last_seen, matches }
     let loaded = false;
     const persistShared = debouncedWriter('_rlt', 'encounters', () => map, 1500);
 
@@ -380,7 +482,7 @@
           // some users have in their existing data).
           for (const id of Object.keys(map)) {
             const e = map[id];
-            const truth = Math.max(1, ((e && e.matches) || []).length);
+            const truth = Math.max(1, (e?.matches || []).length);
             if ((e.count || 0) !== truth) e.count = truth;
           }
           await storeSet('_rlt', 'encounters', map);
@@ -399,7 +501,7 @@
       if (!id) return false;
       const now = new Date().toISOString();
       if (!map[id]) {
-        map[id] = { names: [name], count: 1, first_seen: now, last_seen: now, matches: [guid], wins: 0, losses: 0 };
+        map[id] = { names: [name], count: 1, first_seen: now, last_seen: now, matches: [guid] };
         ev.emit('change', map);
         persistShared();
         return true;
@@ -422,27 +524,17 @@
       return true;
     }
 
-    // Apply a per-player W/L delta. Lazy-upgrades legacy records that
-    // predate the wins/losses fields (treat absent as 0). Caller is
-    // responsible for dedup — this method blindly increments.
-    function recordOutcome(id, won) {
-      if (!id) return;
-      const e = map[id];
-      if (!e) return; // outcome only meaningful for already-seen players
-      if (typeof e.wins   !== 'number') e.wins   = 0;
-      if (typeof e.losses !== 'number') e.losses = 0;
-      if (won) e.wins++; else e.losses++;
-      ev.emit('change', map);
-      persistShared();
-    }
-
     return {
       get(id) { return map[id] || null; },
       all() { return Object.assign({}, map); },
+      // Whether a ledger key (or any RL PrimaryId) refers to the
+      // aggregate-bot record. Use this when iterating the raw ledger
+      // — for live-roster players, `Player.isBot` is shorter and the
+      // canonical check.
+      isBotId,
       isReady() { return loaded; },
       onChange(fn) { return ev.on('change', fn); },
       _record: record,
-      _recordOutcome: recordOutcome,
     };
   })();
 
@@ -460,7 +552,6 @@
     const ev = emitter();
     let cur = null;       // null when no match
     let lastFingerprint = '';
-    let lastFinalizedGuid = null;  // last guid we recorded W/L for (dedup)
     // Phases where the player is actually engaged in a match — kickoff
     // through final whistle. Lobby/menu phases are excluded so a player
     // who dodges before countdown doesn't get counted. Late-joiners and
@@ -480,6 +571,7 @@
           id, name,
           team: p.TeamNum,
           isMe: identity._isMe(id),
+          isBot: isBotId(id),
           score: p.Score | 0,
           goals: p.Goals | 0,
           assists: p.Assists | 0,
@@ -532,7 +624,7 @@
       // Normalize Game.Teams into lowercase-keyed entries plus blue/orange
       // split shortcuts. ColorPrimary/ColorSecondary are raw hex strings
       // (no '#' prefix) — plugins prepend '#' when applying.
-      const teams = game && Array.isArray(game.Teams)
+      const teams = Array.isArray(game?.Teams)
         ? game.Teams
             .filter((t) => t && typeof t.TeamNum === 'number')
             .map((t) => ({
@@ -565,15 +657,15 @@
         game,
         arena: game ? (game.Arena || '').replace(/_P$/, '').replace(/_/g, ' ') : '',
         clockSeconds: game ? (game.TimeSeconds | 0) : null,
-        overtime: !!(game && game.bOvertime),
+        overtime: !!game?.bOvertime,
         // bReplay covers both goal replays and history replays — the
         // authoritative way to detect either, instead of inferring from
         // GoalReplayStart/End edges.
-        replay:     !!(game && game.bReplay),
-        hasWinner:  !!(game && game.bHasWinner),
+        replay:     !!game?.bReplay,
+        hasWinner:  !!game?.bHasWinner,
         winner:     game ? (game.Winner || '') : '',
-        scoreBlue:   game && game.Teams ? ((game.Teams.find((t) => t.TeamNum === 0) || game.Teams[0] || {}).Score | 0) : 0,
-        scoreOrange: game && game.Teams ? ((game.Teams.find((t) => t.TeamNum === 1) || game.Teams[1] || {}).Score | 0) : 0,
+        scoreBlue:   game?.Teams ? ((game.Teams.find((t) => t.TeamNum === 0) || game?.Teams?.[0] || {}).Score | 0) : 0,
+        scoreOrange: game?.Teams ? ((game.Teams.find((t) => t.TeamNum === 1) || game?.Teams?.[1] || {}).Score | 0) : 0,
         // Normalized team metadata: full array plus blue/orange shortcuts
         // (mirroring the existing match.blue / match.orange split).
         teams,
@@ -584,7 +676,7 @@
         // pattern used elsewhere in the SDK. TeamNum 255 is the API's
         // "ball has not been touched yet" sentinel; lastTouchTeam
         // normalizes it to null so plugins don't have to remember.
-        ball: (game && game.Ball) ? {
+        ball: game?.Ball ? {
           speed: typeof game.Ball.Speed === 'number' ? game.Ball.Speed : null,
           teamNum: typeof game.Ball.TeamNum === 'number' ? game.Ball.TeamNum : null,
           lastTouchTeam: (typeof game.Ball.TeamNum === 'number' && game.Ball.TeamNum !== 255)
@@ -593,7 +685,7 @@
           raw: game.Ball,
         } : null,
         // Spectator camera target — only meaningful when bHasTarget.
-        target: game && game.bHasTarget ? (game.Target || null) : null,
+        target: game?.bHasTarget ? (game.Target || null) : null,
         raw: d,
       };
     }
@@ -642,35 +734,12 @@
     });
 
     function clear() {
-      lastFinalizedGuid = null;
       if (!cur) return;
       cur = null;
       lastFingerprint = '';
       ev.emit('change', null);
       ev.emit('tick', null);
     }
-
-    // Commit W/L exactly once per match. Requires:
-    //   - the user has claimed identity AND has a known team in the
-    //     current roster (otherwise we can't determine outcome),
-    //   - WinnerTeamNum is present on the event,
-    //   - the current match guid hasn't been finalized already.
-    bus.on('MatchEnded', (d) => {
-      if (!d || !cur) return;
-      if (lastFinalizedGuid === cur.guid) return;
-      const winnerTeam = (typeof d.WinnerTeamNum === 'number') ? d.WinnerTeamNum : null;
-      if (winnerTeam === null) return;
-      const me = cur.players.find((p) => p.isMe);
-      if (!me || typeof me.team !== 'number') return;
-      const won = me.team === winnerTeam;
-      const seen = new Set();
-      for (const p of cur.players) {
-        if (!p.id || seen.has(p.id)) continue;
-        seen.add(p.id);
-        encounters._recordOutcome(p.id, won);
-      }
-      lastFinalizedGuid = cur.guid;
-    });
 
     bus.on('MatchDestroyed', clear);
     bus.on('_status', (s) => { if (s === 'disconnected') clear(); });
@@ -704,6 +773,11 @@
     playstation: 'M8.984 2.596v17.547l3.915 1.261V6.688c0-.69.304-1.151.794-.991c.636.18.76.814.76 1.505v5.875c2.441 1.193 4.362-.002 4.362-3.152c0-3.237-1.126-4.675-4.438-5.827c-1.307-.448-3.728-1.186-5.39-1.502zm4.656 16.241l6.296-2.275c.715-.258.826-.625.246-.818c-.586-.192-1.637-.139-2.357.123l-4.205 1.5V14.98l.24-.085s1.201-.42 2.913-.615c1.696-.18 3.785.03 5.437.661c1.848.601 2.04 1.472 1.576 2.072c-.465.6-1.622 1.036-1.622 1.036l-8.544 3.107V18.86zM1.807 18.6c-1.9-.545-2.214-1.668-1.352-2.32c.801-.586 2.16-1.052 2.16-1.052l5.615-2.013v2.313L4.205 17c-.705.271-.825.632-.239.826c.586.195 1.637.15 2.343-.12L8.247 17v2.074c-.12.03-.256.044-.39.073c-1.939.331-3.996.196-6.038-.479z',
     xbox:     'M4.102 21.033A11.95 11.95 0 0 0 12 24a11.96 11.96 0 0 0 7.902-2.967c1.877-1.912-4.316-8.709-7.902-11.417c-3.582 2.708-9.779 9.505-7.898 11.417m11.16-14.406c2.5 2.961 7.484 10.313 6.076 12.912A11.94 11.94 0 0 0 24 12.004a11.95 11.95 0 0 0-3.57-8.536s-.027-.022-.082-.042a.8.8 0 0 0-.281-.045c-.592 0-1.985.434-4.805 3.246M3.654 3.426c-.057.02-.082.041-.086.042A11.96 11.96 0 0 0 0 12.004c0 2.854.998 5.473 2.661 7.533c-1.401-2.605 3.579-9.951 6.08-12.91c-2.82-2.813-4.216-3.245-4.806-3.245a.7.7 0 0 0-.281.046zM12 3.551S9.055 1.828 6.755 1.746c-.903-.033-1.454.295-1.521.339C7.379.646 9.659 0 11.984 0H12c2.334 0 4.605.646 6.766 2.085c-.068-.046-.615-.372-1.52-.339C14.946 1.828 12 3.545 12 3.545z',
     switch:   'M14.176 24h3.674c3.376 0 6.15-2.774 6.15-6.15V6.15C24 2.775 21.226 0 17.85 0H14.1c-.074 0-.15.074-.15.15v23.7c-.001.076.075.15.226.15m4.574-13.199c1.351 0 2.399 1.125 2.399 2.398c0 1.352-1.125 2.4-2.399 2.4c-1.35 0-2.4-1.049-2.4-2.4c-.075-1.349 1.05-2.398 2.4-2.398M11.4 0H6.15C2.775 0 0 2.775 0 6.15v11.7C0 21.226 2.775 24 6.15 24h5.25c.074 0 .15-.074.15-.149V.15c.001-.076-.075-.15-.15-.15M9.676 22.051H6.15a4.194 4.194 0 0 1-4.201-4.201V6.15A4.194 4.194 0 0 1 6.15 1.949H9.6zM3.75 7.199c0 1.275.975 2.25 2.25 2.25s2.25-.975 2.25-2.25c0-1.273-.975-2.25-2.25-2.25s-2.25.977-2.25 2.25',
+    // CPU / chip — used by RLT.ui.playerIcon for AI players. Square chip
+    // outline with corner pins so it reads as "computer-controlled" at the
+    // small sizes plugin overlays use (12–24px). Filled inner core gives
+    // it presence next to the brand icons without overpowering them.
+    bot:      'M9 3v2H7a2 2 0 0 0-2 2v2H3v2h2v2H3v2h2v2a2 2 0 0 0 2 2h2v2h2v-2h2v2h2v-2h2a2 2 0 0 0 2-2v-2h2v-2h-2v-2h2V9h-2V7a2 2 0 0 0-2-2h-2V3h-2v2h-2V3h-2v2H11V3H9zm-2 4h10v10H7V7zm2 2v6h6V9H9z',
   };
   // Normalizes RL's PrimaryId platform prefix to an icon key. RL emits
   // values like 'Steam', 'Epic', 'PS4', 'XboxOne', 'Switch', 'Unknown'.
@@ -718,18 +792,37 @@
     return null; // unknown / unmapped
   }
 
+  // Render an icon from PLATFORM_ICONS by its key. Returns inline SVG
+  // markup; the caller's container controls sizing and the SVG inherits
+  // color via fill=currentColor. Empty string when the key isn't known.
+  function renderIcon(key) {
+    const d = PLATFORM_ICONS[key];
+    if (!d) return '';
+    const title = key === 'bot'
+      ? 'Bot'
+      : key.charAt(0).toUpperCase() + key.slice(1);
+    return '<svg class="rlt-platform-icon" viewBox="0 0 24 24" aria-label="' + title + '" role="img">'
+      + '<title>' + title + '</title>'
+      + '<path fill="currentColor" d="' + d + '"/></svg>';
+  }
+
   const ui = {
-    // Returns inline SVG markup for the platform's brand icon, or an empty
-    // string when the platform isn't recognized. The caller's container
-    // controls sizing; the SVG inherits color via fill=currentColor.
+    // Brand icon for a platform string ('Steam', 'Epic', 'PS4', 'XboxOne',
+    // 'Switch', …). Returns '' when the platform isn't recognized.
+    // For player rows, prefer ui.playerIcon(player) — it knows about bots.
     platformIcon(platform) {
       const key = platformIconKey(platform);
-      if (!key) return '';
-      const d = PLATFORM_ICONS[key];
-      const title = key.charAt(0).toUpperCase() + key.slice(1);
-      return '<svg class="rlt-platform-icon" viewBox="0 0 24 24" aria-label="' + title + '" role="img">'
-        + '<title>' + title + '</title>'
-        + '<path fill="currentColor" d="' + d + '"/></svg>';
+      return key ? renderIcon(key) : '';
+    },
+
+    // Returns the right icon for a Player object: a CPU/chip glyph for
+    // bots, otherwise the brand icon for their platform. Single call site
+    // for plugin code that wants "the icon that represents this player's
+    // origin" without branching on isBot manually.
+    playerIcon(p) {
+      if (!p) return '';
+      if (p.isBot) return renderIcon('bot');
+      return p.platform ? this.platformIcon(p.platform) : '';
     },
     esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
@@ -765,7 +858,7 @@
     // (e.g. attribute selectors like `[data-pid="..."]`). Falls back to a
     // minimal manual escape on older browsers without CSS.escape.
     cssEsc(s) {
-      if (window.CSS && CSS.escape) return CSS.escape(s);
+      if (window.CSS?.escape) return CSS.escape(s);
       return String(s == null ? '' : s).replace(/["\\]/g, '\\$&');
     },
     // Brief banner at the bottom-center. Reuses one DOM node across calls.
@@ -812,25 +905,26 @@
   function resolvePlayerIn(roster, ref) {
     if (!ref) return null;
     let player = null;
-    if (roster && roster.length) {
+    if (roster?.length) {
       if (ref.PrimaryId) {
         player = roster.find((p) => p.id === ref.PrimaryId) || null;
       }
       if (!player && typeof ref.Shortcut === 'number') {
-        player = roster.find((p) => (p.raw && p.raw.Shortcut === ref.Shortcut)) || null;
+        player = roster.find((p) => p.raw?.Shortcut === ref.Shortcut) || null;
       }
       if (!player && ref.Name) {
         player = roster.find((p) => p.name === ref.Name) || null;
       }
     }
-    const id = (player && player.id) || ref.PrimaryId || '';
+    const id = player?.id || ref.PrimaryId || '';
     const enc = id ? encounters.get(id) : null;
     return {
-      name: ref.Name || (player && player.name) || 'Unknown',
+      name: ref.Name || player?.name || 'Unknown',
       shortcut: typeof ref.Shortcut === 'number' ? ref.Shortcut : null,
       team: typeof ref.TeamNum === 'number' ? ref.TeamNum : (player ? player.team : null),
       id,
       isMe: identity._isMe(id),
+      isBot: isBotId(id),
       player,        // full enriched player from the roster, or null
       encounter: enc, // full encounter record from the ledger, or null
       raw: ref,
@@ -877,7 +971,7 @@
   bus.on('GoalScored', (d) => {
     if (!d) return;
     const scorer = resolvePlayer(d.Scorer);
-    if (!scorer || (!scorer.player && (!d.Scorer || !d.Scorer.Name))) return;
+    if (!scorer || (!scorer.player && !d.Scorer?.Name)) return;
     emitTyped('GoalScored', {
       matchGuid: d.MatchGuid || null,
       goalSpeed: d.GoalSpeed != null ? d.GoalSpeed : null,
@@ -971,7 +1065,7 @@
   ].forEach((name) => {
     bus.on(name, (d) => {
       emitTyped(name, {
-        matchGuid: (d && d.MatchGuid) || null,
+        matchGuid: d?.MatchGuid || null,
         raw: d || null,
       });
     });
@@ -1134,7 +1228,8 @@
 
   // Frozen views by category for the common "give me everything in group X" need.
   events.byCategory = events.catalog.reduce((acc, e) => {
-    (acc[e.category] = acc[e.category] || []).push(e.name);
+    if (!acc[e.category]) acc[e.category] = [];
+    acc[e.category].push(e.name);
     return acc;
   }, {});
 
@@ -1219,9 +1314,9 @@
     // false" because the destination phase is 'none'.
     function wrap(spec, fn, opts) {
       const phaseGated = !opts || opts.phaseGated !== false;
-      return function () {
+      return (...args) => {
         if (phaseGated && !shouldFire(spec)) return;
-        try { return fn.apply(null, arguments); }
+        try { return fn(...args); }
         catch (e) { console.error('[RLT] plugin "' + spec.name + '" handler threw:', e); }
       };
     }
@@ -1247,13 +1342,22 @@
      * `onMatchActive`, `onFocusChange`) bypass the gate by design so
      * they can observe transitions out of any phase.
      *
+     * Plugin metadata (name, version, author, title) is read from the
+     * plugin's `manifest.json` automatically — there's no need to
+     * duplicate it here. The fields below are **overrides** for the rare
+     * case (testing, dynamic plugins) when you want to differ from the
+     * manifest. Production plugins should pass only the runtime fields
+     * (`init`, `events`, `whilePhase`, `onMatch`, …).
+     *
      * @param {object}   spec
-     * @param {string}   [spec.name]       Plugin identifier (defaults to the
-     *                                     page's data-plugin attribute or the
-     *                                     URL path segment under /plugins/).
-     *                                     Used as the storage namespace.
-     * @param {string}   [spec.version]    Semantic version, logged on register.
-     * @param {string}   [spec.author]
+     * @param {string}   [spec.name]       Override the manifest's `name`.
+     *                                     Default: manifest.name → script
+     *                                     `data-plugin` attr → URL path
+     *                                     segment under /plugins/. Used
+     *                                     as the storage namespace.
+     * @param {string}   [spec.version]    Override the manifest's `version`.
+     * @param {string}   [spec.author]     Override the manifest's `author`.
+     * @param {string}   [spec.title]      Override the manifest's `title`.
      * @param {string|string[]} [spec.whilePhase]
      *                                     Phase gate for `events`, `onMatch`,
      *                                     `onTick`, `onIdentity`, `onEncounters`.
@@ -1267,23 +1371,23 @@
      *                                     Use `'*'` for a catchall on the raw
      *                                     bus (does not widen the SSE filter).
      *
-     * @param {function(handle):void} [spec.init]    Called synchronously on register.
-     *                                               DOM setup goes here.
-     * @param {function(handle):void} [spec.ready]   Called once after identity
-     *                                               and the encounter ledger
-     *                                               have finished loading.
-     * @param {function(state):void}  [spec.onTick]      Every UpdateState (~60Hz).
-     * @param {function(state):void}  [spec.onMatch]     Structural match changes only.
-     * @param {function(id):void}     [spec.onIdentity]  User changed which player is "me".
-     * @param {function(map):void}    [spec.onEncounters} Encounter ledger updated.
-     * @param {function(phase, prev):void} [spec.onLifecycle]
-     *                                               Phase transition. Bypasses whilePhase.
-     * @param {function(active):void} [spec.onMatchActive]
-     *                                               match_active flipped. Bypasses whilePhase.
-     * @param {function(active):void} [spec.onFocusChange]
-     *                                               Game window focus changed (Tauri only).
-     *                                               Bypasses whilePhase.
-     * @param {function():void}       [spec.dispose]     Called by handle.dispose().
+     * @param {(handle: object) => void} [spec.init]    Called synchronously on register.
+     *                                                  DOM setup goes here.
+     * @param {(handle: object) => void} [spec.ready]   Called once after identity
+     *                                                  and the encounter ledger
+     *                                                  have finished loading.
+     * @param {(s: object) => void}      [spec.onTick]      Every UpdateState (~60Hz).
+     * @param {(s: object) => void}      [spec.onMatch]     Structural match changes only.
+     * @param {(id: string) => void}     [spec.onIdentity]  User changed which player is "me".
+     * @param {(map: object) => void}    [spec.onEncounters] Encounter ledger updated.
+     * @param {(phase: string, prev: string) => void} [spec.onLifecycle]
+     *                                                  Phase transition. Bypasses whilePhase.
+     * @param {(active: boolean) => void} [spec.onMatchActive]
+     *                                                  match_active flipped. Bypasses whilePhase.
+     * @param {(active: boolean) => void} [spec.onFocusChange]
+     *                                                  Game window focus changed (Tauri only).
+     *                                                  Bypasses whilePhase.
+     * @param {() => void}               [spec.dispose]     Called by handle.dispose().
      *
      * @returns {{
      *   name: string,
@@ -1298,7 +1402,12 @@
      */
     function register(spec) {
       spec = spec || {};
-      const name = spec.name || pluginName;
+      // Resolution order for metadata: explicit spec value → manifest →
+      // pluginName fallback. The manifest may not have loaded yet (the
+      // /api/plugins fetch is async); when it lands later we patch the
+      // handle below. None of these fields gate any behaviour, so the
+      // delayed patch is invisible to plugin handlers.
+      const name = spec.name || pluginManifest?.name || pluginName;
       const unsubs = [];
       let disposed = false;
 
@@ -1342,8 +1451,10 @@
 
       const handle = {
         name,
-        version: spec.version || null,
-        author:  spec.author  || null,
+        version: spec.version || pluginManifest?.version || null,
+        author:  spec.author  || pluginManifest?.author  || null,
+        title:   spec.title   || pluginManifest?.title   || null,
+        manifest: pluginManifest,
         get disposed() { return disposed; },
         store: pluginStore,
         events: Object.keys(spec.events || {}),
@@ -1362,6 +1473,21 @@
         },
       };
       registry.push(handle);
+
+      // Patch metadata fields once the manifest fetch resolves, if the
+      // plugin didn't override them in spec. Skipped when the manifest
+      // is already loaded — the synchronous defaults above already
+      // captured everything.
+      if (!manifestLoaded) {
+        manifestPromise.then((m) => {
+          if (!m || disposed) return;
+          handle.manifest = m;
+          if (!spec.name)    handle.name    = m.name    || handle.name;
+          if (!spec.version) handle.version = m.version || handle.version;
+          if (!spec.author)  handle.author  = m.author  || handle.author;
+          if (!spec.title)   handle.title   = m.title   || handle.title;
+        });
+      }
 
       // init synchronously, ready when identity + encounters have loaded.
       if (typeof spec.init === 'function') {
@@ -1393,7 +1519,13 @@
         unsubs.push(encounters.onChange(fireReady));
       }
 
-      console.debug('[RLT] plugin registered:', name, spec.version || '(no version)');
+      // Logged with the resolved version (spec → manifest → unknown).
+      // For plugins that rely on the async manifest fetch, the line at
+      // register-time may show "(no version)"; the handle gets patched
+      // when the manifest arrives. The Go server logs the manifest
+      // version separately at file-load time, so the truth is always
+      // visible somewhere.
+      console.debug('[RLT] plugin registered:', handle.name, handle.version || '(no version)');
       return handle;
     }
 
@@ -1483,7 +1615,7 @@
     for (const { type, fn } of listeners) {
       document.addEventListener(type, fn, true);
     }
-    if (document.fonts && document.fonts.ready) {
+    if (document.fonts?.ready) {
       document.fonts.ready.then(schedule);
     }
 
@@ -1697,7 +1829,7 @@
       window.addEventListener('message', (msg) => {
         // Filter on the sentinel field so we ignore unrelated postMessage
         // traffic (Tauri internals, devtools, third-party scripts).
-        if (!msg || !msg.data || msg.data.__rlt_focus__ !== true) return;
+        if (msg?.data?.__rlt_focus__ !== true) return;
         ev.emit('change', !!msg.data.active);
       });
     }
@@ -1709,10 +1841,71 @@
     };
   })();
 
+  // ─── Stable connection status ──────────────────────────────
+  //
+  // The toolkit's connection to Rocket League cycles every 30s during
+  // menu idle by design (TCP idle-timeout reconnect). The raw `_status`
+  // signal flips connected → connecting → connected on each cycle,
+  // which is correct but visually noisy when surfaced as-is in plugin
+  // UI. `statusStable` debounces the path to non-connected states so
+  // the brief cycle never crosses the threshold; coming back to
+  // connected is instant.
+  //
+  // Plugins that need the raw signal (e.g. an indicator that flashes
+  // intentionally on every blip) keep using RLT.onStatus / RLT.status().
+  // Plugins that surface "are we live?" should prefer the stable view.
+  const STATUS_DOWN_DEBOUNCE_MS = 3000;
+  const statusStableState = (function () {
+    const ev = emitter();
+    let stable = status;        // mirrors the raw status until a debounce defers it
+    let pending = null;         // pending downgrade timer
+
+    bus.on('_status', (s) => {
+      if (s === 'connected') {
+        // Cancel any pending downgrade and reflect the good state now.
+        if (pending) { clearTimeout(pending); pending = null; }
+        if (stable !== s) { stable = s; ev.emit('change', stable); }
+        return;
+      }
+      // Already in a non-connected state? Update label immediately so
+      // a connecting → disconnected progression is still visible.
+      if (stable !== 'connected') {
+        if (stable !== s) { stable = s; ev.emit('change', stable); }
+        return;
+      }
+      // Currently stable on 'connected'; defer the downgrade. Latest
+      // raw status wins if more arrive before the timer fires.
+      if (pending) clearTimeout(pending);
+      pending = setTimeout(() => {
+        pending = null;
+        if (stable !== s) { stable = s; ev.emit('change', stable); }
+      }, STATUS_DOWN_DEBOUNCE_MS);
+    });
+
+    return {
+      get() { return stable; },
+      onChange(fn) { return ev.on('change', fn); },
+    };
+  })();
+
   // ─── Public API ────────────────────────────────────────────
   window.RLT = {
     plugin: plugin,         // registration API; .name kept below for back-compat
     pluginName: pluginName, // explicit name accessor
+    // Plugin manifest, fetched once at startup from /api/plugins.
+    // Synchronous read returns null until the fetch resolves (typically
+    // a few ms after page load). Plugins that need to react when it
+    // arrives use `onManifest(fn)`; fn fires once with the manifest
+    // object (or null if the fetch failed / no matching entry).
+    pluginManifest: () => pluginManifest,
+    onManifest: (fn) => {
+      if (manifestLoaded) {
+        try { fn(pluginManifest); } catch (e) { console.error('[RLT] onManifest threw:', e); }
+        return () => {};
+      }
+      manifestSubs.add(fn);
+      return () => manifestSubs.delete(fn);
+    },
     version: 1,
 
     // raw event bus — adding a handler for a specific event also opts
@@ -1728,6 +1921,12 @@
     // connection
     status: () => status,
     onStatus: (fn) => bus.on('_status', fn),
+    // Debounced view of `status` — flicker-free across the toolkit's
+    // 30s self-reconnect cycles. Prefer this for visible UI that says
+    // "are we live?". The raw `status`/`onStatus` above stays available
+    // for plugins that want every transition.
+    statusStable: () => statusStableState.get(),
+    onStatusStable: (fn) => statusStableState.onChange(fn),
 
     // domain APIs
     match,
@@ -1744,7 +1943,10 @@
   // Escape hatch: force-reconnect the SSE stream. Useful when the
   // browser's auto-reconnect is stuck after a long sleep/wake cycle.
   window.RLT._reconnect = function () {
-    if (es) { try { es.close(); } catch (_) { /* noop */ } es = null; }
+    if (es) {
+      try { es.close(); } catch { /* noop: already-closed sockets throw */ }
+      es = null;
+    }
     connect();
   };
 
