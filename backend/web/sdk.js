@@ -144,8 +144,10 @@
   // hiding every widget there would make the editor unusable.
   let overlayHideWhenUnfocused = false;
   let overlayPhaseGate = null; // null = no gate; Set<string> = whitelist
+  const __rltUrlParams = new URLSearchParams(location.search);
+  const __rltIsSettingsView = __rltUrlParams.has('settings');
   try {
-    const params = new URLSearchParams(location.search);
+    const params = __rltUrlParams;
     const inOverlay = params.has('overlay');
     const anchor = params.get('anchor') || 'top-left';
     overlayHideWhenUnfocused = inOverlay && params.has('hide_when_unfocused');
@@ -2331,6 +2333,24 @@
     };
   })();
 
+  // ─── Settings panel bridge ─────────────────────────────────
+  // When a plugin's settings view runs inside the dashboard's modal
+  // iframe, calling RLT.settings.close() posts a message the dashboard
+  // listens for and dismisses the modal. Outside an iframe this is a
+  // no-op — calling it from a plugin's overlay or control view does
+  // nothing.
+  const settingsApi = {
+    close() {
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: 'rlt:settings:close' }, location.origin);
+        } catch (e) {
+          // Cross-origin parent or postMessage rejection — ignore.
+        }
+      }
+    },
+  };
+
   // ─── Public API ────────────────────────────────────────────
   window.RLT = {
     plugin: plugin, // registration API; .name kept below for back-compat
@@ -2385,6 +2405,8 @@
     stats,
     widget,
     focus,
+    isSettingsView: __rltIsSettingsView,
+    settings: settingsApi,
   };
 
   // Escape hatch: force-reconnect the SSE stream. Useful when the
