@@ -498,10 +498,16 @@
         flex: 1 1 auto;
         display: flex;
         flex-direction: column;
+        /* Horizontal center for shadow safety (keeps the genocide-tier
+           halo inside the safe rectangle so it doesn't bleed against
+           the iframe edge and trip webkit2gtk's box-flash artifact).
+           Vertical: flex-start with a small top gap so the streak
+           sits just below the chips and reads as a continuation,
+           not a centered block floating in empty space. */
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
         gap: 0.1rem;
-        padding: 0.5rem 0.7rem 0.8rem;
+        padding: 0.6rem 0.7rem 0.8rem;
       }
 
       /* ─── BEST badge (idle) ─────────────────────────────────────
@@ -557,10 +563,12 @@
       /* ─── Top row: DEMOS chip + drain bar ───────────────────────
          Pairs the chip with its progress indicator on one row so the
          drain bar reads as the chip's timer rather than a floating
-         line above the streak. */
+         line above the streak. Bar aligns to the top edge of the
+         chip (not vertical-center) so it reads as a deliberate
+         pinstripe along the row, not a hovering element. */
       .ov-top-row {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 0.5rem;
       }
 
