@@ -758,10 +758,98 @@
         50%      { filter: drop-shadow(0 0 32px rgba(255, 45, 98, 1)); }
       }
 
+      /* ─── Ultra tiers ──────────────────────────────────────────
+         x8 ARMAGEDDON, x10 EXTINCTION, x12 GENOCIDE — for the chasers
+         who keep the streak alive past x6. Size stays at +45% (further
+         growth overflows the 320×240 iframe), but color escalates from
+         red-magenta toward white-hot, pulse accelerates, and shake gets
+         meaner. The text starts to look like it's burning out. */
+
+      /* tier-armageddon (x8) — deeper, more aggressive red */
+      .ov.tier-armageddon .ov-streak {
+        font-size: 3.8rem;
+        color: #ff1a4d;
+        text-shadow:
+          0 0 36px rgba(255, 26, 77, 1),
+          0 0 16px rgba(244, 60, 100, 0.8);
+      }
+      .ov.tier-armageddon .ov-word {
+        font-size: 1.45rem;
+        color: #ff1a4d;
+        letter-spacing: 0.26em;
+        text-shadow: 0 0 22px rgba(255, 26, 77, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-armageddon[data-mode="active"] .ov-active {
+        animation: ov-armageddon-pulse 1.2s ease-in-out infinite;
+      }
+      @keyframes ov-armageddon-pulse {
+        0%, 100% { filter: drop-shadow(0 0 26px rgba(255, 26, 77, 0.9)); }
+        50%      { filter: drop-shadow(0 0 38px rgba(255, 26, 77, 1)); }
+      }
+
+      /* tier-extinction (x10) — color starts blowing out toward white,
+         text gains a hot magenta drop-shadow halo */
+      .ov.tier-extinction .ov-streak {
+        font-size: 3.8rem;
+        color: #fff0f5;
+        text-shadow:
+          0 0 22px rgba(255, 26, 77, 1),
+          0 0 40px rgba(255, 77, 138, 0.95),
+          0 0 60px rgba(255, 26, 77, 0.6);
+      }
+      .ov.tier-extinction .ov-word {
+        font-size: 1.45rem;
+        color: #fff0f5;
+        letter-spacing: 0.28em;
+        text-shadow:
+          0 0 18px rgba(255, 26, 77, 1),
+          0 0 28px rgba(255, 77, 138, 0.85),
+          0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-extinction[data-mode="active"] .ov-active {
+        animation: ov-extinction-pulse 0.9s ease-in-out infinite;
+      }
+      @keyframes ov-extinction-pulse {
+        0%, 100% { filter: drop-shadow(0 0 32px rgba(255, 60, 110, 0.95)); }
+        50%      { filter: drop-shadow(0 0 48px rgba(255, 100, 150, 1)); }
+      }
+
+      /* tier-genocide (x12+) — pure white text, massive magenta halo,
+         fastest pulse. The streak has gone past color into pure light. */
+      .ov.tier-genocide .ov-streak {
+        font-size: 3.8rem;
+        color: #ffffff;
+        text-shadow:
+          0 0 26px rgba(255, 255, 255, 0.95),
+          0 0 50px rgba(255, 26, 77, 1),
+          0 0 80px rgba(255, 77, 138, 0.85);
+      }
+      .ov.tier-genocide .ov-word {
+        font-size: 1.45rem;
+        color: #ffffff;
+        letter-spacing: 0.3em;
+        text-shadow:
+          0 0 22px rgba(255, 255, 255, 0.9),
+          0 0 36px rgba(255, 26, 77, 1),
+          0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-genocide[data-mode="active"] .ov-active {
+        animation: ov-genocide-pulse 0.6s ease-in-out infinite;
+      }
+      @keyframes ov-genocide-pulse {
+        0%, 100% { filter: drop-shadow(0 0 40px rgba(255, 255, 255, 0.7))
+                           drop-shadow(0 0 30px rgba(255, 26, 77, 0.95)); }
+        50%      { filter: drop-shadow(0 0 60px rgba(255, 255, 255, 0.95))
+                           drop-shadow(0 0 45px rgba(255, 26, 77, 1)); }
+      }
+
       /* BEST badge picks up the tier color it was earned at */
       .ov.tier-hot .ov-best,
       .ov.tier-bloom .ov-best,
-      .ov.tier-apocalypse .ov-best {
+      .ov.tier-apocalypse .ov-best,
+      .ov.tier-armageddon .ov-best,
+      .ov.tier-extinction .ov-best,
+      .ov.tier-genocide .ov-best {
         border-left-color: currentColor;
       }
       .ov.tier-hot .ov-best-streak,
@@ -770,6 +858,17 @@
       .ov.tier-bloom .ov-best-word { color: #ff4d8a; }
       .ov.tier-apocalypse .ov-best-streak,
       .ov.tier-apocalypse .ov-best-word { color: #ff2d62; }
+      .ov.tier-armageddon .ov-best-streak,
+      .ov.tier-armageddon .ov-best-word { color: #ff1a4d; }
+      .ov.tier-extinction .ov-best-streak,
+      .ov.tier-extinction .ov-best-word { color: #fff0f5; }
+      .ov.tier-genocide .ov-best-streak,
+      .ov.tier-genocide .ov-best-word { color: #ffffff; }
+
+      /* Victim chip's left-border picks up tier color too */
+      .ov.tier-armageddon .ov-victim { border-left-color: #ff1a4d; }
+      .ov.tier-extinction .ov-victim { border-left-color: #fff0f5; }
+      .ov.tier-genocide   .ov-victim { border-left-color: #ffffff; }
 
       /* ─── Shake on demo ────────────────────────────────────────
          JS adds .shake-light / .shake-hard on every demo at tier-hot+;
@@ -789,12 +888,33 @@
         60% { transform: translate(3px, 3px); }
         80% { transform: translate(-2px, 1px); }
       }
+      /* shake-extreme — for ultra tiers (x8+). Bigger amplitude, longer
+         duration, more jitter steps. The base keyframe is shared across
+         armageddon/extinction/genocide; per-tier rules below apply
+         escalating durations and amplitude scales. */
+      @keyframes ov-shake-extreme {
+        0%, 100% { transform: translate(0, 0); }
+        10% { transform: translate(-6px, 3px); }
+        22% { transform: translate(6px, -4px); }
+        34% { transform: translate(-5px, -3px); }
+        46% { transform: translate(5px, 4px); }
+        58% { transform: translate(-4px, 2px); }
+        70% { transform: translate(4px, -2px); }
+        85% { transform: translate(-2px, 1px); }
+      }
       /* Shake animates the whole widget (.ov), so it lives at the iframe
-         level. Apocalypse pulse animates only the inner .ov-active subtree
-         (so its glow doesn't bleed into the iframe edge), so the two
-         animations target different elements and don't fight. */
-      .ov.shake-light { animation: ov-shake-light 120ms ease-out; }
-      .ov.shake-hard  { animation: ov-shake-hard 160ms ease-out; }
+         level. Tier pulses animate only the inner .ov-active subtree (so
+         their glow doesn't bleed into the iframe edge), so the two
+         classes of animation target different elements and don't fight. */
+      .ov.shake-light   { animation: ov-shake-light 120ms ease-out; }
+      .ov.shake-hard    { animation: ov-shake-hard 160ms ease-out; }
+      .ov.shake-extreme { animation: ov-shake-extreme 200ms ease-out; }
+      /* Per-tier amplitude scaling: each ultra tier shakes a bit harder
+         by stretching the duration. Genocide gets the longest, most
+         visible jitter so x12+ feels distinct from x8/x10. */
+      .ov.tier-armageddon.shake-extreme { animation-duration: 180ms; }
+      .ov.tier-extinction.shake-extreme { animation-duration: 220ms; }
+      .ov.tier-genocide.shake-extreme   { animation-duration: 260ms; }
 
       /* Honor reduced-motion — keep the static look. */
       @media (prefers-reduced-motion: reduce) {
@@ -926,20 +1046,24 @@
         const isOverlay = new URLSearchParams(location.search).has('overlay');
 
         // ─── Combo tiers ────────────────────────────────────────────
-        // Streak counts map to a tier (word + visual class). The class
-        // names below match CSS rules added later in this file. x6+ is
-        // the cap — APOCALYPSE; the streak number keeps climbing past 6
-        // but the word and styling stop there.
-        const COMBO_WINDOW_MS = 20000; // gap allowed between demos
+        // Streak counts map to a tier (word + visual class). The first
+        // five tiers cover x2 → x6+; x12+ is the cap (GENOCIDE). Each
+        // tier above APOCALYPSE keeps the +45% size (further growth
+        // overflows the iframe at 320×240) but escalates color toward
+        // white-hot and adds harder shake + faster pulse.
+        const COMBO_WINDOW_MS = 20000; // gap allowed between demos (playable time)
         const BREAK_HOLD_MS = 1000;    // freeze duration on streak end
         const BREAK_FADE_MS = 200;     // crossfade from break to idle
 
         const TIERS = [
-          { min: 2, word: 'TAGGED',      cls: 'tier-base' },
-          { min: 3, word: 'SMOKED',      cls: 'tier-glow' },
-          { min: 4, word: 'ANNIHILATED', cls: 'tier-hot' },
-          { min: 5, word: 'OBLITERATED', cls: 'tier-bloom' },
-          { min: 6, word: 'APOCALYPSE',  cls: 'tier-apocalypse' },
+          { min:  2, word: 'TAGGED',      cls: 'tier-base' },
+          { min:  3, word: 'SMOKED',      cls: 'tier-glow' },
+          { min:  4, word: 'ANNIHILATED', cls: 'tier-hot' },
+          { min:  5, word: 'OBLITERATED', cls: 'tier-bloom' },
+          { min:  6, word: 'APOCALYPSE',  cls: 'tier-apocalypse' },
+          { min:  8, word: 'ARMAGEDDON',  cls: 'tier-armageddon' },
+          { min: 10, word: 'EXTINCTION',  cls: 'tier-extinction' },
+          { min: 12, word: 'GENOCIDE',    cls: 'tier-genocide' },
         ];
 
         // tierFor(streak) returns the highest tier whose `min` is <= streak,
@@ -952,20 +1076,22 @@
           return hit;
         }
 
-        // computeUiState(now) — derive the renderable UI state from the
-        // raw combo state. Pure read, no side effects, safe to call from
-        // any render path.
+        // computeUiState() — derive the renderable UI state from the
+        // raw combo state. Reads from the playable bank rather than
+        // wall-clock so replay/paused phases don't burn the combo
+        // window. Pure read, no side effects.
         //
-        // `mode` rules:
-        //   idle    — no demo yet, or now - lastDemoAt > window + hold
-        //   active  — now - lastDemoAt <= COMBO_WINDOW_MS
+        // `mode` rules (bank time, not wall time):
+        //   idle    — no demo yet, or sinceDemo > window + hold
+        //   active  — sinceDemo <= COMBO_WINDOW_MS
         //   break   — window expired, hold still in effect, streak >= 1
         //
         // The break window only applies when there was an actual streak
-        // to mourn (currentStreak >= 1). A demo at lastDemoAt = 0 (never
-        // demoed) goes straight to idle.
-        function computeUiState(now) {
-          const sinceDemo = now - lastDemoAt;
+        // to mourn (currentStreak >= 1). lastDemoAt = 0 means "never
+        // demoed" since the player's first demo always lands at bank
+        // time > 0.
+        function computeUiState() {
+          const sinceDemo = bankNow() - lastDemoAt;
           let mode;
           if (!lastDemoAt) {
             mode = 'idle';
@@ -986,31 +1112,23 @@
             victim: lastVictimName,
             bestStreak,
             bestStreakWord,
+            // Drives the timer bar width. 1.0 = full, 0.0 = expired.
+            // Negative when in break mode; clamp to 0 for the bar.
+            timerRemaining01: Math.max(0, Math.min(1, 1 - sinceDemo / COMBO_WINDOW_MS)),
           };
         }
 
-        // Reset the timer bar to 100% with no transition, then on the
-        // next frame remove the .reset class so the 20s drain begins.
-        // Bypass when the bar element doesn't exist (control-page render).
-        function resetTimerBar() {
-          const fill = document.getElementById('ov-bar-fill');
-          if (!fill) return;
-          fill.classList.add('reset');
-          // Force a reflow so the browser registers the snap-to-100%
-          // before we remove the class — without this, the transition
-          // gets coalesced and the bar appears not to drain.
-          fill.offsetWidth;
-          fill.classList.remove('reset');
-          fill.style.width = '0%';
-        }
-
         // One-shot shake. Class self-removes on animationend.
+        // intensity: 'light' | 'hard' | 'extreme'
         function triggerShake(intensity) {
           if (!isOverlay) return;
           const ov = document.getElementById('ov');
           if (!ov) return;
-          const cls = intensity === 'hard' ? 'shake-hard' : 'shake-light';
-          ov.classList.remove('shake-light', 'shake-hard');
+          const cls =
+            intensity === 'extreme' ? 'shake-extreme' :
+            intensity === 'hard'    ? 'shake-hard' :
+                                       'shake-light';
+          ov.classList.remove('shake-light', 'shake-hard', 'shake-extreme');
           // Reflow so re-adding the same class restarts the animation
           // when consecutive demos hit the same tier.
           ov.offsetWidth;
@@ -1022,20 +1140,29 @@
           ov.addEventListener('animationend', onEnd);
         }
 
-        // Arm the break transition. Cancels any pending timer first so
-        // back-to-back demos don't queue stale break fires.
-        function armBreakTimer() {
-          if (breakTimer) clearTimeout(breakTimer);
-          breakTimer = setTimeout(() => {
-            breakTimer = null;
-            // After the hold expires, fully fall through to idle. The
-            // state machine in computeUiState handles "break" while
-            // sinceDemo is in the hold window, then "idle" past it.
-            // Schedule one final render at the end of the hold so the
-            // crossfade kicks in.
-            setTimeout(render, BREAK_HOLD_MS);
-            render();
-          }, COMBO_WINDOW_MS);
+        // rAF loop for the timer bar. While the streak is active or
+        // breaking, this loop runs every frame so the bar drains
+        // smoothly off the playable bank (paused during replay/menu,
+        // unlike a CSS transition). The loop self-stops the moment
+        // mode flips to 'idle' (combo ended; bar empty; nothing to
+        // animate). It re-arms on the next demo via ensureActiveLoop().
+        let activeRafHandle = 0;
+        function activeLoop() {
+          activeRafHandle = 0;
+          if (!isOverlay) return;
+          renderOverlay();
+          // renderOverlay below sets dataset.mode from the latest
+          // computeUiState. If we're back to idle, no need to keep
+          // ticking — the next demo will re-arm us.
+          const mode = document.getElementById('ov')?.dataset.mode;
+          if (mode === 'active' || mode === 'break') {
+            activeRafHandle = requestAnimationFrame(activeLoop);
+          }
+        }
+        function ensureActiveLoop() {
+          if (!isOverlay) return;
+          if (activeRafHandle) return;
+          activeRafHandle = requestAnimationFrame(activeLoop);
         }
 
         // ─── State ──────────────────────────────────────────────────
@@ -1053,18 +1180,48 @@
 
         // ─── Combo state (volatile, per-match) ──────────────────────
         // `currentStreak` is 0 between combos and 1..∞ during an active
-        // streak. `lastDemoAt` is performance.now() ms; the state machine
-        // reads `now - lastDemoAt` against COMBO_WINDOW_MS to decide
-        // active vs break vs idle. `bestStreak` and `bestStreakWord`
-        // drive the BEST badge in idle. `breakTimer` is the setTimeout
-        // handle that fires the break transition; we cancel and re-arm
-        // it on every demo so streaks coalesce cleanly.
+        // streak. `lastDemoAt` is the *playable bank* time at the last
+        // demo (see bankNow below) — NOT performance.now(). The bank
+        // only ticks during live/countdown phases, so a 20s combo window
+        // counts 20 seconds of playable time, not wall-clock time. This
+        // matters for chasers: a goal-replay between two demos doesn't
+        // burn the streak window. `bestStreak` and `bestStreakWord`
+        // drive the BEST badge in idle.
         let currentStreak = 0;
         let lastDemoAt = 0;
         let lastVictimName = '';
         let bestStreak = 0;
         let bestStreakWord = '';
-        let breakTimer = null;
+
+        // Playable-time accumulator. `playableElapsed` increases only
+        // during phases in PLAYABLE_PHASES. `lastPhaseTickAt` is the
+        // performance.now() at which we last advanced the bank.
+        // `inPlayablePhase` tracks whether the bank is currently
+        // ticking. bankNow() advances the bank to "now" if we're in a
+        // playable phase, then returns the current bank value.
+        const PLAYABLE_PHASES = new Set(['live', 'countdown']);
+        let playableElapsed = 0;
+        let lastPhaseTickAt = performance.now();
+        let inPlayablePhase = false;
+
+        function bankNow() {
+          if (inPlayablePhase) {
+            const now = performance.now();
+            playableElapsed += now - lastPhaseTickAt;
+            lastPhaseTickAt = now;
+          }
+          return playableElapsed;
+        }
+
+        // Called from the SDK's lifecycle.onChange. Advances the bank
+        // up to "now" if we were ticking, then flips the gate.
+        function setPlayablePhase(active) {
+          if (active === inPlayablePhase) return;
+          // Settle the bank to current time before flipping.
+          if (inPlayablePhase) bankNow();
+          inPlayablePhase = active;
+          lastPhaseTickAt = performance.now();
+        }
 
         function resetComboState() {
           currentStreak = 0;
@@ -1072,10 +1229,6 @@
           lastVictimName = '';
           bestStreak = 0;
           bestStreakWord = '';
-          if (breakTimer) {
-            clearTimeout(breakTimer);
-            breakTimer = null;
-          }
         }
 
         // ─── Render ─────────────────────────────────────────────────
@@ -1161,7 +1314,7 @@
         function renderOverlay() {
           const ov = $('ov');
           if (!ov) return;
-          const ui = computeUiState(performance.now());
+          const ui = computeUiState();
 
           // Top-level mode + tier classes drive everything CSS-side.
           ov.dataset.mode = ui.mode;
@@ -1172,10 +1325,22 @@
             'tier-hot',
             'tier-bloom',
             'tier-apocalypse',
+            'tier-armageddon',
+            'tier-extinction',
+            'tier-genocide',
             'is-break',
           );
           ov.classList.add(ui.tierClass);
           if (ui.mode === 'break') ov.classList.add('is-break');
+
+          // Timer bar fill: driven directly off the playable bank, not
+          // a CSS transition. The transition got out of sync with replay
+          // pauses (CSS doesn't pause); the bank-driven value naturally
+          // freezes during non-playable phases.
+          const fill = $('ov-bar-fill');
+          if (fill) {
+            fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
+          }
 
           // ── Idle subtree ──
           $('ov-total').textContent = totalCount();
@@ -1252,16 +1417,41 @@
           whilePhase: ['live', 'replay', 'countdown', 'paused'],
 
           // init() runs synchronously at register-time, before any SSE
-          // events fire. We wire the connection pill here (rather than in
-          // ready(), which is async) so we don't miss the initial
-          // 'connected' transition. We also seed from statusStable() once
-          // — onStatusStable only fires on change, so a subscriber that
-          // arrives after the SDK already connected would otherwise never
-          // see the initial state. Overlay mode has nothing to do here:
-          // the SDK's `hide_when_unfocused` manifest flag handles the
-          // foreground-gating directly on <body>.
+          // events fire. Two responsibilities, split by mode:
+          //
+          // - Overlay mode: subscribe to lifecycle phase changes to
+          //   drive the playable-time bank (only ticks during live /
+          //   countdown — see PLAYABLE_PHASES). Also kill the streak
+          //   when the phase leaves the streak-preserving set (live /
+          //   countdown / replay / paused), e.g. on match end. We
+          //   intentionally do NOT reset on entering replay or paused —
+          //   those just freeze the bank without ending the combo.
+          //
+          // - Dashboard mode: wire the connection pill. onStatusStable
+          //   fires on change only, so we seed from statusStable() once
+          //   to handle the case where the SDK connected before this
+          //   subscriber arrived.
           init() {
-            if (isOverlay) return;
+            if (isOverlay) {
+              const lifecycle = RLT.match?.lifecycle;
+              if (!lifecycle) return;
+              // Seed the bank gate from the current phase (matters when
+              // the plugin loads mid-match).
+              setPlayablePhase(PLAYABLE_PHASES.has(lifecycle.phase));
+              // Streak-preserving phases — anything else kills the
+              // streak. Includes the bank-tick phases plus the freeze
+              // phases (replay, paused).
+              const KEEP_STREAK = new Set(['live', 'countdown', 'replay', 'paused']);
+              lifecycle.onChange((newPhase) => {
+                setPlayablePhase(PLAYABLE_PHASES.has(newPhase));
+                if (!KEEP_STREAK.has(newPhase) && currentStreak > 0) {
+                  // Match boundary or post-match: streak dies instantly.
+                  resetComboState();
+                  render();
+                }
+              });
+              return;
+            }
             const c = $('conn');
             if (!c) return;
             const paint = (s) => {
@@ -1322,7 +1512,11 @@
               totals[vid].name = vname;
 
               // ─── Combo ───
-              const now = performance.now();
+              // Bank time, not wall-clock — replay/menu pauses don't
+              // burn the window. A demo while the bank is paused (we
+              // shouldn't fire one here, but defensively) still uses
+              // the current bank value, which is fine.
+              const now = bankNow();
               const sinceLast = lastDemoAt ? now - lastDemoAt : Infinity;
               if (sinceLast <= COMBO_WINDOW_MS) {
                 // Within window — extend the streak.
@@ -1343,17 +1537,23 @@
                 bestStreakWord = t ? t.word : '';
               }
 
-              // Visual feedback at tier-hot+ — shake intensity scales.
+              // Shake escalation by tier. The new ultra tiers below
+              // tier-apocalypse use shake-extreme.
               const tier = tierFor(currentStreak);
               if (tier && (tier.cls === 'tier-hot' || tier.cls === 'tier-bloom')) {
                 triggerShake('light');
               } else if (tier && tier.cls === 'tier-apocalypse') {
                 triggerShake('hard');
+              } else if (tier && (
+                tier.cls === 'tier-armageddon' ||
+                tier.cls === 'tier-extinction' ||
+                tier.cls === 'tier-genocide'
+              )) {
+                triggerShake('extreme');
               }
 
-              // Reset the drain bar and arm a fresh break timer.
-              resetTimerBar();
-              armBreakTimer();
+              // Kick the rAF loop so the timer bar drains smoothly.
+              ensureActiveLoop();
 
               // Fire-and-forget save; the store debounces so rapid demos
               // (a triple-demo from a kickoff scrum) coalesce into one
