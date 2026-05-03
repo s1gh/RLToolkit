@@ -664,8 +664,8 @@
         replay:     !!game?.bReplay,
         hasWinner:  !!game?.bHasWinner,
         winner:     game ? (game.Winner || '') : '',
-        scoreBlue:   game?.Teams ? ((game.Teams.find((t) => t.TeamNum === 0) || game?.Teams?.[0] || {}).Score | 0) : 0,
-        scoreOrange: game?.Teams ? ((game.Teams.find((t) => t.TeamNum === 1) || game?.Teams?.[1] || {}).Score | 0) : 0,
+        scoreBlue:   ((game?.Teams?.find((t) => t.TeamNum === 0) || game?.Teams?.[0] || {}).Score | 0),
+        scoreOrange: ((game?.Teams?.find((t) => t.TeamNum === 1) || game?.Teams?.[1] || {}).Score | 0),
         // Normalized team metadata: full array plus blue/orange shortcuts
         // (mirroring the existing match.blue / match.orange split).
         teams,
