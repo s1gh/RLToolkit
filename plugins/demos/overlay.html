@@ -547,13 +547,38 @@
       </div>
     </main>
 
-    <!-- ═════════════════════ OVERLAY ═════════════════════ -->
-    <div class="ov">
-      <div class="ov-head">
-        <span class="ov-label">Demos</span>
-        <span class="ov-total" id="ov-total">0</span>
+    <!-- ═════════════════════ OVERLAY ═════════════════════
+         The widget has two rendered modes that share the same root:
+         - data-mode="idle"   shows .ov-idle (header + BEST badge + victims)
+         - data-mode="active" shows .ov-active (timer bar + big number/word)
+         - data-mode="break"  reuses .ov-active with .is-break for styling
+
+         Tier classes (.tier-base, .tier-glow, .tier-hot, .tier-bloom,
+         .tier-apocalypse) are also applied to .ov so every descendant
+         picks up the right color/size/effect from one source.
+    -->
+    <div class="ov" id="ov" data-mode="idle">
+      <!-- IDLE layout -->
+      <div class="ov-idle">
+        <div class="ov-head">
+          <span class="ov-label">Demos</span>
+          <span class="ov-total" id="ov-total">0</span>
+        </div>
+        <div class="ov-best" id="ov-best" hidden>
+          <span class="ov-best-label">BEST</span>
+          <span class="ov-best-streak" id="ov-best-streak">x0</span>
+          <span class="ov-best-word" id="ov-best-word"></span>
+        </div>
+        <div id="ov-list" class="ov-list"></div>
       </div>
-      <div id="ov-list" class="ov-list"></div>
+
+      <!-- ACTIVE / BREAK layout -->
+      <div class="ov-active">
+        <div class="ov-bar"><div class="ov-bar-fill" id="ov-bar-fill"></div></div>
+        <div class="ov-streak" id="ov-streak">x0</div>
+        <div class="ov-word" id="ov-word">TAGGED</div>
+        <div class="ov-victim" id="ov-victim">↳ —</div>
+      </div>
     </div>
 
     <script>
@@ -755,32 +780,73 @@
         }
 
         function renderOverlay() {
+          const ov = $('ov');
+          if (!ov) return;
+          const ui = computeUiState(performance.now());
+
+          // Top-level mode + tier classes drive everything CSS-side.
+          ov.dataset.mode = ui.mode;
+          // Strip any previous tier class, set the current one.
+          ov.classList.remove(
+            'tier-base',
+            'tier-glow',
+            'tier-hot',
+            'tier-bloom',
+            'tier-apocalypse',
+            'is-break',
+          );
+          ov.classList.add(ui.tierClass);
+          if (ui.mode === 'break') ov.classList.add('is-break');
+
+          // ── Idle subtree ──
           $('ov-total').textContent = totalCount();
+
+          // BEST badge — only when there's been a streak this match.
+          const best = $('ov-best');
+          if (ui.bestStreak >= 2) {
+            best.hidden = false;
+            $('ov-best-streak').textContent = 'x' + ui.bestStreak;
+            $('ov-best-word').textContent = ui.bestStreakWord;
+          } else {
+            best.hidden = true;
+          }
+
           const matchEntries = Object.entries(current)
             .sort((a, b) => b[1].count - a[1].count)
-            .slice(0, 4);
+            .slice(0, 3);
           if (!matchEntries.length) {
             $('ov-list').innerHTML =
               '<div class="ov-empty">' +
               (currentGuid ? 'no demos yet' : 'waiting for match') +
               '</div>';
-            return;
+          } else {
+            $('ov-list').innerHTML = matchEntries
+              .map(
+                ([_id, v], i) =>
+                  '<div class="ov-row" style="--ov-i:' +
+                  i +
+                  '">' +
+                  '<span class="c">' +
+                  v.count +
+                  '</span>' +
+                  '<span class="n">' +
+                  esc(v.name) +
+                  '</span>' +
+                  '</div>',
+              )
+              .join('');
           }
-          $('ov-list').innerHTML = matchEntries
-            .map(
-              ([_id, v], i) =>
-                '<div class="ov-row" style="--ov-i:' +
-                i +
-                '">' +
-                '<span class="c">' +
-                v.count +
-                '</span>' +
-                '<span class="n">' +
-                esc(v.name) +
-                '</span>' +
-                '</div>',
-            )
-            .join('');
+
+          // ── Active/break subtree ──
+          $('ov-streak').textContent = 'x' + ui.streak;
+          $('ov-word').textContent = ui.word || '';
+          if (ui.mode === 'break') {
+            $('ov-victim').textContent = 'STREAK ENDED';
+          } else if (ui.victim) {
+            $('ov-victim').textContent = '↳ ' + ui.victim;
+          } else {
+            $('ov-victim').textContent = '';
+          }
         }
 
         // rAF batcher: many SDK callbacks can fire on the same frame
