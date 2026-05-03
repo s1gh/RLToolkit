@@ -268,6 +268,30 @@
   let status = 'disconnected';
   let es = null;
 
+  // Hosted-bus mode: when the unified overlay aggregator (/overlay) is
+  // hosting us in an iframe, it opens a single shared EventSource and
+  // fans every parsed envelope to all child iframes via postMessage.
+  // We skip our own EventSource entirely in that case — saves N TCP
+  // connections, N JSON parses per event, and N SDK-wide reconnect
+  // storms when the toolkit briefly drops.
+  //
+  // Detection is synchronous via a URL flag the parent adds to every
+  // iframe src (`&__rlt_hosted=1`). We can't poll postMessage at module
+  // load and a `parent !== window` check would false-positive on OBS
+  // browser sources that have no shared bus. The flag is a clean
+  // explicit handshake.
+  const hostedBus = __rltUrlParams.has('__rlt_hosted');
+  // Tell the parent which events we want. Parent unions across all
+  // iframes and updates its single EventSource filter accordingly.
+  function postToHost(msg) {
+    if (!hostedBus) return;
+    try {
+      window.parent.postMessage(msg, '*');
+    } catch (_) {
+      /* noop: cross-origin / detached parent */
+    }
+  }
+
   const requiredEvents = new Set([
     'MatchCreated',
     'MatchInitialized',
@@ -289,6 +313,14 @@
   function addEvent(name) {
     if (!name || subscribedEvents.has(name)) return;
     subscribedEvents.add(name);
+    if (hostedBus) {
+      // Hosted mode: tell the parent we want this event. The parent
+      // unions across all iframes and updates its single EventSource
+      // filter accordingly. No reconnect on our side — we don't own
+      // the socket.
+      postToHost({ __rlt_bus_addEvent__: true, name });
+      return;
+    }
     if (es) {
       // Already connected with the prior filter; reconnect so the
       // server starts delivering the new event. Cheap on localhost.
@@ -307,7 +339,55 @@
     return '/events?events=' + encodeURIComponent(events);
   }
 
+  // Dispatch a parsed envelope to the bus. Shared between the direct
+  // EventSource path and the hosted-bus path — both paths see the same
+  // wire shape (PascalCase or lowercase keys, synthetic _-prefixed
+  // events, JSON-encoded Data strings) and need identical handling.
+  //
+  // In hosted-bus mode the parent forwards every event regardless of
+  // what each iframe asked for (the parent's server-side filter is the
+  // union across all iframes), so we filter client-side here against
+  // our own subscribedEvents set to keep plugin handlers from firing
+  // for events they didn't opt into.
+  function dispatchEnvelope(msg) {
+    if (!msg) return;
+    // The RL Stats API has shipped both PascalCase ("Event"/"Data"/"Status")
+    // and all-lowercase ("event"/"data"/"status") envelopes across versions.
+    // Accept either at this boundary so the rest of the SDK stays PascalCase.
+    // Synthetic envelopes from our own server (_ConnectionStatus, _Lifecycle)
+    // are always PascalCase, so they fall out of the same checks.
+    const event = msg.Event ?? msg.event;
+    const eventStatus = msg.Status ?? msg.status;
+    if (event === '_ConnectionStatus') {
+      status = eventStatus;
+      bus.emit('_status', status);
+      return;
+    }
+    // Synthetic _Lifecycle: snapshot fields live at the top level
+    // (match_active / phase / match_guid / since), not inside Data.
+    // Hand the whole envelope to the lifecycle subscriber.
+    if (event === '_Lifecycle') {
+      bus.emit('_Lifecycle', msg);
+      return;
+    }
+    // In hosted mode the parent broadcasts events the union of all
+    // iframes' filters — drop any we didn't personally opt into so
+    // typed handlers don't fire for unwanted events.
+    if (hostedBus && event && !subscribedEvents.has(event)) return;
+    // Decode the inner JSON-encoded Data payload — RL ships it as a string.
+    let data = msg.Data ?? msg.data;
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch {
+        data = null;
+      }
+    }
+    bus.emit(event, data, msg);
+  }
+
   function connect() {
+    if (hostedBus) return; // host owns the socket; nothing to do
     // Guard reentry: if we already have a healthy (or still-connecting)
     // EventSource, leave it alone. Only proceed if there's no socket or
     // the prior one is CLOSED — that catches the race between onerror
@@ -326,35 +406,7 @@
       } catch {
         return;
       }
-      // The RL Stats API has shipped both PascalCase ("Event"/"Data"/"Status")
-      // and all-lowercase ("event"/"data"/"status") envelopes across versions.
-      // Accept either at this boundary so the rest of the SDK stays PascalCase.
-      // Synthetic envelopes from our own server (_ConnectionStatus, _Lifecycle)
-      // are always PascalCase, so they fall out of the same checks.
-      const event = msg.Event ?? msg.event;
-      const eventStatus = msg.Status ?? msg.status;
-      if (event === '_ConnectionStatus') {
-        status = eventStatus;
-        bus.emit('_status', status);
-        return;
-      }
-      // Synthetic _Lifecycle: snapshot fields live at the top level
-      // (match_active / phase / match_guid / since), not inside Data.
-      // Hand the whole envelope to the lifecycle subscriber.
-      if (event === '_Lifecycle') {
-        bus.emit('_Lifecycle', msg);
-        return;
-      }
-      // Decode the inner JSON-encoded Data payload — RL ships it as a string.
-      let data = msg.Data ?? msg.data;
-      if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch {
-          data = null;
-        }
-      }
-      bus.emit(event, data, msg);
+      dispatchEnvelope(msg);
     };
     es.onerror = () => {
       // EventSource fires onerror for transient interruptions too — Firefox
@@ -2435,5 +2487,28 @@
   // open the EventSource. Microtask is enough — most plugin pages
   // call register() inline. Plugins that register later trigger a
   // reconnect via addEvent's stale-filter path.
-  Promise.resolve().then(connect);
+  if (hostedBus) {
+    // Hosted mode: listen for envelopes the parent forwards from its
+    // single shared EventSource. The parent also re-posts the last
+    // _Lifecycle and _ConnectionStatus on iframe load so a late-
+    // mounting plugin gets a complete initial state.
+    window.addEventListener('message', (e) => {
+      const data = e?.data;
+      if (!data || data.__rlt_bus__ !== true || !data.msg) return;
+      // Different origin would be a bug — both pages are served by the
+      // same toolkit. Defensive check: only accept from our parent.
+      if (e.source !== window.parent) return;
+      dispatchEnvelope(data.msg);
+    });
+    // Tell the parent which events we already care about (the required
+    // baseline plus anything the page's inline register() calls have
+    // added by the time this microtask runs). Same deferral idea as
+    // the direct-mode path.
+    Promise.resolve().then(() => {
+      const list = Array.from(subscribedEvents);
+      postToHost({ __rlt_bus_hello__: true, events: list });
+    });
+  } else {
+    Promise.resolve().then(connect);
+  }
 })();

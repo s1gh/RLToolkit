@@ -9,6 +9,14 @@
 // user-controlled customizations stored in data/overlay-overrides.json.
 // Reflows in place when the editor publishes _OverridesChanged — no
 // full reload, no iframe re-mount, plugin in-memory state survives.
+//
+// Shared SSE bus: this aggregator opens ONE EventSource subscribed to
+// the union of every hosted plugin's wanted events, parses each message
+// once, and fans the parsed envelope to every iframe via postMessage.
+// Each iframe's SDK runs in hosted-bus mode (detected via the
+// __rlt_hosted=1 URL flag we add below) and skips opening its own
+// EventSource. Saves N TCP connections, N JSON parses per event, and
+// N reconnect storms when the toolkit briefly drops.
 (async function(){
   const params = new URLSearchParams(location.search);
   const editMode = params.get('edit') === '1';
@@ -44,7 +52,10 @@
   // Production path: track each iframe by plugin name so reflow can
   // re-apply position/size/opacity in place without re-mounting (which
   // would reset plugin in-memory state mid-stream).
-  const widgets = new Map(); // plugin.name -> { el, iframe }
+  //   widgets: plugin.name -> { el, iframe, wantedEvents: Set<string> }
+  // wantedEvents tracks the per-iframe filter set (sent by the SDK in
+  // its hosted-mode hello + subsequent addEvent messages).
+  const widgets = new Map();
 
   // ─── Game-focus relay ──────────────────────────────────────
   //
@@ -60,15 +71,165 @@
   // We remember the last signal and replay it on iframe `load` (see
   // applyOne below).
   let lastFocus = null; // null until the first signal arrives
+
+  // ─── Shared bus: cached framing events for late-mount replay ──
+  //
+  // _Lifecycle and _ConnectionStatus are framing signals every SDK
+  // expects to see at startup. The toolkit's server pushes the current
+  // value on every connect, so we always have one in hand. Cache the
+  // last one and re-post to each iframe on its `load` so a plugin that
+  // mounts after the initial signals still hydrates correctly.
+  let lastLifecycle = null;
+  let lastStatus = null;
+
+  // ─── Hello / addEvent inbox from iframes ──────────────────
+  //
+  // Every hosted-mode SDK posts:
+  //   { __rlt_bus_hello__: true, events: [...] } once at boot
+  //   { __rlt_bus_addEvent__: true, name: "Foo" } each time a plugin
+  //       handler subscribes to a new event after boot.
+  // We union these across all iframes to decide what our shared
+  // EventSource asks the server for. Required-baseline events
+  // (lifecycle transitions) are always in the set so the server
+  // delivers them regardless of plugin opt-in.
+  const REQUIRED_EVENTS = [
+    'MatchCreated','MatchInitialized','CountdownBegin','RoundStarted',
+    'MatchPaused','MatchUnpaused','GoalReplayStart','GoalReplayWillEnd',
+    'GoalReplayEnd','MatchEnded','PodiumStart','MatchDestroyed','ReplayCreated',
+    '_OverridesChanged',
+  ];
+  // Synthetic _OverridesChanged is in the list so reflow events are
+  // delivered when no plugin opted into anything else; the server
+  // bypasses the filter for _-prefixed names, but listing it here makes
+  // the URL non-empty and survives a server change to that policy.
+
+  function unionWantedEvents() {
+    const set = new Set(REQUIRED_EVENTS);
+    for (const w of widgets.values()) {
+      for (const ev of w.wantedEvents) set.add(ev);
+    }
+    return set;
+  }
+
+  // ─── Shared SSE bus ──────────────────────────────────────
+  //
+  // One EventSource for the whole aggregator. Filter is the union of
+  // every iframe's wanted-event set. When an iframe asks for a new
+  // event, we close + reopen with the wider filter. Cheap on localhost.
+  let es = null;
+  let lastFilterUrl = '';
+
+  function buildEventsURL(set) {
+    const list = Array.from(set).join(',');
+    return '/events?events=' + encodeURIComponent(list);
+  }
+
+  function openBus() {
+    const wanted = unionWantedEvents();
+    const url = buildEventsURL(wanted);
+    if (es && url === lastFilterUrl) return;
+    if (es) {
+      try { es.close(); } catch (_) { /* noop */ }
+      es = null;
+    }
+    lastFilterUrl = url;
+    es = new EventSource(url);
+    es.onmessage = (e) => {
+      let env;
+      try { env = JSON.parse(e.data); } catch (_) { return; }
+      if (!env) return;
+
+      // Reflow event: handled here, NOT forwarded to plugins.
+      if (env.Event === '_OverridesChanged') {
+        applyConfig(mergeConfig(env.Data || {}));
+        return;
+      }
+
+      // Cache framing signals for late-mount replay.
+      if (env.Event === '_Lifecycle') lastLifecycle = env;
+      if (env.Event === '_ConnectionStatus') lastStatus = env;
+
+      // Fan to every iframe. Each iframe's SDK filters client-side
+      // against its own subscribedEvents set; the parent broadcasts
+      // the union, so any iframe might receive an event it didn't
+      // personally ask for and silently drop it.
+      for (const w of widgets.values()) {
+        const cw = w.iframe?.contentWindow;
+        if (!cw) continue;
+        try { cw.postMessage({ __rlt_bus__: true, msg: env }, '*'); }
+        catch (_) { /* noop: navigating / cross-origin */ }
+      }
+    };
+    let firstOpenInner = true;
+    es.onopen = () => {
+      if (firstOpenInner) { firstOpenInner = false; return; }
+      // After a reconnect, re-fetch overrides so we catch up on
+      // anything the editor changed while we were down.
+      fetch('/api/overlay/overrides')
+        .then(r => r.json())
+        .then(o => applyConfig(mergeConfig(o)))
+        .catch((err) => console.warn('[rlt overlay] resync failed', err));
+    };
+    es.onerror = (e) => {
+      console.warn('[rlt overlay] SSE connection lost; auto-reconnecting', e);
+    };
+  }
+
+  // ─── postMessage inbox: focus signals + bus chatter ───────
   window.addEventListener('message', (e) => {
-    if (!e?.data || e.data.__rlt_focus__ !== true) return;
-    lastFocus = !!e.data.active;
-    for (const { iframe } of widgets.values()) {
-      if (!iframe?.contentWindow) continue;
-      try { iframe.contentWindow.postMessage(e.data, '*'); }
-      catch (_) { /* noop: iframe may be navigating or cross-origin */ }
+    const data = e?.data;
+    if (!data) return;
+
+    // Focus signal from the rl-widget Rust process (lands in this
+    // top-level doc only).
+    if (data.__rlt_focus__ === true) {
+      lastFocus = !!data.active;
+      for (const { iframe } of widgets.values()) {
+        if (!iframe?.contentWindow) continue;
+        try { iframe.contentWindow.postMessage(data, '*'); }
+        catch (_) { /* noop */ }
+      }
+      return;
+    }
+
+    // Hosted-mode SDK announcing its initial filter set. Find which
+    // iframe this came from so we can attribute the events correctly.
+    if (data.__rlt_bus_hello__ === true) {
+      const w = widgetForSource(e.source);
+      if (!w) return;
+      w.wantedEvents = new Set(Array.isArray(data.events) ? data.events : []);
+      openBus(); // re-open with the new union
+      // Replay framing signals so the plugin's lifecycle/status state
+      // is correct before the next live event arrives.
+      if (lastLifecycle) {
+        try { e.source.postMessage({ __rlt_bus__: true, msg: lastLifecycle }, '*'); }
+        catch (_) { /* noop */ }
+      }
+      if (lastStatus) {
+        try { e.source.postMessage({ __rlt_bus__: true, msg: lastStatus }, '*'); }
+        catch (_) { /* noop */ }
+      }
+      return;
+    }
+
+    // Hosted-mode SDK adding a single event to its filter post-boot.
+    if (data.__rlt_bus_addEvent__ === true && typeof data.name === 'string') {
+      const w = widgetForSource(e.source);
+      if (!w) return;
+      if (w.wantedEvents.has(data.name)) return;
+      w.wantedEvents.add(data.name);
+      openBus();
+      return;
     }
   });
+
+  function widgetForSource(source) {
+    if (!source) return null;
+    for (const w of widgets.values()) {
+      if (w.iframe && w.iframe.contentWindow === source) return w;
+    }
+    return null;
+  }
 
   function applyOne(plugin, overlay) {
     let w = widgets.get(plugin.name);
@@ -81,8 +242,12 @@
       // NOT forward these — the user is editing in the dashboard tab
       // where RL isn't focused and there's no real lifecycle phase, so
       // hiding every widget there makes the editor unusable.
+      //
+      // __rlt_hosted=1 is the handshake flag the SDK reads to know it
+      // should run in hosted-bus mode (no own EventSource; receive
+      // events via postMessage from this aggregator).
       let src = '/plugins/' + plugin.name + '/' + overlay.file +
-                '?overlay=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
+                '?overlay=1&__rlt_hosted=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
       if (overlay.hide_when_unfocused) src += '&hide_when_unfocused=1';
       if (Array.isArray(overlay.show_during_phase) && overlay.show_during_phase.length) {
         src += '&phases=' + encodeURIComponent(overlay.show_during_phase.join(','));
@@ -90,19 +255,29 @@
       f.src = src;
       f.setAttribute('allowtransparency', 'true');
       f.setAttribute('frameborder', '0');
-      // Replay the last-known game-focus state to this iframe once its
-      // SDK is loaded. The focus watcher is edge-triggered, so a plugin
-      // that mounts after the initial "RL is foreground" transition
-      // would otherwise stay in its hidden default forever. See the
-      // window.onmessage handler below for the broadcast path.
+      // On iframe `load` the SDK has just installed its message
+      // listener; replay focus + framing signals so a late-mounting
+      // plugin starts in the right state. The bus_hello path also
+      // replays lifecycle/status, but `load` may fire BEFORE hello if
+      // the SDK's microtask hasn't run yet, so we belt-and-braces here.
       f.addEventListener('load', () => {
-        if (lastFocus !== null && f.contentWindow) {
-          try { f.contentWindow.postMessage({ __rlt_focus__: true, active: lastFocus }, '*'); }
-          catch (_) { /* noop: iframe may be navigating or cross-origin */ }
+        const cw = f.contentWindow;
+        if (!cw) return;
+        if (lastFocus !== null) {
+          try { cw.postMessage({ __rlt_focus__: true, active: lastFocus }, '*'); }
+          catch (_) { /* noop */ }
+        }
+        if (lastLifecycle) {
+          try { cw.postMessage({ __rlt_bus__: true, msg: lastLifecycle }, '*'); }
+          catch (_) { /* noop */ }
+        }
+        if (lastStatus) {
+          try { cw.postMessage({ __rlt_bus__: true, msg: lastStatus }, '*'); }
+          catch (_) { /* noop */ }
         }
       });
       document.body.appendChild(f);
-      w = { el: f, iframe: f };
+      w = { el: f, iframe: f, wantedEvents: new Set() };
       widgets.set(plugin.name, w);
     }
     const a = overlay.anchor || 'top-right';
@@ -123,6 +298,9 @@
     if (!w) return;
     if (w.el?.parentNode) w.el.parentNode.removeChild(w.el);
     widgets.delete(name);
+    // Filter union shrinks — reopen so the server stops sending events
+    // no remaining iframe wants.
+    openBus();
   }
 
   function applyConfig(mergedList) {
@@ -146,34 +324,9 @@
   }
 
   applyConfig(merged);
-
-  // Subscribe to the SSE bus for live reflow on editor changes. The
-  // ?events=__none__ filter would normally suppress everything, but
-  // synthetic _-prefixed events bypass the filter on the server side
-  // — so we get _OverridesChanged (and _ConnectionStatus, _Lifecycle)
-  // without paying the bandwidth of UpdateState's 60-120Hz stream.
-  const es = new EventSource('/events?events=__none__');
-  es.onmessage = (e) => {
-    let env;
-    try { env = JSON.parse(e.data); } catch (_) { return; }
-    if (!env || env.Event !== '_OverridesChanged') return;
-    applyConfig(mergeConfig(env.Data || {}));
-  };
-  // EventSource auto-reconnects on transport failure. On every successful
-  // (re)open AFTER the first, refetch the overrides snapshot so we catch
-  // up on changes that happened while the connection was down — without
-  // this the overlay would show stale positions until the next edit.
-  let firstOpen = true;
-  es.onopen = () => {
-    if (firstOpen) { firstOpen = false; return; }
-    fetch('/api/overlay/overrides')
-      .then(r => r.json())
-      .then(o => applyConfig(mergeConfig(o)))
-      .catch((err) => console.warn('[rlt overlay] resync failed', err));
-  };
-  es.onerror = (e) => {
-    console.warn('[rlt overlay] SSE connection lost; auto-reconnecting', e);
-  };
+  // Open the shared bus with the baseline filter. Each iframe's
+  // hosted-mode hello will widen it as their handlers register.
+  openBus();
 })().catch((err) => {
   // OBS browser sources can't show toasts; at least log so the failure
   // is visible in the source's "Inspect" devtools.
