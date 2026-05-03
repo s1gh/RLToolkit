@@ -956,6 +956,57 @@
           };
         }
 
+        // Reset the timer bar to 100% with no transition, then on the
+        // next frame remove the .reset class so the 20s drain begins.
+        // Bypass when the bar element doesn't exist (control-page render).
+        function resetTimerBar() {
+          const fill = document.getElementById('ov-bar-fill');
+          if (!fill) return;
+          fill.classList.add('reset');
+          // Force a reflow so the browser registers the snap-to-100%
+          // before we remove the class — without this, the transition
+          // gets coalesced and the bar appears not to drain.
+          // biome-ignore lint/suspicious/noUnusedExpressions: deliberate reflow
+          fill.offsetWidth;
+          fill.classList.remove('reset');
+          fill.style.width = '0%';
+        }
+
+        // One-shot shake. Class self-removes on animationend.
+        function triggerShake(intensity) {
+          if (!isOverlay) return;
+          const ov = document.getElementById('ov');
+          if (!ov) return;
+          const cls = intensity === 'hard' ? 'shake-hard' : 'shake-light';
+          ov.classList.remove('shake-light', 'shake-hard');
+          // Reflow so re-adding the same class restarts the animation
+          // when consecutive demos hit the same tier.
+          // biome-ignore lint/suspicious/noUnusedExpressions: deliberate reflow
+          ov.offsetWidth;
+          ov.classList.add(cls);
+          const onEnd = () => {
+            ov.classList.remove(cls);
+            ov.removeEventListener('animationend', onEnd);
+          };
+          ov.addEventListener('animationend', onEnd);
+        }
+
+        // Arm the break transition. Cancels any pending timer first so
+        // back-to-back demos don't queue stale break fires.
+        function armBreakTimer() {
+          if (breakTimer) clearTimeout(breakTimer);
+          breakTimer = setTimeout(() => {
+            breakTimer = null;
+            // After the hold expires, fully fall through to idle. The
+            // state machine in computeUiState handles "break" while
+            // sinceDemo is in the hold window, then "idle" past it.
+            // Schedule one final render at the end of the hold so the
+            // crossfade kicks in.
+            setTimeout(render, BREAK_HOLD_MS);
+            render();
+          }, COMBO_WINDOW_MS);
+        }
+
         // ─── State ──────────────────────────────────────────────────
         // `totals[playerId] = { name, count }` — persists across runs via
         // the SDK's per-plugin store. The store is filesystem-backed JSON,
@@ -1236,6 +1287,40 @@
               if (!totals[vid]) totals[vid] = { name: vname, count: 0 };
               totals[vid].count += 1;
               totals[vid].name = vname;
+
+              // ─── Combo ───
+              const now = performance.now();
+              const sinceLast = lastDemoAt ? now - lastDemoAt : Infinity;
+              if (sinceLast <= COMBO_WINDOW_MS) {
+                // Within window — extend the streak.
+                currentStreak += 1;
+              } else {
+                // Outside window OR first demo — start fresh at 1.
+                // (A demo during the break hold also lands here because
+                // BREAK_HOLD_MS pushes sinceLast past COMBO_WINDOW_MS.)
+                currentStreak = 1;
+              }
+              lastDemoAt = now;
+              lastVictimName = vname;
+
+              // Track best-of-match for the BEST badge.
+              if (currentStreak > bestStreak) {
+                bestStreak = currentStreak;
+                const t = tierFor(currentStreak);
+                bestStreakWord = t ? t.word : '';
+              }
+
+              // Visual feedback at tier-hot+ — shake intensity scales.
+              const tier = tierFor(currentStreak);
+              if (tier && (tier.cls === 'tier-hot' || tier.cls === 'tier-bloom')) {
+                triggerShake('light');
+              } else if (tier && tier.cls === 'tier-apocalypse') {
+                triggerShake('hard');
+              }
+
+              // Reset the drain bar and arm a fresh break timer.
+              resetTimerBar();
+              armBreakTimer();
 
               // Fire-and-forget save; the store debounces so rapid demos
               // (a triple-demo from a kickoff scrum) coalesce into one
