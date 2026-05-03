@@ -570,6 +570,33 @@
         const $ = (id) => document.getElementById(id);
         const isOverlay = new URLSearchParams(location.search).has('overlay');
 
+        // ─── Combo tiers ────────────────────────────────────────────
+        // Streak counts map to a tier (word + visual class). The class
+        // names below match CSS rules added later in this file. x6+ is
+        // the cap — APOCALYPSE; the streak number keeps climbing past 6
+        // but the word and styling stop there.
+        const COMBO_WINDOW_MS = 20000; // gap allowed between demos
+        const BREAK_HOLD_MS = 1000;    // freeze duration on streak end
+        const BREAK_FADE_MS = 200;     // crossfade from break to idle
+
+        const TIERS = [
+          { min: 2, word: 'TAGGED',      cls: 'tier-base' },
+          { min: 3, word: 'SMOKED',      cls: 'tier-glow' },
+          { min: 4, word: 'ANNIHILATED', cls: 'tier-hot' },
+          { min: 5, word: 'OBLITERATED', cls: 'tier-bloom' },
+          { min: 6, word: 'APOCALYPSE',  cls: 'tier-apocalypse' },
+        ];
+
+        // tierFor(streak) returns the highest tier whose `min` is <= streak,
+        // or null when streak < 2 (no tier — combo just started).
+        function tierFor(streak) {
+          let hit = null;
+          for (const t of TIERS) {
+            if (streak >= t.min) hit = t;
+          }
+          return hit;
+        }
+
         // ─── State ──────────────────────────────────────────────────
         // `totals[playerId] = { name, count }` — persists across runs via
         // the SDK's per-plugin store. The store is filesystem-backed JSON,
