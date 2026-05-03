@@ -193,7 +193,13 @@ body.overlay-mode {
   background: var(--rlt-bg-3);
   color: var(--rlt-txt);
   cursor: pointer;
-  transition: all 0.15s ease;
+  /* Explicit property list — `transition: all` makes the browser watch
+     every property for changes, even ones we don't animate. The hover
+     rule below only flips border-color, color, and box-shadow. */
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }

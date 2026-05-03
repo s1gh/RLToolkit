@@ -208,7 +208,14 @@ button{font-family:inherit}
   border:1px solid var(--line);
   background:var(--bg-3); color:var(--txt);
   cursor:pointer;
-  transition:all .15s ease;
+  /* Explicit list — hover variants flip border-color, color, filter,
+     and box-shadow. `transition: all` would force a watch on every
+     property even though only these change. */
+  transition:
+    border-color .15s ease,
+    color .15s ease,
+    filter .15s ease,
+    box-shadow .15s ease;
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
 }
 .btn:hover{ border-color:var(--cyan); color:var(--cyan); }
@@ -243,12 +250,18 @@ button{font-family:inherit}
 .toggle .knob{
   width:32px; height:18px; background:var(--bg-3);
   border:1px solid var(--line); border-radius:99px;
-  position:relative; transition:all .15s ease;
+  position:relative;
+  transition:
+    background .15s ease,
+    border-color .15s ease;
 }
 .toggle .knob::after{
   content:''; position:absolute; top:1px; left:1px;
   width:14px; height:14px; border-radius:50%;
-  background:var(--txt-3); transition:all .15s ease;
+  background:var(--txt-3);
+  transition:
+    left .15s ease,
+    background .15s ease;
 }
 .toggle input:checked + .knob{
   background:linear-gradient(135deg, var(--cyan), var(--violet));
@@ -302,7 +315,9 @@ button{font-family:inherit}
   padding:4px 10px; border-radius:99px;
   border:1px solid var(--line);
   color:var(--txt-2);
-  transition:all .15s ease;
+  transition:
+    border-color .15s ease,
+    color .15s ease;
 }
 .ribbon a:hover{
   border-color:var(--cyan); color:var(--cyan);
@@ -350,7 +365,9 @@ button{font-family:inherit}
   border:1px solid var(--line);
   cursor:pointer; font-size:16px; line-height:1;
   display:grid; place-items:center;
-  transition:all .15s ease;
+  transition:
+    color .15s ease,
+    border-color .15s ease;
 }
 .modal-close:hover{ color:var(--txt); border-color:var(--line-2); }
 .modal-body{

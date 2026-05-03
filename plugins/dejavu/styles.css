@@ -195,7 +195,12 @@ body.overlay-mode {
   align-items: center;
   justify-content: center;
   font-size: 15px;
-  transition: all 0.15s ease;
+  /* Explicit property list — `transition: all` makes the browser watch
+     every property for changes. Hover only flips border/color/shadow. */
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .icon-btn:hover {
   border-color: var(--cyan);
@@ -247,7 +252,9 @@ body.overlay-mode {
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  transition: all 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 .il-edit:hover {
   border-color: var(--cyan);
@@ -288,7 +295,9 @@ body.overlay-mode {
   padding: 9px 12px;
   border-radius: 7px;
   flex: 1;
-  transition: all 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .input:focus {
   outline: none;
@@ -305,7 +314,13 @@ body.overlay-mode {
   background: linear-gradient(135deg, var(--cyan), var(--violet));
   color: var(--bg-0);
   cursor: pointer;
-  transition: all 0.15s ease;
+  /* .btn:hover and .btn.ghost:hover between them animate border-color,
+     color, and box-shadow — list those explicitly so the browser
+     doesn't have to watch every property. */
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
@@ -621,7 +636,11 @@ body.overlay-mode {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    border-style 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
   flex: 0 0 auto;
 }
 .claim-btn:hover {
