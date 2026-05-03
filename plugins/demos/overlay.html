@@ -610,6 +610,33 @@
         let current = {};
         let currentGuid = null;
 
+        // ─── Combo state (volatile, per-match) ──────────────────────
+        // `currentStreak` is 0 between combos and 1..∞ during an active
+        // streak. `lastDemoAt` is performance.now() ms; the state machine
+        // reads `now - lastDemoAt` against COMBO_WINDOW_MS to decide
+        // active vs break vs idle. `bestStreak` and `bestStreakWord`
+        // drive the BEST badge in idle. `breakTimer` is the setTimeout
+        // handle that fires the break transition; we cancel and re-arm
+        // it on every demo so streaks coalesce cleanly.
+        let currentStreak = 0;
+        let lastDemoAt = 0;
+        let lastVictimName = '';
+        let bestStreak = 0;
+        let bestStreakWord = '';
+        let breakTimer = null;
+
+        function resetComboState() {
+          currentStreak = 0;
+          lastDemoAt = 0;
+          lastVictimName = '';
+          bestStreak = 0;
+          bestStreakWord = '';
+          if (breakTimer) {
+            clearTimeout(breakTimer);
+            breakTimer = null;
+          }
+        }
+
         // ─── Render ─────────────────────────────────────────────────
         // We rebuild innerHTML on each render. That's fine at this scale
         // (a couple dozen rows max) and the dejavu plugin shows what to
@@ -829,6 +856,7 @@
             if (g !== currentGuid) {
               currentGuid = g;
               current = {};
+              resetComboState();
             }
             render();
           },
