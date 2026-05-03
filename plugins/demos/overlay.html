@@ -494,20 +494,20 @@
          the active block's safe rectangle. */
       .ov-active {
         position: relative;
-        width: 100%;
-        flex: 1 1 auto;
+        align-self: stretch;
         display: flex;
         flex-direction: column;
-        /* Horizontal center for shadow safety (keeps the genocide-tier
-           halo inside the safe rectangle so it doesn't bleed against
-           the iframe edge and trip webkit2gtk's box-flash artifact).
-           Vertical: flex-start with a small top gap so the streak
-           sits just below the chips and reads as a continuation,
-           not a centered block floating in empty space. */
+        /* Horizontal center for shadow safety — at genocide tier the
+           text-shadow stack is wide enough that flex-start lets the
+           halo bleed against the iframe edge and trips webkit2gtk's
+           rectangular box-flash artifact. Centering keeps the shadow
+           inside the active block's safe rectangle.
+           Streak block lives directly under the drain bar in the
+           right column (.ov-stack), so vertical-flush is fine — no
+           empty gap to "center within". */
         align-items: center;
-        justify-content: flex-start;
         gap: 0.1rem;
-        padding: 0.6rem 0.7rem 0.8rem;
+        padding: 0.4rem 0.5rem 0.5rem;
       }
 
       /* ─── BEST badge (idle) ─────────────────────────────────────
@@ -560,16 +560,31 @@
         color: var(--rlt-orange);
       }
 
-      /* ─── Top row: DEMOS chip + drain bar ───────────────────────
-         Pairs the chip with its progress indicator on one row so the
-         drain bar reads as the chip's timer rather than a floating
-         line above the streak. Bar aligns to the top edge of the
-         chip (not vertical-center) so it reads as a deliberate
-         pinstripe along the row, not a hovering element. */
-      .ov-top-row {
+      /* ─── Main two-column layout ─────────────────────────────────
+         Left column: DEMOS + BEST chips stacked. Hugs content.
+         Right column (.ov-stack): drain bar at top, streak readout
+           below — they share a horizontal track so the streak number
+           sits directly under the bar, not floating elsewhere. */
+      .ov-main {
         display: flex;
         align-items: flex-start;
         gap: 0.5rem;
+      }
+      .ov-col-left {
+        display: flex;
+        flex-direction: column;
+        gap: 0.22rem;
+        flex: 0 0 auto;
+      }
+      .ov-stack {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.1rem;
+        /* Top padding aligns the bar with the top edge of the DEMOS
+           chip (chip border + chip top-padding ≈ this offset). */
+        padding-top: 0.15rem;
       }
 
       /* ─── Drain bar ─────────────────────────────────────────────
@@ -583,7 +598,7 @@
          whatever width remains after the DEMOS chip. Hidden in idle
          (no streak to drain — empty bar would just be visual noise). */
       .ov-bar {
-        flex: 1 1 auto;
+        align-self: stretch;
         height: 3px;
         background: rgba(255, 255, 255, 0.08);
         border-radius: 2px;
@@ -1004,35 +1019,40 @@
          .tier-apocalypse, …) are applied to .ov so every descendant
          picks up the right color/size/effect from one source. -->
     <div class="ov" id="ov" data-mode="idle">
-      <!-- Persistent chips, visible in every mode. The DEMOS chip
-           pairs with the drain bar on one row so the timer reads as
-           the chip's progress indicator, not a floating element.
-           Drain bar is hidden in idle (no streak to drain). -->
-      <div class="ov-top-row">
-        <div class="ov-head">
-          <span class="ov-label">Demos</span>
-          <span class="ov-total" id="ov-total">0</span>
+      <!-- Layout structure: two-column flex.
+           Left column: DEMOS chip + BEST chip stacked. Hugs content.
+           Right column (.ov-stack): drain bar + streak readout
+             stacked. Fills remaining width. The streak block lives
+             underneath the drain bar so they share the same
+             horizontal track — the streak's "progress" reads
+             directly from the bar above it.
+           Idle mode hides .ov-stack and shows the victim list below
+             the chips (it doesn't need the column structure). -->
+      <div class="ov-main">
+        <div class="ov-col-left">
+          <div class="ov-head">
+            <span class="ov-label">Demos</span>
+            <span class="ov-total" id="ov-total">0</span>
+          </div>
+          <div class="ov-best" id="ov-best" hidden>
+            <span class="ov-best-label">BEST</span>
+            <span class="ov-best-streak" id="ov-best-streak">x0</span>
+            <span class="ov-best-word" id="ov-best-word"></span>
+          </div>
         </div>
-        <div class="ov-bar" id="ov-bar"><div class="ov-bar-fill" id="ov-bar-fill"></div></div>
-      </div>
-      <div class="ov-best" id="ov-best" hidden>
-        <span class="ov-best-label">BEST</span>
-        <span class="ov-best-streak" id="ov-best-streak">x0</span>
-        <span class="ov-best-word" id="ov-best-word"></span>
+        <div class="ov-stack">
+          <div class="ov-bar" id="ov-bar"><div class="ov-bar-fill" id="ov-bar-fill"></div></div>
+          <div class="ov-active">
+            <div class="ov-streak" id="ov-streak">x0</div>
+            <div class="ov-word" id="ov-word">TAGGED</div>
+            <div class="ov-victim" id="ov-victim">↳ —</div>
+          </div>
+        </div>
       </div>
 
-      <!-- IDLE bottom slot: victim list. -->
+      <!-- IDLE bottom slot: victim list. Below the chip column when
+           in idle mode (replaces the streak block visually). -->
       <div id="ov-list" class="ov-list"></div>
-
-      <!-- ACTIVE / BREAK bottom slot: streak readout. Drain bar is
-           moved up into the chip row so the timer aligns with the
-           DEMOS counter — visual continuity rather than a floating
-           progress line above the streak number. -->
-      <div class="ov-active">
-        <div class="ov-streak" id="ov-streak">x0</div>
-        <div class="ov-word" id="ov-word">TAGGED</div>
-        <div class="ov-victim" id="ov-victim">↳ —</div>
-      </div>
     </div>
 
     <script>
