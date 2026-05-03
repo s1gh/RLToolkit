@@ -95,6 +95,17 @@ struct Args {
     /// specific monitor pins the overlay to one screen.
     #[arg(long)]
     monitor: Option<usize>,
+
+    /// Persist the webview's HTTP cache, cookies, and storage between
+    /// sessions. Default OFF — plugin assets change frequently during
+    /// development, and webkit2gtk's heuristic freshness window has been
+    /// observed to serve stale CSS even when the server sends
+    /// Cache-Control: no-cache. Running incognito gives every launch a
+    /// clean slate. Pass `--persist-cache` only when a plugin you trust
+    /// actually relies on persistent webview state (cookies, IndexedDB,
+    /// etc.).
+    #[arg(long)]
+    persist_cache: bool,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -683,6 +694,13 @@ fn main() {
                 .resizable(false)
                 .focused(false)
                 .visible(false);
+
+            // Incognito-by-default kills cross-session webview caching so
+            // an edited plugin asset always shows up on the next launch.
+            // See the --persist-cache flag for the rationale.
+            if !args_for_setup.persist_cache {
+                builder = builder.incognito(true);
+            }
 
             if let Mode::Plugin { manifest, .. } = &mode_for_setup {
                 builder = builder.inner_size(manifest.width as f64, manifest.height as f64);
