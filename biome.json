@@ -1,0 +1,13 @@
+{
+    "linter": {
+        "rules": {
+            "recommended": true,
+            "complexity": {
+                "useArrowFunction": "off"
+            },
+            "style": {
+                "useTemplate": "off"
+            }
+        }
+    }
+}

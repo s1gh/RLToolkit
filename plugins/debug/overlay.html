@@ -73,7 +73,9 @@
       .counts span {
         color: var(--rlt-cyan);
       }
-      .card { position: relative; }
+      .card {
+        position: relative;
+      }
       .focus-dot {
         position: absolute;
         top: 10px;
@@ -83,7 +85,9 @@
         border-radius: 50%;
         background: var(--rlt-green, #4ade80);
         box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
-        transition: background 120ms ease, box-shadow 120ms ease;
+        transition:
+          background 120ms ease,
+          box-shadow 120ms ease;
       }
       .focus-dot[data-focus="inactive"] {
         background: var(--rlt-txt-3, #555);
@@ -93,7 +97,12 @@
   </head>
   <body>
     <div class="card">
-      <div class="focus-dot" id="focus-dot" data-focus="active" title="game focus"></div>
+      <div
+        class="focus-dot"
+        id="focus-dot"
+        data-focus="active"
+        title="game focus"
+      ></div>
       <div class="header">StatfeedEvent Log</div>
       <div id="log" class="log"></div>
       <div id="counts" class="counts"></div>
@@ -159,8 +168,6 @@
         }
 
         RLT.plugin.register({
-          name: "debug",
-          version: "0.1.0",
           whilePhase: ["live", "replay", "countdown", "paused"],
 
           events: {
