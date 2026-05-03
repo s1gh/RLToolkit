@@ -12,12 +12,12 @@ BIOME       := ./node_modules/.bin/biome
 all: linux windows
 
 linux:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-		go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o $(BINARY) .
+	cd backend && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+		go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o ../$(BINARY) .
 
 windows:
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
-		go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o $(BINARY).exe .
+	cd backend && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+		go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o ../$(BINARY).exe .
 
 run: linux
 	./$(BINARY)
@@ -26,8 +26,8 @@ clean:
 	rm -f $(BINARY) $(BINARY).exe
 
 # Format JS / CSS / JSON / HTML in place. Go files are formatted by
-# `go fmt` on save; biome handles everything else under web/, plugins/,
-# and the toolkit's own configs.
+# `go fmt` on save; biome handles everything else under backend/web/,
+# plugins/, and the toolkit's own configs.
 fmt:
 	$(BIOME) format --write .
 
