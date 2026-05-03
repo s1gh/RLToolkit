@@ -458,9 +458,14 @@
       }
 
       /* ─── Mode toggle ───────────────────────────────────────────
-         Both subtrees live in the DOM; data-mode on the root chooses
-         which is visible. Crossfade for the break→idle transition. */
-      .ov-idle,
+         The chips (.ov-head, .ov-best) live above this and stay in
+         every mode — they're persistent context. Only the bottom slot
+         swaps: .ov-list in idle, .ov-active in active/break. Both
+         bottom blocks are kept in the DOM so the streak readout and
+         victim list don't have to re-mount across the toggle; we just
+         crossfade them. The hidden one is taken out of flow with
+         position:absolute so it doesn't reserve vertical space. */
+      .ov-list,
       .ov-active {
         transition: opacity 200ms ease;
       }
@@ -469,35 +474,30 @@
         pointer-events: none;
         position: absolute;
       }
-      .ov[data-mode="active"] .ov-idle,
-      .ov[data-mode="break"] .ov-idle {
+      .ov[data-mode="active"] .ov-list,
+      .ov[data-mode="break"] .ov-list {
         opacity: 0;
         pointer-events: none;
         position: absolute;
       }
-      /* Active layout fills the widget; idle uses inline-flex from .ov.
-         No background, no border, no border-radius — the rectangle of
-         this element must stay invisible. Tier "heat" is painted via
-         text-shadow on the streak number and word (see tier rules
-         below); we tried filter:drop-shadow first but it caused
-         compositor-stall artifacts on the wry/webkit overlay surface
-         (rectangular flash, lag during pulse animations). */
+      /* Active block: the streak readout + drain bar. Centers its own
+         contents within whatever vertical space remains after the
+         persistent chips. No background, no border, no radius — the
+         rectangle of this element must stay invisible. Tier "heat" is
+         painted via text-shadow on the streak number and word (see
+         tier rules below); filter:drop-shadow caused compositor-stall
+         artifacts on wry/webkit (rectangular flash, lag during pulse
+         animations). */
       .ov-active {
         position: relative;
         width: 100%;
-        height: 100%;
+        flex: 1 1 auto;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 0.1rem;
-        padding: 0.5rem 0.7rem 0.8rem;
-      }
-      .ov-idle {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        gap: 0.22rem;
+        padding: 0.4rem 0.5rem 0.6rem;
       }
 
       /* ─── BEST badge (idle) ─────────────────────────────────────
@@ -642,13 +642,6 @@
         text-transform: uppercase;
         color: var(--rlt-txt-2);
         font-size: 0.7rem;
-      }
-
-      /* When idle, hide the active subtree's reserved layout space too */
-      .ov[data-mode="idle"] .ov-active {
-        height: 0;
-        overflow: hidden;
-        padding: 0;
       }
 
       /* ─── Tier escalation ───────────────────────────────────────
@@ -972,31 +965,35 @@
     </main>
 
     <!-- ═════════════════════ OVERLAY ═════════════════════
-         The widget has two rendered modes that share the same root:
-         - data-mode="idle"   shows .ov-idle (header + BEST badge + victims)
-         - data-mode="active" shows .ov-active (timer bar + big number/word)
-         - data-mode="break"  reuses .ov-active with .is-break for styling
+         Layout: persistent chips at the top (DEMOS counter + BEST
+         record), then a swappable bottom block.
+         - data-mode="idle"   bottom shows .ov-list (victim leaderboard)
+         - data-mode="active" bottom shows .ov-active (drain bar + streak)
+         - data-mode="break"  reuses .ov-active with .is-break styling
+
+         The chips never disappear — they're context the player wants
+         visible during a combo so they can see the per-match count
+         tick up and watch themselves close in on their personal record.
 
          Tier classes (.tier-base, .tier-glow, .tier-hot, .tier-bloom,
-         .tier-apocalypse) are also applied to .ov so every descendant
-         picks up the right color/size/effect from one source.
-    -->
+         .tier-apocalypse, …) are applied to .ov so every descendant
+         picks up the right color/size/effect from one source. -->
     <div class="ov" id="ov" data-mode="idle">
-      <!-- IDLE layout -->
-      <div class="ov-idle">
-        <div class="ov-head">
-          <span class="ov-label">Demos</span>
-          <span class="ov-total" id="ov-total">0</span>
-        </div>
-        <div class="ov-best" id="ov-best" hidden>
-          <span class="ov-best-label">BEST</span>
-          <span class="ov-best-streak" id="ov-best-streak">x0</span>
-          <span class="ov-best-word" id="ov-best-word"></span>
-        </div>
-        <div id="ov-list" class="ov-list"></div>
+      <!-- Persistent chips, visible in every mode. -->
+      <div class="ov-head">
+        <span class="ov-label">Demos</span>
+        <span class="ov-total" id="ov-total">0</span>
+      </div>
+      <div class="ov-best" id="ov-best" hidden>
+        <span class="ov-best-label">BEST</span>
+        <span class="ov-best-streak" id="ov-best-streak">x0</span>
+        <span class="ov-best-word" id="ov-best-word"></span>
       </div>
 
-      <!-- ACTIVE / BREAK layout -->
+      <!-- IDLE bottom slot: victim list. -->
+      <div id="ov-list" class="ov-list"></div>
+
+      <!-- ACTIVE / BREAK bottom slot: streak readout + drain bar. -->
       <div class="ov-active">
         <div class="ov-bar"><div class="ov-bar-fill" id="ov-bar-fill"></div></div>
         <div class="ov-streak" id="ov-streak">x0</div>
