@@ -597,6 +597,43 @@
           return hit;
         }
 
+        // computeUiState(now) — derive the renderable UI state from the
+        // raw combo state. Pure read, no side effects, safe to call from
+        // any render path.
+        //
+        // `mode` rules:
+        //   idle    — no demo yet, or now - lastDemoAt > window + hold
+        //   active  — now - lastDemoAt <= COMBO_WINDOW_MS
+        //   break   — window expired, hold still in effect, streak >= 1
+        //
+        // The break window only applies when there was an actual streak
+        // to mourn (currentStreak >= 1). A demo at lastDemoAt = 0 (never
+        // demoed) goes straight to idle.
+        function computeUiState(now) {
+          const sinceDemo = now - lastDemoAt;
+          let mode;
+          if (!lastDemoAt) {
+            mode = 'idle';
+          } else if (sinceDemo <= COMBO_WINDOW_MS) {
+            mode = 'active';
+          } else if (currentStreak >= 1 && sinceDemo <= COMBO_WINDOW_MS + BREAK_HOLD_MS) {
+            mode = 'break';
+          } else {
+            mode = 'idle';
+          }
+
+          const t = tierFor(currentStreak);
+          return {
+            mode,
+            streak: currentStreak,
+            word: t ? t.word : '',
+            tierClass: t ? t.cls : 'tier-base',
+            victim: lastVictimName,
+            bestStreak,
+            bestStreakWord,
+          };
+        }
+
         // ─── State ──────────────────────────────────────────────────
         // `totals[playerId] = { name, count }` — persists across runs via
         // the SDK's per-plugin store. The store is filesystem-backed JSON,
