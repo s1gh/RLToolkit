@@ -12,6 +12,7 @@
     "offset_x": 16,
     "offset_y": 16,
     "opacity": 1.0,
-    "click_through": false
+    "click_through": false,
+    "hide_when_unfocused": false
   }
 }

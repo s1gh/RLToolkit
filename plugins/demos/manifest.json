@@ -10,7 +10,7 @@
     "height": 240,
     "anchor": "top-left",
     "offset_x": 12,
-    "offset_y": 25,
+    "offset_y": 12,
     "opacity": 1,
     "click_through": true,
     "hide_when_unfocused": true,
