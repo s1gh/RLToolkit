@@ -510,25 +510,30 @@
         align-self: flex-start;
         display: inline-flex;
         align-items: baseline;
-        gap: 0.4rem;
-        padding: 0.14rem 0.55rem;
-        background: rgba(10, 12, 20, 0.55);
+        gap: 0.5rem;
+        padding: 0.22rem 0.6rem 0.22rem 0.55rem;
+        background: rgba(10, 12, 20, 0.65);
         border-left: 2px solid var(--rlt-orange);
         backdrop-filter: blur(6px);
         -webkit-backdrop-filter: blur(6px);
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
       }
+      /* The BEST label is intentionally neutral (cream-toned, not tier-
+         colored) so it reads as "this is what comes next is a record",
+         not as part of the tier word that follows it. The streak number
+         and tier word carry the heat. */
       .ov-best-label {
         font-family: var(--rlt-display);
-        font-size: 0.55rem;
+        font-size: 0.62rem;
         font-weight: 700;
-        letter-spacing: 0.28em;
+        letter-spacing: 0.24em;
         text-transform: uppercase;
-        color: var(--rlt-txt-3);
+        color: var(--rlt-txt);
+        opacity: 0.7;
       }
       .ov-best-streak {
         font-family: var(--rlt-display);
-        font-size: 0.85rem;
+        font-size: 0.95rem;
         font-weight: 700;
         color: var(--rlt-orange);
         font-variant-numeric: tabular-nums;
@@ -536,12 +541,11 @@
       }
       .ov-best-word {
         font-family: var(--rlt-display);
-        font-size: 0.6rem;
+        font-size: 0.7rem;
         font-weight: 700;
-        letter-spacing: 0.22em;
+        letter-spacing: 0.2em;
         text-transform: uppercase;
         color: var(--rlt-orange);
-        opacity: 0.8;
       }
 
       /* ─── Active: timer bar ─────────────────────────────────────
