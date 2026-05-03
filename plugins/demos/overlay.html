@@ -496,8 +496,10 @@
       /* Active layout fills the widget; idle uses inline-flex from .ov.
          No background, no border, no border-radius — the rectangle of
          this element must stay invisible. Tier "heat" is painted via
-         filter: drop-shadow() on the inner content (text + chip) so the
-         glow follows the letterforms, not the bounding box. */
+         text-shadow on the streak number and word (see tier rules
+         below); we tried filter:drop-shadow first but it caused
+         compositor-stall artifacts on the wry/webkit overlay surface
+         (rectangular flash, lag during pulse animations). */
       .ov-active {
         position: relative;
         width: 100%;
@@ -691,9 +693,9 @@
         color: var(--rlt-orange);
         text-shadow: 0 0 12px rgba(251, 124, 60, 0.6), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      .ov.tier-glow[data-mode="active"] .ov-active {
-        filter: drop-shadow(0 0 12px rgba(251, 124, 60, 0.45));
-      }
+      /* No drop-shadow — heat carried entirely by text-shadow above.
+         drop-shadow filters were causing compositor-stall artifacts
+         (rectangular flash, lag) on the wry/webkit overlay surface. */
 
       /* tier-hot (x4 ANNIHILATED) — hotter orange, +15% size,
          steady rim + shake-on-demo class */
@@ -707,49 +709,57 @@
         color: #ff6a1f;
         text-shadow: 0 0 14px rgba(255, 106, 31, 0.7), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      .ov.tier-hot[data-mode="active"] .ov-active {
-        filter: drop-shadow(0 0 16px rgba(255, 106, 31, 0.65));
-      }
+      /* No drop-shadow — see tier-glow note. */
 
-      /* tier-bloom (x5 OBLITERATED) — magenta-orange, +30% size,
-         hard rim-bloom */
+      /* tier-bloom (x5 OBLITERATED) — magenta-orange, +30% size.
+         Text-shadow only; large drop-shadow filters were causing
+         compositor lag and box-flash artifacts. */
       .ov.tier-bloom .ov-streak {
         font-size: 3.4rem;
         color: #ff4d8a;
         text-shadow:
-          0 0 28px rgba(255, 77, 138, 0.9),
-          0 0 12px rgba(255, 106, 31, 0.6);
+          0 0 14px rgba(255, 77, 138, 1),
+          0 0 8px rgba(255, 106, 31, 0.7);
       }
       .ov.tier-bloom .ov-word {
         font-size: 1.3rem;
         color: #ff4d8a;
-        text-shadow: 0 0 16px rgba(255, 77, 138, 0.8), 0 1px 2px rgba(0, 0, 0, 0.7);
-      }
-      .ov.tier-bloom[data-mode="active"] .ov-active {
-        filter: drop-shadow(0 0 22px rgba(255, 77, 138, 0.8));
+        text-shadow: 0 0 10px rgba(255, 77, 138, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
 
-      /* tier-apocalypse (x6+) — red-magenta, +45% size,
-         pulsing rim-bloom that keeps energy alive between demos */
+      /* tier-apocalypse (x6+) — red-magenta, +45% size, with a slow
+         text-shadow pulse for the "energy alive between demos" feel.
+         The pulse animates text-shadow rather than filter:drop-shadow:
+         text-shadow stays inside the rendering layer's bounds, so it
+         doesn't trigger compositor-stall box-flashes the way a heavy
+         drop-shadow keyframe did. */
       .ov.tier-apocalypse .ov-streak {
         font-size: 3.8rem;
         color: #ff2d62;
         text-shadow:
-          0 0 32px rgba(255, 45, 98, 1),
-          0 0 14px rgba(244, 114, 182, 0.7);
+          0 0 16px rgba(255, 45, 98, 1),
+          0 0 10px rgba(244, 114, 182, 0.7);
       }
       .ov.tier-apocalypse .ov-word {
         font-size: 1.45rem;
         color: #ff2d62;
         letter-spacing: 0.24em;
-        text-shadow: 0 0 18px rgba(255, 45, 98, 0.95), 0 1px 2px rgba(0, 0, 0, 0.7);
+        text-shadow: 0 0 12px rgba(255, 45, 98, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      .ov.tier-apocalypse[data-mode="active"] .ov-active {
-        animation: ov-apocalypse-pulse 1.6s ease-in-out infinite;
+      .ov.tier-apocalypse[data-mode="active"] .ov-streak {
+        animation: ov-apocalypse-streak-pulse 1.6s ease-in-out infinite;
       }
-      @keyframes ov-apocalypse-pulse {
-        0%, 100% { filter: drop-shadow(0 0 22px rgba(255, 45, 98, 0.85)); }
-        50%      { filter: drop-shadow(0 0 32px rgba(255, 45, 98, 1)); }
+      @keyframes ov-apocalypse-streak-pulse {
+        0%, 100% {
+          text-shadow:
+            0 0 16px rgba(255, 45, 98, 1),
+            0 0 10px rgba(244, 114, 182, 0.7);
+        }
+        50% {
+          text-shadow:
+            0 0 22px rgba(255, 45, 98, 1),
+            0 0 14px rgba(244, 114, 182, 0.9);
+        }
       }
 
       /* ─── Ultra tiers ──────────────────────────────────────────
@@ -759,43 +769,41 @@
          red-magenta toward white-hot, pulse accelerates, and shake gets
          meaner. The text starts to look like it's burning out. */
 
-      /* tier-armageddon (x8) — deeper red. Big halo lives on the
-         .ov-active drop-shadow pulse, not on text-shadow (large
-         text-shadow radii bleed against the iframe clip box). */
+      /* Ultra tiers — heat carried entirely by text-shadow. The
+         filter:drop-shadow approach we tried earlier caused compositor
+         lag and rectangular box-flash artifacts on the wry/webkit
+         overlay surface, even with single (non-stacked) shadows. We
+         keep text-shadow radii small enough to stay inside the .ov-
+         active padding so they don't bleed against the iframe edge. */
+
+      /* tier-armageddon (x8) — deeper, more aggressive red */
       .ov.tier-armageddon .ov-streak {
         font-size: 3.8rem;
         color: #ff1a4d;
         text-shadow:
-          0 0 10px rgba(255, 26, 77, 1),
+          0 0 14px rgba(255, 26, 77, 1),
+          0 0 8px rgba(255, 60, 100, 0.8),
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-armageddon .ov-word {
         font-size: 1.45rem;
         color: #ff1a4d;
         letter-spacing: 0.26em;
-        text-shadow: 0 0 8px rgba(255, 26, 77, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
-      }
-      /* Static glow — pulse animations on ultra tiers were stressing
-         the compositor on the wry/webkit overlay surface (box-flash
-         artifacts + visible lag). Each ultra tier escalates via static
-         drop-shadow magnitude instead; size, color, and shake still
-         carry the dynamic escalation. APOCALYPSE keeps its slow 1.6s
-         pulse — that one performed fine. */
-      .ov.tier-armageddon[data-mode="active"] .ov-active {
-        filter: drop-shadow(0 0 32px rgba(255, 26, 77, 0.95));
+        text-shadow:
+          0 0 12px rgba(255, 26, 77, 1),
+          0 1px 2px rgba(0, 0, 0, 0.7);
       }
 
-      /* tier-extinction (x10) — color blowing out toward white. The
-         heavy halo lives ENTIRELY on the .ov-active drop-shadow chain
-         (see pulse below), not on text-shadow — large text-shadow radii
-         render against the iframe clip box and produce a visible
-         rectangular bleed. text-shadow here is the close-range
-         readability outline only. */
+      /* tier-extinction (x10) — color blowing out toward white with a
+         layered red+pink inner shadow. The white text plus a tight
+         magenta core reads as "burning out" without big radii. */
       .ov.tier-extinction .ov-streak {
         font-size: 3.8rem;
         color: #fff0f5;
         text-shadow:
-          0 0 8px rgba(255, 26, 77, 1),
+          0 0 14px rgba(255, 255, 255, 0.85),
+          0 0 10px rgba(255, 26, 77, 1),
+          0 0 6px rgba(255, 80, 130, 0.95),
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-extinction .ov-word {
@@ -803,26 +811,22 @@
         color: #fff0f5;
         letter-spacing: 0.28em;
         text-shadow:
+          0 0 12px rgba(255, 255, 255, 0.85),
           0 0 8px rgba(255, 26, 77, 1),
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      .ov.tier-extinction[data-mode="active"] .ov-active {
-        filter: drop-shadow(0 0 38px rgba(255, 90, 140, 1));
-      }
 
-      /* tier-genocide (x12+) — pure white text, massive halo, fastest
-         pulse. Same rule as extinction: large halos go on drop-shadow,
-         text-shadow stays small for crisp readability. */
+      /* tier-genocide (x12+) — pure white text with the brightest
+         layered glow available without straying outside text-shadow.
+         The streak number gets a four-stop chain: white core, tight
+         pink, slightly wider red, sharp drop. */
       .ov.tier-genocide .ov-streak {
         font-size: 3.8rem;
         color: #ffffff;
-        /* Two close text-shadows (not a third large one): a tight white
-           bloom for the "pure light" feel, plus a tighter inner red so
-           the white doesn't read as flat. The wide halo lives on the
-           drop-shadow pulse. */
         text-shadow:
-          0 0 14px rgba(255, 255, 255, 0.95),
-          0 0 6px rgba(255, 80, 130, 1),
+          0 0 18px rgba(255, 255, 255, 0.95),
+          0 0 12px rgba(255, 80, 130, 1),
+          0 0 8px rgba(255, 26, 77, 1),
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-genocide .ov-word {
@@ -830,12 +834,9 @@
         color: #ffffff;
         letter-spacing: 0.3em;
         text-shadow:
-          0 0 12px rgba(255, 255, 255, 0.95),
-          0 0 6px rgba(255, 80, 130, 1),
+          0 0 14px rgba(255, 255, 255, 0.95),
+          0 0 10px rgba(255, 80, 130, 1),
           0 1px 2px rgba(0, 0, 0, 0.7);
-      }
-      .ov.tier-genocide[data-mode="active"] .ov-active {
-        filter: drop-shadow(0 0 46px rgba(255, 100, 150, 1));
       }
 
       /* BEST badge picks up the tier color it was earned at */
