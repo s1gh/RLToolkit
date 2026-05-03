@@ -600,16 +600,40 @@
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
         transition: font-size 220ms ease, color 220ms ease;
       }
+      /* Victim line — its own backing chip so the name reads against any
+         game background (chain-link fences, dirt, sky, etc). Cream text
+         on a translucent dark pill; same backdrop-blur trick as the
+         BEST badge and dejavu's row chrome. The arrow glyph is part of
+         the textContent so it inherits the same color. */
       .ov-victim {
-        font-family: var(--rlt-mono);
-        font-size: 0.62rem;
-        color: var(--rlt-txt-3);
-        margin-top: 0.2rem;
-        max-width: 100%;
+        font-family: var(--rlt-display);
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--rlt-txt);
+        margin-top: 0.45rem;
+        padding: 0.2rem 0.65rem;
+        background: rgba(10, 12, 20, 0.7);
+        border-left: 2px solid var(--rlt-orange);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        max-width: 90%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        text-align: center;
+        text-align: left;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+        letter-spacing: 0.02em;
+      }
+      /* Tier-tinted left border on the victim chip — subtle visual tie
+         to the streak's heat without recoloring the name itself (the
+         cream text stays readable against any background). */
+      .ov.tier-hot .ov-victim         { border-left-color: #ff6a1f; }
+      .ov.tier-bloom .ov-victim       { border-left-color: #ff4d8a; }
+      .ov.tier-apocalypse .ov-victim  { border-left-color: #ff2d62; }
+      /* Empty-victim case — keep the chip from rendering as an orphan
+         border-left when there's no name yet (first demo of a streak). */
+      .ov-victim:empty {
+        display: none;
       }
 
       /* Break state — desaturate, replace subtitle styling */
@@ -621,8 +645,8 @@
         font-family: var(--rlt-display);
         letter-spacing: 0.32em;
         text-transform: uppercase;
-        color: var(--rlt-txt-3);
-        font-size: 0.6rem;
+        color: var(--rlt-txt-2);
+        font-size: 0.7rem;
       }
 
       /* When idle, hide the active subtree's reserved layout space too */
@@ -686,10 +710,12 @@
         color: #ff4d8a;
         text-shadow: 0 0 16px rgba(255, 77, 138, 0.8), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
+      /* Outer-glow only — the rim used to be `inset 1px` but on a
+         transparent overlay that reads as a hard rectangular frame
+         around an empty box. Pure glow keeps the heat without the
+         borderline. */
       .ov.tier-bloom[data-mode="active"] {
-        box-shadow:
-          0 0 0 1px rgba(255, 77, 138, 0.3) inset,
-          0 0 32px -2px rgba(255, 77, 138, 0.7);
+        box-shadow: 0 0 36px -2px rgba(255, 77, 138, 0.85);
       }
 
       /* tier-apocalypse (x6+) — red-magenta, +45% size,
@@ -711,16 +737,8 @@
         animation: ov-apocalypse-pulse 1.6s ease-in-out infinite;
       }
       @keyframes ov-apocalypse-pulse {
-        0%, 100% {
-          box-shadow:
-            0 0 0 1px rgba(255, 45, 98, 0.3) inset,
-            0 0 28px -4px rgba(255, 45, 98, 0.7);
-        }
-        50% {
-          box-shadow:
-            0 0 0 1px rgba(255, 45, 98, 0.55) inset,
-            0 0 40px -2px rgba(255, 45, 98, 1);
-        }
+        0%, 100% { box-shadow: 0 0 32px -2px rgba(255, 45, 98, 0.85); }
+        50%      { box-shadow: 0 0 48px 0    rgba(255, 45, 98, 1); }
       }
 
       /* BEST badge picks up the tier color it was earned at */
