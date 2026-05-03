@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Crossbar Sound</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <script src="/sdk.js" data-plugin="crossbar"></script>
+  </head>
+  <body>
+    <div id="root">crossbar plugin loaded</div>
+    <script>
+      (function () {
+        if (RLT.isSettingsView) {
+          document.getElementById('root').textContent = 'settings view (stub)';
+          return;
+        }
+        const params = new URLSearchParams(location.search);
+        if (params.has('overlay')) {
+          document.getElementById('root').textContent = 'overlay view (stub)';
+          return;
+        }
+        document.getElementById('root').textContent = 'control view (stub)';
+      })();
+    </script>
+  </body>
+</html>
