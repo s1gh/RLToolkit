@@ -1099,8 +1099,11 @@
             word: t ? t.word : '',
             tierClass: t ? t.cls : 'tier-base',
             victim: lastVictimName,
-            bestStreak,
-            bestStreakWord,
+            // BEST badge values — all-time personal record, not
+            // per-match. The badge exists so the player has a number
+            // to chase across sessions.
+            bestStreak: allTimeBestStreak,
+            bestStreakWord: allTimeBestStreakWord,
             // Drives the timer bar width. 1.0 = full, 0.0 = expired.
             // Negative when in break mode; clamp to 0 for the bar.
             timerRemaining01: Math.max(0, Math.min(1, 1 - sinceDemo / COMBO_WINDOW_MS)),
@@ -1182,20 +1185,27 @@
         let current = {};
         let currentGuid = null;
 
-        // ─── Combo state (volatile, per-match) ──────────────────────
+        // ─── Combo state ───────────────────────────────────────────
         // `currentStreak` is 0 between combos and 1..∞ during an active
         // streak. `lastDemoAt` is the *playable bank* time at the last
         // demo (see bankNow below) — NOT performance.now(). The bank
         // only ticks during the `live` phase, so a 20s combo window
         // counts 20 seconds of actual gameplay, not wall-clock time.
         // This matters for chasers: a goal-replay or kickoff countdown
-        // between two demos doesn't burn the streak window. `bestStreak`
-        // and `bestStreakWord` drive the BEST badge in idle.
+        // between two demos doesn't burn the streak window. The BEST
+        // badge is driven by `allTimeBestStreak` below — persistent,
+        // not per-match — so the player always has their personal
+        // record on screen to chase.
         let currentStreak = 0;
         let lastDemoAt = 0;
         let lastVictimName = '';
-        let bestStreak = 0;
-        let bestStreakWord = '';
+        // All-time personal record. Persisted via handle.store so it
+        // survives across matches, sessions, and toolkit restarts. The
+        // BEST badge in the overlay shows this so the player has a
+        // record to chase. Updated in the demo handler whenever the
+        // current streak exceeds it.
+        let allTimeBestStreak = 0;
+        let allTimeBestStreakWord = '';
 
         // Playable-time accumulator. `playableElapsed` increases only
         // during phases in PLAYABLE_PHASES. `lastPhaseTickAt` is the
@@ -1238,8 +1248,9 @@
           currentStreak = 0;
           lastDemoAt = 0;
           lastVictimName = '';
-          bestStreak = 0;
-          bestStreakWord = '';
+          // allTimeBestStreak / allTimeBestStreakWord intentionally NOT
+          // reset — they're the player's persistent personal record
+          // and survive match boundaries.
         }
 
         // ─── Render ─────────────────────────────────────────────────
@@ -1250,6 +1261,15 @@
         function totalCount() {
           let n = 0;
           for (const id in totals) n += totals[id].count;
+          return n;
+        }
+
+        // Per-match demo count. The overlay shows this — "all-time
+        // total" was nonsense as a HUD metric (it just grew forever).
+        // Per-match resets when the match guid changes (see onMatch).
+        function matchDemoCount() {
+          let n = 0;
+          for (const id in current) n += current[id].count;
           return n;
         }
 
@@ -1315,9 +1335,13 @@
             ? matchEntries.length + ' victims'
             : 'no match';
 
+          // Cap the rendered list at the top 10 most-demolished — the
+          // long tail isn't useful at a glance. The "rivals" badge
+          // still shows the full distinct-victim count so the player
+          // knows what's hidden below the cut.
           const allEntries = Object.entries(totals)
             .sort((a, b) => b[1].count - a[1].count)
-            .slice(0, 20);
+            .slice(0, 10);
           $('all-list').innerHTML = rowsHtml(allEntries, '◆', 'no demolitions yet');
           $('all-count').textContent = Object.keys(totals).length;
         }
@@ -1336,10 +1360,11 @@
           if (!ui) ui = computeUiState();
 
           // Build the fingerprint over every value the heavy path writes.
-          // top-3 match entries are folded in by id+count+name; bestStreak
-          // and bestStreakWord drive the BEST badge; streak/word/victim
-          // drive the active subtree. The match-roster slice mirrors the
-          // one we use to render rows below.
+          // top-3 match entries are folded in by id+count+name;
+          // ui.bestStreak / ui.bestStreakWord (all-time personal record)
+          // drive the BEST badge; streak/word/victim drive the active
+          // subtree. The match-roster slice mirrors the one we use to
+          // render rows below.
           const matchEntries = Object.entries(current)
             .sort((a, b) => b[1].count - a[1].count)
             .slice(0, 3);
@@ -1350,7 +1375,7 @@
             ui.mode + '|' + ui.tierClass + '|' +
             ui.streak + '|' + ui.word + '|' + ui.victim + '|' +
             ui.bestStreak + '|' + ui.bestStreakWord + '|' +
-            currentGuid + '|' + totalCount() + '|' + matchFp;
+            currentGuid + '|' + matchDemoCount() + '|' + matchFp;
           if (fp === lastOverlayFp) return;
           lastOverlayFp = fp;
 
@@ -1372,9 +1397,14 @@
           if (ui.mode === 'break') ov.classList.add('is-break');
 
           // ── Idle subtree ──
-          $('ov-total').textContent = totalCount();
+          // Per-match demo count, not all-time. The overlay is a
+          // live HUD; "demos this match" is what's actionable while
+          // playing. The dashboard's All Time card shows the total.
+          $('ov-total').textContent = matchDemoCount();
 
-          // BEST badge — only when there's been a streak this match.
+          // BEST badge — all-time personal record. Hidden until the
+          // player has ever achieved a streak of 2+, so a fresh
+          // install stays uncluttered until the first real combo.
           const best = $('ov-best');
           if (ui.bestStreak >= 2) {
             best.hidden = false;
@@ -1500,8 +1530,18 @@
               const all = await handle.store.getAll();
               const stored = all && all.totals;
               if (stored && typeof stored === 'object') totals = stored;
+              // All-time best streak survives across sessions. If the
+              // stored value is missing (fresh install) or malformed,
+              // default to 0 so the BEST badge stays hidden until the
+              // player earns their first x2.
+              if (all && typeof all.allTimeBestStreak === 'number') {
+                allTimeBestStreak = all.allTimeBestStreak;
+              }
+              if (all && typeof all.allTimeBestStreakWord === 'string') {
+                allTimeBestStreakWord = all.allTimeBestStreakWord;
+              }
             } catch (e) {
-              console.error('[demos] failed to load totals:', e);
+              console.error('[demos] failed to load store:', e);
             }
             // Seed the current match if one is already in progress when
             // the plugin loads (e.g. user opened the dashboard mid-match).
@@ -1556,11 +1596,15 @@
               lastDemoAt = now;
               lastVictimName = vname;
 
-              // Track best-of-match for the BEST badge.
-              if (currentStreak > bestStreak) {
-                bestStreak = currentStreak;
+              // Update the all-time personal record. The BEST badge
+              // shows this, so a new record updates live mid-streak —
+              // the hit that breaks your old record is the moment the
+              // badge ticks up. Persisted via handle.store below
+              // alongside totals.
+              if (currentStreak > allTimeBestStreak) {
+                allTimeBestStreak = currentStreak;
                 const t = tierFor(currentStreak);
-                bestStreakWord = t ? t.word : '';
+                allTimeBestStreakWord = t ? t.word : '';
               }
 
               // Shake escalation by tier. The new ultra tiers below
@@ -1583,8 +1627,16 @@
 
               // Fire-and-forget save; the store debounces so rapid demos
               // (a triple-demo from a kickoff scrum) coalesce into one
-              // disk write.
+              // disk write. Three keys persist: the per-victim totals
+              // map, plus the all-time best streak (number + tier
+              // word) so the BEST badge survives restarts.
               handle.store.set('totals', totals).catch((e) => {
+                console.error('[demos] save failed:', e);
+              });
+              handle.store.set('allTimeBestStreak', allTimeBestStreak).catch((e) => {
+                console.error('[demos] save failed:', e);
+              });
+              handle.store.set('allTimeBestStreakWord', allTimeBestStreakWord).catch((e) => {
                 console.error('[demos] save failed:', e);
               });
 
