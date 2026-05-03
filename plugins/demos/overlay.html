@@ -569,12 +569,16 @@
       }
 
       /* ─── Active: timer bar ─────────────────────────────────────
-         CSS-driven drain: width transitions from 100% → 0% over the
-         combo window. JS resets to 100% on every demo by toggling a
-         class to interrupt the transition (see Task 6). */
+         JS-driven drain: renderOverlay sets the fill's inline width
+         each frame from computeUiState's timerRemaining01 (driven off
+         the playable bank, not wall-clock). No CSS transition — the
+         rAF loop interpolates the width directly, and replay/menu
+         pauses freeze the bar naturally because the bank itself
+         freezes. A 20s CSS transition here was double-animating every
+         JS write, slowing the bar to a crawl. */
       .ov-bar {
-        width: 60%;
-        max-width: 180px;
+        width: 50%;
+        max-width: 130px;
         height: 3px;
         background: rgba(255, 255, 255, 0.08);
         border-radius: 2px;
@@ -585,17 +589,7 @@
         width: 0%;
         height: 100%;
         background: var(--rlt-orange);
-        transition: width 20000ms linear;
         box-shadow: 0 0 6px rgba(251, 124, 60, 0.6);
-      }
-      /* Reset class — instantly snaps to 100% with no transition.
-         JS removes it on the next frame so the drain transition takes
-         over and runs to 0% over COMBO_WINDOW_MS. */
-      .ov-bar-fill.reset {
-        /* biome-ignore lint/complexity/noImportantStyles: deliberate transition interrupt */
-        width: 100% !important;
-        /* biome-ignore lint/complexity/noImportantStyles: deliberate transition interrupt */
-        transition: none !important;
       }
 
       /* ─── Active: number + word ─────────────────────────────────
