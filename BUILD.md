@@ -5,7 +5,7 @@ Two binaries make up RL Toolkit:
 | Binary       | Source                | Stack            | Purpose                          |
 |--------------|-----------------------|------------------|----------------------------------|
 | `rl-toolkit` | `./` (root)           | Go               | HTTP server, SSE bus, plugin host |
-| `rl-widget`  | `./overlay-app`       | Rust + Tauri 2   | Overlay window (unified or per-plugin) |
+| `rl-widget`  | `./overlay`       | Rust + Tauri 2   | Overlay window (unified or per-plugin) |
 
 The toolkit cross-compiles cleanly from any host. The widget needs to be
 built on its target OS — Tauri's webview crate (`wry`) links native
@@ -40,18 +40,18 @@ to run `make fmt` / `make lint`.
 go build -o rl-toolkit .
 
 # Widget (~1 min first time, then incremental)
-cd overlay-app/src-tauri
+cd overlay/src-tauri
 cargo build --release
-# → overlay-app/src-tauri/target/release/rl-widget
+# → overlay/src-tauri/target/release/rl-widget
 ```
 
 ### Run
 
 ```bash
 ./rl-toolkit &                                          # background
-./overlay-app/src-tauri/target/release/rl-widget        # unified: all enabled plugins, fullscreen
+./overlay/src-tauri/target/release/rl-widget        # unified: all enabled plugins, fullscreen
 # or, single-plugin mode:
-./overlay-app/src-tauri/target/release/rl-widget --plugin=dejavu
+./overlay/src-tauri/target/release/rl-widget --plugin=dejavu
 ```
 
 ### Stopping the widget
@@ -92,7 +92,7 @@ design, you can't reach it with the mouse or alt-tab. Two exit paths:
 ### Build the widget
 
 ```powershell
-cd overlay-app\src-tauri
+cd overlay\src-tauri
 cargo tauri build           # release: ~5–10 min, optimized
 # or
 cargo tauri build --debug   # debug:   ~2 min, faster iteration
@@ -101,8 +101,8 @@ cargo tauri build --debug   # debug:   ~2 min, faster iteration
 Output:
 
 ```
-overlay-app\src-tauri\target\release\rl-widget.exe                       # ~7 MB
-overlay-app\src-tauri\target\release\bundle\msi\rl-widget_0.1.0_x64_*.msi  # installer
+overlay\src-tauri\target\release\rl-widget.exe                       # ~7 MB
+overlay\src-tauri\target\release\bundle\msi\rl-widget_0.1.0_x64_*.msi  # installer
 ```
 
 ### Build the toolkit
@@ -125,9 +125,9 @@ Both produce identical binaries.
 
 ```powershell
 .\rl-toolkit.exe                                  # in one terminal
-.\overlay-app\src-tauri\target\release\rl-widget.exe                  # unified: all enabled plugins, fullscreen
+.\overlay\src-tauri\target\release\rl-widget.exe                  # unified: all enabled plugins, fullscreen
 # or, single-plugin mode:
-.\overlay-app\src-tauri\target\release\rl-widget.exe --plugin=dejavu
+.\overlay\src-tauri\target\release\rl-widget.exe --plugin=dejavu
 ```
 
 ### Known caveats on Windows
@@ -155,7 +155,7 @@ Untested as of v0.1.0. The Tauri code paths exist
 Windows), but no one's compiled against the Apple toolchain yet.
 
 To attempt: install Rust, Xcode Command Line Tools (`xcode-select
---install`), then `cargo tauri build` from `overlay-app/src-tauri`.
+--install`), then `cargo tauri build` from `overlay/src-tauri`.
 Report what breaks.
 
 ---
