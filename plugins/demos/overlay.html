@@ -484,17 +484,22 @@
         pointer-events: none;
         position: absolute;
       }
-      /* Active layout fills the widget; idle uses inline-flex from .ov */
+      /* Active layout fills the widget; idle uses inline-flex from .ov.
+         The active subtree is inset from the iframe edges so the tier
+         glow (painted on this element) can fade naturally without being
+         clipped by body { overflow: hidden }. The manifest is sized
+         (320×240) to leave ~24px of breathing room around the content. */
       .ov-active {
         position: relative;
-        width: 100%;
+        width: calc(100% - 48px);
+        margin: 24px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 0.1rem;
-        padding: 0.4rem 0.6rem 0.6rem;
-        min-height: 100%;
+        padding: 0.5rem 0.7rem 0.8rem;
+        border-radius: 4px;
       }
       .ov-idle {
         position: relative;
@@ -676,7 +681,7 @@
         color: var(--rlt-orange);
         text-shadow: 0 0 12px rgba(251, 124, 60, 0.6), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      .ov.tier-glow[data-mode="active"] {
+      .ov.tier-glow[data-mode="active"] .ov-active {
         box-shadow: 0 0 18px -4px rgba(251, 124, 60, 0.5);
       }
 
@@ -692,7 +697,7 @@
         color: #ff6a1f;
         text-shadow: 0 0 14px rgba(255, 106, 31, 0.7), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      .ov.tier-hot[data-mode="active"] {
+      .ov.tier-hot[data-mode="active"] .ov-active {
         box-shadow: 0 0 24px -4px rgba(255, 106, 31, 0.7);
       }
 
@@ -714,7 +719,7 @@
          transparent overlay that reads as a hard rectangular frame
          around an empty box. Pure glow keeps the heat without the
          borderline. */
-      .ov.tier-bloom[data-mode="active"] {
+      .ov.tier-bloom[data-mode="active"] .ov-active {
         box-shadow: 0 0 36px -2px rgba(255, 77, 138, 0.85);
       }
 
@@ -733,7 +738,7 @@
         letter-spacing: 0.24em;
         text-shadow: 0 0 18px rgba(255, 45, 98, 0.95), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      .ov.tier-apocalypse[data-mode="active"] {
+      .ov.tier-apocalypse[data-mode="active"] .ov-active {
         animation: ov-apocalypse-pulse 1.6s ease-in-out infinite;
       }
       @keyframes ov-apocalypse-pulse {
@@ -772,18 +777,12 @@
         60% { transform: translate(3px, 3px); }
         80% { transform: translate(-2px, 1px); }
       }
+      /* Shake animates the whole widget (.ov), so it lives at the iframe
+         level. Apocalypse pulse animates only the inner .ov-active subtree
+         (so its glow doesn't bleed into the iframe edge), so the two
+         animations target different elements and don't fight. */
       .ov.shake-light { animation: ov-shake-light 120ms ease-out; }
       .ov.shake-hard  { animation: ov-shake-hard 160ms ease-out; }
-      /* When apocalypse pulse is also active, layer the shake atop it
-         using a compound animation declaration by class precedence:
-         the .shake-* class sets a one-shot animation that overrides
-         the steady pulse for its duration; on animationend JS removes
-         the class and the pulse resumes. */
-      .ov.tier-apocalypse.shake-hard {
-        animation:
-          ov-shake-hard 160ms ease-out,
-          ov-apocalypse-pulse 1.6s ease-in-out infinite;
-      }
 
       /* Honor reduced-motion — keep the static look. */
       @media (prefers-reduced-motion: reduce) {
