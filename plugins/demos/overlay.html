@@ -628,6 +628,141 @@
         padding: 0;
       }
 
+      /* ─── Tier escalation ───────────────────────────────────────
+         Each tier class on .ov drives color/size for the active
+         subtree and rim-bloom on the .ov itself. Sizes are relative
+         to the base set in Task 5 (.ov-streak 2.6rem, .ov-word 1rem). */
+
+      /* tier-base (x2 TAGGED) — base orange, no escalation */
+      .ov.tier-base .ov-streak,
+      .ov.tier-base .ov-word {
+        color: var(--rlt-orange);
+      }
+
+      /* tier-glow (x3 SMOKED) — orange + extra glow + steady rim */
+      .ov.tier-glow .ov-streak {
+        color: var(--rlt-orange);
+        text-shadow: 0 0 20px rgba(251, 124, 60, 0.7);
+      }
+      .ov.tier-glow .ov-word {
+        color: var(--rlt-orange);
+        text-shadow: 0 0 12px rgba(251, 124, 60, 0.6), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-glow[data-mode="active"] {
+        box-shadow: 0 0 18px -4px rgba(251, 124, 60, 0.5);
+      }
+
+      /* tier-hot (x4 ANNIHILATED) — hotter orange, +15% size,
+         steady rim + shake-on-demo class */
+      .ov.tier-hot .ov-streak {
+        font-size: 3rem;
+        color: #ff6a1f;
+        text-shadow: 0 0 24px rgba(255, 106, 31, 0.8);
+      }
+      .ov.tier-hot .ov-word {
+        font-size: 1.15rem;
+        color: #ff6a1f;
+        text-shadow: 0 0 14px rgba(255, 106, 31, 0.7), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-hot[data-mode="active"] {
+        box-shadow: 0 0 24px -4px rgba(255, 106, 31, 0.7);
+      }
+
+      /* tier-bloom (x5 OBLITERATED) — magenta-orange, +30% size,
+         hard rim-bloom */
+      .ov.tier-bloom .ov-streak {
+        font-size: 3.4rem;
+        color: #ff4d8a;
+        text-shadow:
+          0 0 28px rgba(255, 77, 138, 0.9),
+          0 0 12px rgba(255, 106, 31, 0.6);
+      }
+      .ov.tier-bloom .ov-word {
+        font-size: 1.3rem;
+        color: #ff4d8a;
+        text-shadow: 0 0 16px rgba(255, 77, 138, 0.8), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-bloom[data-mode="active"] {
+        box-shadow:
+          0 0 0 1px rgba(255, 77, 138, 0.3) inset,
+          0 0 32px -2px rgba(255, 77, 138, 0.7);
+      }
+
+      /* tier-apocalypse (x6+) — red-magenta, +45% size,
+         pulsing rim-bloom that keeps energy alive between demos */
+      .ov.tier-apocalypse .ov-streak {
+        font-size: 3.8rem;
+        color: #ff2d62;
+        text-shadow:
+          0 0 32px rgba(255, 45, 98, 1),
+          0 0 14px rgba(244, 114, 182, 0.7);
+      }
+      .ov.tier-apocalypse .ov-word {
+        font-size: 1.45rem;
+        color: #ff2d62;
+        letter-spacing: 0.24em;
+        text-shadow: 0 0 18px rgba(255, 45, 98, 0.95), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-apocalypse[data-mode="active"] {
+        animation: ov-apocalypse-pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes ov-apocalypse-pulse {
+        0%, 100% {
+          box-shadow:
+            0 0 0 1px rgba(255, 45, 98, 0.3) inset,
+            0 0 28px -4px rgba(255, 45, 98, 0.7);
+        }
+        50% {
+          box-shadow:
+            0 0 0 1px rgba(255, 45, 98, 0.55) inset,
+            0 0 40px -2px rgba(255, 45, 98, 1);
+        }
+      }
+
+      /* BEST badge picks up the tier color it was earned at */
+      .ov.tier-hot .ov-best,
+      .ov.tier-bloom .ov-best,
+      .ov.tier-apocalypse .ov-best {
+        border-left-color: currentColor;
+      }
+      .ov.tier-hot .ov-best-streak,
+      .ov.tier-hot .ov-best-word { color: #ff6a1f; }
+      .ov.tier-bloom .ov-best-streak,
+      .ov.tier-bloom .ov-best-word { color: #ff4d8a; }
+      .ov.tier-apocalypse .ov-best-streak,
+      .ov.tier-apocalypse .ov-best-word { color: #ff2d62; }
+
+      /* ─── Shake on demo ────────────────────────────────────────
+         JS adds .shake-light / .shake-hard on every demo at tier-hot+;
+         self-removed on animationend. Translate-only so it doesn't
+         compound with the apocalypse rim-pulse box-shadow. */
+      @keyframes ov-shake-light {
+        0%, 100% { transform: translate(0, 0); }
+        25% { transform: translate(-2px, 1px); }
+        50% { transform: translate(2px, -1px); }
+        75% { transform: translate(-1px, 2px); }
+      }
+      @keyframes ov-shake-hard {
+        0%, 100% { transform: translate(0, 0); }
+        15% { transform: translate(-4px, 2px); }
+        30% { transform: translate(4px, -3px); }
+        45% { transform: translate(-3px, -2px); }
+        60% { transform: translate(3px, 3px); }
+        80% { transform: translate(-2px, 1px); }
+      }
+      .ov.shake-light { animation: ov-shake-light 120ms ease-out; }
+      .ov.shake-hard  { animation: ov-shake-hard 160ms ease-out; }
+      /* When apocalypse pulse is also active, layer the shake atop it
+         using a compound animation declaration by class precedence:
+         the .shake-* class sets a one-shot animation that overrides
+         the steady pulse for its duration; on animationend JS removes
+         the class and the pulse resumes. */
+      .ov.tier-apocalypse.shake-hard {
+        animation:
+          ov-shake-hard 160ms ease-out,
+          ov-apocalypse-pulse 1.6s ease-in-out infinite;
+      }
+
       /* Honor reduced-motion — keep the static look. */
       @media (prefers-reduced-motion: reduce) {
         body.overlay-mode .ov,
