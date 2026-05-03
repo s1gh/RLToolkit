@@ -74,9 +74,10 @@ impl MatchRule {
 use std::time::{Duration, Instant};
 
 /// How long after seeing "RL not foreground" we wait before firing the hide
-/// event. Quick Alt-Tabs (Discord glance, Steam overlay) shorter than this
-/// don't flicker the overlay.
-pub const HIDE_DEBOUNCE: Duration = Duration::from_millis(500);
+/// event. Long enough to absorb sub-frame focus blips (Wayland tooltip
+/// flicker, notification daemons stealing focus for one frame) but short
+/// enough that an intentional Alt-Tab away feels responsive.
+pub const HIDE_DEBOUNCE: Duration = Duration::from_millis(150);
 
 /// Internal state of the debouncer. The watcher owns one of these and feeds
 /// query results in via `step()`.
@@ -194,8 +195,9 @@ mod debounce_tests {
 
     #[test]
     fn pending_holds_inside_debounce_window() {
+        // Anything strictly less than HIDE_DEBOUNCE keeps us pending.
         let s = DebounceState::PendingHide { since: at(0) };
-        let r = s.step(false, at(250));
+        let r = s.step(false, at(HIDE_DEBOUNCE.as_millis() as u64 / 2));
         assert!(matches!(r.next, DebounceState::PendingHide { .. }));
         assert_eq!(r.emit, None);
     }
@@ -203,7 +205,7 @@ mod debounce_tests {
     #[test]
     fn pending_fires_hide_at_debounce_threshold() {
         let s = DebounceState::PendingHide { since: at(0) };
-        let r = s.step(false, at(500));
+        let r = s.step(false, at(HIDE_DEBOUNCE.as_millis() as u64));
         assert_eq!(r.next, DebounceState::Inactive);
         assert_eq!(r.emit, Some(false));
     }
@@ -211,7 +213,7 @@ mod debounce_tests {
     #[test]
     fn pending_fires_hide_after_threshold() {
         let s = DebounceState::PendingHide { since: at(0) };
-        let r = s.step(false, at(1200));
+        let r = s.step(false, at((HIDE_DEBOUNCE.as_millis() as u64) + 700));
         assert_eq!(r.next, DebounceState::Inactive);
         assert_eq!(r.emit, Some(false));
     }
@@ -311,9 +313,14 @@ use tauri::{AppHandle, Manager};
 /// distinguish our messages from anything else (Tauri internals, third-
 /// party scripts, the webview's own postMessage traffic).
 
-/// How often we ask the OS what's foreground. Tuned so 4 polls/sec stays
-/// well under 1% CPU on every supported platform.
-pub const POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// How often we ask the OS what's foreground. The poll itself is cheap on
+/// every supported platform (Wayland: dispatch buffered events from an
+/// already-subscribed protocol; X11: GetInputFocus + a property read;
+/// Windows: GetForegroundWindow + a brief process-handle open; macOS:
+/// NSWorkspace.frontmostApplication). 10 polls/sec stays well under 1% CPU
+/// while keeping felt hide latency under ~250ms when paired with the
+/// HIDE_DEBOUNCE above.
+pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Per-platform default needle. The watcher uses this when --game-match was
 /// not passed.
