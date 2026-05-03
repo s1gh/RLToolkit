@@ -370,15 +370,14 @@
          every blurred chip per frame. Opaquer background reads almost the
          same against a moving game and stays on the GPU. */
       .ov-head {
-        display: inline-flex;
+        display: flex;
         align-items: baseline;
         gap: 0.6rem;
-        align-self: flex-start;
-        padding: 0.18rem 0.6rem 0.18rem 0.5rem;
+        align-self: stretch;
+        padding: 0.22rem 0.6rem 0.22rem 0.5rem;
         background: rgba(10, 12, 20, 0.78);
         border-left: 2px solid var(--rlt-orange);
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-        margin-bottom: 0.12rem;
       }
       .ov-label {
         font-family: var(--rlt-display);
@@ -514,19 +513,19 @@
          Color is the tier color of the streak it represents — set via
          tier classes on .ov. Tag style mirrors the dejavu team labels. */
       .ov-best {
-        align-self: flex-start;
-        display: inline-flex;
+        align-self: stretch;
+        display: flex;
         align-items: baseline;
         gap: 0.5rem;
-        padding: 0.22rem 0.6rem 0.22rem 0.55rem;
+        padding: 0.22rem 0.6rem 0.22rem 0.5rem;
         background: rgba(10, 12, 20, 0.85);
         border-left: 2px solid var(--rlt-orange);
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
       }
-      /* The author rule above sets `display: inline-flex`, which beats
-         the UA stylesheet's `[hidden] { display: none }` by source order
-         at equal specificity. Restore the hidden behaviour explicitly so
-         JS toggling `el.hidden` works as expected. */
+      /* The author rule above sets `display: flex`, which beats the
+         UA stylesheet's `[hidden] { display: none }` by source order
+         at equal specificity. Restore the hidden behaviour explicitly
+         so JS toggling `el.hidden` works as expected. */
       .ov-best[hidden] {
         display: none;
       }
@@ -568,11 +567,11 @@
          right column carry the moment-to-moment heat; this chip is
          steady context. */
       .ov-last {
-        align-self: flex-start;
-        display: inline-flex;
+        align-self: stretch;
+        display: flex;
         align-items: baseline;
         gap: 0.45rem;
-        padding: 0.22rem 0.6rem 0.22rem 0.55rem;
+        padding: 0.22rem 0.6rem 0.22rem 0.5rem;
         background: rgba(10, 12, 20, 0.85);
         border-left: 2px solid var(--rlt-txt-3);
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
