@@ -37,6 +37,16 @@
   --rlt-radius-lg: 14px;
 }
 
+/* In overlay mode the iframe is sized to manifest width/height. By default
+   stretch the plugin body to fill that box so the manifest's dimensions
+   describe the visible widget, not just an invisible canvas. Plugins that
+   want a content-shrunk widget can override (e.g. `body.overlay-mode { width: auto }`). */
+body.overlay-mode {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
 /* Convenience classes plugins can drop in. */
 .rlt-card {
   background: linear-gradient(180deg, var(--rlt-bg-1), var(--rlt-bg-2));

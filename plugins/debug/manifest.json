@@ -6,7 +6,7 @@
   "description": "Logs all StatfeedEvent eventNames to verify what RL emits",
   "overlay": {
     "file": "overlay.html",
-    "width": 400,
+    "width": 900,
     "height": 500,
     "anchor": "top-right",
     "offset_x": 16,
