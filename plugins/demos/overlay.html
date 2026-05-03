@@ -466,6 +466,168 @@
         }
       }
 
+      /* ─── Mode toggle ───────────────────────────────────────────
+         Both subtrees live in the DOM; data-mode on the root chooses
+         which is visible. Crossfade for the break→idle transition. */
+      .ov-idle,
+      .ov-active {
+        transition: opacity 200ms ease;
+      }
+      .ov[data-mode="idle"] .ov-active {
+        opacity: 0;
+        pointer-events: none;
+        position: absolute;
+      }
+      .ov[data-mode="active"] .ov-idle,
+      .ov[data-mode="break"] .ov-idle {
+        opacity: 0;
+        pointer-events: none;
+        position: absolute;
+      }
+      /* Active layout fills the widget; idle uses inline-flex from .ov */
+      .ov-active {
+        position: relative;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.1rem;
+        padding: 0.4rem 0.6rem 0.6rem;
+        min-height: 100%;
+      }
+      .ov-idle {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 0.22rem;
+      }
+
+      /* ─── BEST badge (idle) ─────────────────────────────────────
+         Color is the tier color of the streak it represents — set via
+         tier classes on .ov. Tag style mirrors the dejavu team labels. */
+      .ov-best {
+        align-self: flex-start;
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.4rem;
+        padding: 0.14rem 0.55rem;
+        background: rgba(10, 12, 20, 0.55);
+        border-left: 2px solid var(--rlt-orange);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov-best-label {
+        font-family: var(--rlt-display);
+        font-size: 0.55rem;
+        font-weight: 700;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--rlt-txt-3);
+      }
+      .ov-best-streak {
+        font-family: var(--rlt-display);
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--rlt-orange);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.04em;
+      }
+      .ov-best-word {
+        font-family: var(--rlt-display);
+        font-size: 0.6rem;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--rlt-orange);
+        opacity: 0.8;
+      }
+
+      /* ─── Active: timer bar ─────────────────────────────────────
+         CSS-driven drain: width transitions from 100% → 0% over the
+         combo window. JS resets to 100% on every demo by toggling a
+         class to interrupt the transition (see Task 6). */
+      .ov-bar {
+        width: 100%;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: 0.35rem;
+      }
+      .ov-bar-fill {
+        width: 0%;
+        height: 100%;
+        background: var(--rlt-orange);
+        transition: width 20000ms linear;
+        box-shadow: 0 0 6px rgba(251, 124, 60, 0.6);
+      }
+      /* Reset class — instantly snaps to 100% with no transition.
+         JS removes it on the next frame so the drain transition takes
+         over and runs to 0% over COMBO_WINDOW_MS. */
+      .ov-bar-fill.reset {
+        /* biome-ignore lint/complexity/noImportantStyles: deliberate transition interrupt */
+        width: 100% !important;
+        /* biome-ignore lint/complexity/noImportantStyles: deliberate transition interrupt */
+        transition: none !important;
+      }
+
+      /* ─── Active: number + word ─────────────────────────────────
+         Sizing is base here; tier classes in Task 6 scale up. */
+      .ov-streak {
+        font-family: var(--rlt-display);
+        font-feature-settings: "tnum";
+        font-size: 2.6rem;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--rlt-orange);
+        letter-spacing: -0.02em;
+        text-shadow: 0 0 14px rgba(251, 124, 60, 0.5);
+        transition: font-size 220ms ease, color 220ms ease;
+      }
+      .ov-word {
+        font-family: var(--rlt-display);
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--rlt-orange);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+        transition: font-size 220ms ease, color 220ms ease;
+      }
+      .ov-victim {
+        font-family: var(--rlt-mono);
+        font-size: 0.62rem;
+        color: var(--rlt-txt-3);
+        margin-top: 0.2rem;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: center;
+      }
+
+      /* Break state — desaturate, replace subtitle styling */
+      .ov[data-mode="break"] .ov-streak,
+      .ov[data-mode="break"] .ov-word {
+        filter: saturate(0.4) brightness(0.7);
+      }
+      .ov[data-mode="break"] .ov-victim {
+        font-family: var(--rlt-display);
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--rlt-txt-3);
+        font-size: 0.6rem;
+      }
+
+      /* When idle, hide the active subtree's reserved layout space too */
+      .ov[data-mode="idle"] .ov-active {
+        height: 0;
+        overflow: hidden;
+        padding: 0;
+      }
+
       /* Honor reduced-motion — keep the static look. */
       @media (prefers-reduced-motion: reduce) {
         body.overlay-mode .ov,
