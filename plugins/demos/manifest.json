@@ -6,7 +6,7 @@
   "description": "Tracks how many players you've demolished, in this match and across all time",
   "overlay": {
     "file": "overlay.html",
-    "width": 320,
+    "width": 380,
     "height": 220,
     "anchor": "top-left",
     "offset_x": 12,
