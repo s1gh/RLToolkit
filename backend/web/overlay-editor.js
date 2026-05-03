@@ -46,7 +46,15 @@
   document.body.appendChild(topbar);
 
   topbar.querySelector('[data-role="reset-all"]').addEventListener('click', async () => {
-    if (!confirm('Reset all widget positions to their manifest defaults?')) return;
+    const ok = await confirmModal({
+      title: 'Reset all widgets?',
+      message:
+        'Every widget returns to the position, size, anchor, and opacity declared in its manifest. ' +
+        'Plugin-level enabled/disabled state is preserved.',
+      confirmLabel: 'Reset all',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       // Sequential DELETEs — N is small (one per plugin) so a parallel
       // burst gains nothing and would muddle error reporting.
@@ -373,6 +381,106 @@
 
   // ─── Toast ────────────────────────────────────────────────
   // Tiny ephemeral notification at the top of the screen for save failures.
+  // Promise-based confirm dialog matching the editor's cyan-on-dark
+  // aesthetic. Native confirm() pops a chrome-bordered alert that looks
+  // out of place against the overlay canvas. Esc cancels, Enter confirms,
+  // backdrop click cancels. Cancel is focused by default (safer for
+  // destructive actions).
+  function confirmModal({ title, message, confirmLabel = 'Confirm', destructive = false } = {}) {
+    return new Promise((resolve) => {
+      const backdrop = document.createElement('div');
+      backdrop.style.cssText =
+        'position:fixed;inset:0;background:rgba(5,7,14,.72);' +
+        'backdrop-filter:blur(2px);z-index:10000;' +
+        'display:flex;align-items:center;justify-content:center;' +
+        'opacity:0;transition:opacity .12s';
+
+      const accent = destructive ? '#f472b6' : '#22d3ee';
+      const accentGlow = destructive ? 'rgba(244,114,182,.35)' : 'rgba(34,211,238,.35)';
+
+      const card = document.createElement('div');
+      card.style.cssText =
+        'min-width:320px;max-width:440px;padding:20px 22px 18px;' +
+        'background:linear-gradient(180deg,#0f1320,#161b2c);' +
+        'border:1px solid #232a44;border-radius:10px;' +
+        'box-shadow:0 24px 60px rgba(0,0,0,.55),0 0 24px ' +
+        accentGlow +
+        ';' +
+        'color:#e6e9f5;font:500 13px Inter,system-ui,sans-serif;' +
+        'transform:translateY(6px);transition:transform .12s';
+
+      const titleEl = document.createElement('div');
+      titleEl.textContent = title;
+      titleEl.style.cssText =
+        'font:700 11px Inter,system-ui,sans-serif;' +
+        'letter-spacing:.14em;text-transform:uppercase;' +
+        'color:' +
+        accent +
+        ';margin-bottom:10px';
+
+      const msgEl = document.createElement('div');
+      msgEl.textContent = message;
+      msgEl.style.cssText = 'line-height:1.55;color:#a9b0cf;margin-bottom:18px';
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.style.cssText =
+        'padding:7px 14px;background:#1d2238;color:#a9b0cf;' +
+        'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
+        'font:600 11px Inter,sans-serif;letter-spacing:.06em;text-transform:uppercase';
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.textContent = confirmLabel;
+      confirmBtn.style.cssText =
+        'padding:7px 14px;background:transparent;color:' +
+        accent +
+        ';border:1px solid ' +
+        accent +
+        ';border-radius:6px;cursor:pointer;' +
+        'font:600 11px Inter,sans-serif;letter-spacing:.06em;text-transform:uppercase';
+
+      row.appendChild(cancelBtn);
+      row.appendChild(confirmBtn);
+      card.appendChild(titleEl);
+      card.appendChild(msgEl);
+      card.appendChild(row);
+      backdrop.appendChild(card);
+      document.body.appendChild(backdrop);
+
+      requestAnimationFrame(() => {
+        backdrop.style.opacity = '1';
+        card.style.transform = 'translateY(0)';
+      });
+
+      const close = (result) => {
+        document.removeEventListener('keydown', onKey);
+        backdrop.style.opacity = '0';
+        setTimeout(() => backdrop.remove(), 120);
+        resolve(result);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          close(false);
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          close(true);
+        }
+      };
+
+      cancelBtn.addEventListener('click', () => close(false));
+      confirmBtn.addEventListener('click', () => close(true));
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) close(false);
+      });
+      document.addEventListener('keydown', onKey);
+      cancelBtn.focus();
+    });
+  }
+
   function toast(msg) {
     let t = document.getElementById('__rlt_editor_toast');
     if (!t) {
