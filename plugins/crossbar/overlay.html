@@ -77,6 +77,13 @@
         min-width: 38px;
         text-align: right;
       }
+      .check-row {
+        display: inline-flex; align-items: center; gap: 8px;
+        cursor: pointer;
+      }
+      .check-row input[type=checkbox] {
+        width: 16px; height: 16px; cursor: pointer;
+      }
       .actions {
         display: flex; gap: 10px; margin-top: 24px;
       }
@@ -111,9 +118,11 @@
           customDataUrl: null,
           customName: null,
           volume: 0.7,
+          playInReplays: true,
         };
         const PRESETS = ['bonk', 'clang', 'airhorn'];
         const MAX_CUSTOM_BYTES = 500 * 1024;
+        const DEBOUNCE_MS = 250;
 
         async function readConfig() {
           const cfg = await RLT.store.get(STORE_KEY);
@@ -180,6 +189,13 @@
                 </div>
               </div>
 
+              <div class="field">
+                <label class="check-row">
+                  <input type="checkbox" id="play-in-replays">
+                  <span>Play during goal replays</span>
+                </label>
+              </div>
+
               <div class="actions">
                 <button class="btn" id="test" type="button">Test sound</button>
                 <button class="btn primary" id="done" type="button">Done</button>
@@ -200,6 +216,8 @@
           volumeVal.textContent = volume.value + '%';
           customField.hidden = (cfg.selected !== 'custom');
           customNameEl.textContent = cfg.customName || '';
+          const playInReplays = root.querySelector('#play-in-replays');
+          playInReplays.checked = cfg.playInReplays !== false;
 
           radios.forEach(r => {
             r.addEventListener('change', async () => {
@@ -214,6 +232,10 @@
           });
           volume.addEventListener('change', async () => {
             cfg = await writeConfig({ volume: Number(volume.value) / 100 });
+          });
+
+          playInReplays.addEventListener('change', async () => {
+            cfg = await writeConfig({ playInReplays: playInReplays.checked });
           });
 
           const upload = root.querySelector('#upload');
@@ -265,11 +287,18 @@
         function renderOverlay() {
           // No visible UI — root stays empty.
           document.getElementById('root').remove();
+          let lastHitAt = 0;
           RLT.plugin.register({
             name: 'crossbar',
             events: {
               async CrossbarHit() {
+                const now = (typeof performance !== 'undefined' && performance.now)
+                  ? performance.now()
+                  : Date.now();
+                if (now - lastHitAt < DEBOUNCE_MS) return;
+                lastHitAt = now;
                 const cfg = await readConfig();
+                if (!cfg.playInReplays && RLT.match.lifecycle.phase === 'replay') return;
                 playSound(cfg);
               },
             },
