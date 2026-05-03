@@ -436,21 +436,6 @@
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
       }
 
-      /* Empty overlay — barely-there caption, no card backing. */
-      .ov-empty {
-        align-self: flex-start;
-        font-family: var(--rlt-display);
-        font-size: 0.7rem;
-        font-weight: 600;
-        letter-spacing: 0.28em;
-        text-transform: uppercase;
-        color: rgba(169, 176, 207, 0.55);
-        padding: 0.25rem 0.55rem;
-        background: rgba(10, 12, 20, 0.7);
-        border-left: 2px solid rgba(255, 255, 255, 0.08);
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-      }
-
       @keyframes ov-fade-in {
         from {
           opacity: 0;
@@ -1414,28 +1399,25 @@
             best.hidden = true;
           }
 
-          if (!matchEntries.length) {
-            $('ov-list').innerHTML =
-              '<div class="ov-empty">' +
-              (currentGuid ? 'no demos yet' : 'waiting for match') +
-              '</div>';
-          } else {
-            $('ov-list').innerHTML = matchEntries
-              .map(
-                ([_id, v], i) =>
-                  '<div class="ov-row" style="--ov-i:' +
-                  i +
-                  '">' +
-                  '<span class="c">' +
-                  v.count +
-                  '</span>' +
-                  '<span class="n">' +
-                  esc(v.name) +
-                  '</span>' +
-                  '</div>',
-              )
-              .join('');
-          }
+          // Empty state intentionally renders nothing: the DEMOS
+          // counter at the top reads 0 and the BEST badge is hidden
+          // until the first x2 — together those already tell the
+          // "waiting" story without an extra chip below them.
+          $('ov-list').innerHTML = matchEntries
+            .map(
+              ([_id, v], i) =>
+                '<div class="ov-row" style="--ov-i:' +
+                i +
+                '">' +
+                '<span class="c">' +
+                v.count +
+                '</span>' +
+                '<span class="n">' +
+                esc(v.name) +
+                '</span>' +
+                '</div>',
+            )
+            .join('');
 
           // ── Active/break subtree ──
           $('ov-streak').textContent = 'x' + ui.streak;
