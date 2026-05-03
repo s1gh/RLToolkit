@@ -6,6 +6,7 @@
       "!node_modules",
       "!**/node_modules",
       "!data",
+      "!release",
       "!plugins.zip",
       "!overlay/target",
       "!overlay/src-tauri/target",
