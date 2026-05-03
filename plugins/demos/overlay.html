@@ -508,6 +508,15 @@
         justify-content: center;
         gap: 0.1rem;
         padding: 0.5rem 0.7rem 0.8rem;
+        /* Promote to its own GPU layer so the compositor keeps a
+           stable raster while filter:drop-shadow keyframes interpolate.
+           Without this, fast pulse transitions on the high tiers
+           occasionally flash a rectangular shadow before settling into
+           the alpha-shaped one — the layer gets re-rasterized at the
+           bounding box for a frame. translateZ(0) forces the layer;
+           will-change tells the compositor to keep it alive. */
+        will-change: filter;
+        transform: translateZ(0);
       }
       .ov-idle {
         position: relative;
@@ -778,11 +787,13 @@
       .ov.tier-armageddon[data-mode="active"] .ov-active {
         animation: ov-armageddon-pulse 1.2s ease-in-out infinite;
       }
+      /* Single drop-shadow per keyframe (not stacked) — multiple
+         drop-shadow filters double the compositor's work and on fast
+         pulses can flash a rectangular fallback for a frame. The close
+         inner glow is carried by text-shadow on the streak/word. */
       @keyframes ov-armageddon-pulse {
-        0%, 100% { filter: drop-shadow(0 0 26px rgba(255, 26, 77, 0.9))
-                           drop-shadow(0 0 12px rgba(244, 60, 100, 0.7)); }
-        50%      { filter: drop-shadow(0 0 38px rgba(255, 26, 77, 1))
-                           drop-shadow(0 0 16px rgba(244, 60, 100, 0.85)); }
+        0%, 100% { filter: drop-shadow(0 0 28px rgba(255, 26, 77, 0.95)); }
+        50%      { filter: drop-shadow(0 0 42px rgba(255, 26, 77, 1)); }
       }
 
       /* tier-extinction (x10) — color blowing out toward white. The
@@ -810,10 +821,8 @@
         animation: ov-extinction-pulse 0.9s ease-in-out infinite;
       }
       @keyframes ov-extinction-pulse {
-        0%, 100% { filter: drop-shadow(0 0 26px rgba(255, 60, 110, 0.95))
-                           drop-shadow(0 0 14px rgba(255, 100, 150, 0.8)); }
-        50%      { filter: drop-shadow(0 0 38px rgba(255, 100, 150, 1))
-                           drop-shadow(0 0 18px rgba(255, 60, 110, 0.9)); }
+        0%, 100% { filter: drop-shadow(0 0 30px rgba(255, 80, 130, 0.95)); }
+        50%      { filter: drop-shadow(0 0 44px rgba(255, 100, 150, 1)); }
       }
 
       /* tier-genocide (x12+) — pure white text, massive halo, fastest
@@ -822,8 +831,13 @@
       .ov.tier-genocide .ov-streak {
         font-size: 3.8rem;
         color: #ffffff;
+        /* Two close text-shadows (not a third large one): a tight white
+           bloom for the "pure light" feel, plus a tighter inner red so
+           the white doesn't read as flat. The wide halo lives on the
+           drop-shadow pulse. */
         text-shadow:
-          0 0 10px rgba(255, 255, 255, 0.95),
+          0 0 14px rgba(255, 255, 255, 0.95),
+          0 0 6px rgba(255, 80, 130, 1),
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-genocide .ov-word {
@@ -831,17 +845,16 @@
         color: #ffffff;
         letter-spacing: 0.3em;
         text-shadow:
-          0 0 10px rgba(255, 255, 255, 0.95),
+          0 0 12px rgba(255, 255, 255, 0.95),
+          0 0 6px rgba(255, 80, 130, 1),
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
       .ov.tier-genocide[data-mode="active"] .ov-active {
         animation: ov-genocide-pulse 0.6s ease-in-out infinite;
       }
       @keyframes ov-genocide-pulse {
-        0%, 100% { filter: drop-shadow(0 0 30px rgba(255, 255, 255, 0.85))
-                           drop-shadow(0 0 22px rgba(255, 26, 77, 0.95)); }
-        50%      { filter: drop-shadow(0 0 44px rgba(255, 255, 255, 1))
-                           drop-shadow(0 0 32px rgba(255, 26, 77, 1)); }
+        0%, 100% { filter: drop-shadow(0 0 34px rgba(255, 80, 130, 0.95)); }
+        50%      { filter: drop-shadow(0 0 50px rgba(255, 100, 150, 1)); }
       }
 
       /* BEST badge picks up the tier color it was earned at */
