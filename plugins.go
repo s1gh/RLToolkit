@@ -58,6 +58,23 @@ func NewPluginManager(dir string) *PluginManager {
 	return pm
 }
 
+// Has reports whether `name` refers to a plugin folder with a valid,
+// parseable manifest.json. Used by the file-server middleware to gate
+// access — plugins without a manifest aren't loadable, so requests for
+// their assets get 404'd instead of silently falling through to disk.
+//
+// Triggers a refresh of the manifest cache (cheap when nothing
+// changed) so a freshly-fixed manifest takes effect on the next
+// request without a server restart.
+func (pm *PluginManager) Has(name string) bool {
+	for _, m := range pm.List() {
+		if m != nil && m.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // List returns the current manifest list. Newly-dropped plugin folders
 // appear without a server restart; a refresh of the dashboard is enough.
 //

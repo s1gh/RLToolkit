@@ -41,11 +41,70 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
 	mux.HandleFunc("/overlay-editor.js", s.handleOverlayEditorJS)
 	mux.HandleFunc("/favicon.ico", s.handleFavicon)
+	// Plugin assets are served straight from disk so iterating on a plugin
+	// is one-edit-then-refresh. Two layers of middleware sit in front:
+	//
+	//   - requireManifest gates every request on the plugin having a
+	//     valid manifest.json. A folder without (or with a malformed)
+	//     manifest is invisible to the dashboard and the unified
+	//     overlay; serving its files would produce a half-loaded
+	//     plugin that runs in isolation but isn't reachable through
+	//     the rest of the toolkit. Better to fail fast at the HTTP
+	//     layer with a clear 404.
+	//
+	//   - noCache forces revalidation so plugin edits show up on the
+	//     next request. Browsers (and the rl-widget webview in
+	//     particular) apply a heuristic freshness window based on
+	//     Last-Modified that's much too long during plugin
+	//     development. "no-cache" means "always revalidate", not
+	//     "don't cache" — unchanged files still come back cheaply as
+	//     a 304.
+	pluginFS := http.FileServer(http.Dir(s.config.PluginDir))
 	mux.Handle("/plugins/", http.StripPrefix("/plugins/",
-		http.FileServer(http.Dir(s.config.PluginDir))))
+		s.requireManifest(noCache(pluginFS))))
 	mux.HandleFunc("/", s.handleDashboard)
 
 	return cors(mux)
+}
+
+// noCache wraps a handler so its responses always carry
+// `Cache-Control: no-cache`. Used for files that change as the user
+// iterates (plugin assets) and for the embedded HTML shells. Despite the
+// name, "no-cache" doesn't disable caching — it forces revalidation, so
+// unchanged files still come back cheaply as a 304.
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		h.ServeHTTP(w, r)
+	})
+}
+
+// requireManifest blocks plugin asset requests when the plugin's
+// manifest is missing or malformed. The PluginManager scans manifests
+// at module-load time and on each List() call, and surfaces parse
+// errors via "[plugins] Bad manifest in <name>: ..." log lines. We
+// gate the file server on the same liveness check so a broken plugin
+// can't half-load — better a clean 404 the dev sees in the network
+// tab than a webview that mostly works but isn't reachable through
+// the dashboard.
+//
+// The first path segment after `/plugins/` is the plugin folder name;
+// requests like `/plugins/<name>/manifest.json` itself are allowed
+// through (they're how the toolkit lists plugins) but the gate also
+// applies here, so a malformed manifest blocks reads of itself —
+// fixing the file lifts the block immediately.
+func (s *Server) requireManifest(inner http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// r.URL.Path here has the "/plugins/" prefix already stripped by
+		// http.StripPrefix in the route table — it starts with the plugin
+		// folder, e.g. "dejavu/overlay.html".
+		name, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		if name == "" || !s.plugins.Has(name) {
+			http.NotFound(w, r)
+			return
+		}
+		inner.ServeHTTP(w, r)
+	})
 }
 
 // cors permits any origin: the server is meant to be reached from
@@ -308,7 +367,9 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 // ── Static / embedded assets ────────────────────────────────
 
 func (s *Server) handleOverlay(w http.ResponseWriter, _ *http.Request) {
-	writeAsset(w, "text/html; charset=utf-8", "", overlayHTML)
+	// no-cache so the iframe shell picks up edits immediately during
+	// plugin development; the page is tiny and revalidation is cheap.
+	writeAsset(w, "text/html; charset=utf-8", "no-cache", overlayHTML)
 }
 
 func (s *Server) handleSDKJS(w http.ResponseWriter, _ *http.Request) {
@@ -332,7 +393,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	writeAsset(w, "text/html; charset=utf-8", "", dashboardHTML)
+	writeAsset(w, "text/html; charset=utf-8", "no-cache", dashboardHTML)
 }
 
 // ── Overlay overrides API ───────────────────────────────────
