@@ -52,6 +52,12 @@ type RLClient struct {
 	// drive the gameplay-state machine without re-subscribing.
 	lifecycle *LifecycleTracker
 
+	// roster, if set, is fed every packet before bus.Publish so it can
+	// emit synthetic _RosterChanged events when the player list moves.
+	// Same Feed-before-Publish convention as lifecycle: keeps ordering
+	// consistent and avoids a second goroutine per packet.
+	roster *RosterTracker
+
 	mu     sync.RWMutex
 	status RLStatus
 
@@ -95,6 +101,10 @@ func NewRLClient(addr string, bus *EventBus) *RLClient {
 // the dispatcher publishes. Call before Run.
 func (c *RLClient) AttachLifecycle(t *LifecycleTracker) { c.lifecycle = t }
 
+// AttachRosterTracker wires a RosterTracker so it observes every
+// packet for roster-fingerprint changes. Call before Run.
+func (c *RLClient) AttachRosterTracker(t *RosterTracker) { c.roster = t }
+
 func (c *RLClient) Status() RLStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -114,6 +124,9 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 			}
 			if c.lifecycle != nil {
 				c.lifecycle.Feed(msg)
+			}
+			if c.roster != nil {
+				c.roster.Feed(msg)
 			}
 			c.bus.Publish(msg)
 		}

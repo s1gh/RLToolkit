@@ -555,6 +555,18 @@ Plugins that only react to events (`GoalScored`, `StatfeedEvent`,
 `BallHit`, etc.) and never read `RLT.match.current` directly stay
 off the tick stream and pay near-zero bandwidth.
 
+If you need to know *who's on the field* but don't care about
+per-tick physics state, prefer **`onRoster`** over `onMatch`. It
+listens to the toolkit's synthetic `_RosterChanged` event (a handful
+per match: kickoff, late-joiners, leavers, team shuffles) and
+doesn't subscribe to `UpdateState` at all. The player view it
+delivers has the same identity fields (`id`, `name`, `team`,
+`platform`, `encounterCount`, `aliases`) as the `onMatch` view; the
+per-tick fields (`score`, `goals`, `boost`, `speed`, `demos`, …)
+are zero/null because the roster payload doesn't carry them. If
+you also subscribe to `onTick` or `onMatch`, the next live tick
+overwrites `RLT.match.current` with the full physics view.
+
 **Side effect:** without `UpdateState`, `RLT.match.current` is `null`
 and the enriched `.player` field on event payloads (e.g.
 `g.scorer.player`) is also `null` — the event's own `.name`,
@@ -644,7 +656,8 @@ have to filter `UpdateState` yourself:
 | `init(handle)`  | Once, synchronously at register. Setup DOM here.                |
 | `ready(handle)` | Once, after identity + encounter ledger have finished loading.  |
 | `onTick(state)` | Every `UpdateState` (60Hz). Hot path — keep it cheap.           |
-| `onMatch(state)`| Only when the match's *structure* changes (roster/score/team).  |
+| `onMatch(state)`| Only when the match's *structure* changes (roster/score/team). Pulls `UpdateState` off the wire. |
+| `onRoster(state)` | Roster identity changed (player join, leave, team-switch, match guid flip). Lightweight: a few events per match, no `UpdateState` subscription. Use this when your plugin reads roster identity (id, name, team, platform, encounterCount) and doesn't care about per-tick physics state. |
 | `onIdentity(id)`| When the user changes which player is "me".                    |
 | `onEncounters(map)` | When the encounter ledger updates.                          |
 | `onLifecycle(phase, prev)` | When the gameplay phase transitions. Bypasses `whilePhase`. |

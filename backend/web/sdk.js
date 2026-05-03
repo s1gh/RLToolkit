@@ -878,6 +878,136 @@
       return bumped;
     }
 
+    // Build a match view from a _RosterChanged payload. Same shape as
+    // build(d) above so plugins reading match.current see one
+    // consistent player object regardless of which event triggered the
+    // build. Per-tick fields (score, boost, demos, …) default to 0 /
+    // null because the roster payload doesn't carry them; if a plugin
+    // subscribes to both onRoster and onTick/onMatch the next
+    // UpdateState will overwrite with the full physics state.
+    function buildFromRoster(guid, list) {
+      const players = list.map((p) => {
+        const id = p.id || '';
+        const name = p.name || 'Unknown';
+        const enc = id ? encounters.get(id) : null;
+        return {
+          id,
+          name,
+          team: p.team | 0,
+          isMe: identity._isMe(id),
+          isBot: isBotId(id),
+          score: 0,
+          goals: 0,
+          assists: 0,
+          saves: 0,
+          shots: 0,
+          demos: 0,
+          touches: 0,
+          carTouches: 0,
+          boost: null,
+          speed: null,
+          boosting: false,
+          onGround: false,
+          onWall: false,
+          powersliding: false,
+          demolished: false,
+          supersonic: false,
+          hasCar: false,
+          attacker: null,
+          encounterCount: enc ? enc.count : 1,
+          aliases: enc ? enc.names.filter((n) => n !== name) : [],
+          firstSeen: enc ? enc.first_seen : null,
+          lastSeen: enc ? enc.last_seen : null,
+          platform: p.platform || (id ? id.split('|')[0] : '?'),
+          // No raw RL frame available on a roster-only build. Stash a
+          // minimal stub mimicking the RL Players shape so recordRoster
+          // (which reads cur.raw.Players for ledger writes) keeps
+          // working when only roster events are flowing. Without this,
+          // a plugin running roster-only (e.g. dejavu) wouldn't bump
+          // the encounter ledger on its first match.
+          raw: { PrimaryId: id, Name: name, TeamNum: p.team | 0 },
+        };
+      });
+      return {
+        guid,
+        players,
+        blue: players.filter((p) => p.team === 0),
+        orange: players.filter((p) => p.team === 1),
+        // Roster events don't carry game/ball/target. Plugins that need
+        // those should opt into UpdateState explicitly via onTick /
+        // onMatch, which will land on the next tick and overwrite cur.
+        game: null,
+        ball: null,
+        target: null,
+        raw: { Players: players.map((p) => p.raw) },
+      };
+    }
+
+    // Same fingerprint shape `change` uses below — id/team/r-or-n.
+    // Keeps the 'change' event behaviour identical between the
+    // UpdateState path and the _RosterChanged path so plugins that
+    // wrote onMatch see no difference whichever event fired first.
+    function rosterFingerprintOf(view) {
+      if (!view) return '';
+      return (
+        view.guid +
+        '|' +
+        identity.id +
+        '|' +
+        view.players
+          .map((p) => p.id + ':' + p.team + ':' + (p.encounterCount > 1 ? 'r' : 'n'))
+          .join(',')
+      );
+    }
+
+    // _RosterChanged is the toolkit's synthetic event for "roster
+    // identity moved" — fires on player join/leave/team-switch and
+    // on match-guid change. Lighter-weight than UpdateState (a few
+    // events per match instead of 60-120Hz), so plugins that only
+    // need to know who's on the field can subscribe via match.onRoster
+    // and skip UpdateState entirely.
+    //
+    // We build a match view from the roster payload alone — score,
+    // boost, demos and other per-tick stats default to 0/null. If
+    // the same plugin is also subscribed to UpdateState the next tick
+    // overwrites cur with the richer view. Plugins that want full
+    // per-tick state should use onTick / onMatch (which transitively
+    // subscribe to UpdateState).
+    bus.on('_RosterChanged', (env) => {
+      if (!env) return;
+      // The synthetic envelope arrives with top-level fields, not the
+      // standard {Event, Data} shape — see backend/roster_tracker.go.
+      const guid = env.match_guid || env.MatchGUID || 'local';
+      const list = Array.isArray(env.players) ? env.players : [];
+      cur = buildFromRoster(guid, list);
+
+      // Record the new roster against the ledger, gated on phase
+      // (same convention as the UpdateState path). Without this, a
+      // plugin running roster-only (no UpdateState subscription)
+      // would never bump encounter counts. The ledger dedups
+      // per-(player, guid) so this stays idempotent across ticks.
+      if (RECORDING_PHASES.has(lifecycle.phase) && cur.players.length > 0) {
+        if (recordRoster()) {
+          // Re-build so encounterCount on each player reflects the
+          // freshly-bumped ledger entry.
+          cur = buildFromRoster(guid, list);
+          lastFingerprint = '';
+        }
+      }
+
+      ev.emit('roster', cur);
+      // Also emit 'change' so plugins that wrote `onMatch` still get
+      // the late-joiner update via the same event they subscribed to.
+      // Same fingerprint shape as the UpdateState path so a plugin
+      // listening to both 'roster' and 'change' won't see spurious
+      // double-fires.
+      const fp = rosterFingerprintOf(cur);
+      if (fp !== lastFingerprint) {
+        lastFingerprint = fp;
+        ev.emit('change', cur);
+      }
+    });
+
     bus.on('UpdateState', (d) => {
       if (!d) return;
       cur = build(d);
@@ -954,6 +1084,21 @@
       },
       subscribe() {
         addEvent('UpdateState');
+      },
+      // onRoster delivers the same player-list view as onMatch but
+      // without subscribing to UpdateState. Fires only on roster
+      // identity changes (join, leave, team-switch, match guid flip)
+      // — typically a handful of times per match instead of 60-120Hz.
+      // Use this when your plugin reads roster identity (id, name,
+      // team, platform, encounterCount) and doesn't care about
+      // per-tick physics state. Per-tick fields on the player view
+      // (score, boost, demos…) are zero/null on a roster-only build.
+      //
+      // Synthetic _-prefixed events bypass the server-side filter
+      // anyway, so we don't call addEvent here — the wire delivers
+      // _RosterChanged regardless.
+      onRoster(fn) {
+        return ev.on('roster', fn);
       },
     };
   })();
@@ -1658,7 +1803,8 @@
   //
   //     // Convenience subscribers (gated by whilePhase, except where noted).
   //     onTick(state)            { ... }, // every UpdateState (~60Hz)
-  //     onMatch(state)           { ... }, // only when match structure changes
+  //     onMatch(state)           { ... }, // structural match changes (uses UpdateState)
+  //     onRoster(state)          { ... }, // roster id changes only (no UpdateState)
   //     onIdentity(id)           { ... }, // user re-claimed identity
   //     onEncounters(map)        { ... }, // encounter ledger updated
   //     onLifecycle(phase, prev) { ... }, // phase transition (bypasses whilePhase)
@@ -1758,6 +1904,13 @@
      *                                                  have finished loading.
      * @param {(s: object) => void}      [spec.onTick]      Every UpdateState (~60Hz).
      * @param {(s: object) => void}      [spec.onMatch]     Structural match changes only.
+     *                                                  Pulls UpdateState off the wire.
+     * @param {(s: object) => void}      [spec.onRoster]    Roster identity changed
+     *                                                  (join/leave/team-switch). Light-
+     *                                                  weight: a few events per match,
+     *                                                  no UpdateState subscription.
+     *                                                  Per-tick fields on the player
+     *                                                  view are zero/null on this path.
      * @param {(id: string) => void}     [spec.onIdentity]  User changed which player is "me".
      * @param {(map: object) => void}    [spec.onEncounters] Encounter ledger updated.
      * @param {(phase: string, prev: string) => void} [spec.onLifecycle]
@@ -1830,6 +1983,8 @@
       // isolate() gives them error/log handling without phase gating.
       if (typeof spec.onMatch === 'function') unsubs.push(match.onChange(gate(spec, spec.onMatch)));
       if (typeof spec.onTick === 'function') unsubs.push(match.onTick(gate(spec, spec.onTick)));
+      if (typeof spec.onRoster === 'function')
+        unsubs.push(match.onRoster(gate(spec, spec.onRoster)));
       if (typeof spec.onIdentity === 'function')
         unsubs.push(identity.onChange(gate(spec, spec.onIdentity)));
       if (typeof spec.onEncounters === 'function')

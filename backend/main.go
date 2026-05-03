@@ -77,6 +77,8 @@ func runServe() {
 	client := NewRLClient(cfg.RLAddr, bus)
 	lifecycle := NewLifecycleTracker(bus)
 	client.AttachLifecycle(lifecycle)
+	roster := NewRosterTracker(bus)
+	client.AttachRosterTracker(roster)
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
 	if err != nil {
