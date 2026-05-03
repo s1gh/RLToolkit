@@ -13,12 +13,12 @@
 .idea/
 .vscode/
 
-# Tauri / Node (the upcoming overlay app will live in overlay-app/)
-overlay-app/target/
-overlay-app/dist/
-overlay-app/node_modules/
-overlay-app/src-tauri/target/
-overlay-app/src-tauri/gen/
+# Tauri / Node (the overlay app lives in overlay/)
+overlay/target/
+overlay/dist/
+overlay/node_modules/
+overlay/src-tauri/target/
+overlay/src-tauri/gen/
 **/node_modules/
 
 # Local agent / session notes / archives

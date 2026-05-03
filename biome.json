@@ -7,10 +7,10 @@
       "!**/node_modules",
       "!data",
       "!plugins.zip",
-      "!overlay-app/target",
-      "!overlay-app/src-tauri/target",
-      "!overlay-app/src-tauri/gen",
-      "!overlay-app/dist",
+      "!overlay/target",
+      "!overlay/src-tauri/target",
+      "!overlay/src-tauri/gen",
+      "!overlay/dist",
       "!docs",
       "!.claude"
     ]
