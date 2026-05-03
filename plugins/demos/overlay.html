@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Demolitions</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/sdk.css" />
+    <script src="/sdk.js" data-plugin="demos"></script>
+
+    <!--
+      ─────────────────────────────────────────────────────────────────────
+      DEMOLITIONS — a reference plugin for new authors.
+
+      Goal: be the simplest plugin that does something useful, so a developer
+      can read this single file top to bottom and understand the SDK shape.
+      Everything (HTML, CSS, JS) lives here on purpose — compare with the
+      `dejavu` plugin to see how a larger plugin splits things up.
+
+      What it does:
+        • Counts demolitions YOU dealt to other players, by victim
+        • Persists the all-time totals via the SDK's per-plugin store
+        • Shows the live tally in two places:
+            - in-game overlay  (?overlay=1, transparent, click-through)
+            - control page     (the dashboard tab — match + all-time list)
+      ─────────────────────────────────────────────────────────────────────
+    -->
+    <style>
+      /* ──────────────────────────────────────────────────────────────────
+         All colors, fonts, and radii come from sdk.css custom properties
+         (--rlt-*). That's the SDK's design language — use those tokens
+         and your plugin will look like part of the toolkit. Pick your own
+         only when you have a reason. Demolitions are violent, so we lean
+         on --rlt-orange as the accent.
+         ────────────────────────────────────────────────────────────────── */
+      body {
+        margin: 0;
+        font-family: var(--rlt-ui);
+        color: var(--rlt-txt);
+        background: var(--rlt-bg-0);
+      }
+      body.overlay-mode {
+        background: transparent;
+      }
+
+      /* ?overlay=1 hides the control page, no-overlay hides the widget.
+         Same trick dejavu uses — one HTML file, two presentations. */
+      body.overlay-mode .page {
+        display: none;
+      }
+      body:not(.overlay-mode) .ov {
+        display: none;
+      }
+
+      /* ───────── Control page (dashboard tab) ───────── */
+
+      .page {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 28px 24px 48px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 9px;
+        background: linear-gradient(135deg, var(--rlt-orange), var(--rlt-magenta));
+        font: 700 14px var(--rlt-display);
+        letter-spacing: 0.04em;
+        color: var(--rlt-bg-0);
+        display: grid;
+        place-items: center;
+        box-shadow: 0 0 18px rgba(251, 124, 60, 0.35);
+      }
+      h1 {
+        margin: 0;
+        font: 700 18px var(--rlt-display);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .tag {
+        font-size: 11px;
+        color: var(--rlt-txt-3);
+        letter-spacing: 0.06em;
+      }
+
+      /* Headline number — the moment of arrival on the page. */
+      .total {
+        background: linear-gradient(180deg, var(--rlt-bg-1), var(--rlt-bg-2));
+        border: 1px solid var(--rlt-line);
+        border-radius: var(--rlt-radius-lg);
+        padding: 22px 24px;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 22px;
+      }
+      .total-label {
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--rlt-txt-3);
+      }
+      .total-num {
+        font: 700 56px var(--rlt-display);
+        line-height: 1;
+        color: var(--rlt-orange);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .card {
+        background: linear-gradient(180deg, var(--rlt-bg-1), var(--rlt-bg-2));
+        border: 1px solid var(--rlt-line);
+        border-radius: var(--rlt-radius-lg);
+        padding: 16px 18px;
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .card-head h2 {
+        margin: 0;
+        font: 600 11px var(--rlt-ui);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--rlt-txt-2);
+      }
+      .badge {
+        font-family: var(--rlt-mono);
+        font-size: 11px;
+        color: var(--rlt-txt-3);
+        background: var(--rlt-bg-3);
+        border: 1px solid var(--rlt-line);
+        border-radius: 99px;
+        padding: 3px 9px;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 0;
+        border-top: 1px solid var(--rlt-line);
+      }
+      .row:first-child {
+        border-top: 0;
+      }
+      .row-name {
+        flex: 1;
+        font-size: 13px;
+        color: var(--rlt-txt);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row-count {
+        font-family: var(--rlt-mono);
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--rlt-orange);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .empty {
+        font-size: 12px;
+        color: var(--rlt-txt-3);
+        text-align: center;
+        padding: 22px 8px;
+        font-style: italic;
+      }
+
+      .unclaimed {
+        margin-bottom: 18px;
+        padding: 12px 14px;
+        border: 1px dashed var(--rlt-line-2);
+        border-radius: var(--rlt-radius);
+        font-size: 12px;
+        color: var(--rlt-txt-2);
+      }
+      .unclaimed strong {
+        color: var(--rlt-orange);
+      }
+
+      /* ───────── In-game overlay (?overlay=1) ───────── */
+
+      .ov {
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        padding: 12px 14px;
+        background: linear-gradient(180deg, rgba(15, 19, 32, 0.92), rgba(22, 27, 44, 0.92));
+        border: 1px solid var(--rlt-line);
+        border-radius: var(--rlt-radius-lg);
+        backdrop-filter: blur(10px);
+        font-family: var(--rlt-ui);
+        color: var(--rlt-txt);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        animation: ov-in 240ms ease-out;
+      }
+      @keyframes ov-in {
+        from {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .ov-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        border-bottom: 1px solid var(--rlt-line);
+        padding-bottom: 6px;
+      }
+      .ov-label {
+        font: 600 10px var(--rlt-ui);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--rlt-txt-3);
+      }
+      .ov-total {
+        font: 700 22px var(--rlt-display);
+        color: var(--rlt-orange);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.04em;
+      }
+      .ov-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .ov-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .ov-row .n {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--rlt-txt-2);
+      }
+      .ov-row .c {
+        font-family: var(--rlt-mono);
+        font-weight: 600;
+        color: var(--rlt-orange);
+        font-variant-numeric: tabular-nums;
+      }
+      .ov-empty {
+        font-size: 11px;
+        color: var(--rlt-txt-3);
+        font-style: italic;
+        padding: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ═════════════════════ CONTROL PAGE ═════════════════════ -->
+    <main class="page">
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">DM</div>
+          <div>
+            <h1>Demolitions</h1>
+            <div class="tag">Who you've sent flying</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="unclaimed" id="unclaimed" hidden>
+        <strong>Identity not claimed.</strong> Open the Déjà Vu plugin and
+        click "this is me" on your row in a match — demolitions are tied to
+        your player id.
+      </div>
+
+      <div class="total">
+        <span class="total-label">All-time demos</span>
+        <span class="total-num" id="total">0</span>
+      </div>
+
+      <div class="grid">
+        <section class="card">
+          <div class="card-head">
+            <h2>This match</h2>
+            <span class="badge" id="match-badge">no match</span>
+          </div>
+          <div id="match-list"></div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2>All time</h2>
+            <span class="badge mono"><span id="all-count">0</span> rivals</span>
+          </div>
+          <div id="all-list"></div>
+        </section>
+      </div>
+    </main>
+
+    <!-- ═════════════════════ OVERLAY ═════════════════════ -->
+    <div class="ov">
+      <div class="ov-head">
+        <span class="ov-label">Demos</span>
+        <span class="ov-total" id="ov-total">0</span>
+      </div>
+      <div id="ov-list" class="ov-list"></div>
+    </div>
+
+    <script>
+      // ═══════════════════════════════════════════════════════════════════
+      // PLUGIN CODE
+      //
+      // Loaded as a classic <script>, not an ES module. The SDK exposes
+      // itself as the global `RLT`. Single closure to keep our locals off
+      // the global scope.
+      // ═══════════════════════════════════════════════════════════════════
+      (function () {
+        'use strict';
+
+        const $ = (id) => document.getElementById(id);
+        const isOverlay = new URLSearchParams(location.search).has('overlay');
+
+        // ─── State ──────────────────────────────────────────────────
+        // `totals[playerId] = { name, count }` — persists across runs via
+        // the SDK's per-plugin store. The store is filesystem-backed JSON,
+        // not localStorage, so totals survive a fresh dashboard install
+        // and are visible to any other plugin that wants to read them.
+        let totals = {};
+
+        // `current[playerId] = { name, count }` — only the demos in the
+        // active match. Reset whenever the match guid changes. In-memory
+        // only; nothing meaningful to persist here.
+        let current = {};
+        let currentGuid = null;
+
+        // ─── Render ─────────────────────────────────────────────────
+        // We rebuild innerHTML on each render. That's fine at this scale
+        // (a couple dozen rows max) and the dejavu plugin shows what to
+        // do when you outgrow it (a structural diff with a scaffoldKey).
+
+        function totalCount() {
+          let n = 0;
+          for (const id in totals) n += totals[id].count;
+          return n;
+        }
+
+        function escape(s) {
+          const d = document.createElement('div');
+          d.textContent = s == null ? '' : String(s);
+          return d.innerHTML;
+        }
+
+        function rowsHtml(entries, emptyMsg) {
+          if (!entries.length) return '<div class="empty">' + emptyMsg + '</div>';
+          return entries
+            .map(
+              ([_id, v]) =>
+                '<div class="row">' +
+                '<span class="row-name">' +
+                escape(v.name) +
+                '</span>' +
+                '<span class="row-count">' +
+                v.count +
+                '</span>' +
+                '</div>',
+            )
+            .join('');
+        }
+
+        function renderControl() {
+          $('unclaimed').hidden = !!RLT.me.id;
+
+          $('total').textContent = totalCount();
+
+          const matchEntries = Object.entries(current).sort((a, b) => b[1].count - a[1].count);
+          $('match-list').innerHTML = rowsHtml(
+            matchEntries,
+            currentGuid ? 'no demos yet — go hunting' : 'queue up to start tracking',
+          );
+          $('match-badge').textContent = currentGuid
+            ? matchEntries.length + ' victims'
+            : 'no match';
+
+          const allEntries = Object.entries(totals)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 20);
+          $('all-list').innerHTML = rowsHtml(allEntries, 'no demolitions yet');
+          $('all-count').textContent = Object.keys(totals).length;
+        }
+
+        function renderOverlay() {
+          $('ov-total').textContent = totalCount();
+          const matchEntries = Object.entries(current)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 4);
+          if (!matchEntries.length) {
+            $('ov-list').innerHTML =
+              '<div class="ov-empty">' +
+              (currentGuid ? 'no demos yet' : 'waiting for match') +
+              '</div>';
+            return;
+          }
+          $('ov-list').innerHTML = matchEntries
+            .map(
+              ([_id, v]) =>
+                '<div class="ov-row">' +
+                '<span class="n">' +
+                escape(v.name) +
+                '</span>' +
+                '<span class="c">' +
+                v.count +
+                '</span>' +
+                '</div>',
+            )
+            .join('');
+        }
+
+        // rAF batcher: many SDK callbacks can fire on the same frame
+        // (StatfeedEvent + onTick + onMatch all in a single SSE flush).
+        // Coalesce them so we only paint once per frame.
+        let rafScheduled = false;
+        function render() {
+          if (rafScheduled) return;
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (isOverlay) renderOverlay();
+            else renderControl();
+          });
+        }
+
+        // ─── Plugin registration ────────────────────────────────────
+        // The handle returned by register() exposes a per-plugin `store`
+        // that's namespaced by manifest.name on disk. Use it for anything
+        // you want to keep across restarts.
+        const handle = RLT.plugin.register({
+          // Demolitions only happen in-play. `whilePhase` filters event
+          // delivery for us — handlers below won't fire in menus.
+          whilePhase: ['live', 'replay', 'countdown', 'paused'],
+
+          async ready() {
+            // Hydrate persisted totals before the first paint.
+            try {
+              const stored = await handle.store.get('totals');
+              if (stored && typeof stored === 'object') totals = stored;
+            } catch (e) {
+              console.error('[demos] failed to load totals:', e);
+            }
+            // Seed the current match if one is already in progress when
+            // the plugin loads (e.g. user opened the dashboard mid-match).
+            const m = RLT.match.current;
+            if (m) currentGuid = m.guid;
+            render();
+          },
+
+          // The Demolish event lives on the statfeed. mainTarget is the
+          // attacker, secondaryTarget is the victim — see the SDK's
+          // `events: { StatfeedEvent }` docs for the full payload shape.
+          events: {
+            StatfeedEvent(s) {
+              if (s.eventName !== 'Demolish') return;
+              const attacker = s.mainTarget;
+              const victim = s.secondaryTarget;
+              if (!attacker || !victim) return;
+
+              // Count only YOUR demos. `isMe` is set by the SDK from the
+              // claimed identity (RLT.me.id). If the user hasn't claimed
+              // an identity, nothing in the lobby is "me" and we silently
+              // ignore — the control page nudges them to fix that.
+              if (!attacker.isMe) return;
+
+              const vid = victim.id;
+              const vname = victim.name || 'Player';
+
+              if (!current[vid]) current[vid] = { name: vname, count: 0 };
+              current[vid].count += 1;
+              current[vid].name = vname;
+
+              if (!totals[vid]) totals[vid] = { name: vname, count: 0 };
+              totals[vid].count += 1;
+              totals[vid].name = vname;
+
+              // Fire-and-forget save; the store debounces so rapid demos
+              // (a triple-demo from a kickoff scrum) coalesce into one
+              // disk write.
+              handle.store.set('totals', totals).catch((e) => {
+                console.error('[demos] save failed:', e);
+              });
+
+              render();
+            },
+          },
+
+          // Match boundary — guid changes on every new match. Reset the
+          // per-match counters here. (We don't reset on phase changes,
+          // because replay/paused are still the same match.)
+          onMatch(m) {
+            const g = m ? m.guid : null;
+            if (g !== currentGuid) {
+              currentGuid = g;
+              current = {};
+            }
+            render();
+          },
+
+          // Identity changed — re-render so the "claim your identity"
+          // banner appears or disappears.
+          onIdentity: render,
+        });
+      })();
+    </script>
+  </body>
+</html>
