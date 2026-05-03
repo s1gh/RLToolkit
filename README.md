@@ -98,16 +98,16 @@ The `rl-widget` is a transparent, click-through window that stays on top of your
 
 **Linux:**
 ```bash
-./overlay-app/src-tauri/target/release/rl-widget
+./overlay/src-tauri/target/release/rl-widget
 # Or for a specific plugin:
-./overlay-app/src-tauri/target/release/rl-widget --plugin=dejavu
+./overlay/src-tauri/target/release/rl-widget --plugin=dejavu
 ```
 
 **Windows:**
 ```powershell
-.\overlay-app\src-tauri\target\release\rl-widget.exe
+.\overlay\src-tauri\target\release\rl-widget.exe
 # Or for a specific plugin:
-.\overlay-app\src-tauri\target\release\rl-widget.exe --plugin=dejavu
+.\overlay\src-tauri\target\release\rl-widget.exe --plugin=dejavu
 ```
 
 The widget will appear as a transparent overlay. You can click through it to play normally.
@@ -203,16 +203,16 @@ The server has no system dependencies and cross-compiles easily.
 
 **Linux:**
 ```bash
-cd overlay-app/src-tauri
+cd overlay/src-tauri
 cargo build --release
-# Output: overlay-app/src-tauri/target/release/rl-widget
+# Output: overlay/src-tauri/target/release/rl-widget
 ```
 
 **Windows:**
 ```powershell
-cd overlay-app\src-tauri
+cd overlay\src-tauri
 cargo build --release
-# Output: overlay-app\src-tauri\target\release\rl-widget.exe
+# Output: overlay\src-tauri\target\release\rl-widget.exe
 ```
 
 **Note:** The widget must be built on its target operating system. Tauri's webview library links native OS libraries and cannot be cross-compiled.
