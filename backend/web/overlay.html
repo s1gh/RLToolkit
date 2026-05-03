@@ -75,8 +75,16 @@
     if (!w) {
       const f = document.createElement('iframe');
       f.className = 'pf';
-      f.src = '/plugins/' + plugin.name + '/' + overlay.file +
-              '?overlay=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
+      // hide_when_unfocused: forwarded as a URL flag so the SDK can
+      // synchronously default-hide the body before first paint, no
+      // manifest-fetch race. Editor preview deliberately does NOT
+      // forward this flag — the user is editing in the dashboard tab
+      // where RL isn't focused, and hiding every widget there makes
+      // the editor unusable.
+      let src = '/plugins/' + plugin.name + '/' + overlay.file +
+                '?overlay=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
+      if (overlay.hide_when_unfocused) src += '&hide_when_unfocused=1';
+      f.src = src;
       f.setAttribute('allowtransparency', 'true');
       f.setAttribute('frameborder', '0');
       // Replay the last-known game-focus state to this iframe once its

@@ -1242,33 +1242,16 @@
           whilePhase: ['live', 'replay', 'countdown', 'paused'],
 
           // init() runs synchronously at register-time, before any SSE
-          // events fire. Two responsibilities, split by mode:
-          //
-          // - In the dashboard tab (!isOverlay): wire the connection pill.
-          //   onStatusStable fires on change only, so we also seed from
-          //   statusStable() to handle the case where the SDK connected
-          //   before this subscriber arrived.
-          //
-          // - In the overlay (isOverlay): default-hide the widget so it
-          //   stays invisible until the host signals the RL window is
-          //   foreground (onFocusChange below). The host's focus watcher
-          //   starts in `Inactive` and only emits on transitions, so
-          //   without this default-hide the widget would flash visible
-          //   between page load and the first onFocusChange(true) emit.
-          //   Also kill the appear-animation here — without that, every
-          //   onFocusChange(true) replays the fade-in defined in CSS,
-          //   which reads as flicker on tab-back rather than a first-time
-          //   entrance. Inline !important wins against the non-important
-          //   stylesheet rule. (Same pattern dejavu uses.)
+          // events fire. We wire the connection pill here (rather than in
+          // ready(), which is async) so we don't miss the initial
+          // 'connected' transition. We also seed from statusStable() once
+          // — onStatusStable only fires on change, so a subscriber that
+          // arrives after the SDK already connected would otherwise never
+          // see the initial state. Overlay mode has nothing to do here:
+          // the SDK's `hide_when_unfocused` manifest flag handles the
+          // foreground-gating directly on <body>.
           init() {
-            if (isOverlay) {
-              const ov = $('ov');
-              if (ov) {
-                ov.style.setProperty('animation', 'none', 'important');
-                ov.style.setProperty('display', 'none', 'important');
-              }
-              return;
-            }
+            if (isOverlay) return;
             const c = $('conn');
             if (!c) return;
             const paint = (s) => {
@@ -1389,21 +1372,6 @@
           // Identity changed — re-render so the "claim your identity"
           // banner appears or disappears.
           onIdentity: render,
-
-          // Show the overlay widget only while RL has foreground focus.
-          // The handler is a no-op in the dashboard tab — the SDK's focus
-          // watcher isn't registered there, so this never fires outside
-          // the Tauri overlay host. (Same pattern dejavu uses.)
-          onFocusChange(active) {
-            if (!isOverlay) return;
-            const ov = $('ov');
-            if (!ov) return;
-            if (active) {
-              ov.style.removeProperty('display');
-            } else {
-              ov.style.setProperty('display', 'none', 'important');
-            }
-          },
         });
 
       })();

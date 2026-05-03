@@ -36,28 +36,13 @@
   // here.
   RLT.plugin.register({
     init() {
-      // Default-hide the overlay card until the host signals the game is
-      // foreground. The watcher starts in `Inactive` and only emits on
-      // transitions, so without this the widget would flash visible
-      // between page load and the first onFocusChange(true) emit.
-      //
-      // We also kill the appear-animation here — without that, every
-      // onFocusChange(true) replays the fade-in defined in styles.css,
-      // which reads as flicker on tab-back rather than a first-time
-      // entrance. Inline !important wins against the non-important
-      // stylesheet rule.
-      if (isOverlay) {
-        const ov = DV.dom.$('ov');
-        if (ov) {
-          ov.style.setProperty('animation', 'none', 'important');
-          ov.style.setProperty('display', 'none', 'important');
-        }
-      }
-
       // Connection-status pill is dejavu chrome, not match data, so it
       // lives outside the per-view render path. Subscribe to the SDK's
       // *stable* signal so the pill doesn't flicker through the toolkit's
       // 30s self-reconnect cycles — see RLT.onStatusStable for details.
+      // Foreground-gating of the overlay widget itself is handled by the
+      // SDK via the manifest's `hide_when_unfocused` flag — no init code
+      // or onFocusChange handler needed in plugin code anymore.
       RLT.onStatusStable((s) => {
         const c = DV.dom.$('conn');
         if (!c) return;
@@ -111,21 +96,5 @@
     onEncounters: scheduleRender,
     onMatch: scheduleRender,
     onTick: scheduleRender,
-
-    // Hide the overlay card when the game loses focus, show on return.
-    // Only meaningful in overlay mode — the control page in a browser
-    // tab has no game-focus concept, and the SDK's listener isn't
-    // registered there anyway, so this handler simply never fires
-    // outside Tauri.
-    onFocusChange(active) {
-      if (!isOverlay) return;
-      const ov = DV.dom.$('ov');
-      if (!ov) return;
-      if (active) {
-        ov.style.removeProperty('display');
-      } else {
-        ov.style.setProperty('display', 'none', 'important');
-      }
-    },
   });
 })();

@@ -26,6 +26,13 @@ type OverlayConfig struct {
 	OffsetY      int     `json:"offset_y"`
 	Opacity      float64 `json:"opacity"`
 	ClickThrough bool    `json:"click_through"`
+	// HideWhenUnfocused gates the widget on RL window focus. When true,
+	// the SDK default-hides the overlay body at load and toggles inline
+	// `display` on each onFocusChange emit. Pointer so absent ≠ false:
+	// absent means "the manifest didn't say" and the SDK can apply its
+	// current default (false; show always). Explicit false locks that
+	// behavior even if the SDK default flips later.
+	HideWhenUnfocused *bool `json:"hide_when_unfocused,omitempty"`
 }
 
 // PluginManager scans the plugin directory and serves manifest listings.

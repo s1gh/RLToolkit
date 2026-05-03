@@ -130,10 +130,19 @@
   // anchor corner — so anchor:bottom-left + offset 0,0 actually means
   // "flush bottom-left of the iframe", regardless of how big the plugin's
   // content is. No plugin code required.
+  //
+  // hide_when_unfocused (URL flag forwarded by the overlay host from the
+  // manifest): when present, default-hide the entire body until the host
+  // signals RL is foreground. Implemented at the SDK level so plugins
+  // don't have to hand-roll the same init/onFocusChange dance every time.
+  // Editor preview never sets this flag — the user is editing in the
+  // dashboard tab where RL isn't focused.
+  let overlayHideWhenUnfocused = false;
   try {
     const params = new URLSearchParams(location.search);
     const inOverlay = params.has('overlay');
     const anchor = params.get('anchor') || 'top-left';
+    overlayHideWhenUnfocused = inOverlay && params.has('hide_when_unfocused');
     if (inOverlay) {
       const vAlign = anchor.indexOf('bottom') >= 0 ? 'flex-end' : 'flex-start';
       const hAlign = anchor.indexOf('right') >= 0 ? 'flex-end' : 'flex-start';
@@ -154,8 +163,12 @@
         body.style.minHeight = '100%';
         body.style.height = '100%';
         body.style.width = '100%';
-        // Pin content to the manifest's anchor corner.
-        body.style.display = 'flex';
+        // Pin content to the manifest's anchor corner. When hide-when-
+        // unfocused is on, start with display:none so nothing paints
+        // before the first onFocusChange(true) emit; the focus subscriber
+        // below restores 'flex' on activation. Otherwise apply 'flex'
+        // immediately (the default behavior every plugin already had).
+        body.style.display = overlayHideWhenUnfocused ? 'none' : 'flex';
         body.style.flexDirection = 'column';
         body.style.alignItems = hAlign;
         body.style.justifyContent = vAlign;
@@ -2190,6 +2203,25 @@
       },
     };
   })();
+
+  // ─── hide_when_unfocused: SDK-side body toggle ──────────────
+  // When the manifest opts in (URL flag set by the overlay host), the
+  // SDK already started with body { display: none } in the bootstrap
+  // above. Here we wire focus changes to toggle inline display so the
+  // widget appears on RL foreground and disappears on blur. Plugins
+  // get this for free — no init() default-hide, no onFocusChange
+  // handler needed in plugin code.
+  //
+  // We restore display to 'flex' on activate (the value the overlay
+  // bootstrap would have set without the hide flag) so the existing
+  // anchor-corner pinning continues to work unchanged.
+  if (overlayHideWhenUnfocused) {
+    focus.onChange((active) => {
+      const body = document.body;
+      if (!body) return;
+      body.style.display = active ? 'flex' : 'none';
+    });
+  }
 
   // ─── Stable connection status ──────────────────────────────
   //
