@@ -370,9 +370,17 @@
       bus.emit('_Lifecycle', msg);
       return;
     }
+    // Synthetic _RosterChanged: top-level match_guid + players,
+    // not inside Data. Hand the whole envelope through.
+    if (event === '_RosterChanged') {
+      bus.emit('_RosterChanged', msg);
+      return;
+    }
     // In hosted mode the parent broadcasts events the union of all
     // iframes' filters — drop any we didn't personally opt into so
-    // typed handlers don't fire for unwanted events.
+    // typed handlers don't fire for unwanted events. Synthetic
+    // events (_ prefix) are handled above; this filter only applies
+    // to RL-side events.
     if (hostedBus && event && !subscribedEvents.has(event)) return;
     // Decode the inner JSON-encoded Data payload — RL ships it as a string.
     let data = msg.Data ?? msg.data;

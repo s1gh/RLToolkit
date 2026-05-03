@@ -81,6 +81,11 @@
   // mounts after the initial signals still hydrates correctly.
   let lastLifecycle = null;
   let lastStatus = null;
+  // _RosterChanged is edge-triggered (only emits when the roster
+  // fingerprint moves), so a plugin mounting mid-match would
+  // otherwise never see the current roster. Cache the last one and
+  // replay on iframe load + bus_hello, same convention as lifecycle.
+  let lastRoster = null;
 
   // ─── Hello / addEvent inbox from iframes ──────────────────
   //
@@ -146,8 +151,19 @@
       }
 
       // Cache framing signals for late-mount replay.
-      if (env.Event === '_Lifecycle') lastLifecycle = env;
-      if (env.Event === '_ConnectionStatus') lastStatus = env;
+      if (env.Event === '_Lifecycle') {
+        lastLifecycle = env;
+        // No active match → drop the cached roster so a plugin
+        // mounting between matches doesn't see a stale list. The
+        // server-side RosterTracker stops emitting once a match
+        // ends, but lastRoster would otherwise hang around.
+        if (env.match_active === false) lastRoster = null;
+      }
+      if (env.Event === '_ConnectionStatus') {
+        lastStatus = env;
+        if (env.Status !== 'connected') lastRoster = null;
+      }
+      if (env.Event === '_RosterChanged') lastRoster = env;
 
       // Fan to every iframe. Each iframe's SDK filters client-side
       // against its own subscribedEvents set; the parent broadcasts
@@ -207,6 +223,10 @@
       }
       if (lastStatus) {
         try { e.source.postMessage({ __rlt_bus__: true, msg: lastStatus }, '*'); }
+        catch (_) { /* noop */ }
+      }
+      if (lastRoster) {
+        try { e.source.postMessage({ __rlt_bus__: true, msg: lastRoster }, '*'); }
         catch (_) { /* noop */ }
       }
       return;
@@ -273,6 +293,10 @@
         }
         if (lastStatus) {
           try { cw.postMessage({ __rlt_bus__: true, msg: lastStatus }, '*'); }
+          catch (_) { /* noop */ }
+        }
+        if (lastRoster) {
+          try { cw.postMessage({ __rlt_bus__: true, msg: lastRoster }, '*'); }
           catch (_) { /* noop */ }
         }
       });
