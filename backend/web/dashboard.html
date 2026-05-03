@@ -446,6 +446,7 @@ function renderPlugins() {
       + '<p class="card-desc">' + desc + '</p>'
       + '<div class="card-actions">'
         + (overlay ? '<a class="btn primary" href="' + overlay + '" target="_blank">Open <span class="arrow">→</span></a>' : '')
+        + (p.settings ? '<button class="btn" data-role="settings" type="button">Settings</button>' : '')
       + '</div>'
     + '</article>';
   }).join('');
