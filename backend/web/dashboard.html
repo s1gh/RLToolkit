@@ -313,6 +313,54 @@ button{font-family:inherit}
   transition:background .15s ease;
 }
 .ribbon a:hover .dot{ background:var(--cyan); box-shadow:0 0 6px var(--cyan-glow); }
+
+/* ─── Settings modal ───────────────────────────────────────── */
+.modal-backdrop{
+  position:fixed; inset:0;
+  background:rgba(8,9,15,0.78);
+  backdrop-filter:blur(4px);
+  display:none;
+  align-items:center; justify-content:center;
+  z-index:1000;
+}
+.modal-backdrop.open{ display:flex; }
+.modal{
+  width:min(720px, 90vw);
+  height:min(620px, 80vh);
+  background:var(--bg-1);
+  border:1px solid var(--line);
+  border-radius:14px;
+  box-shadow:0 20px 60px -20px rgba(0,0,0,0.6);
+  display:flex; flex-direction:column;
+  overflow:hidden;
+}
+.modal-head{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 18px;
+  border-bottom:1px solid var(--line);
+}
+.modal-head h3{
+  font-family:var(--display); font-weight:700;
+  font-size:15px; letter-spacing:-0.01em;
+  color:var(--txt);
+}
+.modal-close{
+  width:30px; height:30px; border-radius:8px;
+  background:var(--bg-3); color:var(--txt-2);
+  border:1px solid var(--line);
+  cursor:pointer; font-size:16px; line-height:1;
+  display:grid; place-items:center;
+  transition:all .15s ease;
+}
+.modal-close:hover{ color:var(--txt); border-color:var(--line-2); }
+.modal-body{
+  flex:1; min-height:0;
+}
+.modal-body iframe{
+  width:100%; height:100%;
+  border:0; display:block;
+  background:var(--bg-0);
+}
 </style>
 </head>
 <body>
@@ -350,6 +398,18 @@ button{font-family:inherit}
     <a href="/api/events" target="_blank"><span class="dot"></span>/api/events</a>
   </footer>
 
+</div>
+
+<div class="modal-backdrop" id="settings-modal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal" role="document">
+    <div class="modal-head">
+      <h3 id="settings-modal-title">Settings</h3>
+      <button class="modal-close" type="button" data-role="modal-close" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <iframe id="settings-modal-frame" title="Plugin settings"></iframe>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -456,6 +516,10 @@ function renderPlugins() {
     const name = card.getAttribute('data-plugin');
     const cb = card.querySelector('input[data-role="enabled"]');
     cb.addEventListener('change', () => setEnabled(name, cb.checked, cb));
+    const settingsBtn = card.querySelector('button[data-role="settings"]');
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', () => openSettingsModal(name));
+    }
   });
 }
 
@@ -481,5 +545,44 @@ function esc(s) {
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[c]));
 }
+
+// ─── Settings modal ────────────────────────────────────────
+const settingsModal = document.getElementById('settings-modal');
+const settingsModalTitle = document.getElementById('settings-modal-title');
+const settingsModalFrame = document.getElementById('settings-modal-frame');
+
+function openSettingsModal(pluginName) {
+  const p = plugins.find(x => x.name === pluginName);
+  if (!p || !p.settings) return;
+  const customTitle = (typeof p.settings === 'object' && p.settings.title) ? p.settings.title : null;
+  settingsModalTitle.textContent = customTitle || ((p.title || p.name) + ' — Settings');
+  const overlayFile = p.overlay?.file || 'overlay.html';
+  settingsModalFrame.src = '/plugins/' + encodeURIComponent(p.name) + '/' + overlayFile + '?settings=1';
+  settingsModal.classList.add('open');
+  settingsModal.setAttribute('aria-hidden', 'false');
+}
+
+function closeSettingsModal() {
+  settingsModal.classList.remove('open');
+  settingsModal.setAttribute('aria-hidden', 'true');
+  // Clear src so the previous plugin's view is unloaded; otherwise the
+  // next open might race against an already-running iframe.
+  settingsModalFrame.src = 'about:blank';
+}
+
+settingsModal.querySelector('[data-role="modal-close"]').addEventListener('click', closeSettingsModal);
+
+settingsModal.addEventListener('click', (e) => {
+  if (e.target === settingsModal) closeSettingsModal();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsModal.classList.contains('open')) closeSettingsModal();
+});
+
+window.addEventListener('message', (e) => {
+  if (e.origin !== location.origin) return;
+  if (e.data && e.data.type === 'rlt:settings:close') closeSettingsModal();
+});
 </script>
 </body></html>
