@@ -101,8 +101,12 @@
 
     <div class="toast" id="toast"></div>
 
-    <!-- Plugin modules. Order matters: lib → views → app. -->
+    <!-- Plugin modules. Order matters: lib → views → app.
+         lib/* are leaf utilities (no SDK calls); views/* read from RLT
+         and render; app.js wires SDK callbacks → views. -->
     <script src="/plugins/dejavu/lib/dom.js"></script>
+    <script src="/plugins/dejavu/lib/constants.js"></script>
+    <script src="/plugins/dejavu/lib/returners.js"></script>
     <script src="/plugins/dejavu/views/identity.js"></script>
     <script src="/plugins/dejavu/views/match.js"></script>
     <script src="/plugins/dejavu/views/leaderboard.js"></script>

@@ -30,11 +30,10 @@
     });
   }
 
+  // Plugin metadata (name, version, author) comes from manifest.json —
+  // see RLT.plugin.register's docs. We only declare runtime behaviour
+  // here.
   RLT.plugin.register({
-    name:    'dejavu',
-    version: '1.0.0',
-    author:  'rl-toolkit',
-
     init() {
       // Default-hide the overlay card until the host signals the game is
       // foreground. The watcher starts in `Inactive` and only emits on
@@ -55,8 +54,10 @@
       }
 
       // Connection-status pill is dejavu chrome, not match data, so it
-      // lives outside the per-view render path.
-      RLT.onStatus((s) => {
+      // lives outside the per-view render path. Subscribe to the SDK's
+      // *stable* signal so the pill doesn't flicker through the toolkit's
+      // 30s self-reconnect cycles — see RLT.onStatusStable for details.
+      RLT.onStatusStable((s) => {
         const c = DV.dom.$('conn');
         if (!c) return;
         c.dataset.status = s;

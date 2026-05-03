@@ -365,9 +365,12 @@ body.overlay-mode {
   background: linear-gradient(135deg, rgba(167,139,250,0.08), var(--bg-2));
   box-shadow: 0 0 24px rgba(167,139,250,0.15);
 }
+/* Subtle returner — every other player you've met before. The corner
+   stamp says "we've crossed paths"; the row chrome stays close to default
+   so the standout treatment below has somewhere to escalate to. */
 .player-row.returning {
-  border-color: var(--gold);
-  background: linear-gradient(135deg, rgba(251,191,36,0.06), var(--bg-2));
+  border-color: rgba(251, 191, 36, 0.35);
+  background: linear-gradient(135deg, rgba(251,191,36,0.04), var(--bg-2));
 }
 .player-row.returning::after {
   content: 'DÉJÀ VU';
@@ -378,7 +381,25 @@ body.overlay-mode {
   font-weight: 700;
   color: var(--gold);
   letter-spacing: 0.2em;
-  opacity: 0.7;
+  opacity: 0.55;
+}
+
+/* Standout returner — at most one row per match, picked by
+   classifyReturners(). Brighter border and a stronger background tint;
+   the badge picks up the full gold treatment below. */
+.player-row.returning-top {
+  border-color: var(--gold);
+  background: linear-gradient(135deg, rgba(251,191,36,0.10), var(--bg-2));
+}
+.player-row.returning-top::after {
+  opacity: 0.95;
+}
+
+/* Defensive: self should never get the gold treatment even if a stale
+   class survives somehow. The is-me violet always wins. */
+.player-row.is-me::after { content: none !important; }
+.player-row.is-me {
+  border-color: var(--violet) !important;
 }
 .pr-badge {
   width: 38px; height: 38px;
@@ -391,7 +412,14 @@ body.overlay-mode {
   font-size: 16px;
   color: var(--txt-2);
 }
+/* Subtle tier: badge tints gold but doesn't glow. */
 .player-row.returning .pr-badge {
+  background: rgba(251, 191, 36, 0.06);
+  border-color: rgba(251, 191, 36, 0.55);
+  color: rgba(251, 191, 36, 0.85);
+}
+/* Standout: full gold + glow — same dramatic look the badge had pre-tier. */
+.player-row.returning-top .pr-badge {
   background: var(--gold-soft);
   border-color: var(--gold);
   color: var(--gold);
@@ -401,6 +429,10 @@ body.overlay-mode {
   background: rgba(167,139,250,0.15);
   border-color: var(--violet);
   color: var(--violet);
+  /* The "ME" label is shorter than two digits, so tighten typography to
+     read as a deliberate tag rather than a number that wandered off. */
+  font-size: 13px;
+  letter-spacing: 0.12em;
 }
 .pr-info { min-width: 0; }
 .pr-name {
@@ -444,13 +476,16 @@ body.overlay-mode {
   letter-spacing: 0.14em;
   vertical-align: middle;
 }
-/* Bot row — neutral treatment, suppress the gold "returning" chrome. */
+/* Bot row — neutral treatment, suppress every gold returning state.
+   Match.js gates this in JS too (the `returning` class isn't applied to
+   bots), but we double-belt for safety: a future code change shouldn't
+   accidentally paint a bot row gold. */
 .player-row.is-bot {
   border-color: var(--line);
   background: var(--bg-2);
 }
-.player-row.is-bot.returning::after { content: none; }
-.lb-row.is-bot::before { background: transparent !important; }
+.player-row.is-bot.returning::after,
+.player-row.is-bot.returning-top::after { content: none; }
 .pr-aliases {
   font-family: var(--mono);
   font-size: 10px;
@@ -512,7 +547,8 @@ body.overlay-mode {
 .lb-row {
   position: relative;
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 28px 64px 44px;
+  /* count | name+aliases | platform icon | last-seen */
+  grid-template-columns: 56px minmax(0, 1fr) 28px 44px;
   column-gap: 16px;
   align-items: center;
   padding: 10px 14px 10px 16px;
@@ -521,9 +557,9 @@ body.overlay-mode {
   border-radius: 6px;
   transition: background .12s ease;
 }
-/* Add a column for the claim button when host is in claimable mode. */
+/* Extra column for the claim button when identity is unclaimed. */
 .lb-host-claimable .lb-row {
-  grid-template-columns: 56px minmax(0, 1fr) 28px 64px 44px 28px;
+  grid-template-columns: 56px minmax(0, 1fr) 28px 44px 28px;
 }
 /* Compact claim button in the leaderboard — same dashed-+ as the live
    match, sized for the leaderboard row's tighter padding. */
@@ -592,23 +628,6 @@ body.overlay-mode {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* W/L cell — quiet by default. Wins green only when there is a record. */
-.lb-wl {
-  font-family: var(--mono);
-  font-feature-settings: 'tnum';
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--txt-2);
-  white-space: nowrap;
-  min-width: 56px;
-  text-align: right;
-}
-.lb-wl .w   { color: #4ade80; }
-.lb-wl .l   { color: var(--txt-3); }
-.lb-wl .sep { color: var(--txt-3); margin: 0 3px; }
-.lb-wl.empty { color: var(--txt-3); font-family: var(--ui); }
 
 /* Platform icon — fills its grid column, icon centered within. */
 .lb-platform {
@@ -763,21 +782,44 @@ body.overlay-mode .ov-card {
   animation-delay: calc(var(--ov-i, 0) * 40ms);
 }
 
-/* Returning opponent — the dramatic state. Gold edge, soft glow, scan-line. */
-.ov-row.returning {
+/* Returning opponent (subtle tier) — every other player you've met
+   before. The recognition signal is a small DÉJÀ VU stamp in the top-
+   right corner; the row chrome stays identical to a first-meet row.
+   This handles the all-met case (everyone is a returner) gracefully:
+   five rows with corner stamps still read as five neutral rows, not a
+   wall of gold. The standout (when there is one) gets full chrome
+   below and pops because it's the only highlighted row. */
+.ov-row.returning::after {
+  content: 'DÉJÀ VU';
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-family: var(--display);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--gold);
+  opacity: 0.55;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* Standout returner (dramatic tier) — at most one row per match, gated by
+   classifyReturners() in lib/returners.js. Full-bleed gold with a soft
+   pulse so peripheral vision catches it.
+
+   The pulse is a box-shadow keyframe rather than a sweeping ::after
+   scan-line: on webkit2gtk over a Wayland layer-shell surface, full-row
+   animations with mix-blend-mode flicker because the compositor and
+   webview disagree on the alpha buffer. Plain box-shadow stays on the
+   GPU and stays still. */
+.ov-row.returning-top {
   border-left-color: var(--gold);
   background:
     linear-gradient(90deg, rgba(251, 191, 36, 0.16), rgba(10, 12, 20, 0.62) 60%);
   box-shadow:
     0 0 0 1px rgba(251, 191, 36, 0.15) inset,
     0 0 18px -2px rgba(251, 191, 36, 0.35);
-}
-/* Subtle pulse on the gold edge so peripheral vision catches it.
-   We deliberately skip a sweeping ::after scan-line — on webkit2gtk over
-   a Wayland layer-shell surface, full-row animations with mix-blend-mode
-   trigger a flicker as the compositor and webview disagree on the alpha
-   buffer. A plain box-shadow keyframe stays on the GPU and stays still. */
-.ov-row.returning {
   animation:
     ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
     ov-pulse 2.4s ease-in-out infinite 320ms;
@@ -793,7 +835,10 @@ body.overlay-mode .ov-card {
   text-align: right;
   letter-spacing: 0.04em;
 }
-.ov-row.returning .ov-r-num {
+/* Standout count: full gold with a glow that ties to the row pulse.
+   The subtle tier intentionally inherits the default first-meet look —
+   the corner DÉJÀ VU stamp carries the recognition signal alone. */
+.ov-row.returning-top .ov-r-num {
   color: var(--gold);
   text-shadow: 0 0 8px rgba(251, 191, 36, 0.55);
 }
@@ -815,9 +860,9 @@ body.overlay-mode .ov-card {
   height: 1.05rem;
   display: block;
 }
-.ov-row.returning .ov-r-platform {
-  color: var(--gold);
-}
+/* Standout platform glyph follows the count's gold treatment. The subtle
+   tier keeps the default platform colour; the corner stamp is enough. */
+.ov-row.returning-top .ov-r-platform { color: var(--gold); }
 .ov-r-platform-empty {
   /* No icon — keep the slot transparent. The column still takes up its
      1.1rem so the name column starts in the same place across rows. */
@@ -839,7 +884,7 @@ body.overlay-mode .ov-card {
 .ov-r-aliases {
   font-family: var(--mono);
   font-size: 0.62rem;
-  color: rgba(251, 191, 36, 0.75);
+  color: var(--txt-3);
   margin-top: 0.06rem;
   letter-spacing: 0.04em;
 }
@@ -849,6 +894,12 @@ body.overlay-mode .ov-card {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 0.55rem;
+  opacity: 0.7;
+}
+/* Standout: aliases pick up gold so the row reads as one cohesive
+   highlight — number, platform, name area all in the same accent. */
+.ov-row.returning-top .ov-r-aliases {
+  color: rgba(251, 191, 36, 0.75);
 }
 
 /* Empty state — single line, almost invisible until you look for it.
@@ -895,7 +946,8 @@ body.overlay-mode .ov-card {
 @media (prefers-reduced-motion: reduce) {
   body.overlay-mode .ov,
   .ov-row,
-  .ov-row.returning {
+  .ov-row.returning,
+  .ov-row.returning-top {
     animation: none !important;
   }
 }

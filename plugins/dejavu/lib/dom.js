@@ -11,8 +11,10 @@ DV.dom = {
   },
 
   // Stable structural fingerprint of the current match — used by the diff
-  // patcher in views/match.js to decide when to rebuild row scaffolding
-  // vs. just patching numbers.
+  // patcher in views/match.js to decide when to rebuild scaffolding vs.
+  // just patch numbers. Includes the encounter tier ('r' = returning,
+  // 'n' = first-meet) so promotion/demotion across the count-1 boundary
+  // forces a rebuild — that's where the row's `returning` class flips.
   scaffoldKey(m, myId) {
     if (!m) return 'EMPTY';
     return m.guid + '|' + myId + '|' +

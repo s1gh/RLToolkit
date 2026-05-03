@@ -1,14 +1,15 @@
-// Compact "Recon HUD" overlay (?overlay=1).
-// Renders a tag per non-self player; gold-accented for returning opponents.
-// Auto-sizes — empty / small lobbies leave most of the iframe transparent.
+// Compact "recon HUD" rendered when the page is loaded with ?overlay=1.
+// One row per other player; the standout (if any) gets the gold pulse —
+// everyone else with encounterCount > 1 just gets the DÉJÀ VU tag.
 window.DV = window.DV || {};
 
 DV.overlay = (function () {
   const $ = DV.dom.$;
-  // Same reason as the leaderboard view: render is wired to onTick (~60Hz)
-  // but the overlay's content is purely a function of the roster +
-  // encounter counts. Skipping no-op rebuilds prevents the staggered
-  // fade-in animation from restarting every frame.
+  const classifyReturners = DV.classifyReturners;
+
+  // The render path runs on every onTick (~60Hz), but the visible content
+  // is purely a function of roster + counts. Skipping no-op rebuilds keeps
+  // the staggered fade-in from restarting every frame.
   let lastFp = '';
 
   function render() {
@@ -23,57 +24,70 @@ DV.overlay = (function () {
       return;
     }
 
-    const fp = m.players.map((p) => p.id + ':' + p.team + ':' + p.encounterCount + ':' + p.name + ':' + p.platform).join('|');
+    // Standout candidates: other humans only. Bots and self are excluded
+    // upstream (bots: meaningless recognition signal; self: filtered per
+    // team below). standoutId is null when no one clearly stands out.
+    const candidates = m.players.filter((p) => !p.isMe && !p.isBot);
+    const { standoutId } = classifyReturners(candidates);
+
+    // Fingerprint includes the standout id so a re-classification (e.g.
+    // a 7-encounter player joins late and overtakes the previous top)
+    // forces a repaint.
+    const fp = (standoutId || '-') + '|' + m.players
+      .map((p) => p.id + ':' + p.team + ':' + p.encounterCount + ':' + p.name + ':' + p.platform)
+      .join('|');
     if (fp === lastFp) return;
     lastFp = fp;
 
-    // i is a global stagger index across both teams so rows fade in sequentially.
+    // Global stagger index across both teams so rows fade in sequentially.
     let i = 0;
-    const team = (players, t) => {
+    const teamHTML = (players, team) => {
       const list = players.filter((p) => !p.isMe);
       if (!list.length) return '';
-      return '<div class="ov-team ' + t + '">' +
-        '<div class="ov-tname">' + t + '</div>' +
-        list.map((p) => {
-          const idx = i++;
-          const cls = ['ov-row'];
-          if (p.encounterCount > 1) cls.push('returning');
-          // Show only the most recent prior alias, if any. Aliases array
-          // excludes the current name (SDK-side filter), so .slice(-1)[0]
-          // is the previous handle — most useful "wait, that's so-and-so"
-          // signal in the heat of a queue.
-          const aliases = p.aliases.length
-            ? '<div class="ov-r-aliases"><span class="aka">aka</span>' +
-                RLT.ui.esc(p.aliases.slice(-1)[0]) +
-              '</div>'
-            : '';
-          // Encounter count: bare number for first-meet (×1), explicit
-          // ×N for repeats. The × is a glyph rather than a CSS pseudo so
-          // it stays selectable/copy-pasteable and respects the same
-          // animation timing as the number.
-          const num = p.encounterCount > 1
-            ? '×' + p.encounterCount
-            : p.encounterCount;
-          // Platform icon — SVG inherits currentColor so the gold/team
-          // accents apply naturally. Falls back to an empty placeholder
-          // div so the grid column stays the same width whether or not
-          // the platform is known; otherwise rows would visually jitter
-          // as platform-having and platform-unknown rows alternate.
-          const icon = RLT.ui.platformIcon(p.platform);
-          const platform = icon
-            ? '<div class="ov-r-platform" title="' + RLT.ui.escAttr(p.platform) + '">' + icon + '</div>'
-            : '<div class="ov-r-platform ov-r-platform-empty" title="' + RLT.ui.escAttr(p.platform || 'Unknown') + '"></div>';
-          return '<div class="' + cls.join(' ') + '" style="--ov-i:' + idx + '">' +
-            '<div class="ov-r-num">' + num + '</div>' +
-            platform +
-            '<div class="ov-r-name">' + RLT.ui.esc(p.name) + aliases + '</div>' +
-          '</div>';
-        }).join('') +
+      return '<div class="ov-team ' + team + '">' +
+        '<div class="ov-tname">' + team + '</div>' +
+        list.map((p) => row(p, i++, p.id === standoutId)).join('') +
       '</div>';
     };
 
-    const html = team(m.blue, 'blue') + team(m.orange, 'orange');
+    const html = teamHTML(m.blue, 'blue') + teamHTML(m.orange, 'orange');
     body.innerHTML = html || '<div class="ov-empty">solo session</div>';
+  }
+
+  function row(p, idx, isStandout) {
+    const cls = ['ov-row'];
+    if (p.isBot) cls.push('is-bot');
+    if (!p.isBot && p.encounterCount > 1) cls.push('returning');
+    if (isStandout) cls.push('returning-top');
+
+    // Most-recent prior alias (current name excluded SDK-side). Surfaces
+    // the "wait, that's so-and-so" signal in the heat of a queue.
+    const aliases = (!p.isBot && p.aliases.length)
+      ? '<div class="ov-r-aliases"><span class="aka">aka</span>' +
+          RLT.ui.esc(p.aliases.slice(-1)[0]) +
+        '</div>'
+      : '';
+
+    // Encounter count: bare number for first-meet, "×N" for repeats. The
+    // × is a real glyph (not a CSS pseudo) so it stays selectable and
+    // shares the row's animation timing.
+    const num = p.encounterCount > 1 ? '×' + p.encounterCount : p.encounterCount;
+
+    // playerIcon resolves to the CPU/chip glyph for bots and the brand
+    // icon for humans. The empty placeholder still exists for the rare
+    // case of a human with no platform string — keeps the column width
+    // stable across rows so the layout doesn't jitter.
+    const icon = RLT.ui.playerIcon(p);
+    const platformTitle = RLT.ui.escAttr(p.isBot ? 'Bot' : (p.platform || 'Unknown'));
+    const platform = icon
+      ? '<div class="ov-r-platform" title="' + platformTitle + '">' + icon + '</div>'
+      : '<div class="ov-r-platform ov-r-platform-empty" title="' + platformTitle + '"></div>';
+
+    return '<div class="' + cls.join(' ') + '" style="--ov-i:' + idx + '">' +
+      '<div class="ov-r-num">' + num + '</div>' +
+      platform +
+      '<div class="ov-r-name">' + RLT.ui.esc(p.name) + aliases + '</div>' +
+    '</div>';
   }
 
   return { render };
