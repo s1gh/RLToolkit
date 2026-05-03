@@ -3,10 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <title>Demolitions</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/sdk.css" />
@@ -32,254 +33,457 @@
     <style>
       /* ──────────────────────────────────────────────────────────────────
          All colors, fonts, and radii come from sdk.css custom properties
-         (--rlt-*). That's the SDK's design language — use those tokens
-         and your plugin will look like part of the toolkit. Pick your own
-         only when you have a reason. Demolitions are violent, so we lean
-         on --rlt-orange as the accent.
+         (--rlt-*). That's the toolkit's design language — use those tokens
+         and your plugin will look like part of the dashboard. Demolitions
+         are violent, so we lean on --rlt-orange as the accent.
          ────────────────────────────────────────────────────────────────── */
-      body {
+      * {
         margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
         font-family: var(--rlt-ui);
+        font-size: 13px;
         color: var(--rlt-txt);
-        background: var(--rlt-bg-0);
+        background:
+          radial-gradient(900px 500px at 85% -10%, rgba(251, 124, 60, 0.1), transparent 60%),
+          radial-gradient(800px 400px at 0% 110%, rgba(244, 114, 182, 0.06), transparent 60%),
+          var(--rlt-bg-0);
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
       }
       body.overlay-mode {
         background: transparent;
+        overflow: hidden;
       }
 
-      /* ?overlay=1 hides the control page, no-overlay hides the widget.
-         Same trick dejavu uses — one HTML file, two presentations. */
-      body.overlay-mode .page {
-        display: none;
-      }
-      body:not(.overlay-mode) .ov {
-        display: none;
-      }
-
-      /* ───────── Control page (dashboard tab) ───────── */
-
+      /* ════════════════════════════════════════════════════════
+         CONTROL PAGE  (dashboard tab)
+         ════════════════════════════════════════════════════════ */
       .page {
-        max-width: 720px;
+        max-width: 1280px;
         margin: 0 auto;
         padding: 28px 24px 48px;
       }
 
+      /* Topbar — same card-on-card treatment dejavu uses, so the dashboard
+         tab reads as one toolkit even when you switch between plugins. */
       .topbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 24px;
+        margin-bottom: 16px;
+        padding: 14px 18px;
+        background: linear-gradient(135deg, var(--rlt-bg-1), var(--rlt-bg-2));
+        border: 1px solid var(--rlt-line);
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
       }
       .brand {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 14px;
       }
       .logo {
         width: 36px;
         height: 36px;
         border-radius: 9px;
         background: linear-gradient(135deg, var(--rlt-orange), var(--rlt-magenta));
-        font: 700 14px var(--rlt-display);
-        letter-spacing: 0.04em;
+        box-shadow: 0 0 24px var(--rlt-orange-glow);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--rlt-display);
+        font-weight: 700;
+        font-size: 18px;
         color: var(--rlt-bg-0);
-        display: grid;
-        place-items: center;
-        box-shadow: 0 0 18px rgba(251, 124, 60, 0.35);
+        letter-spacing: -0.02em;
       }
       h1 {
-        margin: 0;
-        font: 700 18px var(--rlt-display);
-        letter-spacing: 0.04em;
+        font-family: var(--rlt-display);
+        font-weight: 700;
+        font-size: 20px;
+        letter-spacing: 0.02em;
         text-transform: uppercase;
+        background: linear-gradient(90deg, #fff 30%, var(--rlt-orange));
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
       }
       .tag {
         font-size: 11px;
         color: var(--rlt-txt-3);
-        letter-spacing: 0.06em;
+        letter-spacing: 0.02em;
+        font-weight: 500;
+      }
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
       }
 
-      /* Headline number — the moment of arrival on the page. */
-      .total {
-        background: linear-gradient(180deg, var(--rlt-bg-1), var(--rlt-bg-2));
+      /* Connection pill — mirrors dejavu's so a player running both
+         plugins gets one consistent live/offline status indicator. */
+      .conn-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: var(--rlt-bg-3);
         border: 1px solid var(--rlt-line);
-        border-radius: var(--rlt-radius-lg);
-        padding: 22px 24px;
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        margin-bottom: 22px;
-      }
-      .total-label {
+        border-radius: 99px;
         font-size: 11px;
-        letter-spacing: 0.18em;
+        font-weight: 600;
+        color: var(--rlt-txt-2);
         text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .conn-pill::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--rlt-txt-3);
+      }
+      .conn-pill[data-status="connected"]::before {
+        background: var(--rlt-green);
+        box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+        animation: pulse 1.4s ease-in-out infinite alternate;
+      }
+      .conn-pill[data-status="disconnected"]::before {
+        background: #ef4444;
+      }
+      @keyframes pulse {
+        from { opacity: 0.55; }
+        to { opacity: 1; }
+      }
+
+      .icon-btn {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: var(--rlt-bg-3);
+        border: 1px solid var(--rlt-line);
+        color: var(--rlt-txt-2);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        transition: all 0.15s ease;
+      }
+      .icon-btn:hover {
+        border-color: var(--rlt-orange);
+        color: var(--rlt-orange);
+        box-shadow: 0 0 16px var(--rlt-orange-glow);
+      }
+
+      /* Identity strip — read-only here. Demos doesn't claim identity;
+         that's dejavu's job. We show the current claim (or a hint to go
+         claim one) so the player knows why their demos aren't counting. */
+      .identity-strip {
+        background: var(--rlt-bg-1);
+        border: 1px solid var(--rlt-line);
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 4px;
+        font-size: 13px;
+        color: var(--rlt-txt-2);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .il-label {
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        font-weight: 700;
         color: var(--rlt-txt-3);
       }
-      .total-num {
-        font: 700 56px var(--rlt-display);
-        line-height: 1;
-        color: var(--rlt-orange);
-        font-variant-numeric: tabular-nums;
+      .il-name {
+        font-family: var(--rlt-display);
+        font-size: 16px;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: 0.01em;
+      }
+      .il-name.empty {
+        color: var(--rlt-txt-3);
+        font-style: italic;
+        font-weight: 500;
+      }
+      .il-hint {
+        font-style: italic;
+        color: var(--rlt-txt-3);
+        font-size: 12px;
       }
 
+      /* Two-column grid: this match (left) + all time (right). Same shape
+         and breakpoint as dejavu's grid so the dashboard tabs feel like
+         one app rather than two. */
       .grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 14px;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 20px;
+        margin-top: 20px;
       }
+      @media (max-width: 860px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
       .card {
         background: linear-gradient(180deg, var(--rlt-bg-1), var(--rlt-bg-2));
         border: 1px solid var(--rlt-line);
         border-radius: var(--rlt-radius-lg);
-        padding: 16px 18px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        padding: 20px 22px;
       }
       .card-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 10px;
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--rlt-line);
       }
       .card-head h2 {
-        margin: 0;
-        font: 600 11px var(--rlt-ui);
-        letter-spacing: 0.18em;
+        font-family: var(--rlt-display);
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        color: var(--rlt-txt-2);
+        color: #fff;
       }
       .badge {
         font-family: var(--rlt-mono);
-        font-size: 11px;
-        color: var(--rlt-txt-3);
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--rlt-txt-2);
         background: var(--rlt-bg-3);
         border: 1px solid var(--rlt-line);
         border-radius: 99px;
-        padding: 3px 9px;
+        padding: 4px 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
       }
 
+      /* Victim row — flush list, separator above each row except first.
+         Mirrors dejavu's leaderboard rhythm: list reads as one composed
+         column rather than a wall of mini-cards. */
       .row {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
-        gap: 10px;
-        padding: 8px 0;
+        gap: 12px;
+        padding: 10px 0;
+        transition: background 0.12s ease;
+      }
+      .row + .row {
         border-top: 1px solid var(--rlt-line);
       }
-      .row:first-child {
-        border-top: 0;
-      }
       .row-name {
-        flex: 1;
+        font-family: var(--rlt-ui);
         font-size: 13px;
+        font-weight: 500;
         color: var(--rlt-txt);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
       .row-count {
-        font-family: var(--rlt-mono);
-        font-weight: 600;
-        font-size: 13px;
+        font-family: var(--rlt-display);
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 1;
         color: var(--rlt-orange);
         font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
       }
-
-      .empty {
-        font-size: 12px;
+      .row-count .x {
+        font-family: var(--rlt-mono);
+        font-size: 10px;
+        font-weight: 500;
         color: var(--rlt-txt-3);
+        margin-right: 2px;
+      }
+
+      /* Empty state — same em-icon pattern dejavu uses. */
+      .card-empty {
+        padding: 40px 16px;
         text-align: center;
-        padding: 22px 8px;
-        font-style: italic;
-      }
-
-      .unclaimed {
-        margin-bottom: 18px;
-        padding: 12px 14px;
-        border: 1px dashed var(--rlt-line-2);
-        border-radius: var(--rlt-radius);
+        color: var(--rlt-txt-3);
         font-size: 12px;
-        color: var(--rlt-txt-2);
       }
-      .unclaimed strong {
-        color: var(--rlt-orange);
+      .card-empty .em-icon {
+        font-size: 28px;
+        margin-bottom: 6px;
+        opacity: 0.5;
+        font-family: var(--rlt-display);
+        line-height: 1;
       }
 
-      /* ───────── In-game overlay (?overlay=1) ───────── */
-
+      /* ════════════════════════════════════════════════════════
+         OVERLAY MODE  (?overlay=1) — "Kill feed" HUD
+         ════════════════════════════════════════════════════════
+         Design intent: a HUD readout, not a webpage.
+         - No outer card: each row carries its own translucent backing
+           so the game shows through between rows.
+         - Header tag mirrors the team labels in dejavu's overlay so a
+           player running both plugins sees one consistent HUD language.
+         - rem-based sizing rooted at <html>; bump body font-size to
+           rescale the whole widget in one place.
+         ════════════════════════════════════════════════════════ */
+      body.overlay-mode {
+        font-size: 16px;
+      }
       .ov {
-        width: 100%;
-        height: 100%;
-        box-sizing: border-box;
-        padding: 12px 14px;
-        background: linear-gradient(180deg, rgba(15, 19, 32, 0.92), rgba(22, 27, 44, 0.92));
-        border: 1px solid var(--rlt-line);
-        border-radius: var(--rlt-radius-lg);
-        backdrop-filter: blur(10px);
-        font-family: var(--rlt-ui);
-        color: var(--rlt-txt);
-        display: flex;
+        display: inline-flex;
         flex-direction: column;
-        gap: 8px;
-        animation: ov-in 240ms ease-out;
+        gap: 0.22rem;
+        width: max-content;
+        max-width: 100%;
+        padding: 0.25rem 1rem 1rem 0;
+        animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
-      @keyframes ov-in {
-        from {
-          opacity: 0;
-          transform: translateY(-4px);
-        }
-        to {
-          opacity: 1;
-          transform: none;
-        }
-      }
+
+      /* Header tag — same backing/border-left treatment as dejavu's team
+         labels. Orange because that's the demos accent. */
       .ov-head {
-        display: flex;
+        display: inline-flex;
         align-items: baseline;
-        justify-content: space-between;
-        gap: 8px;
-        border-bottom: 1px solid var(--rlt-line);
-        padding-bottom: 6px;
+        gap: 0.6rem;
+        align-self: flex-start;
+        padding: 0.18rem 0.6rem 0.18rem 0.5rem;
+        background: rgba(10, 12, 20, 0.55);
+        border-left: 2px solid var(--rlt-orange);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+        margin-bottom: 0.12rem;
       }
       .ov-label {
-        font: 600 10px var(--rlt-ui);
-        letter-spacing: 0.18em;
+        font-family: var(--rlt-display);
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.32em;
         text-transform: uppercase;
-        color: var(--rlt-txt-3);
+        color: var(--rlt-orange);
       }
       .ov-total {
-        font: 700 22px var(--rlt-display);
-        color: var(--rlt-orange);
+        font-family: var(--rlt-display);
+        font-size: 1rem;
+        font-weight: 700;
+        color: #fff;
         font-variant-numeric: tabular-nums;
         letter-spacing: 0.04em;
       }
+
       .ov-list {
         display: flex;
         flex-direction: column;
-        gap: 3px;
-        font-size: 12px;
-        line-height: 1.4;
+        gap: 0.18rem;
       }
       .ov-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
+        display: grid;
+        grid-template-columns: 1.6rem 1fr;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.3rem 0.6rem 0.3rem 0.5rem;
+        background: rgba(10, 12, 20, 0.62);
+        border-left: 2px solid rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(10px) saturate(130%);
+        -webkit-backdrop-filter: blur(10px) saturate(130%);
+        border-radius: 2px;
+        animation: ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+        animation-delay: calc(var(--ov-i, 0) * 40ms);
+      }
+      .ov-row .c {
+        font-family: var(--rlt-display);
+        font-feature-settings: "tnum";
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--rlt-orange);
+        text-align: right;
+        letter-spacing: 0.04em;
+        text-shadow: 0 0 8px rgba(251, 124, 60, 0.45);
       }
       .ov-row .n {
+        font-family: var(--rlt-display);
+        font-size: 0.92rem;
+        font-weight: 600;
+        color: #fff;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        color: var(--rlt-txt-2);
+        letter-spacing: 0.02em;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
       }
-      .ov-row .c {
-        font-family: var(--rlt-mono);
-        font-weight: 600;
-        color: var(--rlt-orange);
-        font-variant-numeric: tabular-nums;
-      }
+
+      /* Empty overlay — barely-there caption, no card backing. */
       .ov-empty {
-        font-size: 11px;
-        color: var(--rlt-txt-3);
-        font-style: italic;
-        padding: 6px 0;
+        align-self: flex-start;
+        font-family: var(--rlt-display);
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: rgba(169, 176, 207, 0.55);
+        padding: 0.25rem 0.55rem;
+        background: rgba(10, 12, 20, 0.45);
+        border-left: 2px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+
+      @keyframes ov-fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @keyframes ov-row-in {
+        from {
+          opacity: 0;
+          transform: translateX(-6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      /* Honor reduced-motion — keep the static look. */
+      @media (prefers-reduced-motion: reduce) {
+        body.overlay-mode .ov,
+        .ov-row {
+          /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
+          animation: none !important;
+        }
+      }
+
+      /* ?overlay=1 hides the control page, no-overlay hides the widget.
+         The SDK adds .overlay-mode to <body> when the URL has ?overlay=1.
+         Placed last so the high-specificity selectors below win against
+         the base .page / .ov rules above (descending-specificity rule). */
+      body.overlay-mode .page {
+        display: none;
+      }
+      body:not(.overlay-mode) .ov {
+        display: none;
       }
     </style>
   </head>
@@ -294,19 +498,34 @@
             <div class="tag">Who you've sent flying</div>
           </div>
         </div>
+        <div class="topbar-right">
+          <span class="conn-pill" id="conn" data-status="disconnected"
+            >offline</span
+          >
+          <button
+            type="button"
+            class="icon-btn"
+            id="open-overlay"
+            title="Open overlay"
+            onclick="window.open('?overlay=1', '_blank')"
+          >
+            ⧉
+          </button>
+        </div>
       </header>
 
-      <div class="unclaimed" id="unclaimed" hidden>
-        <strong>Identity not claimed.</strong> Open the Déjà Vu plugin and
-        click "this is me" on your row in a match — demolitions are tied to
-        your player id.
-      </div>
+      <!-- Identity strip — read-only. Demos doesn't own identity (dejavu
+           does), so we just show what's claimed and nudge the user toward
+           dejavu when nothing is. -->
+      <section class="identity-strip">
+        <span class="il-label">you:</span>
+        <span class="il-name empty" id="id-val">unclaimed</span>
+        <span class="il-hint" id="id-hint"
+          >— claim your identity in Déjà Vu so your demos count</span
+        >
+      </section>
 
-      <div class="total">
-        <span class="total-label">All-time demos</span>
-        <span class="total-num" id="total">0</span>
-      </div>
-
+      <!-- Two-column grid: live match (left) | all-time leaderboard (right) -->
       <div class="grid">
         <section class="card">
           <div class="card-head">
@@ -318,7 +537,10 @@
         <section class="card">
           <div class="card-head">
             <h2>All time</h2>
-            <span class="badge mono"><span id="all-count">0</span> rivals</span>
+            <span class="badge"
+              ><span id="total">0</span> demos ·
+              <span id="all-count">0</span> rivals</span
+            >
           </div>
           <div id="all-list"></div>
         </section>
@@ -372,22 +594,32 @@
           return n;
         }
 
-        function escape(s) {
+        function esc(s) {
           const d = document.createElement('div');
           d.textContent = s == null ? '' : String(s);
           return d.innerHTML;
         }
 
-        function rowsHtml(entries, emptyMsg) {
-          if (!entries.length) return '<div class="empty">' + emptyMsg + '</div>';
+        function emptyHtml(icon, msg) {
+          return (
+            '<div class="card-empty"><div class="em-icon">' +
+            icon +
+            '</div>' +
+            msg +
+            '</div>'
+          );
+        }
+
+        function rowsHtml(entries, icon, emptyMsg) {
+          if (!entries.length) return emptyHtml(icon, emptyMsg);
           return entries
             .map(
               ([_id, v]) =>
                 '<div class="row">' +
                 '<span class="row-name">' +
-                escape(v.name) +
+                esc(v.name) +
                 '</span>' +
-                '<span class="row-count">' +
+                '<span class="row-count"><span class="x">×</span>' +
                 v.count +
                 '</span>' +
                 '</div>',
@@ -396,13 +628,28 @@
         }
 
         function renderControl() {
-          $('unclaimed').hidden = !!RLT.me.id;
+          // Identity strip — read-only here. We don't own claim/clear UI;
+          // the user manages identity in dejavu and demos just reflects it.
+          const idVal = $('id-val');
+          const idHint = $('id-hint');
+          if (!RLT.me.id) {
+            idVal.textContent = 'unclaimed';
+            idVal.classList.add('empty');
+            idHint.hidden = false;
+          } else {
+            const enc = RLT.encounters?.get(RLT.me.id);
+            const name = enc ? enc.names[enc.names.length - 1] : 'Player';
+            idVal.textContent = name;
+            idVal.classList.remove('empty');
+            idHint.hidden = true;
+          }
 
           $('total').textContent = totalCount();
 
           const matchEntries = Object.entries(current).sort((a, b) => b[1].count - a[1].count);
           $('match-list').innerHTML = rowsHtml(
             matchEntries,
+            '◇',
             currentGuid ? 'no demos yet — go hunting' : 'queue up to start tracking',
           );
           $('match-badge').textContent = currentGuid
@@ -412,7 +659,7 @@
           const allEntries = Object.entries(totals)
             .sort((a, b) => b[1].count - a[1].count)
             .slice(0, 20);
-          $('all-list').innerHTML = rowsHtml(allEntries, 'no demolitions yet');
+          $('all-list').innerHTML = rowsHtml(allEntries, '◆', 'no demolitions yet');
           $('all-count').textContent = Object.keys(totals).length;
         }
 
@@ -430,13 +677,15 @@
           }
           $('ov-list').innerHTML = matchEntries
             .map(
-              ([_id, v]) =>
-                '<div class="ov-row">' +
-                '<span class="n">' +
-                escape(v.name) +
-                '</span>' +
+              ([_id, v], i) =>
+                '<div class="ov-row" style="--ov-i:' +
+                i +
+                '">' +
                 '<span class="c">' +
                 v.count +
+                '</span>' +
+                '<span class="n">' +
+                esc(v.name) +
                 '</span>' +
                 '</div>',
             )
@@ -466,10 +715,36 @@
           // delivery for us — handlers below won't fire in menus.
           whilePhase: ['live', 'replay', 'countdown', 'paused'],
 
+          // init() runs synchronously at register-time, before any SSE
+          // events fire. We wire the connection pill here (rather than in
+          // ready(), which is async) so we don't miss the initial
+          // 'connected' transition. We also seed from statusStable() once
+          // — onStatusStable only fires on change, so a subscriber that
+          // arrives after the SDK already connected would otherwise never
+          // see the initial state.
+          init() {
+            if (isOverlay) return;
+            const c = $('conn');
+            if (!c) return;
+            const paint = (s) => {
+              c.dataset.status = s;
+              c.textContent = s === 'connected' ? 'live' : s;
+            };
+            paint(RLT.statusStable());
+            RLT.onStatusStable(paint);
+          },
+
           async ready() {
-            // Hydrate persisted totals before the first paint.
+            // Hydrate persisted totals before the first paint. We use
+            // store.getAll() rather than store.get('totals') because the
+            // backend returns 404 for an unset key — the SDK swallows it
+            // cleanly, but DevTools logs the failed request as a noisy
+            // red error on every fresh install. getAll() always returns
+            // 200 (with {} when nothing's stored), keeping the console
+            // quiet on first run.
             try {
-              const stored = await handle.store.get('totals');
+              const all = await handle.store.getAll();
+              const stored = all && all.totals;
               if (stored && typeof stored === 'object') totals = stored;
             } catch (e) {
               console.error('[demos] failed to load totals:', e);
