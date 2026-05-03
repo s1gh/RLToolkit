@@ -1132,16 +1132,31 @@
         // unlike a CSS transition). The loop self-stops the moment
         // mode flips to 'idle' (combo ended; bar empty; nothing to
         // animate). It re-arms on the next demo via ensureActiveLoop().
+        //
+        // Per-frame work is split: the bar fill width is a cheap inline
+        // style write and runs every frame; the structural overlay
+        // rebuild (innerHTML for the match-roster list, BEST badge,
+        // streak number/word/victim) is gated by renderOverlay() on a
+        // fingerprint, so 99% of frames in this loop skip the heavy
+        // path. When the mode finally flips to idle the loop calls
+        // renderOverlay() once to repaint the idle chrome and exits.
         let activeRafHandle = 0;
         function activeLoop() {
           activeRafHandle = 0;
           if (!isOverlay) return;
-          renderOverlay();
-          // renderOverlay below sets dataset.mode from the latest
-          // computeUiState. If we're back to idle, no need to keep
-          // ticking — the next demo will re-arm us.
-          const mode = document.getElementById('ov')?.dataset.mode;
-          if (mode === 'active' || mode === 'break') {
+          // Compute current state once per frame. Cheap: pure JS, no DOM.
+          const ui = computeUiState();
+          // Cheap path: inline-style the bar width. Even when nothing
+          // else changed, the bar is draining off the playable bank.
+          const fill = document.getElementById('ov-bar-fill');
+          if (fill) {
+            fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
+          }
+          // Heavy path: only when the structural fingerprint moved.
+          // renderOverlay() is fingerprint-gated below, so this is a
+          // no-op string compare on most frames.
+          renderOverlay(ui);
+          if (ui.mode === 'active' || ui.mode === 'break') {
             activeRafHandle = requestAnimationFrame(activeLoop);
           }
         }
@@ -1304,10 +1319,37 @@
           $('all-count').textContent = Object.keys(totals).length;
         }
 
-        function renderOverlay() {
+        // Last structural fingerprint — covers everything renderOverlay
+        // touches EXCEPT the timer bar width (which the active rAF loop
+        // writes directly every frame). When the fp matches, the heavy
+        // DOM path is skipped — saves an innerHTML rebuild per frame
+        // during a streak.
+        let lastOverlayFp = '';
+        function renderOverlay(ui) {
           const ov = $('ov');
           if (!ov) return;
-          const ui = computeUiState();
+          // computeUiState() is cheap; if the caller didn't precompute
+          // (e.g. render() rAF batcher path), do it here.
+          if (!ui) ui = computeUiState();
+
+          // Build the fingerprint over every value the heavy path writes.
+          // top-3 match entries are folded in by id+count+name; bestStreak
+          // and bestStreakWord drive the BEST badge; streak/word/victim
+          // drive the active subtree. The match-roster slice mirrors the
+          // one we use to render rows below.
+          const matchEntries = Object.entries(current)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 3);
+          const matchFp = matchEntries
+            .map(([id, v]) => id + ':' + v.count + ':' + v.name)
+            .join('|');
+          const fp =
+            ui.mode + '|' + ui.tierClass + '|' +
+            ui.streak + '|' + ui.word + '|' + ui.victim + '|' +
+            ui.bestStreak + '|' + ui.bestStreakWord + '|' +
+            currentGuid + '|' + totalCount() + '|' + matchFp;
+          if (fp === lastOverlayFp) return;
+          lastOverlayFp = fp;
 
           // Top-level mode + tier classes drive everything CSS-side.
           ov.dataset.mode = ui.mode;
@@ -1326,15 +1368,6 @@
           ov.classList.add(ui.tierClass);
           if (ui.mode === 'break') ov.classList.add('is-break');
 
-          // Timer bar fill: driven directly off the playable bank, not
-          // a CSS transition. The transition got out of sync with replay
-          // pauses (CSS doesn't pause); the bank-driven value naturally
-          // freezes during non-playable phases.
-          const fill = $('ov-bar-fill');
-          if (fill) {
-            fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
-          }
-
           // ── Idle subtree ──
           $('ov-total').textContent = totalCount();
 
@@ -1348,9 +1381,6 @@
             best.hidden = true;
           }
 
-          const matchEntries = Object.entries(current)
-            .sort((a, b) => b[1].count - a[1].count)
-            .slice(0, 3);
           if (!matchEntries.length) {
             $('ov-list').innerHTML =
               '<div class="ov-empty">' +
