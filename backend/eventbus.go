@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -173,9 +174,16 @@ func (b *EventBus) Publish(data []byte) {
 	)
 }
 
-// extractEventName pulls the "Event":"X" value from an RL-shaped JSON
-// envelope without a full Unmarshal. Returns "" if the field is absent
-// or malformed; callers treat empty as "no filter applies, deliver".
+// extractEventName pulls the event name from an RL-shaped JSON envelope
+// without a full Unmarshal. Returns "" if the field is absent or
+// malformed; callers treat empty as "no filter applies, deliver".
+//
+// RL emits the envelope key + values in lowercase ("event":"goalscored")
+// on this build of the Stats API; older docs use PascalCase
+// ("Event":"GoalScored"). We accept both keys and normalize the value to
+// canonical PascalCase via canonicalEventName so every downstream
+// comparison (filter map keys, lifecycle switch, SDK handlers) stays
+// PascalCase.
 func extractEventName(raw []byte) string {
 	// Bound the scan to the head of the envelope — Event is reliably
 	// near the start, and a malformed/giant payload shouldn't make us
@@ -184,16 +192,65 @@ func extractEventName(raw []byte) string {
 	if len(head) > 96 {
 		head = head[:96]
 	}
-	i := bytes.Index(head, eventKeyMarker)
-	if i < 0 {
-		return ""
+	for _, marker := range eventKeyMarkers {
+		i := bytes.Index(head, marker)
+		if i < 0 {
+			continue
+		}
+		rest := raw[i+len(marker):]
+		end := bytes.IndexByte(rest, '"')
+		if end < 0 {
+			return ""
+		}
+		return canonicalEventName(rest[:end])
 	}
-	rest := raw[i+len(eventKeyMarker):]
-	end := bytes.IndexByte(rest, '"')
-	if end < 0 {
-		return ""
-	}
-	return string(rest[:end])
+	return ""
 }
 
-var eventKeyMarker = []byte(`"Event":"`)
+// eventKeyMarkers are checked in order; first hit wins. The lowercase
+// form is what we actually see on the wire — kept second only because
+// PascalCase is the documented form and we want to stay forward-
+// compatible if RL switches back.
+var eventKeyMarkers = [][]byte{
+	[]byte(`"Event":"`),
+	[]byte(`"event":"`),
+}
+
+// canonicalEventName maps an extracted name to its PascalCase form. The
+// fast path is a direct map lookup for known events (covers everything
+// in catalog.go plus the synthetic _-prefixed events). Unknown names
+// fall through unchanged so newly-added RL events still flow.
+func canonicalEventName(b []byte) string {
+	// Synthetic events from our own server (_Lifecycle, _ConnectionStatus)
+	// never need normalization — we emit them in canonical form.
+	if len(b) > 0 && b[0] == '_' {
+		return string(b)
+	}
+	if name, ok := lowerToCanonical[string(b)]; ok {
+		return name
+	}
+	// Common case on this RL build: input is already lowercase. Try the
+	// lowered form before giving up so a name change in catalog.go
+	// doesn't silently break things.
+	lower := bytes.ToLower(b)
+	if name, ok := lowerToCanonical[string(lower)]; ok {
+		return name
+	}
+	return string(b)
+}
+
+// lowerToCanonical maps lowercased event names to their PascalCase form.
+// Built from EventCatalog at init time so the two stay in sync, plus a
+// few wire-level aliases where the RL Stats API uses a name that
+// doesn't lowercase to the catalog form.
+var lowerToCanonical = func() map[string]string {
+	m := make(map[string]string, len(EventCatalog)+2)
+	for _, e := range EventCatalog {
+		m[strings.ToLower(e.Name)] = e.Name
+	}
+	// Observed on this RL build: the wire ships `replaywillend` (no
+	// `goal` prefix). Treat it as the catalog's GoalReplayWillEnd so
+	// plugins subscribing to the documented name still get events.
+	m["replaywillend"] = "GoalReplayWillEnd"
+	return m
+}()

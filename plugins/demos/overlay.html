@@ -1178,11 +1178,11 @@
         // `currentStreak` is 0 between combos and 1..∞ during an active
         // streak. `lastDemoAt` is the *playable bank* time at the last
         // demo (see bankNow below) — NOT performance.now(). The bank
-        // only ticks during live/countdown phases, so a 20s combo window
-        // counts 20 seconds of playable time, not wall-clock time. This
-        // matters for chasers: a goal-replay between two demos doesn't
-        // burn the streak window. `bestStreak` and `bestStreakWord`
-        // drive the BEST badge in idle.
+        // only ticks during the `live` phase, so a 20s combo window
+        // counts 20 seconds of actual gameplay, not wall-clock time.
+        // This matters for chasers: a goal-replay or kickoff countdown
+        // between two demos doesn't burn the streak window. `bestStreak`
+        // and `bestStreakWord` drive the BEST badge in idle.
         let currentStreak = 0;
         let lastDemoAt = 0;
         let lastVictimName = '';
@@ -1195,7 +1195,14 @@
         // `inPlayablePhase` tracks whether the bank is currently
         // ticking. bankNow() advances the bank to "now" if we're in a
         // playable phase, then returns the current bank value.
-        const PLAYABLE_PHASES = new Set(['live', 'countdown']);
+        //
+        // Only `live` counts as playable. `countdown` looks playable
+        // (the field is on screen) but the ball isn't moving and demos
+        // can't happen, so burning the combo window during the kickoff
+        // countdown punishes the chaser unfairly. Replay → live →
+        // countdown → live is the post-goal sequence; the bank stays
+        // frozen through everything except the final `live` resume.
+        const PLAYABLE_PHASES = new Set(['live']);
         let playableElapsed = 0;
         let lastPhaseTickAt = performance.now();
         let inPlayablePhase = false;

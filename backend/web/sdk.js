@@ -324,20 +324,27 @@
       } catch {
         return;
       }
-      if (msg.Event === '_ConnectionStatus') {
-        status = msg.Status;
+      // The RL Stats API has shipped both PascalCase ("Event"/"Data"/"Status")
+      // and all-lowercase ("event"/"data"/"status") envelopes across versions.
+      // Accept either at this boundary so the rest of the SDK stays PascalCase.
+      // Synthetic envelopes from our own server (_ConnectionStatus, _Lifecycle)
+      // are always PascalCase, so they fall out of the same checks.
+      const event = msg.Event ?? msg.event;
+      const eventStatus = msg.Status ?? msg.status;
+      if (event === '_ConnectionStatus') {
+        status = eventStatus;
         bus.emit('_status', status);
         return;
       }
       // Synthetic _Lifecycle: snapshot fields live at the top level
       // (match_active / phase / match_guid / since), not inside Data.
       // Hand the whole envelope to the lifecycle subscriber.
-      if (msg.Event === '_Lifecycle') {
+      if (event === '_Lifecycle') {
         bus.emit('_Lifecycle', msg);
         return;
       }
       // Decode the inner JSON-encoded Data payload — RL ships it as a string.
-      let data = msg.Data;
+      let data = msg.Data ?? msg.data;
       if (typeof data === 'string') {
         try {
           data = JSON.parse(data);
@@ -345,7 +352,7 @@
           data = null;
         }
       }
-      bus.emit(msg.Event, data, msg);
+      bus.emit(event, data, msg);
     };
     es.onerror = () => {
       // EventSource fires onerror for transient interruptions too — Firefox

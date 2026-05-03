@@ -62,6 +62,13 @@ type LifecycleTracker struct {
 	// 60 Hz UpdateState hot path (avoids RWMutex on every tick).
 	matchActive atomic.Bool
 
+	// inReplay tracks the most recent bReplay state observed in
+	// UpdateState. We can't rely on GoalReplayStart/End events — recent
+	// RL builds don't emit them — so we derive replay phase by watching
+	// bReplay edges on the per-tick snapshot. Atomic so the hot path
+	// stays mutex-free.
+	inReplay atomic.Bool
+
 	lastTickMu sync.Mutex
 	lastTick   time.Time
 }
@@ -95,37 +102,84 @@ func (t *LifecycleTracker) Snapshot() LifecycleSnapshot {
 // (substring match instead), no allocations on that hot path.
 func (t *LifecycleTracker) Feed(raw []byte) {
 	// Hot path: UpdateState. Substring-detect to avoid json.Unmarshal at
-	// PacketSendRate.
+	// PacketSendRate. The wire ships either PascalCase ("Event":"UpdateState")
+	// or all-lowercase ("event":"updatestate") depending on RL build, so we
+	// check both markers.
 	head := raw
 	if len(head) > 96 {
 		head = head[:96]
 	}
-	if bytes.Contains(head, updateStateMarker) {
-		t.onUpdateState(raw)
-		return
+	for _, m := range updateStateMarkers {
+		if bytes.Contains(head, m) {
+			t.onUpdateState(raw)
+			return
+		}
 	}
 
-	// Slow path: decode the envelope so we can switch on Event.
+	// Slow path: pull the canonical event name via the same case-tolerant
+	// extractor the bus uses, then run the state machine on PascalCase
+	// names regardless of wire casing. We still need Status (for
+	// _ConnectionStatus) and Data (for guidFromData), so do a tolerant
+	// decode for those after the name is known.
+	event := extractEventName(raw)
+	if event == "" {
+		return
+	}
 	var env struct {
-		Event  string          `json:"Event"`
-		Status string          `json:"Status,omitempty"` // _ConnectionStatus only
-		Data   json.RawMessage `json:"Data,omitempty"`
+		Status      string          `json:"Status,omitempty"`
+		StatusLower string          `json:"status,omitempty"`
+		Data        json.RawMessage `json:"Data,omitempty"`
+		DataLower   json.RawMessage `json:"data,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return
 	}
-	if env.Event == "" {
-		return
+	status := env.Status
+	if status == "" {
+		status = env.StatusLower
 	}
-	t.onEvent(env.Event, env.Status, env.Data)
+	data := env.Data
+	if len(data) == 0 {
+		data = env.DataLower
+	}
+	t.onEvent(event, status, data)
 }
 
-var updateStateMarker = []byte(`"Event":"UpdateState"`)
+var updateStateMarkers = [][]byte{
+	[]byte(`"Event":"UpdateState"`),
+	[]byte(`"event":"updatestate"`),
+}
 
 func (t *LifecycleTracker) onUpdateState(raw []byte) {
 	t.lastTickMu.Lock()
 	t.lastTick = time.Now()
 	t.lastTickMu.Unlock()
+
+	// Replay-edge detection. Recent RL builds skip the discrete
+	// GoalReplayStart/End events, but every UpdateState during a goal
+	// replay carries bReplay=true on the Game object. Watching for
+	// false→true / true→false transitions gives us reliable replay
+	// phase gating regardless of which event names RL emits.
+	//
+	// On entering replay we set PhaseReplay unconditionally — replay
+	// dominates whatever phase we were in. On leaving, we only revert
+	// to PhaseLive if the snapshot is still PhaseReplay; CountdownBegin
+	// often fires the same tick as the bReplay false-edge (post-goal
+	// kickoff) and we must not clobber the countdown phase it set.
+	wasReplay := t.inReplay.Load()
+	nowReplay := scanBReplay(raw)
+	if nowReplay != wasReplay {
+		t.inReplay.Store(nowReplay)
+		if nowReplay {
+			t.update(func(s *LifecycleSnapshot) { s.Phase = PhaseReplay })
+		} else {
+			t.update(func(s *LifecycleSnapshot) {
+				if s.Phase == PhaseReplay {
+					s.Phase = PhaseLive
+				}
+			})
+		}
+	}
 
 	// Fast atomic check — avoids RWMutex on the 60 Hz common case.
 	if t.matchActive.Load() {
@@ -142,6 +196,30 @@ func (t *LifecycleTracker) onUpdateState(raw []byte) {
 			s.Phase = PhaseLive
 		}
 	})
+}
+
+// scanBReplay returns whether the UpdateState payload reports an active
+// goal replay. The bReplay flag lives inside the JSON-encoded Data
+// string, so quotes appear backslash-escaped in the raw envelope bytes
+// (e.g. `\"bReplay\":true`). Casing also varies (PascalCase vs
+// lowercase) by RL build. We check all four combinations; absence of
+// any true-marker is treated as false. This runs on every UpdateState
+// so it must stay allocation-free — four bytes.Contains over a ~1KB
+// payload is still sub-microsecond.
+var bReplayTrueMarkers = [][]byte{
+	[]byte(`\"bReplay\":true`),
+	[]byte(`\"breplay\":true`),
+	[]byte(`"bReplay":true`),
+	[]byte(`"breplay":true`),
+}
+
+func scanBReplay(raw []byte) bool {
+	for _, m := range bReplayTrueMarkers {
+		if bytes.Contains(raw, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // onEvent is the lifecycle state machine for non-UpdateState events.
@@ -174,10 +252,11 @@ func (t *LifecycleTracker) onEvent(event, status string, data json.RawMessage) {
 		// Best-effort: assume back to live play. RL doesn't tell us what
 		// phase we paused from.
 		t.update(func(s *LifecycleSnapshot) { s.Phase = PhaseLive })
-	case "GoalReplayStart":
-		t.update(func(s *LifecycleSnapshot) { s.Phase = PhaseReplay })
-	case "GoalReplayEnd":
-		t.update(func(s *LifecycleSnapshot) { s.Phase = PhaseLive })
+	// GoalReplayStart/GoalReplayEnd are intentionally NOT handled here.
+	// They aren't reliably emitted across RL versions; replay phase is
+	// derived from bReplay edges in onUpdateState instead. We still
+	// pass GoalReplayWillEnd through the bus for plugins that subscribe,
+	// but it doesn't drive phase.
 	case "MatchEnded":
 		t.update(func(s *LifecycleSnapshot) { s.Phase = PhaseEnded })
 	case "PodiumStart":
@@ -281,23 +360,39 @@ func (t *LifecycleTracker) checkTimeout() {
 	})
 }
 
-// extractMatchGUID pulls MatchGuid out of an UpdateState payload without
-// a full Unmarshal. The field is small (UUID, ~36 bytes) and reliably
-// near the start of the JSON, so a substring scan is dramatically
-// cheaper than json.Unmarshal at 60Hz.
-var matchGuidMarker = []byte(`"MatchGuid":"`)
+// extractMatchGUID pulls MatchGuid out of an UpdateState payload
+// without a full Unmarshal. The field lives inside the JSON-encoded
+// Data string, so quotes appear backslash-escaped in the raw envelope
+// bytes. Casing also varies (PascalCase vs lowercase) by RL build. We
+// try each marker in order and slice off whatever quote variant
+// (escaped or plain) ends the value.
+var matchGuidMarkers = [][]byte{
+	[]byte(`\"MatchGuid\":\"`),
+	[]byte(`\"matchguid\":\"`),
+	[]byte(`"MatchGuid":"`),
+	[]byte(`"matchguid":"`),
+}
 
 func extractMatchGUID(raw []byte) string {
-	i := bytes.Index(raw, matchGuidMarker)
-	if i < 0 {
-		return ""
+	for _, m := range matchGuidMarkers {
+		i := bytes.Index(raw, m)
+		if i < 0 {
+			continue
+		}
+		rest := raw[i+len(m):]
+		// Value ends at the next quote, which may be escaped (\") if
+		// we're inside a JSON-encoded string. Look for whichever
+		// terminator comes first.
+		end := bytes.IndexByte(rest, '"')
+		if esc := bytes.Index(rest, []byte(`\"`)); esc >= 0 && (end < 0 || esc < end) {
+			end = esc
+		}
+		if end < 0 {
+			return ""
+		}
+		return string(rest[:end])
 	}
-	rest := raw[i+len(matchGuidMarker):]
-	end := bytes.IndexByte(rest, '"')
-	if end < 0 {
-		return ""
-	}
-	return string(rest[:end])
+	return ""
 }
 
 // guidFromData reads MatchGuid from a typed event's Data payload. RL
