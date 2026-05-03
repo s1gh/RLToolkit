@@ -45,6 +45,12 @@ cargo build --release
 # → overlay/src-tauri/target/release/rl-widget
 ```
 
+### Release bundle
+
+`make release` runs both Go cross-compiles plus the host-OS widget build,
+collecting outputs under `release/{linux,windows}/`. The widget for a
+non-host OS still has to be built on that OS — wry can't cross-compile.
+
 ### Run
 
 ```bash

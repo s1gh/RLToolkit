@@ -1,6 +1,7 @@
 # Build artifacts
 /rl-toolkit
 /rl-toolkit.exe
+/release/
 *.exe
 
 # Per-plugin persistence — runtime data, not source
