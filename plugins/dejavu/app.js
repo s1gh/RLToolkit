@@ -18,9 +18,9 @@
   const views = isOverlay ? [DV.overlay] : [DV.identity, DV.match, DV.leaderboard];
 
   // ─── rAF-batched render ────────────────────────────────────
-  // Multiple SDK callbacks may fire on the same frame (a tick triggers
-  // both onTick and an encounter recording → onEncounters). Coalesce them
-  // into one paint per frame.
+  // Multiple SDK callbacks may fire on the same frame (an UpdateState
+  // ingestion can trigger both onMatch and onEncounters in one tick).
+  // Coalesce them into one paint per frame.
   let rafScheduled = false;
   function scheduleRender() {
     if (rafScheduled) return;
@@ -95,6 +95,19 @@
     },
     onEncounters: scheduleRender,
     onMatch: scheduleRender,
-    onTick: scheduleRender,
+    // No onTick. onMatch is the deduped view — the SDK only emits
+    // 'change' when the roster fingerprint (id/team/encounterCount)
+    // moves, which covers late-joiners, leavers, and team shuffles.
+    // dejavu reads roster identity, not per-frame physics state, so
+    // a 60Hz onTick would just schedule paints the overlay's own
+    // fingerprint check would short-circuit anyway.
+    //
+    // Heads up: onMatch is implemented on top of UpdateState (the
+    // SDK builds its view inside the UpdateState handler), so opting
+    // into onMatch still pulls the 60-120Hz UpdateState stream off
+    // the wire. The win here is just CPU on the iframe side: fewer
+    // wasted rAF schedules, no extra bandwidth saved. A future
+    // synthetic _RosterChanged event would let dejavu skip
+    // UpdateState entirely.
   });
 })();
