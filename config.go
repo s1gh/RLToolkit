@@ -36,6 +36,14 @@ const (
 	statusPushTimeout = 100 * time.Millisecond
 	dropLogInterval   = 5 * time.Second
 
+	// idleLogInterval rate-limits the "silent for 30s — reconnecting"
+	// cycle so a long menu / between-matches stretch doesn't fill the
+	// terminal with one cycle log every 30s. The first cycle in any
+	// quiet stretch always logs (the limiter starts cleared); repeats
+	// inside this window stay silent, and a real-traffic / dial-failure
+	// event resets it so the next idle cycle is informative again.
+	idleLogInterval = 5 * time.Minute
+
 	sseHeartbeat     = 15 * time.Second
 	sseWriteDeadline = 2 * time.Second
 	httpShutdown     = 2 * time.Second

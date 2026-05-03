@@ -58,12 +58,26 @@ type RLClient struct {
 	outbox  chan []byte
 	dropLog rateLimitedLogger
 
+	// idleLog rate-limits the "silent for 30s — reconnecting" line and
+	// its successor "connected to ..." so a long menu/idle stretch
+	// (which cycles the connection every 30s by design) doesn't fill
+	// the terminal. Reset when real packets arrive or a dial fails.
+	idleLog rateLimitedLogger
+
 	// lastDialMsg is the most recently logged dial-failure message.
 	// We log a new failure only when the explanation changes (e.g.
 	// "connection refused" → "no such host") instead of repeating the
 	// same line on every retry. A successful connect resets it so the
 	// next failure logs again.
 	lastDialMsg string
+
+	// selfReconnect is set when the previous readLoop returned because
+	// of our own idle timeout, NOT because the peer disconnected or
+	// errored. The reconnect path uses it to suppress the redundant
+	// "disconnected; reconnecting in 500ms" line (the "silent for 30s"
+	// line already explains the cycle) and to rate-limit the follow-up
+	// "connected to ..." confirmation.
+	selfReconnect bool
 }
 
 func NewRLClient(addr string, bus *EventBus) *RLClient {
@@ -73,6 +87,7 @@ func NewRLClient(addr string, bus *EventBus) *RLClient {
 		status:  StatusDisconnected,
 		outbox:  make(chan []byte, outboxBufSize),
 		dropLog: rateLimitedLogger{interval: dropLogInterval},
+		idleLog: rateLimitedLogger{interval: idleLogInterval},
 	}
 }
 
@@ -163,6 +178,11 @@ func (c *RLClient) Run(ctx context.Context) {
 				log.Println(msg)
 				c.lastDialMsg = msg
 			}
+			// A dial failure is a real change of state — break out of
+			// the silent-idle-cycle pattern so the next successful
+			// connect (and the next idle reconnect) log normally.
+			c.idleLog.reset()
+			c.selfReconnect = false
 			if !sleepCtx(ctx, dialTimeout) {
 				return
 			}
@@ -175,7 +195,15 @@ func (c *RLClient) Run(ctx context.Context) {
 		}
 
 		c.setStatus(StatusConnected)
-		log.Printf("[rl-api] connected to %s", c.addr)
+		// On a self-induced reconnect (idle-timeout cycle while RL is
+		// in menus/lobby) the connection comes back instantly and the
+		// "connected" line is redundant with the "silent for 30s"
+		// line just above it. Suppress entirely during a self-reconnect
+		// cycle — when real traffic resumes, the cycle ends and the
+		// next genuine reconnect logs normally.
+		if !c.selfReconnect {
+			log.Printf("[rl-api] connected to %s", c.addr)
+		}
 		// Forget the prior failure message so a future failure logs
 		// again — useful when RL goes down mid-session and we want
 		// users to see the new dial error rather than have it
@@ -190,7 +218,13 @@ func (c *RLClient) Run(ctx context.Context) {
 		// Don't log on shutdown — the "[server] shutting down" line
 		// already explains why we disconnected; an extra "disconnected,
 		// reconnecting" right after would be noise.
-		if ctx.Err() == nil {
+		//
+		// Also skip when readLoop ended because of our own idle
+		// timeout: the "silent for 30s — reconnecting" line that
+		// readLoop printed already explains the cycle. Without this
+		// check, every idle cycle prints two lines for the same
+		// event.
+		if ctx.Err() == nil && !c.selfReconnect {
 			log.Printf("[rl-api] disconnected; reconnecting in %s", reconnectDelay)
 		}
 
@@ -210,6 +244,7 @@ func (c *RLClient) Run(ctx context.Context) {
 // than waiting forever for data that won't come.
 func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
 	dec := json.NewDecoder(conn)
+	gotTraffic := false
 
 	for {
 		select {
@@ -222,15 +257,36 @@ func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
 			if errors.Is(err, io.EOF) {
+				// Peer-side disconnect — different signal from our own
+				// idle timeout. Treat it as a real cycle break.
+				c.selfReconnect = false
 				return
 			}
 			var ne net.Error
 			if errors.As(err, &ne) && ne.Timeout() {
-				log.Printf("[rl-api] silent for %s — reconnecting", rlIdleTimeout)
+				// Self-induced reconnect. Rate-limit the line so a long
+				// menu stretch logs once, not every 30 seconds. The
+				// successor "connected to ..." line is gated by the
+				// same limiter in Run().
+				c.idleLog.log("[rl-api] silent for " + rlIdleTimeout.String() + " — reconnecting")
+				c.selfReconnect = true
 				return
 			}
+			// Anything else (network error, malformed JSON, ...) is a
+			// real failure mode — break the quiet cycle so the dial /
+			// connect path logs normally on retry.
 			log.Printf("[rl-api] Read error: %v", err)
+			c.idleLog.reset()
+			c.selfReconnect = false
 			return
+		}
+		// First real packet on this connection — RL is back to actively
+		// streaming, so the idle cycle (if any) is over. Reset the
+		// limiter so the next idle stretch logs fresh.
+		if !gotTraffic {
+			gotTraffic = true
+			c.idleLog.reset()
+			c.selfReconnect = false
 		}
 		c.enqueue(raw)
 	}
