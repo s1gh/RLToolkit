@@ -17,11 +17,23 @@ pub struct LauncherCtx {
 pub type LauncherState = Mutex<LauncherCtx>;
 
 #[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyState {
+    Dashboard,
+    Starting,
+    NotResponding,
+    Crashed,
+    PortConflict,
+}
+
+#[derive(Serialize)]
 pub struct StatusView {
     pub connected: bool,
     pub starting: bool,
     pub attached: bool,
     pub overlay_enabled: bool,
+    pub body_state: BodyState,
+    pub message: Option<String>,
 }
 
 #[tauri::command]
@@ -36,11 +48,31 @@ pub fn get_status(state: State<LauncherState>) -> StatusView {
         &format!("{}/api/status", ctx.toolkit_url.trim_end_matches('/')),
         std::time::Duration::from_millis(500),
     );
+
+    let (body_state, message) = match (&outcome, ctx.starting, ctx.attached) {
+        (ProbeOutcome::Toolkit, _, _) => (BodyState::Dashboard, None),
+        (_, true, _) => (BodyState::Starting, Some("Starting backend…".to_string())),
+        (ProbeOutcome::Unrelated, _, _) => (
+            BodyState::PortConflict,
+            Some("Port 8080 is already in use by another application.".to_string()),
+        ),
+        (ProbeOutcome::Unreachable, _, true) => (
+            BodyState::NotResponding,
+            Some("Backend not responding.".to_string()),
+        ),
+        (ProbeOutcome::Unreachable, _, false) => (
+            BodyState::Crashed,
+            Some("Backend crashed — Restart.".to_string()),
+        ),
+    };
+
     StatusView {
         connected: matches!(outcome, ProbeOutcome::Toolkit),
         starting: ctx.starting,
         attached: ctx.attached,
         overlay_enabled: ctx.overlay_enabled,
+        body_state,
+        message,
     }
 }
 

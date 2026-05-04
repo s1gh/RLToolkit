@@ -8,21 +8,33 @@ const conn = $("#conn");
 const ownership = $("#ownership-badge");
 const overlayToggle = $("#overlay-toggle");
 const restartBtn = $("#restart-btn");
+const fallback = document.getElementById("fallback");
+const fallbackMsg = document.getElementById("fallback-msg");
+const fallbackRetry = document.getElementById("fallback-retry");
 
 async function refreshStatus() {
+  let s;
   try {
-    const s = await invoke("get_status");
-    conn.dataset.status = s.connected ? "connected" : (s.starting ? "connecting" : "disconnected");
-    conn.textContent = conn.dataset.status === "connecting" ? "connecting…" : conn.dataset.status;
-    document.getElementById("fallback").hidden = s.connected;
-    ownership.hidden = !s.attached;
-    restartBtn.disabled = s.attached;
-    overlayToggle.checked = !!s.overlay_enabled;
+    s = await invoke("get_status");
   } catch (_) {
-    conn.dataset.status = "disconnected";
-    conn.textContent = "disconnected";
+    return;
+  }
+  conn.dataset.status = s.connected ? "connected" : (s.starting ? "connecting" : "disconnected");
+  conn.textContent = conn.dataset.status === "connecting" ? "connecting…" : conn.dataset.status;
+  ownership.hidden = !s.attached;
+  restartBtn.disabled = s.attached;
+  overlayToggle.checked = !!s.overlay_enabled;
+
+  if (s.body_state === "dashboard") {
+    fallback.hidden = true;
+  } else {
+    fallback.hidden = false;
+    fallbackMsg.textContent = s.message || "Backend not responding";
+    fallbackRetry.hidden = s.body_state === "starting";
   }
 }
+
+fallbackRetry.addEventListener("click", () => invoke("restart_backend").catch(() => {}));
 
 overlayToggle.addEventListener("change", e => {
   invoke("toggle_overlay", { enabled: e.target.checked }).catch(() => {});
