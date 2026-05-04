@@ -42,7 +42,8 @@
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 mod focus_watcher;
-mod launcher;
+#[allow(unused_imports)]
+use rl_widget::launcher;
 
 use clap::Parser;
 use serde::Deserialize;

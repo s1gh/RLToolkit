@@ -10,6 +10,14 @@ publish = false
 name = "rl-widget"
 path = "src/main.rs"
 
+[[bin]]
+name = "fake_backend"
+path = "tests/fixtures/fake_backend.rs"
+
+[lib]
+name = "rl_widget"
+path = "src/lib.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -59,6 +67,7 @@ objc2-foundation = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+libc = "0.2"
 
 [profile.release]
 opt-level = "s"
