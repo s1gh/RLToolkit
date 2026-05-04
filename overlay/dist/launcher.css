@@ -93,6 +93,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 #overflow li button:disabled { color: var(--muted); cursor: not-allowed; background: transparent; }
 #overflow li.sep { height: 1px; background: #20232a; margin: 4px 0; }
 
+.banner {
+  background: #2a1a1a; color: #f7c1c1; padding: 8px 12px;
+  font-size: 12px; border-bottom: 1px solid #3a1f1f;
+}
+.banner[hidden] { display: none; }
+
 #body { height: calc(100% - var(--strip-h)); position: relative; }
 #dashboard {
   position: absolute; inset: 0;

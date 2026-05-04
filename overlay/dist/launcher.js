@@ -32,6 +32,8 @@ async function refreshStatus() {
     fallbackMsg.textContent = s.message || "Backend not responding";
     fallbackRetry.hidden = s.body_state === "starting";
   }
+
+  document.getElementById("tray-banner").hidden = !!s.tray_ok;
 }
 
 fallbackRetry.addEventListener("click", () => invoke("restart_backend").catch(() => {}));

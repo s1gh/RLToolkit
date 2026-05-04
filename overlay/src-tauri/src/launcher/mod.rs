@@ -40,6 +40,7 @@ pub fn run(args: Args) {
         overlay_enabled: initial.overlay_enabled,
         attached: false,
         starting: true,
+        tray_ok: true,
     };
 
     install_plugins(tauri::Builder::default())
@@ -66,6 +67,9 @@ pub fn run(args: Args) {
 
             if let Err(e) = tray::setup_tray(&handle, "RL Toolkit") {
                 eprintln!("[launcher] tray failed: {e}");
+                if let Some(state) = handle.try_state::<LauncherState>() {
+                    state.lock().unwrap().tray_ok = false;
+                }
             }
 
             // Run probe → spawn off the main thread so the UI stays responsive.
@@ -141,9 +145,16 @@ pub fn run(args: Args) {
         .on_window_event(|window, event| {
             if window.label() == "launcher" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    // Phase A behavior: hide-on-close (Section 5.4).
-                    api.prevent_close();
-                    let _ = window.hide();
+                    let tray_ok = window
+                        .app_handle()
+                        .try_state::<LauncherState>()
+                        .map(|s| s.lock().unwrap().tray_ok)
+                        .unwrap_or(true);
+                    if tray_ok {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                    // else: allow close → fires ExitRequested → backend drained.
                 }
             }
         })

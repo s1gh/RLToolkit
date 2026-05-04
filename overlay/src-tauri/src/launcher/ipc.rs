@@ -12,6 +12,7 @@ pub struct LauncherCtx {
     pub overlay_enabled: bool,
     pub attached: bool,
     pub starting: bool,
+    pub tray_ok: bool,
 }
 
 pub type LauncherState = Mutex<LauncherCtx>;
@@ -34,6 +35,7 @@ pub struct StatusView {
     pub overlay_enabled: bool,
     pub body_state: BodyState,
     pub message: Option<String>,
+    pub tray_ok: bool,
 }
 
 #[tauri::command]
@@ -73,6 +75,7 @@ pub fn get_status(state: State<LauncherState>) -> StatusView {
         overlay_enabled: ctx.overlay_enabled,
         body_state,
         message,
+        tray_ok: ctx.tray_ok,
     }
 }
 
