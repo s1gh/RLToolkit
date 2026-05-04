@@ -1373,13 +1373,6 @@
     };
   }
 
-  // Backwards-compatible wrapper used by every existing caller (typed
-  // event normalizers): resolves against the live match.current roster.
-  function resolvePlayer(ref) {
-    const cur = match.current;
-    return resolvePlayerIn(cur ? cur.players : null, ref);
-  }
-
   // Recent-events ring buffer so plugins booting mid-match can show context.
   // Useful for dedup ("did I already see this GoalScored?") and for "show
   // the last N events" debug panels. See RLT.events.recent(name, n).
@@ -1405,79 +1398,17 @@
     eventsBus.emit(name, payload);
   }
 
-  // Per-event normalizers — each is a tiny function so the README-fields
-  // map 1:1 to JS property names, and players come pre-resolved.
-  //
-  // GoalScored note: RL re-fires GoalScored at round-restart boundaries
-  // (after the kickoff countdown) with an empty Scorer.Name and no
-  // resolvable roster match. Without this guard, every such re-fire
-  // overwrites the plugin's last-known scorer with the literal string
-  // "Unknown". Drop the event when we can't identify a real scorer.
-  bus.on('GoalScored', (d) => {
-    if (!d) return;
-    const scorer = resolvePlayer(d.Scorer);
-    if (!scorer || (!scorer.player && !d.Scorer?.Name)) return;
-    emitTyped('GoalScored', {
-      matchGuid: d.MatchGuid || null,
-      goalSpeed: d.GoalSpeed != null ? d.GoalSpeed : null,
-      goalTime: d.GoalTime != null ? d.GoalTime : null,
-      impactLocation: d.ImpactLocation || null,
-      scorer,
-      assister: d.Assister ? resolvePlayer(d.Assister) : null,
-      ballLastTouch: d.BallLastTouch
-        ? {
-            player: resolvePlayer(d.BallLastTouch.Player),
-            speed: d.BallLastTouch.Speed != null ? d.BallLastTouch.Speed : null,
-          }
-        : null,
-      raw: d,
-    });
-  });
-
-  bus.on('BallHit', (d) => {
-    if (!d) return;
-    emitTyped('BallHit', {
-      matchGuid: d.MatchGuid || null,
-      players: (d.Players || []).map(resolvePlayer),
-      preSpeed: d.Ball ? (d.Ball.PreHitSpeed != null ? d.Ball.PreHitSpeed : null) : null,
-      postSpeed: d.Ball ? (d.Ball.PostHitSpeed != null ? d.Ball.PostHitSpeed : null) : null,
-      location: d.Ball ? d.Ball.Location || null : null,
-      raw: d,
-    });
-  });
-
-  bus.on('CrossbarHit', (d) => {
-    if (!d) return;
-    emitTyped('CrossbarHit', {
-      matchGuid: d.MatchGuid || null,
-      ballSpeed: d.BallSpeed != null ? d.BallSpeed : null,
-      impactForce: d.ImpactForce != null ? d.ImpactForce : null,
-      ballLocation: d.BallLocation || null,
-      ballLastTouch: d.BallLastTouch
-        ? {
-            player: resolvePlayer(d.BallLastTouch.Player),
-            speed: d.BallLastTouch.Speed != null ? d.BallLastTouch.Speed : null,
-          }
-        : null,
-      raw: d,
-    });
-  });
-
-  // Statfeed: every player ref is a {Name, Shortcut, TeamNum} stub —
-  // resolvePlayer enriches it against the live roster. Field names mirror
-  // the official wire payload (MainTarget / SecondaryTarget) so the docs
-  // are searchable both ways.
-  bus.on('StatfeedEvent', (d) => {
-    if (!d) return;
-    emitTyped('StatfeedEvent', {
-      matchGuid: d.MatchGuid || null,
-      eventName: d.EventName || '',
-      type: d.Type || '',
-      mainTarget: resolvePlayer(d.MainTarget),
-      secondaryTarget: d.SecondaryTarget ? resolvePlayer(d.SecondaryTarget) : null,
-      raw: d,
-    });
-  });
+  // Heavy normalizers for GoalScored / BallHit / CrossbarHit /
+  // StatfeedEvent / MatchEnded used to live here, doing per-iframe
+  // roster resolution + payload reshape. They've been removed: the
+  // backend ships pre-enriched _-prefixed equivalents (_GoalScored,
+  // _BallHit, _CrossbarHit, _StatfeedEvent, _MatchEnded) with player
+  // references already resolved against the live roster, plus extra
+  // correlations (modifiers, scoringTeam, isOwnGoal, …) the SDK could
+  // never compute. Plugins that need typed payloads subscribe to the
+  // synthetic events directly via events: { _GoalScored(p) {...} } or
+  // RLT.events.onEnrichedGoalScored(fn). See PLUGINS.md → "Synthetic
+  // events (backend-enriched)".
 
   bus.on('ClockUpdatedSeconds', (d) => {
     if (!d) return;
@@ -1489,20 +1420,12 @@
     });
   });
 
-  // The other MatchEnded handler (inside the `match` IIFE, above) records
-  // per-encounter W/L and only reads from the bus — it's independent of
-  // this typed-event normalizer. Both handlers fire because the bus
-  // iterates every subscriber for an event; ordering between them is
-  // not guaranteed and shouldn't matter (different concerns, no shared
-  // state beyond `match.current` which is set before either runs).
-  bus.on('MatchEnded', (d) => {
-    if (!d) return;
-    emitTyped('MatchEnded', {
-      matchGuid: d.MatchGuid || null,
-      winnerTeam: typeof d.WinnerTeamNum === 'number' ? d.WinnerTeamNum : null,
-      raw: d,
-    });
-  });
+  // MatchEnded normalizer removed; subscribe to _MatchEnded for the
+  // backend-enriched envelope (winnerName, scoreBlue/Orange resolved
+  // from the cached final UpdateState). The other MatchEnded handler —
+  // inside the `match` IIFE above, recording per-encounter W/L —
+  // independently reads d.WinnerTeamNum off the raw bus and is
+  // unaffected by this removal.
 
   // Plain pass-through events: nothing to resolve, but we still surface them
   // through the typed bus so plugins have one consistent API.
@@ -1548,16 +1471,14 @@
 
     // typed subscribers
     onUpdateState: makeOn('UpdateState'),
-    onGoalScored: makeOn('GoalScored'),
-    onBallHit: makeOn('BallHit'),
-    onCrossbarHit: makeOn('CrossbarHit'),
-    onStatfeedEvent: makeOn('StatfeedEvent'),
     onClockUpdatedSeconds: makeOn('ClockUpdatedSeconds'),
 
+    // Lifecycle pass-throughs — raw envelopes wrapped through emitTyped
+    // (see the lifecycle loop above). For the enriched MatchEnded with
+    // winnerName + scoreBlue/Orange, use onEnrichedMatchEnded below.
     onMatchCreated: makeOn('MatchCreated'),
     onMatchInitialized: makeOn('MatchInitialized'),
     onMatchDestroyed: makeOn('MatchDestroyed'),
-    onMatchEnded: makeOn('MatchEnded'),
     onMatchPaused: makeOn('MatchPaused'),
     onMatchUnpaused: makeOn('MatchUnpaused'),
 

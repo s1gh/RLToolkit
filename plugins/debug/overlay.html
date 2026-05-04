@@ -157,7 +157,7 @@
       <div class="header">Debug</div>
       <div class="panes">
         <div class="pane">
-          <div class="header">StatfeedEvent Log</div>
+          <div class="header">_StatfeedEvent Log</div>
           <div id="log" class="log"></div>
           <div id="counts" class="counts"></div>
         </div>
@@ -347,7 +347,7 @@
           whilePhase: ["live", "replay", "countdown", "paused"],
 
           events: {
-            StatfeedEvent(s) {
+            _StatfeedEvent(s) {
               addEntry(s);
             },
             _UnknownStatfeed(payload) {

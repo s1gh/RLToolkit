@@ -291,7 +291,7 @@
           RLT.plugin.register({
             name: 'crossbar',
             events: {
-              async CrossbarHit() {
+              async _CrossbarHit() {
                 const now = (typeof performance !== 'undefined' && performance.now)
                   ? performance.now()
                   : Date.now();
