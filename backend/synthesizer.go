@@ -13,17 +13,43 @@ import (
 type Synthesizer struct {
 	bus    *EventBus
 	roster *RosterTracker
+	// phaseMachine is consulted by emitters that should only fire during
+	// real gameplay (e.g. _OwnGoal — a score-delta during a forfeit or
+	// mercy rule must not flag as an own goal). Optional; nil disables
+	// the gate, which is what the unit tests do.
+	phaseMachine *PhaseMachine
 
 	// teamsMu guards lastTeams. Cached from the most recent UpdateState
 	// so _MatchEnded can resolve WinnerTeamNum to a team name without a
 	// second round-trip. Grows in Phase 4 (diff events).
 	teamsMu   sync.Mutex
 	lastTeams []teamRef
+
+	// correlation buffers same-frame and adjacent-tick events so emitters
+	// like _GoalScored can look back for modifier Statfeeds (AerialGoal,
+	// BackwardsGoal, …) and _OwnGoal can look back for the GoalScored it
+	// belongs to. Capacity 15 ≈ 3 ticks at 60 Hz / ~5 events per tick.
+	correlation *CorrelationBuffer
+
+	// lastBallTouchMu guards lastBallTouchPlayer/Team. Updated from each
+	// BallHit envelope so _OwnGoal can identify the player who deflected
+	// the ball into their own net (the "deflector"). The plan requires
+	// this for Phase 2's score-delta own-goal detection.
+	lastBallTouchMu     sync.Mutex
+	lastBallTouchPlayer *EnrichedPlayer
 }
 
 func NewSynthesizer(bus *EventBus, roster *RosterTracker) *Synthesizer {
-	return &Synthesizer{bus: bus, roster: roster}
+	return &Synthesizer{
+		bus:         bus,
+		roster:      roster,
+		correlation: NewCorrelationBuffer(15),
+	}
 }
+
+// AttachPhaseMachine wires the gameplay-phase tracker so emitters that
+// should only fire during real gameplay can gate on it. Call before Run.
+func (s *Synthesizer) AttachPhaseMachine(m *PhaseMachine) { s.phaseMachine = m }
 
 // teamRef is the slice of UpdateState.Game.Teams[] we cache for downstream
 // enrichment. Score is here for upcoming Phase-4 diff events; only Name
@@ -56,17 +82,20 @@ func (s *Synthesizer) Feed(raw []byte) {
 	}
 }
 
-// onUpdateState caches the latest Teams[] for downstream enrichment.
-// We only decode Game.Teams here; the full UpdateState is decoded
-// elsewhere when needed. This must stay cheap — runs at PacketSendRate.
+// onUpdateState caches the latest Teams[] for downstream enrichment and
+// runs score-delta detection for _OwnGoal. Decodes only Game.Teams; the
+// full UpdateState is decoded elsewhere when needed. This must stay
+// cheap — runs at PacketSendRate.
 func (s *Synthesizer) onUpdateState(raw []byte) {
 	inner := unwrapInnerData(raw)
 	if inner == "" {
 		return
 	}
 	var d struct {
-		Game    *gameTeams `json:"Game"`
-		GameLow *gameTeams `json:"game"`
+		MatchGUID    string     `json:"MatchGuid"`
+		MatchGUIDLow string     `json:"matchguid"`
+		Game         *gameTeams `json:"Game"`
+		GameLow      *gameTeams `json:"game"`
 	}
 	if err := json.Unmarshal([]byte(inner), &d); err != nil {
 		return
@@ -88,9 +117,125 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 			ColorSecondary: t.ColorSecondary,
 		})
 	}
+
+	// Compute per-team score deltas against the prior cache before we
+	// overwrite. A delta of +1 with a recent ball touch by the opposing
+	// team is the own-goal signature. A team going +1 with no recent
+	// ball touch (forfeit, mercy rule) does not trigger.
 	s.teamsMu.Lock()
+	prev := s.lastTeams
 	s.lastTeams = teams
 	s.teamsMu.Unlock()
+
+	if len(prev) > 0 {
+		guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
+		s.detectOwnGoal(prev, teams, guid)
+	}
+}
+
+// detectOwnGoal compares two Teams[] snapshots and emits _OwnGoal when
+// a team's score went up by 1 and the most recent ball touch was by an
+// opposing-team player. Gated on the phase machine when attached so a
+// forfeit/mercy-rule score-up doesn't false-positive.
+func (s *Synthesizer) detectOwnGoal(prev, curr []teamRef, guid string) {
+	// Build a quick lookup from TeamNum → previous score.
+	prevByNum := make(map[int]int, len(prev))
+	for _, p := range prev {
+		prevByNum[p.TeamNum] = p.Score
+	}
+
+	for _, t := range curr {
+		oldScore, ok := prevByNum[t.TeamNum]
+		if !ok {
+			continue
+		}
+		delta := t.Score - oldScore
+		if delta != 1 {
+			continue
+		}
+		// Phase gate: only fire during real gameplay. PhaseLive/Replay
+		// covers active play; PhaseLobby/None/Countdown/Podium do not.
+		if s.phaseMachine != nil {
+			ph := s.phaseMachine.Current()
+			if ph != PhaseNameLive && ph != PhaseNameReplay {
+				continue
+			}
+		}
+
+		// Find the most recent ball touch (within 5 events, ~1 tick).
+		var touchPlayer *EnrichedPlayer
+		for _, p := range s.correlation.Recent("BallHit", 5) {
+			if pl, ok := p.(*EnrichedPlayer); ok && pl != nil {
+				touchPlayer = pl
+				break
+			}
+		}
+		if touchPlayer == nil {
+			continue
+		}
+		// Own-goal signature: deflector's team is NOT the team that
+		// scored.
+		if touchPlayer.Team == t.TeamNum {
+			continue
+		}
+
+		// Optional: attach a recently-emitted _GoalScored if one fired
+		// in the same window — gives subscribers the full goal payload
+		// alongside the detection.
+		var correlatedGoal *goalRecord
+		for _, p := range s.correlation.Recent("_GoalScored", 5) {
+			if g, ok := p.(*goalRecord); ok {
+				correlatedGoal = g
+				break
+			}
+		}
+
+		out := enrichedOwnGoal{
+			Event:         "_OwnGoal",
+			MatchGUID:     guid,
+			Deflector:     touchPlayer,
+			ScoringTeam:   t.TeamNum,
+			ConcedingTeam: touchPlayer.Team,
+			ScoreAfter: ownGoalScoreAfter{
+				Blue:   teamScore(curr, 0),
+				Orange: teamScore(curr, 1),
+			},
+		}
+		if correlatedGoal != nil && correlatedGoal.Scorer != nil {
+			out.CorrelatedGoalScorer = correlatedGoal.Scorer
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			continue
+		}
+		s.bus.Publish(b)
+	}
+}
+
+type enrichedOwnGoal struct {
+	Event                string            `json:"Event"`
+	MatchGUID            string            `json:"matchGuid,omitempty"`
+	Deflector            *EnrichedPlayer   `json:"deflector,omitempty"`
+	ScoringTeam          int               `json:"scoringTeam"`
+	ConcedingTeam        int               `json:"concedingTeam"`
+	ScoreAfter           ownGoalScoreAfter `json:"scoreAfter"`
+	CorrelatedGoalScorer *EnrichedPlayer   `json:"correlatedGoalScorer,omitempty"`
+}
+
+type ownGoalScoreAfter struct {
+	Blue   int `json:"blue"`
+	Orange int `json:"orange"`
+}
+
+// teamScore reads the Score for a TeamNum out of a Teams[] snapshot,
+// returning 0 if the team isn't present.
+func teamScore(teams []teamRef, num int) int {
+	for _, t := range teams {
+		if t.TeamNum == num {
+			return t.Score
+		}
+	}
+	return 0
 }
 
 type gameTeams struct {
@@ -204,11 +349,29 @@ func (s *Synthesizer) onStatfeedEvent(raw []byte) {
 		out.SecondaryTarget = s.roster.ResolveByShortcut(*secondary)
 	}
 
+	// Record into the correlation buffer so _GoalScored / Phase-3 events
+	// can look back for same-frame modifiers. Stash the wire ref for
+	// shortcut-matching plus the resolved enrichment for forward use.
+	s.correlation.Record("StatfeedEvent", &statfeedRecord{
+		EventName: eventName,
+		MainRef:   main,
+		Resolved:  out.MainTarget,
+	})
+
 	b, err := json.Marshal(out)
 	if err != nil {
 		return
 	}
 	s.bus.Publish(b)
+}
+
+// statfeedRecord is what the correlation buffer holds for each
+// StatfeedEvent. Only the fields _GoalScored / Phase-3 emitters look at
+// are kept — small footprint per entry.
+type statfeedRecord struct {
+	EventName string
+	MainRef   *ShortcutRef
+	Resolved  *EnrichedPlayer
 }
 
 // unwrapInnerData pulls the inner Data string out of an envelope, accepting
@@ -302,6 +465,23 @@ func (s *Synthesizer) onBallHit(raw []byte) {
 		out.PreHitSpeed = ball.PreHitSpeed
 		out.PostHitSpeed = ball.PostHitSpeed
 		out.Location = ball.Location
+	}
+
+	// Track the most recent ball-touch player so _OwnGoal can identify
+	// the deflector when a score-delta points at the wrong team. The
+	// first player in BallHit.Players is the one who actually touched
+	// the ball; multi-player BallHit events list secondary contacts
+	// after, but RL's primary-touch convention puts [0] first.
+	if len(resolved) > 0 && resolved[0] != nil {
+		s.lastBallTouchMu.Lock()
+		s.lastBallTouchPlayer = resolved[0]
+		s.lastBallTouchMu.Unlock()
+	}
+
+	// Record the BallHit so _OwnGoal can correlate (Phase 2). Holding
+	// the resolved first-toucher is enough for that emitter.
+	if len(resolved) > 0 {
+		s.correlation.Record("BallHit", resolved[0])
 	}
 
 	b, err := json.Marshal(out)
@@ -507,6 +687,40 @@ type enrichedGoalScored struct {
 	ScoringTeam     *int                   `json:"scoringTeam,omitempty"`
 	ConcedingTeam   *int                   `json:"concedingTeam,omitempty"`
 	IsOwnGoal       bool                   `json:"isOwnGoal"`
+	Modifiers       *goalModifiers         `json:"modifiers,omitempty"`
+}
+
+// goalModifiers carries the same-frame statfeed flags RL fires alongside
+// a goal. Only flags that fire are populated; missing fields are absent
+// rather than `false` so consumers can use truthy checks. Modifier
+// detection is best-effort: RL's modifier statfeeds aren't fully
+// documented and game-mode-specific flags (poolShot, hoopsSwishGoal)
+// only exist in their respective modes.
+type goalModifiers struct {
+	IsAerialGoal       bool `json:"isAerialGoal,omitempty"`
+	IsBackwardsGoal    bool `json:"isBackwardsGoal,omitempty"`
+	IsBicycleGoal      bool `json:"isBicycleGoal,omitempty"`
+	IsLongGoal         bool `json:"isLongGoal,omitempty"`
+	IsTurtleGoal       bool `json:"isTurtleGoal,omitempty"`
+	IsOvertimeGoal     bool `json:"isOvertimeGoal,omitempty"`
+	IsPoolShot         bool `json:"isPoolShot,omitempty"`
+	IsHoopsSwishGoal   bool `json:"isHoopsSwishGoal,omitempty"`
+	IsHatTrickGoal     bool `json:"isHatTrickGoal,omitempty"`
+}
+
+// modifierStatfeedNames maps the statfeed EventName (as RL ships it) to
+// the goalModifiers boolean field that should be set. Only same-player
+// matches against the scorer count.
+var modifierStatfeedNames = map[string]func(*goalModifiers){
+	"AerialGoal":     func(m *goalModifiers) { m.IsAerialGoal = true },
+	"BackwardsGoal":  func(m *goalModifiers) { m.IsBackwardsGoal = true },
+	"BicycleGoal":    func(m *goalModifiers) { m.IsBicycleGoal = true },
+	"LongGoal":       func(m *goalModifiers) { m.IsLongGoal = true },
+	"TurtleGoal":     func(m *goalModifiers) { m.IsTurtleGoal = true },
+	"OvertimeGoal":   func(m *goalModifiers) { m.IsOvertimeGoal = true },
+	"PoolShot":       func(m *goalModifiers) { m.IsPoolShot = true },
+	"HoopsSwishGoal": func(m *goalModifiers) { m.IsHoopsSwishGoal = true },
+	"HatTrick":       func(m *goalModifiers) { m.IsHatTrickGoal = true },
 }
 
 func (s *Synthesizer) onGoalScored(raw []byte) {
@@ -594,9 +808,91 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 		}
 	}
 
+	// Modifier flags via the correlation buffer. Statfeeds fire on the
+	// same frame as the goal (or one before/after), so a 3-event window
+	// is plenty. Match by Shortcut (RL's spectator-name identifier);
+	// fall back to Name for safety.
+	mods := s.collectGoalModifiers(scorerRef)
+	if mods != nil {
+		out.Modifiers = mods
+	}
+
+	// Record the resolved goal into the correlation buffer so _OwnGoal
+	// (Phase 2) can attach it as `correlatedGoal`. The Phase-3 _Assist
+	// emitter will also read this entry.
+	s.correlation.Record("_GoalScored", &goalRecord{
+		Scorer:        scorer,
+		ScoringTeam:   scoringTeam,
+		ConcedingTeam: concedingTeam,
+	})
+
 	b, err := json.Marshal(out)
 	if err != nil {
 		return
 	}
 	s.bus.Publish(b)
+}
+
+// goalRecord is the slim correlation-buffer entry for _GoalScored —
+// just the bits _OwnGoal / _Assist need to relate themselves to a goal.
+type goalRecord struct {
+	Scorer        *EnrichedPlayer
+	ScoringTeam   int
+	ConcedingTeam int
+}
+
+// collectGoalModifiers walks the correlation buffer for same-player
+// modifier statfeeds. Returns nil when nothing matches so the encoded
+// JSON omits the modifiers field entirely.
+func (s *Synthesizer) collectGoalModifiers(scorer *ShortcutRef) *goalModifiers {
+	if scorer == nil {
+		return nil
+	}
+	var mods *goalModifiers
+
+	apply := func(name string) {
+		setter, ok := modifierStatfeedNames[name]
+		if !ok {
+			return
+		}
+		if mods == nil {
+			mods = &goalModifiers{}
+		}
+		setter(mods)
+	}
+
+	// FindWithin runs the predicate against every StatfeedEvent in the
+	// last 15-event window and returns the first match. We need to
+	// inspect ALL same-player statfeeds, not just one — so use Recent.
+	for _, p := range s.correlation.Recent("StatfeedEvent", 15) {
+		rec, ok := p.(*statfeedRecord)
+		if !ok {
+			continue
+		}
+		if rec.MainRef == nil {
+			continue
+		}
+		if !sameShortcutPlayer(rec.MainRef, scorer) {
+			continue
+		}
+		apply(rec.EventName)
+	}
+
+	return mods
+}
+
+// sameShortcutPlayer compares two shortcut refs for "same player". RL's
+// Shortcut is the authoritative spectator-name identifier; Name is the
+// human-readable form. Either match counts; both empty means no match.
+func sameShortcutPlayer(a, b *ShortcutRef) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Shortcut != "" && b.Shortcut != "" && a.Shortcut == b.Shortcut {
+		return true
+	}
+	if a.Name != "" && b.Name != "" && a.Name == b.Name {
+		return true
+	}
+	return false
 }

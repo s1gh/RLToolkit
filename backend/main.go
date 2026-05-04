@@ -82,6 +82,7 @@ func runServe() {
 	phaseMachine := NewPhaseMachine(bus)
 	client.AttachPhaseMachine(phaseMachine)
 	synth := NewSynthesizer(bus, roster)
+	synth.AttachPhaseMachine(phaseMachine)
 	client.AttachSynthesizer(synth)
 
 	overrides, err := NewOverridesStore(cfg.DataDir)

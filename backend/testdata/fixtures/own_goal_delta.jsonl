@@ -1,0 +1,6 @@
+{"Event":"MatchCreated","Data":"{\"MatchGuid\":\"og2\"}"}
+{"Event":"UpdateState","Data":"{\"MatchGuid\":\"og2\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0},{\"PrimaryId\":\"Steam|222|0\",\"Name\":\"Bob\",\"TeamNum\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":0},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}],\"TimeSeconds\":300,\"bOvertime\":false,\"bReplay\":false}}"}
+{"Event":"CountdownBegin","Data":"{\"MatchGuid\":\"og2\"}"}
+{"Event":"RoundStarted","Data":"{\"MatchGuid\":\"og2\"}"}
+{"Event":"BallHit","Data":"{\"MatchGuid\":\"og2\",\"Players\":[{\"Name\":\"Bob\",\"Shortcut\":\"Bob\",\"TeamNum\":1}],\"Ball\":{\"PreHitSpeed\":1000,\"PostHitSpeed\":1500,\"Location\":{\"X\":0,\"Y\":-4500,\"Z\":300}}}"}
+{"Event":"UpdateState","Data":"{\"MatchGuid\":\"og2\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0},{\"PrimaryId\":\"Steam|222|0\",\"Name\":\"Bob\",\"TeamNum\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":1},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}],\"TimeSeconds\":295,\"bOvertime\":false,\"bReplay\":false}}"}

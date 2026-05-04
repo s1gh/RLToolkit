@@ -162,6 +162,124 @@ func TestSynthesizer_GoalScored_OwnGoal(t *testing.T) {
 	}
 }
 
+// TestSynthesizer_GoalScored_Modifiers asserts that same-player
+// modifier statfeeds fired before a GoalScored land on the synthesized
+// modifiers block. The aerial_goal fixture fires AerialGoal + LongGoal
+// statfeeds for Alice, then a GoalScored by Alice — both flags should
+// be set, others should not.
+func TestSynthesizer_GoalScored_Modifiers(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/aerial_goal.jsonl", "_GoalScored")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _GoalScored, got %d", len(got))
+	}
+	ev := got[0]
+	mods, ok := ev["modifiers"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("modifiers missing or wrong type: %T", ev["modifiers"])
+	}
+	if mods["isAerialGoal"] != true {
+		t.Errorf("isAerialGoal: want true, got %v", mods["isAerialGoal"])
+	}
+	if mods["isLongGoal"] != true {
+		t.Errorf("isLongGoal: want true, got %v", mods["isLongGoal"])
+	}
+	// Untriggered modifiers should be absent (omitempty).
+	if _, has := mods["isHatTrickGoal"]; has {
+		t.Errorf("isHatTrickGoal: should be omitted when false")
+	}
+	if _, has := mods["isBackwardsGoal"]; has {
+		t.Errorf("isBackwardsGoal: should be omitted when false")
+	}
+}
+
+// TestSynthesizer_OwnGoal asserts that a score delta against a recent
+// BallHit by the opposing team produces an _OwnGoal envelope with the
+// deflector resolved + scoreAfter populated.
+func TestSynthesizer_OwnGoal(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	pm := NewPhaseMachine(bus)
+	synth := NewSynthesizer(bus, roster)
+	synth.AttachPhaseMachine(pm)
+
+	got := captureSynthetic(t, bus, nil, roster, pm, synth, "testdata/fixtures/own_goal_delta.jsonl", "_OwnGoal")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _OwnGoal, got %d", len(got))
+	}
+	ev := got[0]
+
+	if got, want := ev["scoringTeam"].(float64), 0.0; got != want {
+		t.Errorf("scoringTeam: want %v, got %v", want, got)
+	}
+	if got, want := ev["concedingTeam"].(float64), 1.0; got != want {
+		t.Errorf("concedingTeam: want %v, got %v", want, got)
+	}
+	defl, ok := ev["deflector"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("deflector missing or wrong type: %T", ev["deflector"])
+	}
+	if defl["name"] != "Bob" {
+		t.Errorf("deflector.name: want Bob, got %v", defl["name"])
+	}
+	score, ok := ev["scoreAfter"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("scoreAfter missing: %T", ev["scoreAfter"])
+	}
+	if score["blue"].(float64) != 1.0 {
+		t.Errorf("scoreAfter.blue: want 1, got %v", score["blue"])
+	}
+	if score["orange"].(float64) != 0.0 {
+		t.Errorf("scoreAfter.orange: want 0, got %v", score["orange"])
+	}
+}
+
+// TestSynthesizer_OwnGoal_PhaseGate asserts that a score delta during a
+// non-gameplay phase (e.g. lobby — no RoundStarted) does not produce
+// an _OwnGoal even when a deflection fingerprint is present. This
+// guards against forfeit/mercy-rule false positives.
+func TestSynthesizer_OwnGoal_PhaseGate(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	pm := NewPhaseMachine(bus)
+	synth := NewSynthesizer(bus, roster)
+	synth.AttachPhaseMachine(pm)
+
+	// Same fixture as TestSynthesizer_OwnGoal but with RoundStarted
+	// stripped, so the phase machine stays in lobby.
+	feed := func(raw []byte) {
+		roster.Feed(raw)
+		pm.Feed(raw)
+		bus.Publish(raw)
+		synth.Feed(raw)
+	}
+
+	ch, cancel := bus.Subscribe(nil)
+	defer cancel()
+
+	feed([]byte(`{"Event":"MatchCreated","Data":"{\"MatchGuid\":\"x\"}"}`))
+	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0},{\"PrimaryId\":\"Steam|222|0\",\"Name\":\"Bob\",\"TeamNum\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":0},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}]}}"}`))
+	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"Name\":\"Bob\",\"Shortcut\":\"Bob\",\"TeamNum\":1}],\"Ball\":{\"PreHitSpeed\":1000,\"PostHitSpeed\":1500}}"}`))
+	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0},{\"PrimaryId\":\"Steam|222|0\",\"Name\":\"Bob\",\"TeamNum\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":1},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}]}}"}`))
+
+	// Drain the bus and assert no _OwnGoal landed.
+	for {
+		select {
+		case raw := <-ch:
+			if name := extractEventName(raw); name == "_OwnGoal" {
+				t.Fatalf("expected no _OwnGoal in lobby phase, got: %s", raw)
+			}
+		default:
+			return
+		}
+	}
+}
+
 // TestSynthesizer_GoalScored_DropsEmptyScorer mirrors the SDK guard:
 // GoalScored with empty Scorer.Name + Shortcut is dropped (RL re-fires
 // at round-restart with empty Scorer).
