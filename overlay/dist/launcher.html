@@ -33,11 +33,11 @@
   </header>
 
   <main id="body">
+    <iframe id="dashboard" src="about:blank"></iframe>
     <div id="fallback" class="fallback" hidden>
       <div class="msg" id="fallback-msg">Starting backend…</div>
       <button id="fallback-retry" hidden>Retry</button>
     </div>
-    <!-- The dashboard webview is embedded as a child WebviewWindow by the Rust side. -->
   </main>
 
   <script src="launcher.js" type="module"></script>

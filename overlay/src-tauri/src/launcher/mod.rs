@@ -45,6 +45,7 @@ pub fn run(args: Args) {
         .manage::<LauncherState>(Mutex::new(ctx))
         .invoke_handler(tauri::generate_handler![
             ipc::get_status,
+            ipc::get_toolkit_url,
             ipc::toggle_overlay,
             ipc::restart_backend,
             ipc::open_data_folder,

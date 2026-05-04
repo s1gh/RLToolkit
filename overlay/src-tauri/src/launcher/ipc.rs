@@ -25,6 +25,11 @@ pub struct StatusView {
 }
 
 #[tauri::command]
+pub fn get_toolkit_url(state: State<LauncherState>) -> String {
+    state.lock().unwrap().toolkit_url.clone()
+}
+
+#[tauri::command]
 pub fn get_status(state: State<LauncherState>) -> StatusView {
     let ctx = state.lock().unwrap();
     let outcome = probe_status(

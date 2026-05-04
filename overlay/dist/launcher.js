@@ -29,5 +29,15 @@ document.querySelectorAll("[data-cmd]").forEach(btn => {
   btn.addEventListener("click", () => invoke(btn.dataset.cmd).catch(() => {}));
 });
 
+async function loadDashboard() {
+  try {
+    const url = await invoke("get_toolkit_url");
+    document.getElementById("dashboard").src = url || "http://localhost:8080/";
+  } catch (_) {
+    document.getElementById("dashboard").src = "http://localhost:8080/";
+  }
+}
+
 setInterval(refreshStatus, 2000);
 refreshStatus();
+loadDashboard();
