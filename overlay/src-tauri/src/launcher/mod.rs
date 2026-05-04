@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod ipc;
 pub mod settings;
+pub mod tray;
 pub mod window;
 
 #[cfg(test)]
@@ -62,6 +63,10 @@ pub fn run(args: Args) {
 
             // Build the window immediately so the user sees something while we probe.
             window::build_launcher_window(&handle, &toolkit_url)?;
+
+            if let Err(e) = tray::setup_tray(&handle, "RL Toolkit") {
+                eprintln!("[launcher] tray failed: {e}");
+            }
 
             // Run probe → spawn off the main thread so the UI stays responsive.
             let app_for_probe = handle.clone();
