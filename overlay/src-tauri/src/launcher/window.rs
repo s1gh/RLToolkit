@@ -32,9 +32,6 @@ pub fn build_launcher_window(
 
     let win = builder.build()?;
 
-    #[cfg(debug_assertions)]
-    win.open_devtools();
-
     let win_for_geom = win.clone();
     let app_for_geom = app.clone();
     win.on_window_event(move |event| {
