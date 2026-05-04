@@ -11,6 +11,7 @@ async function refreshStatus() {
     const s = await invoke("get_status");
     conn.dataset.status = s.connected ? "connected" : (s.starting ? "connecting" : "disconnected");
     conn.textContent = conn.dataset.status === "connecting" ? "connecting…" : conn.dataset.status;
+    document.getElementById("fallback").hidden = s.connected;
     ownership.hidden = !s.attached;
     restartBtn.disabled = s.attached;
     overlayToggle.checked = !!s.overlay_enabled;
