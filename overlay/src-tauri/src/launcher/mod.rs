@@ -51,15 +51,102 @@ pub fn run(args: Args) {
             ipc::open_dashboard_in_browser,
             ipc::quit,
         ])
-        .setup(move |app| {
-            let url = {
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let toolkit_url = {
                 let state: tauri::State<LauncherState> = app.state();
                 let url = state.lock().unwrap().toolkit_url.clone();
                 url
             };
-            window::build_launcher_window(&app.handle(), &url)?;
+
+            // Build the window immediately so the user sees something while we probe.
+            window::build_launcher_window(&handle, &toolkit_url)?;
+
+            // Run probe → spawn off the main thread so the UI stays responsive.
+            let app_for_probe = handle.clone();
+            std::thread::spawn(move || {
+                use crate::launcher::backend::{probe_status, spawn_sidecar, BackendOwnership, ProbeOutcome};
+                let url = format!("{}/api/status", toolkit_url.trim_end_matches('/'));
+                let outcome = probe_status(&url, std::time::Duration::from_millis(500));
+
+                let owned = match outcome {
+                    ProbeOutcome::Toolkit => {
+                        set_attached(&app_for_probe, true);
+                        BackendOwnership::Attached
+                    }
+                    ProbeOutcome::Unreachable => {
+                        match spawn_sidecar(&app_for_probe) {
+                            Ok(b) => {
+                                set_attached(&app_for_probe, false);
+                                b
+                            }
+                            Err(e) => {
+                                eprintln!("[launcher] spawn failed: {e}");
+                                BackendOwnership::Unavailable
+                            }
+                        }
+                    }
+                    ProbeOutcome::Unrelated => {
+                        eprintln!("[launcher] something else is on the toolkit port");
+                        BackendOwnership::Unavailable
+                    }
+                };
+
+                // Wait for ready (cap 10 s) when we just spawned.
+                if matches!(owned, BackendOwnership::SpawnedSidecar(_) | BackendOwnership::SpawnedRaw(_)) {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    while std::time::Instant::now() < deadline {
+                        if probe_status(&url, std::time::Duration::from_millis(300)) == ProbeOutcome::Toolkit {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
+                }
+                clear_starting(&app_for_probe);
+
+                // Park the ownership in app state so quit can drain it.
+                let owned = std::sync::Arc::new(std::sync::Mutex::new(Some(owned)));
+                app_for_probe.manage(BackendHandle(owned));
+            });
+
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running rl-widget launcher");
+        .on_window_event(|window, event| {
+            if window.label() == "launcher" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // Phase A behavior: hide-on-close (Section 5.4).
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building rl-widget launcher")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                if let Some(state) = app_handle.try_state::<BackendHandle>() {
+                    if let Some(mut owned) = state.0.lock().unwrap().take() {
+                        owned.terminate(std::time::Duration::from_secs(2));
+                    }
+                }
+            }
+        });
+}
+
+pub struct BackendHandle(pub std::sync::Arc<std::sync::Mutex<Option<backend::BackendOwnership>>>);
+
+fn set_attached(app: &tauri::AppHandle, attached: bool) {
+    use tauri::Manager;
+    if let Some(state) = app.try_state::<LauncherState>() {
+        let mut ctx = state.lock().unwrap();
+        ctx.attached = attached;
+    }
+}
+
+fn clear_starting(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(state) = app.try_state::<LauncherState>() {
+        let mut ctx = state.lock().unwrap();
+        ctx.starting = false;
+    }
 }
