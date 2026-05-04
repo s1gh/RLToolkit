@@ -376,6 +376,17 @@
       bus.emit('_RosterChanged', msg);
       return;
     }
+    // Other synthetic _-prefixed events (e.g. _StatfeedEvent, _BallHit,
+    // _CrossbarHit, _MatchEnded, _GoalScored) ship pre-enriched: their
+    // payload lives directly on the top-level envelope, not inside a
+    // JSON-encoded Data string. Hand the whole envelope to the bus so
+    // typed handlers receive the enriched shape verbatim. The server
+    // emits these alongside their raw counterparts, never instead of —
+    // direct-mode plugins still see GoalScored, BallHit, etc.
+    if (typeof event === 'string' && event.length > 0 && event[0] === '_') {
+      bus.emit(event, msg);
+      return;
+    }
     // In hosted mode the parent broadcasts events the union of all
     // iframes' filters — drop any we didn't personally opt into so
     // typed handlers don't fire for unwanted events. Synthetic
@@ -1783,6 +1794,55 @@
       desc: 'Match-history replay loaded (NOT goal replays).',
       stability: 'stable',
       since: '1.0',
+    },
+
+    // Synthetic events (toolkit-emitted, not from RL). Player references
+    // are pre-resolved against the live roster so subscribers don't
+    // need to look anything up themselves.
+    {
+      name: '_StatfeedEvent',
+      category: 'stat',
+      shape: 'stat-enriched',
+      livePhases: ['live', 'replay'],
+      desc: 'StatfeedEvent with MainTarget/SecondaryTarget pre-resolved.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_BallHit',
+      category: 'play',
+      shape: 'ballhit-enriched',
+      livePhases: ['live'],
+      desc: 'BallHit with Players[] pre-resolved.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_CrossbarHit',
+      category: 'play',
+      shape: 'crossbar-enriched',
+      livePhases: ['live'],
+      desc: 'CrossbarHit with BallLastTouch.Player pre-resolved.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_MatchEnded',
+      category: 'lifecycle',
+      shape: 'matchend-enriched',
+      livePhases: '*',
+      desc: 'MatchEnded with winnerName + scoreBlue/scoreOrange resolved.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_GoalScored',
+      category: 'scoring',
+      shape: 'goal-enriched',
+      livePhases: ['live', 'replay'],
+      desc: 'GoalScored with players resolved + scoringTeam/concedingTeam/isOwnGoal flags. Modifiers (aerial/backwards/etc.) ship in 1.2.',
+      stability: 'provisional',
+      since: '1.1',
     },
   ];
 
