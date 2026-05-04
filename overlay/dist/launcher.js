@@ -50,11 +50,22 @@ async function refreshStatus() {
   lastConnected = s.connected;
 }
 
-function reloadDashboard() {
+async function reloadDashboard() {
   const iframe = document.getElementById("dashboard");
-  if (iframe && iframe.src && iframe.src !== "about:blank") {
-    iframe.src = iframe.src;
-  }
+  if (!iframe) return;
+  let url = "http://localhost:8080/";
+  try {
+    url = (await invoke("get_toolkit_url")) || url;
+  } catch (_) {}
+  // Force a reload by toggling through about:blank — some webviews skip
+  // a reload if iframe.src is reassigned to its current value.
+  iframe.src = "about:blank";
+  // Use a microtask so the assignment commits before we set the real URL.
+  await new Promise(resolve => setTimeout(resolve, 50));
+  // Cache-bust so the dashboard's HTML, JS, and CSS are all re-fetched
+  // even if the webview's HTTP cache would otherwise serve stale copies.
+  const sep = url.includes("?") ? "&" : "?";
+  iframe.src = `${url}${sep}_t=${Date.now()}`;
 }
 
 fallbackRetry.addEventListener("click", () => invoke("restart_backend").catch(() => {}));
@@ -116,6 +127,11 @@ document.getElementById("settings-save").addEventListener("click", async () => {
     });
     if (respawned) {
       closeSettings();
+      // Wait briefly for the new backend to come up, then reload the
+      // dashboard. The 2s status poll catches steady-state, but on a
+      // fresh respawn the iframe still has the old backend's HTML.
+      lastConnected = false; // force the next-poll reconnect path too
+      setTimeout(() => { reloadDashboard(); }, 800);
     } else {
       // Attached — user must restart their backend manually.
       settingsHint.textContent = "Settings saved — restart your backend to apply.";
