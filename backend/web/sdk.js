@@ -1515,6 +1515,57 @@
 
     onPodiumStart: makeOn('PodiumStart'),
     onReplayCreated: makeOn('ReplayCreated'),
+
+    // ─── Enriched synthetic events (backend-resolved) ───────────
+    // These mirror raw RL events but ship with player references
+    // pre-resolved against the live roster, plus correlation/diff
+    // fields the backend computes once. See PLUGINS.md for payload
+    // shapes. Subscribing to an enriched name is independent of the
+    // raw counterpart — pick whichever fits your plugin.
+
+    // Phase 1 — pre-resolved enrichment of raw RL events.
+    onEnrichedStatfeedEvent: makeOn('_StatfeedEvent'),
+    onEnrichedBallHit: makeOn('_BallHit'),
+    onEnrichedCrossbarHit: makeOn('_CrossbarHit'),
+    onEnrichedMatchEnded: makeOn('_MatchEnded'),
+    onEnrichedGoalScored: makeOn('_GoalScored'),
+
+    // Phase 2 — score-delta verified own goal.
+    onOwnGoal: makeOn('_OwnGoal'),
+
+    // Phase 3 — Statfeed promotions. Each verified Statfeed variant
+    // has its own enriched envelope with variant-specific fields.
+    onPlayerDemolished: makeOn('_PlayerDemolished'),
+    onFlipReset: makeOn('_FlipReset'),
+    onHatTrick: makeOn('_HatTrick'),
+    onSave: makeOn('_Save'),
+    onEpicSave: makeOn('_EpicSave'),
+    onShot: makeOn('_Shot'),
+    onAssist: makeOn('_Assist'),
+    onCenter: makeOn('_Center'),
+    onClear: makeOn('_Clear'),
+    onBicycleHit: makeOn('_BicycleHit'),
+
+    // Phase 4a — UpdateState diffs.
+    onPlayerJoined: makeOn('_PlayerJoined'),
+    onPlayerLeft: makeOn('_PlayerLeft'),
+    onPlayerScoreChanged: makeOn('_PlayerScoreChanged'),
+    onBoostPickup: makeOn('_BoostPickup'),
+    onBallPossessionChanged: makeOn('_BallPossessionChanged'),
+    onTeamScoreChanged: makeOn('_TeamScoreChanged'),
+
+    // Phase 4b — match milestones (once-per-occurrence).
+    onFirstTouch: makeOn('_FirstTouch'),
+    onFirstBlood: makeOn('_FirstBlood'),
+    onOvertimeStarted: makeOn('_OvertimeStarted'),
+
+    // Phase 5 — lifecycle + summary.
+    onLifecyclePhaseChanged: makeOn('_LifecyclePhaseChanged'),
+    onGoalReplayContext: makeOn('_GoalReplayContext'),
+    onMatchSummary: makeOn('_MatchSummary'),
+
+    // Phase 6 — discoverability.
+    onUnknownStatfeed: makeOn('_UnknownStatfeed'),
   };
 
   // ─── Lifecycle (driven by the server's _Lifecycle event) ──
