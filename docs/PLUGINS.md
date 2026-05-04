@@ -25,6 +25,7 @@ dashboards, persistence, and debugging.
   - [Lifecycle gating](#lifecycle-gating)
   - [Convenience subscriptions](#convenience-subscriptions)
   - [Enriched match state](#enriched-match-state)
+  - [Synthetic events (backend-enriched)](#synthetic-events-backend-enriched)
 - [Overlay vs. dashboard mode](#overlay-vs-dashboard-mode)
   - [How the overlay is composed](#how-the-overlay-is-composed)
 - [Building a dashboard view](#building-a-dashboard-view)
@@ -227,6 +228,11 @@ below is the source of truth for what payload your handler will receive.
 | `MatchDestroyed`   | The player left the match (or RL tore down the lobby).                   | any                                    |
 | `ReplayCreated`    | A match-history replay loaded (NOT goal replays).                        | any                                    |
 
+The toolkit also publishes 29 underscore-prefixed *synthetic* events
+(`_GoalScored`, `_OwnGoal`, `_PlayerDemolished`, `_BoostPickup`,
+`_MatchSummary`, …) with player references and correlations resolved
+server-side. See [Synthetic events (backend-enriched)](#synthetic-events-backend-enriched) for the full list.
+
 #### Payload shapes
 
 Every typed payload includes the original RL envelope under `.raw` if you
@@ -378,6 +384,222 @@ them to `RLT.stats` in `sdk.go` and to this table.
   raw:        {...},
 }
 ```
+
+### Synthetic events (backend-enriched)
+
+Underscore-prefixed events (`_GoalScored`, `_OwnGoal`, `_PlayerDemolished`, …)
+are emitted by the toolkit, not by Rocket League. They ship alongside
+their raw counterparts (when one exists) — direct-mode plugins that read
+`GoalScored` keep working unchanged. The synthetic shape gives you:
+
+- **Player references already resolved** against the live roster.
+  `payload.scorer.name`, `payload.attacker.id`, `payload.deflector.team` —
+  no shortcut lookups in your plugin.
+- **Correlation already done.** `_GoalScored.modifiers.isAerialGoal`,
+  `_Save.correlatedShot`, `_Assist.correlatedGoal` — the backend buffers
+  same-frame events and attaches them server-side.
+- **Diffs already computed.** `_BoostPickup`, `_TeamScoreChanged`,
+  `_PlayerScoreChanged.delta` — the backend compares ticks so you don't
+  have to keep a previous `UpdateState` around.
+
+Subscribe through `events: { _GoalScored(p) { … } }`, the typed helper
+`RLT.events.onEnrichedGoalScored(fn)` (or `RLT.events.onOwnGoal(fn)` for
+events without a raw counterpart), or the raw bus `RLT.on('_OwnGoal', fn)`.
+Per-name filtering applies — your plugin only receives the synthetic events
+it explicitly subscribed to. The four framing signals (`_ConnectionStatus`,
+`_Lifecycle`, `_RosterChanged`, `_LifecyclePhaseChanged`) bypass that
+filter because every plugin needs them.
+
+#### Stability tiers
+
+Each entry below is marked `stable` or `provisional`:
+
+- **stable** — payload shape is frozen for the major version. Safe to
+  build against; breaking changes only in a new major.
+- **provisional** — shape may refine in a `1.x` minor as real-RL
+  verification confirms the field semantics. Keys won't disappear, but
+  defaulting to `??` instead of `||` and treating new flags as additive
+  is wise.
+
+Run `curl http://localhost:8080/api/events` or read `RLT.events.catalog`
+in the browser console for the live registry.
+
+#### Phase 1 — pre-resolved enrichment
+
+Mirrors raw RL events with player references resolved.
+
+| Event              | Stability     | Notes                                                                     |
+| ------------------ | ------------- | ------------------------------------------------------------------------- |
+| `_StatfeedEvent`   | provisional   | Generic catch-all for every Statfeed; targets resolved.                   |
+| `_BallHit`         | provisional   | `players[]` resolved, ball pre/post speed and location.                   |
+| `_CrossbarHit`     | provisional   | `ballLastTouch.player` resolved.                                          |
+| `_MatchEnded`      | provisional   | Adds `winnerName`, `scoreBlue`, `scoreOrange` from the cached final tick. |
+| `_GoalScored`      | provisional   | Adds `scoringTeam`, `concedingTeam`, `isOwnGoal`, `modifiers`.            |
+
+```js
+// _GoalScored
+{
+  Event:        '_GoalScored',
+  matchGuid:    '...',
+  scorer:       Player,                    // resolved
+  assister:     Player | null,
+  ballLastTouch:{ player: Player, speed } | null,
+  goalSpeed:    91.4,                       // km/h, see UU/s caveat earlier
+  goalTime:     12.3,
+  impactLocation:{ X, Y, Z },
+  scoringTeam:  0,                          // scorer.Team
+  concedingTeam:1,
+  isOwnGoal:    false,                      // heuristic; see _OwnGoal for verified detection
+  modifiers: {                              // omitted entirely if no flags fired
+    isAerialGoal:    true,
+    isLongGoal:      true,
+    isBackwardsGoal: true,
+    isBicycleGoal:   true,
+    isTurtleGoal:    true,
+    isOvertimeGoal:  true,
+    isPoolShot:      true,
+    isHoopsSwishGoal:true,
+    isHatTrickGoal:  true,
+  },
+}
+```
+
+#### Phase 2 — verified own goal
+
+| Event       | Stability   | Notes                                                                                                                              |
+| ----------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `_OwnGoal`  | provisional | Score-delta verified. Fires when a team scores +1 and the most recent ball touch was by the opposing team. Phase-gated to live/replay. |
+
+```js
+// _OwnGoal
+{
+  Event:               '_OwnGoal',
+  matchGuid:           '...',
+  deflector:           Player,              // the opposing-team player who last touched
+  scoringTeam:         0,                    // team that got the point
+  concedingTeam:       1,                    // deflector's team
+  scoreAfter:          { blue: 1, orange: 0 },
+  correlatedGoalScorer:Player | undefined,   // RL's recorded "scorer" for the goal, if cached
+}
+```
+
+> **Why `_OwnGoal` and not just `_GoalScored.isOwnGoal`?** The flag on
+> `_GoalScored` is a same-frame heuristic (last-touch was opposing team).
+> `_OwnGoal` is verified against the actual `Game.Teams[].Score` delta
+> in the next `UpdateState`, gated to live/replay so forfeit and
+> mercy-rule score-ups don't false-positive. Use `_OwnGoal` for
+> notifications; use the flag if you only need a hint inside a goal handler.
+
+#### Phase 3 — Statfeed promotions
+
+Each verified Statfeed variant gets a dedicated envelope. Names not in
+the verified registry produce `_UnknownStatfeed` (Phase 6) instead.
+
+| Event               | Stability   | Carries                                              |
+| ------------------- | ----------- | ---------------------------------------------------- |
+| `_PlayerDemolished` | provisional | `attacker`, `victim`, `isSelfDemo`, `isTeamDemo`     |
+| `_FlipReset`        | provisional | `mainTarget`                                          |
+| `_HatTrick`         | provisional | `mainTarget`, `goalsThisMatch`                        |
+| `_Save`             | provisional | `mainTarget`, `correlatedShot` (last opposing Shot)   |
+| `_EpicSave`         | provisional | Same as `_Save`. Mutually exclusive on the wire.      |
+| `_Shot`             | provisional | `mainTarget`, `correlatedTouch` (same-frame BallHit)  |
+| `_Assist`           | provisional | `mainTarget`, `correlatedGoal` (recent `_GoalScored`) |
+| `_Center`           | provisional | `mainTarget`, `correlatedTouch`                       |
+| `_Clear`            | provisional | `mainTarget`, `correlatedTouch`                       |
+| `_BicycleHit`       | provisional | `mainTarget`, `correlatedTouch`                       |
+
+```js
+// _PlayerDemolished
+{
+  Event:      '_PlayerDemolished',
+  matchGuid:  '...',
+  attacker:   Player,
+  victim:     Player,
+  isSelfDemo: false,        // omitted when false
+  isTeamDemo: false,        // omitted when false (same team but not self)
+}
+```
+
+#### Phase 4a — UpdateState diffs
+
+Backend compares the current tick against the previous one and emits
+the change directly. Subscribers skip parsing `UpdateState`.
+
+| Event                    | Stability   | Notes                                                                                            |
+| ------------------------ | ----------- | ------------------------------------------------------------------------------------------------ |
+| `_PlayerJoined`          | provisional | Roster diff: `id` appeared this tick.                                                            |
+| `_PlayerLeft`            | provisional | Roster diff: `id` disappeared.                                                                   |
+| `_PlayerScoreChanged`    | provisional | Per-player stat diff. Only fields that moved appear in `delta` (`score`, `goals`, `assists`, …). |
+| `_BoostPickup`           | provisional | Player Boost rose between ticks (and not because of respawn). Spectator-only for opponents.      |
+| `_BallPossessionChanged` | provisional | `Game.Ball.TeamNum` changed. `before`/`after` nullable — RL's `255` sentinel becomes `null`.     |
+| `_TeamScoreChanged`      | provisional | A team's `Score` moved. Pair with `_OwnGoal` to disambiguate own-goals from regular goals.       |
+
+```js
+// _PlayerScoreChanged
+{
+  Event:     '_PlayerScoreChanged',
+  matchGuid: '...',
+  player:    Player,
+  delta: {                          // only fields that moved
+    score:   30,                    // +30
+    goals:   1,
+    touches: 2,
+  },
+}
+
+// _BoostPickup
+{
+  Event:       '_BoostPickup',
+  matchGuid:   '...',
+  player:      Player,
+  boostBefore: 33,
+  boostAfter:  75,
+  delta:       42,
+}
+```
+
+#### Phase 4b — match milestones
+
+Once-per-occurrence events. Per-match flags reset on `MatchCreated` /
+`MatchDestroyed`.
+
+| Event              | Stability   | Notes                                                                                  |
+| ------------------ | ----------- | -------------------------------------------------------------------------------------- |
+| `_FirstTouch`      | provisional | First `BallHit` after each `RoundStarted` (every kickoff, including post-goal restarts). |
+| `_FirstBlood`      | provisional | First `_GoalScored` of the match. `secondsIntoMatch` counted from `MatchInitialized`.   |
+| `_OvertimeStarted` | provisional | Rising edge of `Game.bOvertime`. Once per match.                                        |
+
+#### Phase 5 — lifecycle + summary
+
+| Event                    | Stability   | Notes                                                                                                                                                            |
+| ------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_LifecyclePhaseChanged` | **stable**  | Phase machine edge: `from`, `to`, `phaseDurationSeconds`, `trigger`. Framing-bypass — every plugin receives this regardless of filter.                           |
+| `_GoalReplayContext`     | provisional | Fires on `GoalReplayStart` with the most recent cached `_GoalScored` (`scorer`, `scoringTeam`) so plugins know which goal the replay is for.                     |
+| `_MatchSummary`          | provisional | Fires ~2s after `MatchEnded`, or earlier on `PodiumStart` / `MatchDestroyed`. Final scores, winner, MVP if it arrived, full per-player stats. `trigger` says which path fired it. |
+
+```js
+// _MatchSummary
+{
+  Event:         '_MatchSummary',
+  matchGuid:     '...',
+  winnerTeamNum: 0,
+  winnerName:    'Blue Team',
+  scoreBlue:     3,
+  scoreOrange:   2,
+  mvp:           Player | null,
+  players: [
+    { player: Player, score, goals, assists, saves, shots, demos },
+    // …
+  ],
+  trigger: 'PodiumStart' | 'settleTimeout' | 'MatchDestroyed',
+}
+```
+
+#### Phase 6 — discoverability
+
+| Event              | Stability  | Notes                                                                                                                                       |
+| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_UnknownStatfeed` | **stable** | Statfeed `EventName` not in the verified registry. Persisted to `data/statfeed-discoveries.json` — see `/api/statfeed-discoveries`. The debug plugin renders these in its UI. |
 
 ##### Lifecycle pass-throughs
 
