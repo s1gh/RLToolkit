@@ -16,6 +16,8 @@ const settingsHint = document.getElementById("settings-hint");
 const pluginsDirInput = document.getElementById("plugins-dir");
 const dataDirInput = document.getElementById("data-dir");
 
+let lastConnected = false;
+
 async function refreshStatus() {
   let s;
   try {
@@ -38,6 +40,21 @@ async function refreshStatus() {
   }
 
   document.getElementById("tray-banner").hidden = !!s.tray_ok;
+
+  // Reload the dashboard iframe whenever the backend transitions from
+  // disconnected → connected. Picks up restarts (settings save, manual
+  // restart-backend, external respawn) without a stale view.
+  if (s.connected && !lastConnected) {
+    reloadDashboard();
+  }
+  lastConnected = s.connected;
+}
+
+function reloadDashboard() {
+  const iframe = document.getElementById("dashboard");
+  if (iframe && iframe.src && iframe.src !== "about:blank") {
+    iframe.src = iframe.src;
+  }
 }
 
 fallbackRetry.addEventListener("click", () => invoke("restart_backend").catch(() => {}));
