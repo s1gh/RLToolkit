@@ -113,6 +113,24 @@ func (b *EventBus) removeLocked(s *subscriber) {
 // Subscribers with an event filter only receive matching events. The
 // event name is extracted once per Publish via substring scan so the
 // 60-120Hz hot path stays JSON-decode-free.
+// framingSignals lists synthetic event names that bypass the per-subscriber
+// filter. Every subscriber needs these regardless of the ?events= filter
+// — they're status/lifecycle signals the SDK uses for its own bookkeeping
+// (connection state, gameplay phase, roster identity). Other synthetic
+// events (_StatfeedEvent, _GoalScored, etc.) are filterable like normal
+// events: a plugin only receives them if it subscribed by name.
+var framingSignals = map[string]struct{}{
+	"_ConnectionStatus":      {},
+	"_Lifecycle":             {},
+	"_RosterChanged":         {},
+	"_LifecyclePhaseChanged": {},
+}
+
+func isFramingSignal(eventName string) bool {
+	_, ok := framingSignals[eventName]
+	return ok
+}
+
 // PublishSynthetic emits a _-prefixed synthetic event with a consistent
 // envelope shape. This is the only path synthetic emitters should use.
 func (b *EventBus) PublishSynthetic(name string, data interface{}) {
@@ -129,7 +147,14 @@ func (b *EventBus) Publish(data []byte) {
 
 	// Extract the event name once, used per subscriber below.
 	eventName := extractEventName(data)
-	synthetic := len(eventName) > 0 && eventName[0] == '_'
+	// Framing-signal synthetics bypass the per-subscriber filter — every
+	// subscriber needs them regardless of what they listed in ?events=.
+	// Other synthetic _-prefixed events (_StatfeedEvent, _GoalScored,
+	// _PlayerDemolished, etc.) are filterable like normal events: a
+	// plugin only receives them if it subscribed by name. Keeps wire
+	// traffic proportional to actual interest now that Phase 1-3 events
+	// are publishing on every tick of activity.
+	bypassFilter := isFramingSignal(eventName)
 
 	// Snapshot under read lock + publishMu so we don't race the scratch
 	// slice with another publisher. We copy into a fresh slice owned by
@@ -152,9 +177,10 @@ func (b *EventBus) Publish(data []byte) {
 	var slow []*subscriber
 	delivered, skipped := 0, 0
 	for _, s := range dst {
-		// Filter check — synthetic events bypass to keep _ConnectionStatus
-		// and _Lifecycle reliable as framing signals.
-		if !synthetic && s.events != nil {
+		// Filter check — framing synthetics bypass to keep
+		// _ConnectionStatus / _Lifecycle / _RosterChanged /
+		// _LifecyclePhaseChanged reliable as universal signals.
+		if !bypassFilter && s.events != nil {
 			if _, ok := s.events[eventName]; !ok {
 				skipped++
 				continue

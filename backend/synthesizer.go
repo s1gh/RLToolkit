@@ -363,6 +363,287 @@ func (s *Synthesizer) onStatfeedEvent(raw []byte) {
 		return
 	}
 	s.bus.Publish(b)
+
+	// Phase-3 dedicated events. Each known Statfeed variant gets its
+	// own _-prefixed envelope with variant-specific fields (correlations,
+	// counts) on top of the resolved targets. The generic _StatfeedEvent
+	// above keeps firing as the catch-all.
+	s.emitStatfeedVariant(eventName, guid, out.MainTarget, out.SecondaryTarget)
+}
+
+// emitStatfeedVariant fans the Statfeed variant out to its dedicated
+// _-prefixed event. Untracked variants (Goal, Win, MVP, Playmaker,
+// Savior, LowFive, HighFive — see the plan's Phase 3.3) are silently
+// skipped; the generic _StatfeedEvent already covered them.
+func (s *Synthesizer) emitStatfeedVariant(eventName, guid string, main, secondary *EnrichedPlayer) {
+	switch eventName {
+	case "Demolish":
+		s.emitPlayerDemolished(guid, main, secondary)
+	case "FlipReset":
+		s.emitFlipReset(guid, main)
+	case "HatTrick":
+		s.emitHatTrick(guid, main)
+	case "Save":
+		s.emitSave(guid, main, "_Save")
+	case "EpicSave":
+		s.emitSave(guid, main, "_EpicSave")
+	case "Shot":
+		s.emitShot(guid, main)
+	case "Assist":
+		s.emitAssist(guid, main)
+	case "Center":
+		s.emitTouchVariant(guid, main, "_Center")
+	case "Clear":
+		s.emitTouchVariant(guid, main, "_Clear")
+	case "BicycleHit":
+		s.emitTouchVariant(guid, main, "_BicycleHit")
+	}
+}
+
+// emitSimple publishes a minimal envelope with just the resolved
+// MainTarget. Used by stat events with no correlation logic.
+func (s *Synthesizer) emitSimple(eventName, guid string, main *EnrichedPlayer) {
+	if main == nil {
+		return
+	}
+	b, err := json.Marshal(struct {
+		Event      string          `json:"Event"`
+		MatchGUID  string          `json:"matchGuid,omitempty"`
+		MainTarget *EnrichedPlayer `json:"mainTarget"`
+	}{
+		Event:      eventName,
+		MatchGUID:  guid,
+		MainTarget: main,
+	})
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
+}
+
+func (s *Synthesizer) emitFlipReset(guid string, main *EnrichedPlayer) {
+	s.emitSimple("_FlipReset", guid, main)
+}
+
+// _PlayerDemolished carries both attacker (MainTarget) and victim
+// (SecondaryTarget). isSelfDemo / isTeamDemo derived from team comparison.
+func (s *Synthesizer) emitPlayerDemolished(guid string, attacker, victim *EnrichedPlayer) {
+	if attacker == nil || victim == nil {
+		// Without one of the two targets the event is meaningless;
+		// the catch-all _StatfeedEvent already covered it.
+		return
+	}
+	out := struct {
+		Event      string          `json:"Event"`
+		MatchGUID  string          `json:"matchGuid,omitempty"`
+		Attacker   *EnrichedPlayer `json:"attacker"`
+		Victim     *EnrichedPlayer `json:"victim"`
+		IsSelfDemo bool            `json:"isSelfDemo,omitempty"`
+		IsTeamDemo bool            `json:"isTeamDemo,omitempty"`
+	}{
+		Event:     "_PlayerDemolished",
+		MatchGUID: guid,
+		Attacker:  attacker,
+		Victim:    victim,
+	}
+	if attacker.ID != "" && attacker.ID == victim.ID {
+		out.IsSelfDemo = true
+	} else if attacker.Team == victim.Team {
+		out.IsTeamDemo = true
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
+}
+
+// _HatTrick fires when the scorer's Goals count hits 3. We expose the
+// goal count directly so subscribers don't need to look at UpdateState.
+// The number comes from the cached match state — see syncedGoalsFor.
+func (s *Synthesizer) emitHatTrick(guid string, main *EnrichedPlayer) {
+	if main == nil {
+		return
+	}
+	out := struct {
+		Event           string          `json:"Event"`
+		MatchGUID       string          `json:"matchGuid,omitempty"`
+		MainTarget      *EnrichedPlayer `json:"mainTarget"`
+		GoalsThisMatch  int             `json:"goalsThisMatch"`
+	}{
+		Event:          "_HatTrick",
+		MatchGUID:      guid,
+		MainTarget:     main,
+		GoalsThisMatch: s.syncedGoalsFor(main.ID),
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
+}
+
+// syncedGoalsFor reads the cached per-player Goals count from the
+// most recent UpdateState. Returns 0 when the cache hasn't been
+// populated or the player isn't in it. Per-player cache grows in
+// Phase 4; for now there's no cache so this returns 0 — the plan
+// explicitly notes goalsThisMatch is best-effort until Phase 4 lands.
+func (s *Synthesizer) syncedGoalsFor(playerID string) int {
+	_ = playerID
+	return 0
+}
+
+// _Save / _EpicSave share their shape; differ only in event name. The
+// plan's correlatedShot lookup ships in a follow-up — for now we expose
+// the resolved saver and let consumers correlate on their own.
+func (s *Synthesizer) emitSave(guid string, main *EnrichedPlayer, eventName string) {
+	if main == nil {
+		return
+	}
+	// Look back for a recent Shot statfeed by an opposing-team player.
+	// "Recent" here is the full 15-event window — saves often follow a
+	// shot by 5-30 ticks, which exceeds the modifier window.
+	var correlatedShot *EnrichedPlayer
+	for _, p := range s.correlation.Recent("StatfeedEvent", 15) {
+		rec, ok := p.(*statfeedRecord)
+		if !ok {
+			continue
+		}
+		if rec.EventName != "Shot" {
+			continue
+		}
+		if rec.Resolved == nil || rec.Resolved.Team == main.Team {
+			continue
+		}
+		correlatedShot = rec.Resolved
+		break
+	}
+
+	out := struct {
+		Event          string          `json:"Event"`
+		MatchGUID      string          `json:"matchGuid,omitempty"`
+		MainTarget     *EnrichedPlayer `json:"mainTarget"`
+		CorrelatedShot *EnrichedPlayer `json:"correlatedShot,omitempty"`
+	}{
+		Event:          eventName,
+		MatchGUID:      guid,
+		MainTarget:     main,
+		CorrelatedShot: correlatedShot,
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
+}
+
+// _Shot. We attempt to attach the same-frame BallHit (the touch that
+// produced the shot) when one is in the buffer.
+func (s *Synthesizer) emitShot(guid string, main *EnrichedPlayer) {
+	if main == nil {
+		return
+	}
+	var correlatedTouch *EnrichedPlayer
+	for _, p := range s.correlation.Recent("BallHit", 3) {
+		if pl, ok := p.(*EnrichedPlayer); ok && pl != nil {
+			correlatedTouch = pl
+			break
+		}
+	}
+	out := struct {
+		Event           string          `json:"Event"`
+		MatchGUID       string          `json:"matchGuid,omitempty"`
+		MainTarget      *EnrichedPlayer `json:"mainTarget"`
+		CorrelatedTouch *EnrichedPlayer `json:"correlatedTouch,omitempty"`
+	}{
+		Event:           "_Shot",
+		MatchGUID:       guid,
+		MainTarget:      main,
+		CorrelatedTouch: correlatedTouch,
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
+}
+
+// _Assist. Look back for a same-frame _GoalScored — assists land on
+// the same tick as the goal in most builds, but the plan calls this
+// provisional because the window may need adjustment. We use 5 events.
+func (s *Synthesizer) emitAssist(guid string, main *EnrichedPlayer) {
+	if main == nil {
+		return
+	}
+	var correlatedGoal *goalRecord
+	for _, p := range s.correlation.Recent("_GoalScored", 5) {
+		if g, ok := p.(*goalRecord); ok {
+			correlatedGoal = g
+			break
+		}
+	}
+	type goalRef struct {
+		Scorer        *EnrichedPlayer `json:"scorer,omitempty"`
+		ScoringTeam   int             `json:"scoringTeam"`
+		ConcedingTeam int             `json:"concedingTeam"`
+	}
+	var goalSummary *goalRef
+	if correlatedGoal != nil {
+		goalSummary = &goalRef{
+			Scorer:        correlatedGoal.Scorer,
+			ScoringTeam:   correlatedGoal.ScoringTeam,
+			ConcedingTeam: correlatedGoal.ConcedingTeam,
+		}
+	}
+	out := struct {
+		Event          string          `json:"Event"`
+		MatchGUID      string          `json:"matchGuid,omitempty"`
+		MainTarget     *EnrichedPlayer `json:"mainTarget"`
+		CorrelatedGoal *goalRef        `json:"correlatedGoal,omitempty"`
+	}{
+		Event:          "_Assist",
+		MatchGUID:      guid,
+		MainTarget:     main,
+		CorrelatedGoal: goalSummary,
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
+}
+
+// emitTouchVariant covers _Center, _Clear, _BicycleHit — same shape:
+// resolved MainTarget + a correlatedTouch pulled from the BallHit
+// buffer. Variant-specific fields (e.g. _BicycleHit.resultedInGoal
+// forward correlation) ship in a follow-up.
+func (s *Synthesizer) emitTouchVariant(guid string, main *EnrichedPlayer, eventName string) {
+	if main == nil {
+		return
+	}
+	var correlatedTouch *EnrichedPlayer
+	for _, p := range s.correlation.Recent("BallHit", 3) {
+		if pl, ok := p.(*EnrichedPlayer); ok && pl != nil {
+			correlatedTouch = pl
+			break
+		}
+	}
+	out := struct {
+		Event           string          `json:"Event"`
+		MatchGUID       string          `json:"matchGuid,omitempty"`
+		MainTarget      *EnrichedPlayer `json:"mainTarget"`
+		CorrelatedTouch *EnrichedPlayer `json:"correlatedTouch,omitempty"`
+	}{
+		Event:           eventName,
+		MatchGUID:       guid,
+		MainTarget:      main,
+		CorrelatedTouch: correlatedTouch,
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
 }
 
 // statfeedRecord is what the correlation buffer holds for each

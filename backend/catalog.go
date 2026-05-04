@@ -59,4 +59,19 @@ var EventCatalog = []EventCatalogEntry{
 	{Name: "_MatchEnded", Category: "lifecycle", Shape: "matchend-enriched", LivePhases: anyPhase, Desc: "MatchEnded with winnerName, scoreBlue, scoreOrange resolved from the cached final UpdateState.", Stability: "provisional", Since: "1.1"},
 	{Name: "_GoalScored", Category: "scoring", Shape: "goal-enriched", LivePhases: liveOrReplay, Desc: "GoalScored with Scorer/Assister/BallLastTouch resolved + scoringTeam/concedingTeam/isOwnGoal flags + same-frame modifiers (aerial/long/turtle/hatTrick/etc.).", Stability: "provisional", Since: "1.1"},
 	{Name: "_OwnGoal", Category: "scoring", Shape: "owngoal", LivePhases: liveOrReplay, Desc: "Score delta verified against the previous tick + opposing-team last touch. Phase-gated to live/replay so forfeit and mercy-rule score-ups don't false-positive.", Stability: "provisional", Since: "1.1"},
+
+	// ─── Statfeed promotions (Phase 3) ────────────────────────
+	// Each Statfeed variant gets a dedicated _-prefixed event with the
+	// targets resolved + per-variant correlation when applicable. The
+	// generic _StatfeedEvent above keeps firing as the catch-all.
+	{Name: "_PlayerDemolished", Category: "stat", Shape: "demolish", LivePhases: liveOrReplay, Desc: "Demolish with attacker / victim resolved + isSelfDemo / isTeamDemo flags.", Stability: "provisional", Since: "1.1"},
+	{Name: "_FlipReset", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "FlipReset with MainTarget resolved.", Stability: "provisional", Since: "1.1"},
+	{Name: "_HatTrick", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "HatTrick with MainTarget resolved + goalsThisMatch counter.", Stability: "provisional", Since: "1.1"},
+	{Name: "_Save", Category: "stat", Shape: "save", LivePhases: liveOrReplay, Desc: "Save with MainTarget resolved + correlatedShot (most recent opposing-team Shot).", Stability: "provisional", Since: "1.1"},
+	{Name: "_EpicSave", Category: "stat", Shape: "save", LivePhases: liveOrReplay, Desc: "Same as _Save but for the EpicSave variant. Mutually exclusive with _Save on the wire.", Stability: "provisional", Since: "1.1"},
+	{Name: "_Shot", Category: "stat", Shape: "shot", LivePhases: liveOrReplay, Desc: "Shot with MainTarget resolved + correlatedTouch (same-frame BallHit).", Stability: "provisional", Since: "1.1"},
+	{Name: "_Assist", Category: "stat", Shape: "assist", LivePhases: liveOrReplay, Desc: "Assist with MainTarget resolved + correlatedGoal (most recent _GoalScored).", Stability: "provisional", Since: "1.1"},
+	{Name: "_Center", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Center with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
+	{Name: "_Clear", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Clear with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
+	{Name: "_BicycleHit", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "BicycleHit with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
 }

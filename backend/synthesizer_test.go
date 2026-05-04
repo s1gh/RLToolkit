@@ -408,6 +408,101 @@ func TestSynthesizer_CrossbarHit(t *testing.T) {
 	}
 }
 
+// TestSynthesizer_PlayerDemolished asserts that a Demolish StatfeedEvent
+// produces both the catch-all _StatfeedEvent and a dedicated
+// _PlayerDemolished envelope with attacker/victim resolved + the
+// isSelfDemo / isTeamDemo flags.
+func TestSynthesizer_PlayerDemolished(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/statfeed_demo.jsonl", "_PlayerDemolished")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _PlayerDemolished, got %d", len(got))
+	}
+	ev := got[0]
+
+	att, ok := ev["attacker"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("attacker missing or wrong type: %T", ev["attacker"])
+	}
+	if att["name"] != "Alice" {
+		t.Errorf("attacker.name: want Alice, got %v", att["name"])
+	}
+	vic, ok := ev["victim"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("victim missing or wrong type: %T", ev["victim"])
+	}
+	if vic["name"] != "Bob" {
+		t.Errorf("victim.name: want Bob, got %v", vic["name"])
+	}
+	// Different teams → neither flag should be set.
+	if _, has := ev["isSelfDemo"]; has {
+		t.Errorf("isSelfDemo should be omitted for cross-team demo")
+	}
+	if _, has := ev["isTeamDemo"]; has {
+		t.Errorf("isTeamDemo should be omitted for cross-team demo")
+	}
+}
+
+// TestSynthesizer_NonFramingSyntheticsAreFilterable asserts that a
+// subscriber with an explicit filter does NOT receive synthetic events
+// it didn't subscribe to. Framing signals (_Lifecycle, _RosterChanged,
+// etc.) keep bypassing.
+func TestSynthesizer_NonFramingSyntheticsAreFilterable(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	// Subscriber asks ONLY for _PlayerDemolished — it should not receive
+	// the catch-all _StatfeedEvent on a Demolish.
+	filter := map[string]struct{}{"_PlayerDemolished": {}}
+	ch, cancel := bus.Subscribe(filter)
+	defer cancel()
+
+	// Seed roster.
+	roster.Feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"m\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0},{\"PrimaryId\":\"Steam|222|0\",\"Name\":\"Bob\",\"TeamNum\":1}]}"}`))
+	// Drain the seed publish.
+	for {
+		select {
+		case <-ch:
+		default:
+			goto seedDrained
+		}
+	}
+seedDrained:
+
+	// Synth fires both _StatfeedEvent and _PlayerDemolished.
+	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"m\",\"EventName\":\"Demolish\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0},\"SecondaryTarget\":{\"Name\":\"Bob\",\"Shortcut\":\"Bob\",\"TeamNum\":1}}"}`))
+
+	// Drain everything available; we should see _PlayerDemolished only.
+	var events []string
+	for {
+		select {
+		case raw := <-ch:
+			events = append(events, extractEventName(raw))
+		default:
+			goto done
+		}
+	}
+done:
+
+	hasDemo := false
+	for _, e := range events {
+		if e == "_StatfeedEvent" {
+			t.Errorf("filtered subscriber should NOT receive _StatfeedEvent")
+		}
+		if e == "_PlayerDemolished" {
+			hasDemo = true
+		}
+	}
+	if !hasDemo {
+		t.Errorf("expected _PlayerDemolished, got events: %v", events)
+	}
+}
+
 func containsBytes(haystack, needle []byte) bool {
 	for i := 0; i+len(needle) <= len(haystack); i++ {
 		match := true
