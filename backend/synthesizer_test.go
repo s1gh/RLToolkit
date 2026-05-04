@@ -624,6 +624,118 @@ func TestSynthesizer_OvertimeStarted(t *testing.T) {
 	}
 }
 
+// TestSynthesizer_GoalReplayContext asserts that GoalReplayStart
+// produces _GoalReplayContext with the most recent _GoalScored's
+// scorer + scoringTeam attached.
+func TestSynthesizer_GoalReplayContext(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/basic_match.jsonl", "_GoalReplayContext")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _GoalReplayContext, got %d", len(got))
+	}
+	ev := got[0]
+	scorer, ok := ev["scorer"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("scorer missing: %v", ev)
+	}
+	if scorer["name"] != "Alice" {
+		t.Errorf("scorer.name: want Alice, got %v", scorer["name"])
+	}
+	if got, want := ev["scoringTeam"].(float64), 0.0; got != want {
+		t.Errorf("scoringTeam: want %v, got %v", want, got)
+	}
+}
+
+// TestSynthesizer_MatchSummary_PodiumStart: PodiumStart short-circuits
+// the settle timer and fires _MatchSummary with the captured final
+// state. basic_match has the full lifecycle so this exercises the
+// full path.
+func TestSynthesizer_MatchSummary_PodiumStart(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/basic_match.jsonl", "_MatchSummary")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _MatchSummary, got %d", len(got))
+	}
+	ev := got[0]
+	if ev["trigger"] != "PodiumStart" {
+		t.Errorf("trigger: want PodiumStart, got %v", ev["trigger"])
+	}
+	if got, want := ev["winnerTeamNum"].(float64), 0.0; got != want {
+		t.Errorf("winnerTeamNum: want %v, got %v", want, got)
+	}
+	if ev["winnerName"] != "Blue Team" {
+		t.Errorf("winnerName: want \"Blue Team\", got %v", ev["winnerName"])
+	}
+	if got, want := ev["scoreBlue"].(float64), 1.0; got != want {
+		t.Errorf("scoreBlue: want %v, got %v", want, got)
+	}
+	// MVP didn't fire in the basic_match fixture, so it should be null.
+	if ev["mvp"] != nil {
+		t.Errorf("mvp: want null, got %v", ev["mvp"])
+	}
+	// Players slice should reflect the final tick.
+	players, ok := ev["players"].([]interface{})
+	if !ok || len(players) == 0 {
+		t.Fatalf("players: want non-empty, got %v", ev["players"])
+	}
+}
+
+// TestSynthesizer_MatchSummary_WithMVP: MVP statfeed lands between
+// MatchEnded and PodiumStart and is attached to the summary.
+func TestSynthesizer_MatchSummary_WithMVP(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	feed := func(raw []byte) {
+		roster.Feed(raw)
+		bus.Publish(raw)
+		synth.Feed(raw)
+	}
+
+	ch, cancel := bus.Subscribe(map[string]struct{}{"_MatchSummary": {}})
+	defer cancel()
+
+	feed([]byte(`{"Event":"MatchCreated","Data":"{\"MatchGuid\":\"mvp\"}"}`))
+	feed([]byte(`{"Event":"MatchInitialized","Data":"{\"MatchGuid\":\"mvp\"}"}`))
+	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"mvp\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0,\"Score\":300,\"Goals\":2,\"Assists\":1,\"Saves\":0,\"Shots\":3,\"Demos\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":2},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":1}],\"Ball\":{\"TeamNum\":0}}}"}`))
+	feed([]byte(`{"Event":"MatchEnded","Data":"{\"MatchGuid\":\"mvp\",\"WinnerTeamNum\":0}"}`))
+	// MVP statfeed lands AFTER MatchEnded.
+	feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"mvp\",\"EventName\":\"MVP\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}}"}`))
+	feed([]byte(`{"Event":"PodiumStart","Data":"{\"MatchGuid\":\"mvp\"}"}`))
+
+	var summary map[string]interface{}
+	for {
+		select {
+		case raw := <-ch:
+			if extractEventName(raw) == "_MatchSummary" {
+				_ = json.Unmarshal(raw, &summary)
+			}
+		default:
+			goto done
+		}
+	}
+done:
+	if summary == nil {
+		t.Fatal("expected _MatchSummary, got none")
+	}
+	mvp, ok := summary["mvp"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("mvp missing: %v", summary)
+	}
+	if mvp["name"] != "Alice" {
+		t.Errorf("mvp.name: want Alice, got %v", mvp["name"])
+	}
+}
+
 // TestSynthesizer_PlayerLeft asserts that a player disappearing from
 // the roster between two ticks emits _PlayerLeft with the resolved
 // identity.

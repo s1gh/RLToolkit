@@ -92,4 +92,11 @@ var EventCatalog = []EventCatalogEntry{
 	{Name: "_FirstTouch", Category: "play", Shape: "first-touch", LivePhases: liveOnly, Desc: "First BallHit after each RoundStarted (i.e., kickoff first touch). Re-arms every round.", Stability: "provisional", Since: "1.1"},
 	{Name: "_FirstBlood", Category: "scoring", Shape: "first-blood", LivePhases: liveOrReplay, Desc: "First _GoalScored of the match. secondsIntoMatch counts from MatchInitialized.", Stability: "provisional", Since: "1.1"},
 	{Name: "_OvertimeStarted", Category: "lifecycle", Shape: "overtime-started", LivePhases: liveOnly, Desc: "Rising edge of Game.bOvertime. Fires once per match.", Stability: "provisional", Since: "1.1"},
+
+	// ─── Lifecycle + summary (Phase 5) ────────────────────────
+	// Framing-bypass: _LifecyclePhaseChanged is delivered to every
+	// subscriber regardless of the ?events= filter.
+	{Name: "_LifecyclePhaseChanged", Category: "lifecycle", Shape: "phase-transition", LivePhases: anyPhase, Desc: "Phase machine edge: from/to phase, phaseDurationSeconds, trigger event name. Fires on every gameplay-phase transition (lobby/countdown/live/paused/replay/podium/none).", Stability: "stable", Since: "1.1"},
+	{Name: "_GoalReplayContext", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on GoalReplayStart with the most recent cached _GoalScored payload, so plugins know which goal the replay is for without correlating themselves.", Stability: "provisional", Since: "1.1"},
+	{Name: "_MatchSummary", Category: "lifecycle", Shape: "match-summary", LivePhases: anyPhase, Desc: "Fires ~2s after MatchEnded (or on PodiumStart / MatchDestroyed, whichever first). Final scores, winner, MVP if it arrived, encounter ledger deltas.", Stability: "provisional", Since: "1.1"},
 }

@@ -1938,6 +1938,34 @@
       stability: 'provisional',
       since: '1.1',
     },
+    // Lifecycle + summary (Phase 5).
+    {
+      name: '_LifecyclePhaseChanged',
+      category: 'lifecycle',
+      shape: 'phase-transition',
+      livePhases: '*',
+      desc: 'Phase machine edge: from/to/duration/trigger. Framing-bypass — every plugin receives this regardless of filter.',
+      stability: 'stable',
+      since: '1.1',
+    },
+    {
+      name: '_GoalReplayContext',
+      category: 'replay',
+      shape: 'goal-replay-context',
+      livePhases: '*',
+      desc: 'On GoalReplayStart, the most recent _GoalScored payload (scorer, scoringTeam) so plugins know which goal the replay is for.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_MatchSummary',
+      category: 'lifecycle',
+      shape: 'match-summary',
+      livePhases: '*',
+      desc: 'Fires ~2s after MatchEnded (or on PodiumStart / MatchDestroyed, whichever first). Final scores, winner, MVP, full per-player stats. trigger field tells you which path fired.',
+      stability: 'provisional',
+      since: '1.1',
+    },
   ];
 
   // Frozen views by category for the common "give me everything in group X" need.

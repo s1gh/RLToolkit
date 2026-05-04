@@ -50,7 +50,23 @@ type Synthesizer struct {
 	overtimeStartedFired bool
 	matchInitializedAt   time.Time // for _FirstBlood.secondsIntoMatch
 	roundStartedAt       time.Time // for _FirstTouch.timeFromCountdownEndSeconds
+
+	// Match summary settle-window state. Set on MatchEnded; cleared
+	// when _MatchSummary publishes (settle timeout, PodiumStart, or
+	// MatchDestroyed — whichever first).
+	summaryMu       sync.Mutex
+	summaryPending  bool
+	summaryGUID     string
+	summaryWinner   *int
+	summaryFinalSnap *tickSnapshot
+	summaryMVP      *EnrichedPlayer
+	summaryCancel   chan struct{}
 }
+
+// matchSummarySettleWindow is how long after MatchEnded we wait for
+// the late MVP Statfeed to arrive. The plan calls this "~2s"; we set
+// 2s exactly. PodiumStart or MatchDestroyed short-circuit the wait.
+const matchSummarySettleWindow = 2 * time.Second
 
 func NewSynthesizer(bus *EventBus, roster *RosterTracker) *Synthesizer {
 	return &Synthesizer{
@@ -92,12 +108,73 @@ func (s *Synthesizer) Feed(raw []byte) {
 		s.onMatchEnded(raw)
 	case "GoalScored":
 		s.onGoalScored(raw)
-	case "MatchCreated", "MatchDestroyed":
+	case "MatchCreated":
+		s.resetMatchMilestones()
+	case "MatchDestroyed":
+		// MatchDestroyed short-circuits the summary settle window so a
+		// fast-quitting user still gets a _MatchSummary (with whatever
+		// fields were collected). Also reset the per-match flags.
+		s.flushMatchSummary("MatchDestroyed")
 		s.resetMatchMilestones()
 	case "MatchInitialized":
 		s.onMatchInitialized()
 	case "RoundStarted":
 		s.armFirstTouch()
+	case "GoalReplayStart":
+		s.onGoalReplayStart(raw)
+	case "PodiumStart":
+		// PodiumStart short-circuits the summary settle window — at
+		// this point RL has frozen scores and the MVP statfeed has
+		// arrived (or never will).
+		s.flushMatchSummary("PodiumStart")
+	}
+}
+
+// onGoalReplayStart emits _GoalReplayContext with the most recently
+// cached _GoalScored, so plugins know which goal the replay is for
+// without having to correlate the events themselves.
+func (s *Synthesizer) onGoalReplayStart(raw []byte) {
+	var record *goalRecord
+	for _, p := range s.correlation.Recent("_GoalScored", 5) {
+		if g, ok := p.(*goalRecord); ok {
+			record = g
+			break
+		}
+	}
+	if record == nil {
+		// No cached goal — nothing useful to ship. The raw
+		// GoalReplayStart still flows to subscribers; we just don't
+		// add the context envelope.
+		return
+	}
+	guid := pickStr("", "")
+	// Pull guid from the envelope so subscribers can correlate against
+	// MatchGuid. Cheap full-decode given the event is rare.
+	inner := unwrapInnerData(raw)
+	if inner != "" {
+		var d struct {
+			MatchGUID    string `json:"MatchGuid"`
+			MatchGUIDLow string `json:"matchguid"`
+		}
+		if err := json.Unmarshal([]byte(inner), &d); err == nil {
+			guid = pickStr(d.MatchGUID, d.MatchGUIDLow)
+		}
+	}
+	out := struct {
+		Event         string          `json:"Event"`
+		MatchGUID     string          `json:"matchGuid,omitempty"`
+		Scorer        *EnrichedPlayer `json:"scorer,omitempty"`
+		ScoringTeam   int             `json:"scoringTeam"`
+		ConcedingTeam int             `json:"concedingTeam"`
+	}{
+		Event:         "_GoalReplayContext",
+		MatchGUID:     guid,
+		Scorer:        record.Scorer,
+		ScoringTeam:   record.ScoringTeam,
+		ConcedingTeam: record.ConcedingTeam,
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
 	}
 }
 
@@ -839,6 +916,18 @@ func (s *Synthesizer) onStatfeedEvent(raw []byte) {
 	// counts) on top of the resolved targets. The generic _StatfeedEvent
 	// above keeps firing as the catch-all.
 	s.emitStatfeedVariant(eventName, guid, out.MainTarget, out.SecondaryTarget)
+
+	// MVP statfeed lands inside the _MatchSummary settle window in most
+	// builds. Capture it so flushMatchSummary can attach it. We don't
+	// promote MVP to its own _-prefixed event — the plan's Phase 3.3
+	// explicitly leaves MVP / Playmaker / Savior on the catch-all only.
+	if eventName == "MVP" && out.MainTarget != nil {
+		s.summaryMu.Lock()
+		if s.summaryPending {
+			s.summaryMVP = out.MainTarget
+		}
+		s.summaryMu.Unlock()
+	}
 }
 
 // emitStatfeedVariant fans the Statfeed variant out to its dedicated
@@ -1444,6 +1533,149 @@ func (s *Synthesizer) onMatchEnded(raw []byte) {
 		return
 	}
 	s.bus.Publish(b)
+
+	// Begin the _MatchSummary settle window. We cache the current
+	// state (winner + final UpdateState snapshot) and start a 2s
+	// timer that publishes the summary unless PodiumStart /
+	// MatchDestroyed flushes earlier.
+	s.beginMatchSummary(guid, winner)
+}
+
+// beginMatchSummary captures the final-tick state and starts the
+// settle timer. If a summary is already pending (back-to-back
+// MatchEnded — shouldn't happen in practice, but defensive), the
+// existing one is cancelled and the new one takes over.
+func (s *Synthesizer) beginMatchSummary(guid string, winner *int) {
+	// Snapshot the latest tick under teamsMu so we don't race with a
+	// concurrent UpdateState.
+	s.teamsMu.Lock()
+	finalSnap := s.lastTick
+	s.teamsMu.Unlock()
+
+	s.summaryMu.Lock()
+	if s.summaryPending && s.summaryCancel != nil {
+		close(s.summaryCancel)
+	}
+	s.summaryPending = true
+	s.summaryGUID = guid
+	s.summaryWinner = winner
+	s.summaryFinalSnap = finalSnap
+	s.summaryMVP = nil
+	cancel := make(chan struct{})
+	s.summaryCancel = cancel
+	s.summaryMu.Unlock()
+
+	go func() {
+		select {
+		case <-cancel:
+			// Flushed early via PodiumStart / MatchDestroyed — that
+			// path already published.
+		case <-time.After(matchSummarySettleWindow):
+			s.flushMatchSummary("settleTimeout")
+		}
+	}()
+}
+
+// flushMatchSummary publishes _MatchSummary using the captured state.
+// Idempotent — if no summary is pending, it's a no-op. The trigger
+// string lands on the envelope so subscribers can tell which path
+// fired the summary.
+func (s *Synthesizer) flushMatchSummary(trigger string) {
+	s.summaryMu.Lock()
+	if !s.summaryPending {
+		s.summaryMu.Unlock()
+		return
+	}
+	s.summaryPending = false
+	guid := s.summaryGUID
+	winner := s.summaryWinner
+	finalSnap := s.summaryFinalSnap
+	mvp := s.summaryMVP
+	cancel := s.summaryCancel
+	s.summaryCancel = nil
+	s.summaryMu.Unlock()
+
+	if cancel != nil {
+		// Wake the goroutine so it doesn't sit on the timer pointlessly.
+		// A double-close would panic; cancel is set to nil under the
+		// lock above, so subsequent calls can't reach this branch.
+		select {
+		case <-cancel:
+			// already closed (settleTimeout path)
+		default:
+			close(cancel)
+		}
+	}
+
+	// Build the summary payload. Winner name + scores from the
+	// captured snapshot; players list with full per-player stats so
+	// post-game UI can render leaderboards without UpdateState.
+	type playerStat struct {
+		Player  *EnrichedPlayer `json:"player"`
+		Score   int             `json:"score"`
+		Goals   int             `json:"goals"`
+		Assists int             `json:"assists"`
+		Saves   int             `json:"saves"`
+		Shots   int             `json:"shots"`
+		Demos   int             `json:"demos"`
+	}
+	var players []playerStat
+	scoreBlue, scoreOrange := 0, 0
+	winnerName := ""
+	if finalSnap != nil {
+		scoreBlue = teamScore(finalSnap.teams, 0)
+		scoreOrange = teamScore(finalSnap.teams, 1)
+		if winner != nil {
+			for _, t := range finalSnap.teams {
+				if t.TeamNum == *winner {
+					winnerName = t.Name
+					break
+				}
+			}
+		}
+		for _, p := range finalSnap.players {
+			players = append(players, playerStat{
+				Player: &EnrichedPlayer{
+					ID:       p.id,
+					Name:     p.name,
+					Team:     p.team,
+					Platform: platformFromID(p.id),
+					IsBot:    isBotId(p.id),
+				},
+				Score:   p.score,
+				Goals:   p.goals,
+				Assists: p.assists,
+				Saves:   p.saves,
+				Shots:   p.shots,
+				Demos:   p.demos,
+			})
+		}
+	}
+
+	out := struct {
+		Event         string          `json:"Event"`
+		MatchGUID     string          `json:"matchGuid,omitempty"`
+		WinnerTeamNum *int            `json:"winnerTeamNum,omitempty"`
+		WinnerName    string          `json:"winnerName,omitempty"`
+		ScoreBlue     int             `json:"scoreBlue"`
+		ScoreOrange   int             `json:"scoreOrange"`
+		MVP           *EnrichedPlayer `json:"mvp"`
+		Players       []playerStat    `json:"players,omitempty"`
+		Trigger       string          `json:"trigger"`
+	}{
+		Event:         "_MatchSummary",
+		MatchGUID:     guid,
+		WinnerTeamNum: winner,
+		WinnerName:    winnerName,
+		ScoreBlue:     scoreBlue,
+		ScoreOrange:   scoreOrange,
+		MVP:           mvp,
+		Players:       players,
+		Trigger:       trigger,
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
+	}
 }
 
 // goalScoredData mirrors the wire shape of GoalScored.
