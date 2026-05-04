@@ -28,9 +28,9 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
 }
 
 pub fn run(args: Args) {
-    let settings_path = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("data")
+    let settings_path = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("RLToolkit")
         .join("launcher.json");
     let settings_store = SettingsStore::new(settings_path);
     let initial = settings_store.load();

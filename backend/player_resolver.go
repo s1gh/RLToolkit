@@ -24,6 +24,16 @@ type EnrichedPlayer struct {
 	Encounter *any   `json:"encounter,omitempty"` // populated by SDK; backend leaves nil
 }
 
+// RosterSnapshot returns the most recent roster seen by the tracker.
+// Safe for concurrent use; returns a copy of the internal slice.
+func (r *RosterTracker) RosterSnapshot() []rosterPlayer {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]rosterPlayer, len(r.lastRoster))
+	copy(out, r.lastRoster)
+	return out
+}
+
 // ResolveByShortcut maps a {Name, Shortcut, TeamNum} stub to a fully
 // enriched player using the current live roster. The Shortcut field is
 // the player's name as it appears in the event payload; we match against
@@ -42,15 +52,18 @@ func (r *RosterTracker) ResolveByShortcut(ref ShortcutRef) *EnrichedPlayer {
 	}
 
 	r.mu.Lock()
-	// We don't store the full player list in RosterTracker, only the
-	// fingerprint and last GUID. For now we resolve via a minimal
-	// in-memory roster cache maintained alongside the tracker.
-	// TODO: maintain full roster snapshot in RosterTracker for server-side
-	// enrichment.
+	roster := r.lastRoster
 	r.mu.Unlock()
 
-	// Best-effort: build from the ref itself. The SDK will re-resolve
-	// against its live roster view when it receives the synthetic event.
+	// Search the roster by name. RL names are unique within a match, so
+	// the first hit is the right player.
+	for _, p := range roster {
+		if p.Name == lookup {
+			return rosterPlayerToEnriched(p)
+		}
+	}
+
+	// Fallback: build from the ref itself.
 	return stubToEnriched(ref)
 }
 
@@ -60,7 +73,16 @@ func (r *RosterTracker) ResolveByPrimaryId(id string) *EnrichedPlayer {
 	if id == "" {
 		return nil
 	}
-	// TODO: maintain full roster snapshot in RosterTracker.
+
+	r.mu.Lock()
+	roster := r.lastRoster
+	r.mu.Unlock()
+
+	for _, p := range roster {
+		if p.ID == id {
+			return rosterPlayerToEnriched(p)
+		}
+	}
 	return &EnrichedPlayer{
 		ID:       id,
 		Platform: platformFromID(id),
@@ -68,9 +90,19 @@ func (r *RosterTracker) ResolveByPrimaryId(id string) *EnrichedPlayer {
 	}
 }
 
-// stubToEnriched builds a minimal EnrichedPlayer from a ShortcutRef.
-// The backend doesn't have the full roster snapshot yet, so this is a
-// best-effort stub that the SDK can re-enrich client-side.
+// rosterPlayerToEnriched converts a rosterPlayer to an EnrichedPlayer.
+func rosterPlayerToEnriched(p rosterPlayer) *EnrichedPlayer {
+	return &EnrichedPlayer{
+		ID:       p.ID,
+		Name:     p.Name,
+		Team:     p.Team,
+		Platform: p.Platform,
+		IsBot:    isBotId(p.ID),
+	}
+}
+
+// stubToEnriched builds a minimal EnrichedPlayer from a ShortcutRef when
+// the player is not found in the live roster.
 func stubToEnriched(ref ShortcutRef) *EnrichedPlayer {
 	name := ref.Name
 	if name == "" {

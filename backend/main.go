@@ -79,6 +79,8 @@ func runServe() {
 	client.AttachLifecycle(lifecycle)
 	roster := NewRosterTracker(bus)
 	client.AttachRosterTracker(roster)
+	phaseMachine := NewPhaseMachine(bus)
+	client.AttachPhaseMachine(phaseMachine)
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
 	if err != nil {

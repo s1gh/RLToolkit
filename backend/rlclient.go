@@ -58,6 +58,10 @@ type RLClient struct {
 	// consistent and avoids a second goroutine per packet.
 	roster *RosterTracker
 
+	// phaseMachine, if set, is fed every packet before bus.Publish so it
+	// can emit _LifecyclePhaseChanged events on gameplay-phase edges.
+	phaseMachine *PhaseMachine
+
 	mu     sync.RWMutex
 	status RLStatus
 
@@ -105,6 +109,10 @@ func (c *RLClient) AttachLifecycle(t *LifecycleTracker) { c.lifecycle = t }
 // packet for roster-fingerprint changes. Call before Run.
 func (c *RLClient) AttachRosterTracker(t *RosterTracker) { c.roster = t }
 
+// AttachPhaseMachine wires a PhaseMachine so it observes every packet
+// for gameplay-phase transitions. Call before Run.
+func (c *RLClient) AttachPhaseMachine(m *PhaseMachine) { c.phaseMachine = m }
+
 func (c *RLClient) Status() RLStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -122,13 +130,16 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if c.lifecycle != nil {
-				c.lifecycle.Feed(msg)
-			}
-			if c.roster != nil {
-				c.roster.Feed(msg)
-			}
-			c.bus.Publish(msg)
+		if c.lifecycle != nil {
+			c.lifecycle.Feed(msg)
+		}
+		if c.roster != nil {
+			c.roster.Feed(msg)
+		}
+		if c.phaseMachine != nil {
+			c.phaseMachine.Feed(msg)
+		}
+		c.bus.Publish(msg)
 		}
 	}
 }

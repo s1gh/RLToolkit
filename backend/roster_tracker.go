@@ -69,6 +69,7 @@ func (t *RosterTracker) Feed(raw []byte) {
 		t.mu.Lock()
 		t.lastFp = ""
 		t.lastGUID = ""
+		t.lastRoster = nil
 		t.mu.Unlock()
 	}
 }
@@ -172,6 +173,15 @@ func (t *RosterTracker) onUpdateState(raw []byte) {
 	}
 	t.lastFp = fp
 	t.lastGUID = guid
+	t.lastRoster = make([]rosterPlayer, 0, len(players))
+	for _, p := range players {
+		t.lastRoster = append(t.lastRoster, rosterPlayer{
+			ID:       p.PrimaryID,
+			Name:     p.Name,
+			Team:     p.TeamNum,
+			Platform: platformFromID(p.PrimaryID),
+		})
+	}
 	t.mu.Unlock()
 
 	t.publish(guid, players)
