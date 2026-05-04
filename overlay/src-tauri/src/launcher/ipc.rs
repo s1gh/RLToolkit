@@ -72,8 +72,25 @@ pub fn toggle_overlay(
 }
 
 #[tauri::command]
-pub fn restart_backend() -> Result<(), String> {
-    // Phase C: implemented when ownership is held in shared state.
+pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), String> {
+    use crate::launcher::backend::spawn_sidecar;
+    use tauri::Manager;
+
+    let attached = state.lock().unwrap().attached;
+    if attached {
+        return Err("backend not owned by launcher".into());
+    }
+
+    if let Some(handle) = app.try_state::<crate::launcher::BackendHandle>() {
+        let mut slot = handle.0.lock().unwrap();
+        if let Some(mut owned) = slot.take() {
+            owned.terminate(std::time::Duration::from_secs(2));
+        }
+        match spawn_sidecar(&app) {
+            Ok(new_owned) => *slot = Some(new_owned),
+            Err(e) => return Err(e),
+        }
+    }
     Ok(())
 }
 
