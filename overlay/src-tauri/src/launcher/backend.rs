@@ -49,35 +49,64 @@ pub fn probe_status(url: &str, timeout: Duration) -> ProbeOutcome {
     }
 }
 
-use std::process::Child;
+use tauri::AppHandle;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
-/// Tracks who started the running backend. The launcher only kills
-/// `Spawned` children; backends discovered via probe (`Attached`) are
-/// left running on quit. `Unavailable` means we tried and gave up.
+/// Tracks who started the running backend. `SpawnedSidecar` holds a real
+/// `tauri_plugin_shell` child (production); `SpawnedRaw` holds a
+/// `std::process::Child` (integration tests using a fake binary). `Attached`
+/// and `Unavailable` are no-ops on terminate.
 #[derive(Debug)]
 pub enum BackendOwnership {
-    Spawned(Child),
+    SpawnedSidecar(CommandChild),
+    SpawnedRaw(std::process::Child),
     Attached,
     Unavailable,
 }
 
+// Convenience constructor for tests.
 impl BackendOwnership {
-    /// SIGTERM-then-grace-then-SIGKILL on Unix; equivalent on Windows via
-    /// the child's kill API (Tauri's sidecar machinery wraps both).
-    /// No-op for `Attached` and `Unavailable`.
-    pub fn terminate(&mut self, grace: std::time::Duration) {
-        let child = match self {
-            BackendOwnership::Spawned(c) => c,
-            _ => return,
-        };
+    pub fn from_raw(c: std::process::Child) -> Self {
+        BackendOwnership::SpawnedRaw(c)
+    }
+}
 
+impl BackendOwnership {
+    pub fn terminate(&mut self, grace: std::time::Duration) {
+        match self {
+            BackendOwnership::SpawnedRaw(child) => {
+                Self::terminate_raw(child, grace);
+            }
+            BackendOwnership::SpawnedSidecar(_) => {
+                // CommandChild::kill consumes self. Swap out the variant so we
+                // can take ownership, then call kill on the owned child.
+                let owned = std::mem::replace(self, BackendOwnership::Unavailable);
+                if let BackendOwnership::SpawnedSidecar(child) = owned {
+                    let pid = child.pid();
+                    let deadline = std::time::Instant::now() + grace;
+                    // Soft kill; CommandChild::kill posts the platform terminate signal.
+                    let _ = child.kill();
+                    while std::time::Instant::now() < deadline {
+                        if !pid_alive(pid) {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    // Already attempted kill; nothing harsher to try via the
+                    // shell plugin. Log and move on.
+                    eprintln!("[launcher] sidecar still alive after {grace:?}");
+                }
+            }
+            BackendOwnership::Attached | BackendOwnership::Unavailable => {}
+        }
+    }
+
+    fn terminate_raw(child: &mut std::process::Child, grace: std::time::Duration) {
         #[cfg(unix)]
         {
-            use std::os::unix::process::ExitStatusExt;
             let pid = child.id() as i32;
-            // SIGTERM first.
             unsafe { libc::kill(pid, libc::SIGTERM) };
-
             let deadline = std::time::Instant::now() + grace;
             while std::time::Instant::now() < deadline {
                 match child.try_wait() {
@@ -86,22 +115,11 @@ impl BackendOwnership {
                     Err(_) => break,
                 }
             }
-            // Still alive — SIGKILL.
             let _ = child.kill();
             let _ = child.wait();
-            // Touch the unused import so non-test builds don't warn.
-            let _ = <std::process::ExitStatus as ExitStatusExt>::signal;
         }
-
         #[cfg(windows)]
         {
-            // Windows has no SIGTERM analogue we can issue cleanly from
-            // a child handle without console attachment. The Tauri shell
-            // plugin's sidecar API exposes a graceful close; for v1 we
-            // try `kill()` (which posts WM_CLOSE on a console process or
-            // calls TerminateProcess), and rely on Go's signal.Notify(SIGINT)
-            // path being installed for builds run in a console. The 2 s
-            // grace is approximated by waiting on the child after kill.
             let _ = child.kill();
             let deadline = std::time::Instant::now() + grace;
             while std::time::Instant::now() < deadline {
@@ -114,4 +132,55 @@ impl BackendOwnership {
             let _ = child.wait();
         }
     }
+}
+
+fn pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(pid as i32, 0) == 0
+    }
+    #[cfg(windows)]
+    {
+        // Best-effort: open the process; if it can't be opened, assume gone.
+        use std::os::raw::c_void;
+        extern "system" {
+            fn OpenProcess(da: u32, ih: i32, pid: u32) -> *mut c_void;
+            fn CloseHandle(h: *mut c_void) -> i32;
+        }
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+        let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if h.is_null() {
+            return false;
+        }
+        unsafe { CloseHandle(h) };
+        true
+    }
+}
+
+/// Spawn the bundled `rl-toolkit` sidecar. Returns the running child wrapped
+/// in `BackendOwnership::SpawnedSidecar`. Stdout/stderr are piped to the
+/// launcher's log file (see `launcher::ipc::log_path`).
+pub fn spawn_sidecar(app: &AppHandle) -> Result<BackendOwnership, String> {
+    let cmd = app
+        .shell()
+        .sidecar("rl-toolkit")
+        .map_err(|e| format!("locate sidecar: {e}"))?;
+    let (mut rx, child) = cmd
+        .spawn()
+        .map_err(|e| format!("spawn sidecar: {e}"))?;
+
+    // Drain the sidecar's stdout/stderr asynchronously so the OS pipe
+    // buffer never back-pressures the Go process. For v1 we just discard;
+    // a future task wires this to data/launcher.log.
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(_) | CommandEvent::Stderr(_) => {}
+                CommandEvent::Terminated(_) => break,
+                _ => {}
+            }
+        }
+    });
+
+    Ok(BackendOwnership::SpawnedSidecar(child))
 }

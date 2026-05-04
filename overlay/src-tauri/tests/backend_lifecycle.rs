@@ -72,7 +72,7 @@ fn ownership_spawned_terminate_kills_child() {
         .spawn()
         .expect("spawn fake_backend");
     let pid = child.id();
-    let mut owned = BackendOwnership::Spawned(child);
+    let mut owned = BackendOwnership::from_raw(child);
     owned.terminate(Duration::from_secs(2));
 
     // After terminate the child must have exited.
