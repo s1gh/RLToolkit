@@ -15,6 +15,8 @@ type EventCatalogEntry struct {
 	Shape      string   `json:"shape"`
 	LivePhases []string `json:"live_phases"` // [] means "any phase" (the JS side uses "*")
 	Desc       string   `json:"desc"`
+	Stability  string   `json:"stability"` // "stable" | "provisional" | "experimental"
+	Since      string   `json:"since"`     // "1.0", "1.1", etc.
 }
 
 var anyPhase = []string{} // documents intent: empty = any phase
@@ -25,25 +27,25 @@ var liveCountdown = []string{"live", "countdown"}
 var liveTickPhases = []string{"live", "replay", "paused", "countdown"}
 
 var EventCatalog = []EventCatalogEntry{
-	{Name: "UpdateState", Category: "tick", Shape: "matchstate", LivePhases: liveTickPhases, Desc: "Match snapshot at PacketSendRate (raw envelope payload)."},
+	{Name: "UpdateState", Category: "tick", Shape: "matchstate", LivePhases: liveTickPhases, Desc: "Match snapshot at PacketSendRate (raw envelope payload).", Stability: "stable", Since: "1.0"},
 
-	{Name: "GoalScored", Category: "scoring", Shape: "goal", LivePhases: liveOrReplay, Desc: "Scorer + assister + last touch + impact."},
-	{Name: "BallHit", Category: "play", Shape: "ballhit", LivePhases: liveOnly, Desc: "Ball touched. Pre/post speed and location."},
-	{Name: "CrossbarHit", Category: "play", Shape: "crossbar", LivePhases: liveOnly, Desc: "Ball hit a crossbar."},
-	{Name: "StatfeedEvent", Category: "stat", Shape: "stat", LivePhases: liveOrReplay, Desc: "Player earned a stat (demo, save, epic save, etc)."},
-	{Name: "ClockUpdatedSeconds", Category: "play", Shape: "clock", LivePhases: liveCountdown, Desc: "Match clock changed by ≥1 second."},
+	{Name: "GoalScored", Category: "scoring", Shape: "goal", LivePhases: liveOrReplay, Desc: "Scorer + assister + last touch + impact.", Stability: "stable", Since: "1.0"},
+	{Name: "BallHit", Category: "play", Shape: "ballhit", LivePhases: liveOnly, Desc: "Ball touched. Pre/post speed and location.", Stability: "stable", Since: "1.0"},
+	{Name: "CrossbarHit", Category: "play", Shape: "crossbar", LivePhases: liveOnly, Desc: "Ball hit a crossbar.", Stability: "stable", Since: "1.0"},
+	{Name: "StatfeedEvent", Category: "stat", Shape: "stat", LivePhases: liveOrReplay, Desc: "Player earned a stat (demo, save, epic save, etc).", Stability: "stable", Since: "1.0"},
+	{Name: "ClockUpdatedSeconds", Category: "play", Shape: "clock", LivePhases: liveCountdown, Desc: "Match clock changed by ≥1 second.", Stability: "stable", Since: "1.0"},
 
-	{Name: "MatchCreated", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "All teams replicated; lobby ready."},
-	{Name: "MatchInitialized", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "First countdown started."},
-	{Name: "CountdownBegin", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Round countdown began."},
-	{Name: "RoundStarted", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Active gameplay started (countdown ended)."},
-	{Name: "MatchPaused", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Match paused by an admin."},
-	{Name: "MatchUnpaused", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Match resumed."},
-	{Name: "GoalReplayStart", Category: "replay", Shape: "match", LivePhases: anyPhase, Desc: "Goal replay began."},
-	{Name: "GoalReplayWillEnd", Category: "replay", Shape: "match", LivePhases: anyPhase, Desc: "Ball exploded during replay (fires only if not skipped)."},
-	{Name: "GoalReplayEnd", Category: "replay", Shape: "match", LivePhases: anyPhase, Desc: "Goal replay ended."},
-	{Name: "MatchEnded", Category: "lifecycle", Shape: "matchend", LivePhases: anyPhase, Desc: "Match decided. Has WinnerTeamNum."},
-	{Name: "PodiumStart", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Game entered podium state."},
-	{Name: "MatchDestroyed", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Player left the match."},
-	{Name: "ReplayCreated", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Match-history replay loaded (NOT goal replays)."},
+	{Name: "MatchCreated", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "All teams replicated; lobby ready.", Stability: "stable", Since: "1.0"},
+	{Name: "MatchInitialized", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "First countdown started.", Stability: "stable", Since: "1.0"},
+	{Name: "CountdownBegin", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Round countdown began.", Stability: "stable", Since: "1.0"},
+	{Name: "RoundStarted", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Active gameplay started (countdown ended).", Stability: "stable", Since: "1.0"},
+	{Name: "MatchPaused", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Match paused by an admin.", Stability: "stable", Since: "1.0"},
+	{Name: "MatchUnpaused", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Match resumed.", Stability: "stable", Since: "1.0"},
+	{Name: "GoalReplayStart", Category: "replay", Shape: "match", LivePhases: anyPhase, Desc: "Goal replay began.", Stability: "stable", Since: "1.0"},
+	{Name: "GoalReplayWillEnd", Category: "replay", Shape: "match", LivePhases: anyPhase, Desc: "Ball exploded during replay (fires only if not skipped).", Stability: "stable", Since: "1.0"},
+	{Name: "GoalReplayEnd", Category: "replay", Shape: "match", LivePhases: anyPhase, Desc: "Goal replay ended.", Stability: "stable", Since: "1.0"},
+	{Name: "MatchEnded", Category: "lifecycle", Shape: "matchend", LivePhases: anyPhase, Desc: "Match decided. Has WinnerTeamNum.", Stability: "stable", Since: "1.0"},
+	{Name: "PodiumStart", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Game entered podium state.", Stability: "stable", Since: "1.0"},
+	{Name: "MatchDestroyed", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Player left the match.", Stability: "stable", Since: "1.0"},
+	{Name: "ReplayCreated", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Match-history replay loaded (NOT goal replays).", Stability: "stable", Since: "1.0"},
 }

@@ -28,9 +28,10 @@ import (
 type RosterTracker struct {
 	bus *EventBus
 
-	mu       sync.Mutex
-	lastFp   string
-	lastGUID string
+	mu        sync.Mutex
+	lastFp    string
+	lastGUID  string
+	lastRoster []rosterPlayer
 }
 
 // NewRosterTracker creates a tracker tied to a bus. No background

@@ -1,0 +1,11 @@
+{
+  "overlay_enabled": false,
+  "window_x": 0,
+  "window_y": 0,
+  "window_w": 1262,
+  "window_h": 680,
+  "backend_port": null,
+  "quit_hotkey": null,
+  "plugins_dir": "/home/s1gh/Documents/Projects/RLToolkit/plugins",
+  "data_dir": "/home/s1gh/Documents/Projects/RLToolkit/data"
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"log"
 	"strings"
 	"sync"
@@ -112,6 +113,17 @@ func (b *EventBus) removeLocked(s *subscriber) {
 // Subscribers with an event filter only receive matching events. The
 // event name is extracted once per Publish via substring scan so the
 // 60-120Hz hot path stays JSON-decode-free.
+// PublishSynthetic emits a _-prefixed synthetic event with a consistent
+// envelope shape. This is the only path synthetic emitters should use.
+func (b *EventBus) PublishSynthetic(name string, data interface{}) {
+	envelope := map[string]interface{}{"Event": name, "Data": data}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		return
+	}
+	b.Publish(raw)
+}
+
 func (b *EventBus) Publish(data []byte) {
 	start := time.Now()
 

@@ -1615,6 +1615,8 @@
       shape: 'matchstate',
       livePhases: ['live', 'replay', 'paused', 'countdown'],
       desc: 'Match snapshot at PacketSendRate. Includes derived teams/blueTeam/orangeTeam, replayInfo, and resolved per-player attacker.',
+      stability: 'stable',
+      since: '1.0',
     },
 
     // In-play events
@@ -1624,6 +1626,8 @@
       shape: 'goal',
       livePhases: ['live', 'replay'],
       desc: 'Scorer + assister + last touch + impact.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'BallHit',
@@ -1631,6 +1635,8 @@
       shape: 'ballhit',
       livePhases: ['live'],
       desc: 'Ball touched. Pre/post speed and location.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'CrossbarHit',
@@ -1638,6 +1644,8 @@
       shape: 'crossbar',
       livePhases: ['live'],
       desc: 'Ball hit a crossbar.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'StatfeedEvent',
@@ -1645,6 +1653,8 @@
       shape: 'statfeed',
       livePhases: ['live', 'replay'],
       desc: 'Player earned a stat (demo, save, epic save, etc).',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'ClockUpdatedSeconds',
@@ -1652,6 +1662,8 @@
       shape: 'clock',
       livePhases: ['live', 'countdown'],
       desc: 'Match clock changed by ≥1 second.',
+      stability: 'stable',
+      since: '1.0',
     },
 
     // Lifecycle
@@ -1661,6 +1673,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'All teams replicated; lobby ready.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'MatchInitialized',
@@ -1668,6 +1682,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'First countdown started.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'CountdownBegin',
@@ -1675,6 +1691,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Round countdown began.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'RoundStarted',
@@ -1682,6 +1700,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Active gameplay started (countdown ended).',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'MatchPaused',
@@ -1689,6 +1709,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Match paused by an admin.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'MatchUnpaused',
@@ -1696,6 +1718,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Match resumed.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'GoalReplayStart',
@@ -1703,6 +1727,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Goal replay began.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'GoalReplayWillEnd',
@@ -1710,6 +1736,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Ball exploded during replay (fires only if not skipped).',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'GoalReplayEnd',
@@ -1717,6 +1745,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Goal replay ended.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'MatchEnded',
@@ -1724,6 +1754,8 @@
       shape: 'matchend',
       livePhases: '*',
       desc: 'Match decided. Has WinnerTeamNum.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'PodiumStart',
@@ -1731,6 +1763,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Game entered podium state.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'MatchDestroyed',
@@ -1738,6 +1772,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Player left the match.',
+      stability: 'stable',
+      since: '1.0',
     },
     {
       name: 'ReplayCreated',
@@ -1745,6 +1781,8 @@
       shape: 'match',
       livePhases: '*',
       desc: 'Match-history replay loaded (NOT goal replays).',
+      stability: 'stable',
+      since: '1.0',
     },
   ];
 
