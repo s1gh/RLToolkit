@@ -140,11 +140,30 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
 }
 
 #[tauri::command]
-pub fn open_data_folder(app: AppHandle) -> Result<(), String> {
+pub fn open_data_folder(app: AppHandle, state: State<LauncherState>) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    let path = std::env::current_dir()
-        .map(|p| p.join("data"))
-        .map_err(|e| e.to_string())?;
+
+    // Prefer the user's configured data_dir; fall back to <cwd>/data.
+    let configured = {
+        let ctx = state.lock().unwrap();
+        ctx.settings.load().data_dir
+    };
+
+    let path = match configured.filter(|s| !s.trim().is_empty()) {
+        Some(s) => std::path::PathBuf::from(s),
+        None => std::env::current_dir()
+            .map(|p| p.join("data"))
+            .map_err(|e| e.to_string())?,
+    };
+
+    // Make sure the directory exists; the OS file manager errors out
+    // ungracefully on a non-existent path.
+    if !path.exists() {
+        std::fs::create_dir_all(&path).map_err(|e| {
+            format!("create data folder {}: {e}", path.display())
+        })?;
+    }
+
     app.opener()
         .open_path(path.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| e.to_string())
