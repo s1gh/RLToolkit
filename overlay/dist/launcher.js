@@ -76,6 +76,7 @@ overlayToggle.addEventListener("change", e => {
 
 document.querySelectorAll("[data-cmd]").forEach(btn => {
   btn.addEventListener("click", async () => {
+    document.getElementById("overflow")?.removeAttribute("open");
     if (btn.dataset.cmd === "open_settings") {
       await openSettings();
       return;
