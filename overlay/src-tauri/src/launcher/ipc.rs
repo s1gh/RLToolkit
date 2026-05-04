@@ -4,7 +4,7 @@ use crate::launcher::backend::{probe_status, ProbeOutcome};
 use crate::launcher::settings::SettingsStore;
 use serde::Serialize;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 pub struct LauncherCtx {
     pub toolkit_url: String,
@@ -58,20 +58,20 @@ pub fn restart_backend() -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_data_folder(app: AppHandle) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
+    use tauri_plugin_opener::OpenerExt;
     let path = std::env::current_dir()
         .map(|p| p.join("data"))
         .map_err(|e| e.to_string())?;
-    app.shell()
-        .open(path.to_string_lossy().to_string(), None)
+    app.opener()
+        .open_path(path.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn open_dashboard_in_browser(app: AppHandle, state: State<LauncherState>) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
+    use tauri_plugin_opener::OpenerExt;
     let url = state.lock().unwrap().toolkit_url.clone();
-    app.shell().open(url, None).map_err(|e| e.to_string())
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
