@@ -56,4 +56,6 @@ var EventCatalog = []EventCatalogEntry{
 	{Name: "_StatfeedEvent", Category: "stat", Shape: "stat-enriched", LivePhases: liveOrReplay, Desc: "StatfeedEvent with MainTarget/SecondaryTarget pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
 	{Name: "_BallHit", Category: "play", Shape: "ballhit-enriched", LivePhases: liveOnly, Desc: "BallHit with Players[] pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
 	{Name: "_CrossbarHit", Category: "play", Shape: "crossbar-enriched", LivePhases: liveOnly, Desc: "CrossbarHit with BallLastTouch.Player pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
+	{Name: "_MatchEnded", Category: "lifecycle", Shape: "matchend-enriched", LivePhases: anyPhase, Desc: "MatchEnded with winnerName, scoreBlue, scoreOrange resolved from the cached final UpdateState.", Stability: "provisional", Since: "1.1"},
+	{Name: "_GoalScored", Category: "scoring", Shape: "goal-enriched", LivePhases: liveOrReplay, Desc: "GoalScored with Scorer/Assister/BallLastTouch resolved + scoringTeam/concedingTeam/isOwnGoal flags. Modifier flags (aerial/backwards/etc.) ship in 1.2.", Stability: "provisional", Since: "1.1"},
 }

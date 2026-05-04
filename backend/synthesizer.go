@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"sync"
 )
 
 // Synthesizer turns raw RL events into _-prefixed synthetic events with
@@ -12,10 +13,27 @@ import (
 type Synthesizer struct {
 	bus    *EventBus
 	roster *RosterTracker
+
+	// teamsMu guards lastTeams. Cached from the most recent UpdateState
+	// so _MatchEnded can resolve WinnerTeamNum to a team name without a
+	// second round-trip. Grows in Phase 4 (diff events).
+	teamsMu   sync.Mutex
+	lastTeams []teamRef
 }
 
 func NewSynthesizer(bus *EventBus, roster *RosterTracker) *Synthesizer {
 	return &Synthesizer{bus: bus, roster: roster}
+}
+
+// teamRef is the slice of UpdateState.Game.Teams[] we cache for downstream
+// enrichment. Score is here for upcoming Phase-4 diff events; only Name
+// and TeamNum are read by _MatchEnded.
+type teamRef struct {
+	TeamNum        int    `json:"teamNum"`
+	Name           string `json:"name"`
+	Score          int    `json:"score"`
+	ColorPrimary   string `json:"colorPrimary,omitempty"`
+	ColorSecondary string `json:"colorSecondary,omitempty"`
 }
 
 // Feed inspects each envelope and dispatches to the per-event synthesizer.
@@ -23,13 +41,83 @@ func NewSynthesizer(bus *EventBus, roster *RosterTracker) *Synthesizer {
 func (s *Synthesizer) Feed(raw []byte) {
 	name := extractEventName(raw)
 	switch name {
+	case "UpdateState":
+		s.onUpdateState(raw)
 	case "StatfeedEvent":
 		s.onStatfeedEvent(raw)
 	case "BallHit":
 		s.onBallHit(raw)
 	case "CrossbarHit":
 		s.onCrossbarHit(raw)
+	case "MatchEnded":
+		s.onMatchEnded(raw)
+	case "GoalScored":
+		s.onGoalScored(raw)
 	}
+}
+
+// onUpdateState caches the latest Teams[] for downstream enrichment.
+// We only decode Game.Teams here; the full UpdateState is decoded
+// elsewhere when needed. This must stay cheap — runs at PacketSendRate.
+func (s *Synthesizer) onUpdateState(raw []byte) {
+	inner := unwrapInnerData(raw)
+	if inner == "" {
+		return
+	}
+	var d struct {
+		Game    *gameTeams `json:"Game"`
+		GameLow *gameTeams `json:"game"`
+	}
+	if err := json.Unmarshal([]byte(inner), &d); err != nil {
+		return
+	}
+	g := d.Game
+	if g == nil {
+		g = d.GameLow
+	}
+	if g == nil || len(g.Teams) == 0 {
+		return
+	}
+	teams := make([]teamRef, 0, len(g.Teams))
+	for _, t := range g.Teams {
+		teams = append(teams, teamRef{
+			TeamNum:        t.TeamNum,
+			Name:           t.Name,
+			Score:          t.Score,
+			ColorPrimary:   t.ColorPrimary,
+			ColorSecondary: t.ColorSecondary,
+		})
+	}
+	s.teamsMu.Lock()
+	s.lastTeams = teams
+	s.teamsMu.Unlock()
+}
+
+type gameTeams struct {
+	Teams []wireTeam `json:"Teams"`
+}
+
+type wireTeam struct {
+	TeamNum        int    `json:"TeamNum"`
+	Name           string `json:"Name"`
+	Score          int    `json:"Score"`
+	ColorPrimary   string `json:"ColorPrimary"`
+	ColorSecondary string `json:"ColorSecondary"`
+}
+
+// teamByNum returns a copy of the cached team with the given TeamNum,
+// or nil if no UpdateState has populated the cache or the team isn't
+// present.
+func (s *Synthesizer) teamByNum(num int) *teamRef {
+	s.teamsMu.Lock()
+	defer s.teamsMu.Unlock()
+	for i := range s.lastTeams {
+		if s.lastTeams[i].TeamNum == num {
+			t := s.lastTeams[i]
+			return &t
+		}
+	}
+	return nil
 }
 
 // statfeedEnvelope mirrors the wire shape of a StatfeedEvent. RL ships
@@ -326,4 +414,189 @@ func pickFloat(a, b *float64) *float64 {
 		return a
 	}
 	return b
+}
+
+// matchEndedData mirrors the wire shape of MatchEnded.
+type matchEndedData struct {
+	MatchGUID       string `json:"MatchGuid"`
+	MatchGUIDLow    string `json:"matchguid"`
+	WinnerTeamNum   *int   `json:"WinnerTeamNum"`
+	WinnerTeamLow   *int   `json:"winnerteamnum"`
+}
+
+type enrichedMatchEnded struct {
+	Event         string  `json:"Event"`
+	MatchGUID     string  `json:"matchGuid,omitempty"`
+	WinnerTeamNum *int    `json:"winnerTeamNum,omitempty"`
+	WinnerName    string  `json:"winnerName,omitempty"`
+	ScoreBlue     *int    `json:"scoreBlue,omitempty"`
+	ScoreOrange   *int    `json:"scoreOrange,omitempty"`
+}
+
+func (s *Synthesizer) onMatchEnded(raw []byte) {
+	inner := unwrapInnerData(raw)
+	if inner == "" {
+		return
+	}
+	var d matchEndedData
+	if err := json.Unmarshal([]byte(inner), &d); err != nil {
+		return
+	}
+	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
+	winner := d.WinnerTeamNum
+	if winner == nil {
+		winner = d.WinnerTeamLow
+	}
+
+	out := enrichedMatchEnded{
+		Event:         "_MatchEnded",
+		MatchGUID:     guid,
+		WinnerTeamNum: winner,
+	}
+
+	// Resolve final scores from the cached Teams[] so subscribers don't
+	// have to track UpdateState themselves.
+	if blue := s.teamByNum(0); blue != nil {
+		score := blue.Score
+		out.ScoreBlue = &score
+	}
+	if orange := s.teamByNum(1); orange != nil {
+		score := orange.Score
+		out.ScoreOrange = &score
+	}
+	if winner != nil {
+		if t := s.teamByNum(*winner); t != nil {
+			out.WinnerName = t.Name
+		}
+	}
+
+	b, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
+}
+
+// goalScoredData mirrors the wire shape of GoalScored.
+type goalScoredData struct {
+	MatchGUID       string         `json:"MatchGuid"`
+	MatchGUIDLow    string         `json:"matchguid"`
+	Scorer          *ShortcutRef   `json:"Scorer"`
+	ScorerLow       *ShortcutRef   `json:"scorer"`
+	Assister        *ShortcutRef   `json:"Assister"`
+	AssisterLow     *ShortcutRef   `json:"assister"`
+	BallLastTouch   *ballLastTouch `json:"BallLastTouch"`
+	BallLastTouchLow *ballLastTouch `json:"balllasttouch"`
+	GoalSpeed       *float64       `json:"GoalSpeed"`
+	GoalSpeedLow    *float64       `json:"goalspeed"`
+	GoalTime        *float64       `json:"GoalTime"`
+	GoalTimeLow     *float64       `json:"goaltime"`
+	ImpactLocation  *vec3          `json:"ImpactLocation"`
+	ImpactLocationLow *vec3        `json:"impactlocation"`
+}
+
+type enrichedGoalScored struct {
+	Event           string                 `json:"Event"`
+	MatchGUID       string                 `json:"matchGuid,omitempty"`
+	Scorer          *EnrichedPlayer        `json:"scorer,omitempty"`
+	Assister        *EnrichedPlayer        `json:"assister,omitempty"`
+	BallLastTouch   *enrichedBallLastTouch `json:"ballLastTouch,omitempty"`
+	GoalSpeed       *float64               `json:"goalSpeed,omitempty"`
+	GoalTime        *float64               `json:"goalTime,omitempty"`
+	ImpactLocation  *vec3                  `json:"impactLocation,omitempty"`
+	ScoringTeam     *int                   `json:"scoringTeam,omitempty"`
+	ConcedingTeam   *int                   `json:"concedingTeam,omitempty"`
+	IsOwnGoal       bool                   `json:"isOwnGoal"`
+}
+
+func (s *Synthesizer) onGoalScored(raw []byte) {
+	inner := unwrapInnerData(raw)
+	if inner == "" {
+		return
+	}
+	var d goalScoredData
+	if err := json.Unmarshal([]byte(inner), &d); err != nil {
+		return
+	}
+
+	scorerRef := d.Scorer
+	if scorerRef == nil {
+		scorerRef = d.ScorerLow
+	}
+	// SDK has a guard: drop GoalScored events where the scorer can't be
+	// identified. RL re-fires GoalScored at round-restart with empty
+	// Scorer.Name; without this drop, a synthetic event with name
+	// "Unknown" overwrites the prior tick's scorer for any plugin that
+	// caches the latest goal. Mirror that guard here.
+	if scorerRef == nil || (scorerRef.Name == "" && scorerRef.Shortcut == "") {
+		return
+	}
+	scorer := s.roster.ResolveByShortcut(*scorerRef)
+	if scorer == nil {
+		return
+	}
+
+	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
+	assisterRef := d.Assister
+	if assisterRef == nil {
+		assisterRef = d.AssisterLow
+	}
+	lastTouch := d.BallLastTouch
+	if lastTouch == nil {
+		lastTouch = d.BallLastTouchLow
+	}
+	loc := d.ImpactLocation
+	if loc == nil {
+		loc = d.ImpactLocationLow
+	}
+
+	out := enrichedGoalScored{
+		Event:          "_GoalScored",
+		MatchGUID:      guid,
+		Scorer:         scorer,
+		GoalSpeed:      pickFloat(d.GoalSpeed, d.GoalSpeedLow),
+		GoalTime:       pickFloat(d.GoalTime, d.GoalTimeLow),
+		ImpactLocation: loc,
+	}
+
+	// Scoring team is the scorer's team; conceding is the other.
+	scoringTeam := scorer.Team
+	concedingTeam := 1 - scoringTeam
+	out.ScoringTeam = &scoringTeam
+	out.ConcedingTeam = &concedingTeam
+
+	if assisterRef != nil && (assisterRef.Name != "" || assisterRef.Shortcut != "") {
+		out.Assister = s.roster.ResolveByShortcut(*assisterRef)
+	}
+
+	if lastTouch != nil {
+		ref := lastTouch.Player
+		if ref == nil {
+			ref = lastTouch.PlayerLow
+		}
+		sp := pickFloat(lastTouch.Speed, lastTouch.SpeedLow)
+		var enrichedRef *EnrichedPlayer
+		if ref != nil {
+			enrichedRef = s.roster.ResolveByShortcut(*ref)
+		}
+		if enrichedRef != nil || sp != nil {
+			out.BallLastTouch = &enrichedBallLastTouch{
+				Player: enrichedRef,
+				Speed:  sp,
+			}
+		}
+		// Own-goal heuristic: if the last-touch player is on the
+		// conceding team, the goal was deflected/own-goaled. The richer
+		// _OwnGoal event ships in Phase 2 with score-delta verification;
+		// this flag is the cheap header.
+		if enrichedRef != nil && enrichedRef.Team == concedingTeam {
+			out.IsOwnGoal = true
+		}
+	}
+
+	b, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(b)
 }

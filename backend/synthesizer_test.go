@@ -97,6 +97,121 @@ func TestSynthesizer_StatfeedEvent_NoSecondaryTarget(t *testing.T) {
 	}
 }
 
+// TestSynthesizer_GoalScored replays the basic_match fixture and asserts
+// that the GoalScored row produces a _GoalScored with Scorer resolved,
+// scoringTeam=0, concedingTeam=1, and isOwnGoal=false.
+func TestSynthesizer_GoalScored(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/basic_match.jsonl", "_GoalScored")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _GoalScored, got %d", len(got))
+	}
+	ev := got[0]
+
+	scorer, ok := ev["scorer"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("scorer missing or wrong type: %T", ev["scorer"])
+	}
+	if scorer["id"] != "Steam|111|0" {
+		t.Errorf("scorer.id: want Steam|111|0, got %v", scorer["id"])
+	}
+	if got, want := ev["scoringTeam"].(float64), 0.0; got != want {
+		t.Errorf("scoringTeam: want %v, got %v", want, got)
+	}
+	if got, want := ev["concedingTeam"].(float64), 1.0; got != want {
+		t.Errorf("concedingTeam: want %v, got %v", want, got)
+	}
+	if isOwn, _ := ev["isOwnGoal"].(bool); isOwn {
+		t.Errorf("isOwnGoal: want false, got true")
+	}
+	if _, hasAssister := ev["assister"]; hasAssister {
+		t.Errorf("assister: should be omitted for solo goal")
+	}
+}
+
+// TestSynthesizer_GoalScored_OwnGoal asserts that a deflection by an
+// opposing team member sets isOwnGoal on the synthesized event.
+func TestSynthesizer_GoalScored_OwnGoal(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/own_goal.jsonl", "_GoalScored")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _GoalScored, got %d", len(got))
+	}
+	ev := got[0]
+	if isOwn, _ := ev["isOwnGoal"].(bool); !isOwn {
+		t.Errorf("isOwnGoal: want true, got false")
+	}
+	lt, ok := ev["ballLastTouch"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ballLastTouch missing or wrong type: %T", ev["ballLastTouch"])
+	}
+	bp, ok := lt["player"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ballLastTouch.player wrong type: %T", lt["player"])
+	}
+	if bp["name"] != "Bob" {
+		t.Errorf("ballLastTouch.player.name: want Bob, got %v", bp["name"])
+	}
+}
+
+// TestSynthesizer_GoalScored_DropsEmptyScorer mirrors the SDK guard:
+// GoalScored with empty Scorer.Name + Shortcut is dropped (RL re-fires
+// at round-restart with empty Scorer).
+func TestSynthesizer_GoalScored_DropsEmptyScorer(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	ch, cancel := bus.Subscribe(nil)
+	defer cancel()
+
+	synth.Feed([]byte(`{"Event":"GoalScored","Data":"{\"MatchGuid\":\"x\",\"Scorer\":{\"Name\":\"\",\"Shortcut\":\"\",\"TeamNum\":0}}"}`))
+
+	select {
+	case raw := <-ch:
+		t.Fatalf("expected no synthetic event, got: %s", raw)
+	default:
+		// pass
+	}
+}
+
+// TestSynthesizer_MatchEnded replays the basic_match fixture and asserts
+// that _MatchEnded carries WinnerTeamNum + winnerName + final scores.
+func TestSynthesizer_MatchEnded(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/basic_match.jsonl", "_MatchEnded")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _MatchEnded, got %d", len(got))
+	}
+	ev := got[0]
+
+	if got, want := ev["winnerTeamNum"].(float64), 0.0; got != want {
+		t.Errorf("winnerTeamNum: want %v, got %v", want, got)
+	}
+	if ev["winnerName"] != "Blue Team" {
+		t.Errorf("winnerName: want \"Blue Team\", got %v", ev["winnerName"])
+	}
+	// The fixture's final UpdateState has scoreBlue=1, scoreOrange=0.
+	if got, want := ev["scoreBlue"].(float64), 1.0; got != want {
+		t.Errorf("scoreBlue: want %v, got %v", want, got)
+	}
+	if got, want := ev["scoreOrange"].(float64), 0.0; got != want {
+		t.Errorf("scoreOrange: want %v, got %v", want, got)
+	}
+}
+
 // TestSynthesizer_BallHit replays the basic_match fixture and asserts
 // that the BallHit row produces a _BallHit with Alice resolved against
 // the roster.
