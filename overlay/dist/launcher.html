@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>RL Toolkit</title>
+  <link rel="stylesheet" href="launcher.css">
+</head>
+<body>
+  <header id="strip">
+    <div id="brand">RL</div>
+
+    <span id="conn" class="conn" data-status="connecting">connecting…</span>
+    <span id="ownership-badge" class="badge" hidden>external</span>
+
+    <span class="spacer"></span>
+
+    <label class="switch">
+      <input type="checkbox" id="overlay-toggle" />
+      <span class="track"></span>
+      <span class="label">Overlay</span>
+    </label>
+
+    <details id="overflow">
+      <summary>⋯</summary>
+      <ul>
+        <li><button data-cmd="restart_backend" id="restart-btn">Restart backend</button></li>
+        <li><button data-cmd="open_data_folder">Open data folder</button></li>
+        <li><button data-cmd="open_dashboard_in_browser">Open dashboard in browser</button></li>
+        <li class="sep"></li>
+        <li><button data-cmd="quit">Quit</button></li>
+      </ul>
+    </details>
+  </header>
+
+  <main id="body">
+    <div id="fallback" class="fallback" hidden>
+      <div class="msg" id="fallback-msg">Starting backend…</div>
+      <button id="fallback-retry" hidden>Retry</button>
+    </div>
+    <!-- The dashboard webview is embedded as a child WebviewWindow by the Rust side. -->
+  </main>
+
+  <script src="launcher.js" type="module"></script>
+</body>
+</html>
