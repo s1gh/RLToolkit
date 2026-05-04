@@ -339,6 +339,48 @@
     return '/events?events=' + encodeURIComponent(events);
   }
 
+  // Walk a synthetic-event payload and stamp `isMe` + `encounter` onto
+  // every EnrichedPlayer-shaped object found. Mutates in place — cheap
+  // and the payload isn't shared between subscribers (each one parses
+  // its own from SSE).
+  //
+  // Detection heuristic: an object is an EnrichedPlayer when it has
+  // string `id`, string `name`, number `team`, and boolean `isBot`.
+  // That's specific enough to skip diff/score/location objects that
+  // share a key or two but never all four.
+  function stampClientSideFields(node) {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const item of node) stampClientSideFields(item);
+      return;
+    }
+    if (
+      typeof node.id === 'string' &&
+      typeof node.name === 'string' &&
+      typeof node.team === 'number' &&
+      typeof node.isBot === 'boolean'
+    ) {
+      // Backend leaves both blank (see EnrichedPlayer in player_resolver.go).
+      // Stamp them so plugins reading synthetic events get the same
+      // identity/ledger info plugins reading raw events get from
+      // resolvePlayer(). Don't overwrite if already set — protects against
+      // future server-side computation.
+      if (node.isMe === undefined || node.isMe === false) {
+        node.isMe = identity._isMe(node.id);
+      }
+      if (node.encounter === undefined || node.encounter === null) {
+        const enc = node.id ? encounters.get(node.id) : null;
+        if (enc) node.encounter = enc;
+      }
+      // Players can themselves contain nested players (rare, but e.g.
+      // future _MatchSummary may grow a referredBy field), so keep walking.
+    }
+    for (const key of Object.keys(node)) {
+      const v = node[key];
+      if (v && typeof v === 'object') stampClientSideFields(v);
+    }
+  }
+
   // Dispatch a parsed envelope to the bus. Shared between the direct
   // EventSource path and the hosted-bus path — both paths see the same
   // wire shape (PascalCase or lowercase keys, synthetic _-prefixed
@@ -383,7 +425,14 @@
     // typed handlers receive the enriched shape verbatim. The server
     // emits these alongside their raw counterparts, never instead of —
     // direct-mode plugins still see GoalScored, BallHit, etc.
+    //
+    // Before delivering, walk the payload and stamp `isMe` + `encounter`
+    // onto every embedded EnrichedPlayer. Those two fields are inherently
+    // client-side state (depend on RLT.me.id and the per-user encounter
+    // ledger), so the backend leaves them blank and we patch them in here
+    // — same enrichment plugins get on raw events via resolvePlayer().
     if (typeof event === 'string' && event.length > 0 && event[0] === '_') {
+      stampClientSideFields(msg);
       bus.emit(event, msg);
       return;
     }
