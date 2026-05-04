@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -83,6 +84,8 @@ func runServe() {
 	client.AttachPhaseMachine(phaseMachine)
 	synth := NewSynthesizer(bus, roster)
 	synth.AttachPhaseMachine(phaseMachine)
+	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
+	synth.AttachDiscoveryStore(discoveries)
 	client.AttachSynthesizer(synth)
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
@@ -107,9 +110,27 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, client: client, lifecycle: lifecycle, overrides: overrides, config: cfg}
+	srv := &Server{bus: bus, store: store, plugins: pm, client: client, lifecycle: lifecycle, overrides: overrides, discoveries: discoveries, config: cfg}
 	go client.Run(ctx)
 	go lifecycle.Run(ctx)
+	// Periodically flush new Statfeed-name discoveries to disk. The store
+	// itself is debounced (no-op when nothing changed), so a tight tick
+	// is fine — every 5 seconds is well under any human-noticeable lag.
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				_ = discoveries.Flush()
+				return
+			case <-ticker.C:
+				if err := discoveries.Flush(); err != nil {
+					log.Printf("[discoveries] flush failed: %v", err)
+				}
+			}
+		}
+	}()
 
 	hs := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),

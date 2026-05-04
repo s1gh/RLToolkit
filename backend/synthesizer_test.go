@@ -624,6 +624,84 @@ func TestSynthesizer_OvertimeStarted(t *testing.T) {
 	}
 }
 
+// TestSynthesizer_UnknownStatfeed asserts that an out-of-registry
+// EventName produces _UnknownStatfeed (and known names do not).
+func TestSynthesizer_UnknownStatfeed(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	ch, cancel := bus.Subscribe(map[string]struct{}{"_UnknownStatfeed": {}})
+	defer cancel()
+
+	roster.Feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"u\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0}]}"}`))
+
+	// Known: should NOT produce _UnknownStatfeed.
+	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"u\",\"EventName\":\"Save\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}}"}`))
+	// Unknown: should fire _UnknownStatfeed.
+	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"u\",\"EventName\":\"NewExoticMove\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}}"}`))
+
+	count := 0
+	for {
+		select {
+		case raw := <-ch:
+			if extractEventName(raw) == "_UnknownStatfeed" {
+				count++
+				var ev map[string]interface{}
+				_ = json.Unmarshal(raw, &ev)
+				if ev["eventName"] != "NewExoticMove" {
+					t.Errorf("eventName: want NewExoticMove, got %v", ev["eventName"])
+				}
+			}
+		default:
+			goto done
+		}
+	}
+done:
+	if count != 1 {
+		t.Errorf("_UnknownStatfeed: want 1 (only NewExoticMove), got %d", count)
+	}
+}
+
+// TestStatfeedDiscoveryStore covers Record / All / Flush + reload.
+func TestStatfeedDiscoveryStore(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStatfeedDiscoveryStore(dir)
+
+	if firstA := store.Record("Foo"); !firstA {
+		t.Errorf("Record(Foo) first call: want true, got false")
+	}
+	if firstB := store.Record("Foo"); firstB {
+		t.Errorf("Record(Foo) second call: want false, got true")
+	}
+	store.Record("Bar")
+
+	all := store.All()
+	if len(all) != 2 {
+		t.Fatalf("All(): want 2, got %d", len(all))
+	}
+	// Look up Foo + check count.
+	var foo *StatfeedDiscovery
+	for _, d := range all {
+		if d.Name == "Foo" {
+			foo = d
+		}
+	}
+	if foo == nil || foo.Count != 2 {
+		t.Errorf("Foo count: want 2, got %v", foo)
+	}
+
+	// Flush + reload from disk.
+	if err := store.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	store2 := NewStatfeedDiscoveryStore(dir)
+	all2 := store2.All()
+	if len(all2) != 2 {
+		t.Errorf("reload: want 2 entries, got %d", len(all2))
+	}
+}
+
 // TestSynthesizer_GoalReplayContext asserts that GoalReplayStart
 // produces _GoalReplayContext with the most recent _GoalScored's
 // scorer + scoringTeam attached.

@@ -15,13 +15,14 @@ import (
 // and RLClient. It owns no goroutines of its own; long-lived per-request
 // goroutines (notably handleSSE) listen on r.Context().
 type Server struct {
-	bus       *EventBus
-	store     *DataStore
-	plugins   *PluginManager
-	client    *RLClient
-	lifecycle *LifecycleTracker
-	overrides *OverridesStore
-	config    Config
+	bus         *EventBus
+	store       *DataStore
+	plugins     *PluginManager
+	client      *RLClient
+	lifecycle   *LifecycleTracker
+	overrides   *OverridesStore
+	discoveries *StatfeedDiscoveryStore
+	config      Config
 }
 
 func (s *Server) routes() http.Handler {
@@ -33,6 +34,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/events", s.handleEventCatalog)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/lifecycle", s.handleLifecycle)
+	mux.HandleFunc("/api/statfeed-discoveries", s.handleStatfeedDiscoveries)
 	mux.HandleFunc("/api/metrics", s.handleMetrics)
 	mux.HandleFunc("/api/overlay/overrides", s.handleOverlayOverridesAll)
 	mux.HandleFunc("/api/overlay/overrides/", s.handleOverlayOverridesOne)
@@ -355,6 +357,18 @@ func (s *Server) handleLifecycle(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, s.lifecycle.Snapshot())
+}
+
+// handleStatfeedDiscoveries serves the persistent registry of unknown
+// Statfeed event names so the debug plugin / curl users can browse
+// what RL has emitted that isn't in the verified registry yet. Empty
+// list when the synthesizer wasn't started with a discovery store.
+func (s *Server) handleStatfeedDiscoveries(w http.ResponseWriter, _ *http.Request) {
+	if s.discoveries == nil {
+		writeJSON(w, []*StatfeedDiscovery{})
+		return
+	}
+	writeJSON(w, s.discoveries.All())
 }
 
 // handleMetrics exposes the event-bus telemetry: subscriber count,

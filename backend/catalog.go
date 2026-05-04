@@ -99,4 +99,12 @@ var EventCatalog = []EventCatalogEntry{
 	{Name: "_LifecyclePhaseChanged", Category: "lifecycle", Shape: "phase-transition", LivePhases: anyPhase, Desc: "Phase machine edge: from/to phase, phaseDurationSeconds, trigger event name. Fires on every gameplay-phase transition (lobby/countdown/live/paused/replay/podium/none).", Stability: "stable", Since: "1.1"},
 	{Name: "_GoalReplayContext", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on GoalReplayStart with the most recent cached _GoalScored payload, so plugins know which goal the replay is for without correlating themselves.", Stability: "provisional", Since: "1.1"},
 	{Name: "_MatchSummary", Category: "lifecycle", Shape: "match-summary", LivePhases: anyPhase, Desc: "Fires ~2s after MatchEnded (or on PodiumStart / MatchDestroyed, whichever first). Final scores, winner, MVP if it arrived, encounter ledger deltas.", Stability: "provisional", Since: "1.1"},
+
+	// ─── Discoverability (Phase 6) ────────────────────────────
+	// _UnknownStatfeed fires whenever a StatfeedEvent.EventName is not
+	// in the verified registry (see verifiedStatfeedNames in
+	// statfeed_discoveries.go). The persistent registry at
+	// /api/statfeed-discoveries records first/last-seen + counts so
+	// new names can be confirmed before being added to the verified set.
+	{Name: "_UnknownStatfeed", Category: "stat", Shape: "unknown-statfeed", LivePhases: anyPhase, Desc: "Statfeed.EventName not in the verified registry. Persisted to data/statfeed-discoveries.json for offline review.", Stability: "stable", Since: "1.1"},
 }

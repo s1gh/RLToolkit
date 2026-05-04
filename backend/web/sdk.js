@@ -1966,6 +1966,16 @@
       stability: 'provisional',
       since: '1.1',
     },
+    // Discoverability (Phase 6).
+    {
+      name: '_UnknownStatfeed',
+      category: 'stat',
+      shape: 'unknown-statfeed',
+      livePhases: '*',
+      desc: 'Statfeed.EventName not in the verified registry. Persisted to data/statfeed-discoveries.json — see /api/statfeed-discoveries.',
+      stability: 'stable',
+      since: '1.1',
+    },
   ];
 
   // Frozen views by category for the common "give me everything in group X" need.

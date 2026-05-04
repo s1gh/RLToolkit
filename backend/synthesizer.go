@@ -20,6 +20,12 @@ type Synthesizer struct {
 	// the gate, which is what the unit tests do.
 	phaseMachine *PhaseMachine
 
+	// discoveries is the persistent registry of unknown Statfeed names.
+	// Optional — when set, _UnknownStatfeed observations bump the
+	// per-name counter and the /api/statfeed-discoveries endpoint can
+	// return them.
+	discoveries *StatfeedDiscoveryStore
+
 	// teamsMu guards lastTeams + lastTick. Cached from the most recent
 	// UpdateState so _MatchEnded can resolve WinnerTeamNum to a name
 	// and Phase-4 diff emitters can compare current vs previous tick.
@@ -79,6 +85,14 @@ func NewSynthesizer(bus *EventBus, roster *RosterTracker) *Synthesizer {
 // AttachPhaseMachine wires the gameplay-phase tracker so emitters that
 // should only fire during real gameplay can gate on it. Call before Run.
 func (s *Synthesizer) AttachPhaseMachine(m *PhaseMachine) { s.phaseMachine = m }
+
+// AttachDiscoveryStore wires the persistent unknown-Statfeed registry.
+// Optional — without it, _UnknownStatfeed still publishes but no entry
+// is persisted to disk and the /api/statfeed-discoveries endpoint
+// returns an empty list.
+func (s *Synthesizer) AttachDiscoveryStore(store *StatfeedDiscoveryStore) {
+	s.discoveries = store
+}
 
 // teamRef is the slice of UpdateState.Game.Teams[] we cache for downstream
 // enrichment. Score is here for upcoming Phase-4 diff events; only Name
@@ -933,8 +947,12 @@ func (s *Synthesizer) onStatfeedEvent(raw []byte) {
 // emitStatfeedVariant fans the Statfeed variant out to its dedicated
 // _-prefixed event. Untracked variants (Goal, Win, MVP, Playmaker,
 // Savior, LowFive, HighFive — see the plan's Phase 3.3) are silently
-// skipped; the generic _StatfeedEvent already covered them.
+// skipped; the generic _StatfeedEvent already covered them. Names not
+// in the verified registry produce _UnknownStatfeed for discoverability.
 func (s *Synthesizer) emitStatfeedVariant(eventName, guid string, main, secondary *EnrichedPlayer) {
+	if _, known := verifiedStatfeedNames[eventName]; !known {
+		s.emitUnknownStatfeed(eventName, guid, main, secondary)
+	}
 	switch eventName {
 	case "Demolish":
 		s.emitPlayerDemolished(guid, main, secondary)
@@ -956,6 +974,31 @@ func (s *Synthesizer) emitStatfeedVariant(eventName, guid string, main, secondar
 		s.emitTouchVariant(guid, main, "_Clear")
 	case "BicycleHit":
 		s.emitTouchVariant(guid, main, "_BicycleHit")
+	}
+}
+
+// emitUnknownStatfeed publishes _UnknownStatfeed and bumps the
+// persistent discoveries store (if attached). The "first observation"
+// case logs once per name so a maintainer notices.
+func (s *Synthesizer) emitUnknownStatfeed(eventName, guid string, main, secondary *EnrichedPlayer) {
+	out := struct {
+		Event           string          `json:"Event"`
+		MatchGUID       string          `json:"matchGuid,omitempty"`
+		EventName       string          `json:"eventName"`
+		MainTarget      *EnrichedPlayer `json:"mainTarget,omitempty"`
+		SecondaryTarget *EnrichedPlayer `json:"secondaryTarget,omitempty"`
+	}{
+		Event:           "_UnknownStatfeed",
+		MatchGUID:       guid,
+		EventName:       eventName,
+		MainTarget:      main,
+		SecondaryTarget: secondary,
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
+	}
+	if s.discoveries != nil {
+		s.discoveries.Record(eventName)
 	}
 }
 
