@@ -19,6 +19,8 @@ pub struct LauncherSettings {
     pub window_h: Option<i32>,
     pub backend_port: Option<u16>,
     pub quit_hotkey: Option<String>,
+    pub plugins_dir: Option<String>,
+    pub data_dir: Option<String>,
 }
 
 pub struct SettingsStore {

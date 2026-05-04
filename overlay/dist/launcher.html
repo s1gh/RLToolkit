@@ -26,6 +26,7 @@
         <li><button data-cmd="restart_backend" id="restart-btn">Restart backend</button></li>
         <li><button data-cmd="open_data_folder">Open data folder</button></li>
         <li><button data-cmd="open_dashboard_in_browser">Open dashboard in browser</button></li>
+        <li><button data-cmd="open_settings" id="settings-btn">Settings</button></li>
         <li class="sep"></li>
         <li><button data-cmd="quit">Quit</button></li>
       </ul>
@@ -42,6 +43,32 @@
       <button id="fallback-retry" hidden>Retry</button>
     </div>
   </main>
+
+  <div id="settings-modal" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <h2>Settings</h2>
+      <div class="field">
+        <label for="plugins-dir">Plugins directory</label>
+        <div class="path-input">
+          <input type="text" id="plugins-dir" placeholder="./plugins (default)">
+          <button type="button" data-pick="plugins-dir">Browse…</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="data-dir">Data directory</label>
+        <div class="path-input">
+          <input type="text" id="data-dir" placeholder="./data (default)">
+          <button type="button" data-pick="data-dir">Browse…</button>
+        </div>
+      </div>
+      <p class="hint" id="settings-hint" hidden></p>
+      <div class="modal-actions">
+        <button id="settings-cancel" class="btn-secondary">Cancel</button>
+        <button id="settings-save" class="btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
 
   <script src="launcher.js" defer></script>
 </body>

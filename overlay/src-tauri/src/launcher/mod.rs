@@ -17,6 +17,7 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("launcher") {
                 let _ = w.unminimize();
@@ -53,6 +54,8 @@ pub fn run(args: Args) {
             ipc::open_data_folder,
             ipc::open_dashboard_in_browser,
             ipc::quit,
+            ipc::get_settings,
+            ipc::save_settings,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -82,6 +85,13 @@ pub fn run(args: Args) {
                     .unwrap_or_else(|_| std::path::PathBuf::from("."))
                     .join("data")
                     .join("launcher.log");
+                let (plugins_dir, data_dir) = {
+                    use tauri::Manager;
+                    let state: tauri::State<LauncherState> = app_for_probe.state();
+                    let ctx = state.lock().unwrap();
+                    let s = ctx.settings.load();
+                    (s.plugins_dir.clone(), s.data_dir.clone())
+                };
                 let url = format!("{}/api/status", toolkit_url.trim_end_matches('/'));
                 let outcome = probe_status(&url, std::time::Duration::from_millis(500));
 
@@ -91,7 +101,7 @@ pub fn run(args: Args) {
                         BackendOwnership::Attached
                     }
                     ProbeOutcome::Unreachable => {
-                        match spawn_sidecar(&app_for_probe, log_path.clone()) {
+                        match spawn_sidecar(&app_for_probe, log_path.clone(), plugins_dir, data_dir) {
                             Ok(b) => {
                                 set_attached(&app_for_probe, false);
                                 b

@@ -116,6 +116,12 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
         return Err("backend not owned by launcher".into());
     }
 
+    let (plugins_dir, data_dir) = {
+        let ctx = state.lock().unwrap();
+        let s = ctx.settings.load();
+        (s.plugins_dir.clone(), s.data_dir.clone())
+    };
+
     if let Some(handle) = app.try_state::<crate::launcher::BackendHandle>() {
         let mut slot = handle.0.lock().unwrap();
         if let Some(mut owned) = slot.take() {
@@ -125,7 +131,7 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("data")
             .join("launcher.log");
-        match spawn_sidecar(&app, log_path) {
+        match spawn_sidecar(&app, log_path, plugins_dir, data_dir) {
             Ok(new_owned) => *slot = Some(new_owned),
             Err(e) => return Err(e),
         }
@@ -154,4 +160,63 @@ pub fn open_dashboard_in_browser(app: AppHandle, state: State<LauncherState>) ->
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct LauncherSettingsView {
+    pub plugins_dir: Option<String>,
+    pub data_dir: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_settings(state: State<LauncherState>) -> LauncherSettingsView {
+    let ctx = state.lock().unwrap();
+    let s = ctx.settings.load();
+    LauncherSettingsView {
+        plugins_dir: s.plugins_dir,
+        data_dir: s.data_dir,
+    }
+}
+
+#[tauri::command]
+pub fn save_settings(
+    plugins_dir: Option<String>,
+    data_dir: Option<String>,
+    app: AppHandle,
+    state: State<LauncherState>,
+) -> Result<bool, String> {
+    use crate::launcher::backend::spawn_sidecar;
+
+    // Persist to disk.
+    let attached = {
+        let ctx = state.lock().unwrap();
+        let mut s = ctx.settings.load();
+        s.plugins_dir = plugins_dir.clone().filter(|p| !p.trim().is_empty());
+        s.data_dir = data_dir.clone().filter(|p| !p.trim().is_empty());
+        ctx.settings.save(&s).map_err(|e| e.to_string())?;
+        ctx.attached
+    };
+
+    // If we don't own the backend, just signal that the user must restart.
+    if attached {
+        return Ok(false);
+    }
+
+    // Otherwise kill+respawn the sidecar with the new flags.
+    use tauri::Manager;
+    if let Some(handle) = app.try_state::<crate::launcher::BackendHandle>() {
+        let mut slot = handle.0.lock().unwrap();
+        if let Some(mut owned) = slot.take() {
+            owned.terminate(std::time::Duration::from_secs(2));
+        }
+        let log_path = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("data")
+            .join("launcher.log");
+        match spawn_sidecar(&app, log_path, plugins_dir, data_dir) {
+            Ok(new_owned) => *slot = Some(new_owned),
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(true)
 }

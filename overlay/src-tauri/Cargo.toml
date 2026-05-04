@@ -33,6 +33,7 @@ dirs = "5"
 tauri-plugin-shell = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
 url = "2"
 
 # Linux-only: layer-shell so the widget lives on the overlay layer

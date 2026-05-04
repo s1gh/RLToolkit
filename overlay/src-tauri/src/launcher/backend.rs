@@ -160,12 +160,31 @@ fn pid_alive(pid: u32) -> bool {
 /// Spawn the bundled `rl-toolkit` sidecar. Returns the running child wrapped
 /// in `BackendOwnership::SpawnedSidecar`. Stdout/stderr are piped to the
 /// launcher's log file at `log_path`.
-pub fn spawn_sidecar(app: &AppHandle, log_path: std::path::PathBuf) -> Result<BackendOwnership, String> {
+pub fn spawn_sidecar(
+    app: &AppHandle,
+    log_path: std::path::PathBuf,
+    plugins_dir: Option<String>,
+    data_dir: Option<String>,
+) -> Result<BackendOwnership, String> {
     use std::io::Write;
-    let cmd = app
+    let mut cmd = app
         .shell()
         .sidecar("rl-toolkit")
         .map_err(|e| format!("locate sidecar: {e}"))?;
+
+    let mut args = Vec::<String>::new();
+    if let Some(p) = plugins_dir {
+        args.push("-plugins".to_string());
+        args.push(p);
+    }
+    if let Some(d) = data_dir {
+        args.push("-data".to_string());
+        args.push(d);
+    }
+    if !args.is_empty() {
+        cmd = cmd.args(args);
+    }
+
     let (mut rx, child) = cmd.spawn().map_err(|e| format!("spawn sidecar: {e}"))?;
 
     if let Some(parent) = log_path.parent() {
