@@ -115,6 +115,40 @@ func stubToEnriched(ref ShortcutRef) *EnrichedPlayer {
 }
 
 // isBotId returns true for platform ids that represent AI/bot players.
+// Bot ids are minted by canonicalizeBotId at the wire-decode boundary;
+// see that function for why we don't trust RL's raw bot id directly.
 func isBotId(id string) bool {
 	return strings.HasPrefix(id, "Bot|") || strings.HasPrefix(id, "bot|")
+}
+
+// rlBotPrimaryID is the literal PrimaryId Rocket League ships for every
+// AI player. RL doesn't differentiate bots in the wire — every bot in
+// every match arrives with this same string, with only the Name field
+// distinguishing them. Without rewriting, downstream code (encounter
+// ledger, roster diffs, synthetic-event resolution) collapses every
+// bot into one phantom player.
+const rlBotPrimaryID = "Unknown|0|0"
+
+// canonicalizeBotId rewrites RL's collision-prone bot id into a stable
+// per-bot id derived from the Name. Real-player ids pass through
+// unchanged. Apply at every UpdateState wire-decode site so every
+// downstream consumer sees one consistent id per bot.
+//
+// The rewrite uses "Bot|<name>" — Name is RL's only stable per-bot
+// identifier across ticks within a match (RL keeps bot names stable
+// for the duration of a match). A bot named "Roundhouse" becomes
+// id="Bot|Roundhouse"; a different bot "Merlin" gets id="Bot|Merlin"
+// even though both arrive on the wire with PrimaryId="Unknown|0|0".
+//
+// If RL ships a bot with no name (shouldn't happen but defensive),
+// the original Unknown|0|0 is preserved — better one collision than
+// silently coining a new "Bot|" id every tick.
+func canonicalizeBotId(primaryID, name string) string {
+	if primaryID != rlBotPrimaryID {
+		return primaryID
+	}
+	if name == "" {
+		return primaryID
+	}
+	return "Bot|" + name
 }

@@ -332,7 +332,7 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 			boost = &b
 		}
 		players = append(players, tickPlayer{
-			id:         p.PrimaryID,
+			id:         canonicalizeBotId(p.PrimaryID, p.Name),
 			name:       p.Name,
 			team:       p.TeamNum,
 			score:      p.Score,

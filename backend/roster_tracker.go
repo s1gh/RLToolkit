@@ -166,6 +166,14 @@ func (t *RosterTracker) onUpdateState(raw []byte) {
 		}
 	}
 
+	// Mint per-bot ids before anything downstream uses PrimaryID.
+	// Without this, RL's "every bot is Unknown|0|0" wire shape would
+	// collapse multiple bots into one fingerprint entry, one ledger
+	// row, one synthetic-event subject — see canonicalizeBotId.
+	for i := range players {
+		players[i].PrimaryID = canonicalizeBotId(players[i].PrimaryID, players[i].Name)
+	}
+
 	// Build the fingerprint: guid + sorted (id, team) pairs. Sorting
 	// makes the comparison order-independent — RL doesn't guarantee
 	// stable ordering across ticks, and a reorder shouldn't trigger

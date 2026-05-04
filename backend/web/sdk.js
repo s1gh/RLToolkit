@@ -615,15 +615,15 @@
   }
 
   // ─── Bot detection ─────────────────────────────────────────
-  // RL ships every CPU-controlled player under the same sentinel
-  // PrimaryId. We don't try to fingerprint individual bots — they share
-  // one record in the ledger and one row in any roster scan. Plugins
-  // should treat `Player.isBot` as the canonical check; the literal
-  // string below is internal and may change if RL ever revises its
-  // wire format.
-  const BOT_PRIMARY_ID = 'Unknown|0|0';
+  // RL ships every CPU-controlled player under one sentinel PrimaryId
+  // ("Unknown|0|0"). The backend rewrites that to "Bot|<name>" at the
+  // wire-decode boundary (see canonicalizeBotId in player_resolver.go),
+  // so by the time anything reaches the SDK every bot has a unique id
+  // and `isBotId` matches the same prefix the backend's isBotId checks.
+  // This means each bot gets its own encounter-ledger row, its own
+  // roster slot, its own synthetic-event subject — no collisions.
   function isBotId(id) {
-    return id === BOT_PRIMARY_ID;
+    return typeof id === 'string' && id.startsWith('Bot|');
   }
 
   // ─── Identity (shared across all plugins) ──────────────────

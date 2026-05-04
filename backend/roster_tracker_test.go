@@ -281,6 +281,93 @@ func TestRosterTracker_LowercaseWire(t *testing.T) {
 	}
 }
 
+// TestRosterTracker_RewritesBotIds asserts that when RL ships multiple
+// bots all under "Unknown|0|0", the tracker mints distinct per-bot ids
+// derived from the Name. Without this, every bot collapses into one
+// roster entry / one ledger row / one synthetic-event subject.
+func TestRosterTracker_RewritesBotIds(t *testing.T) {
+	bus := NewEventBus()
+	tracker := NewRosterTracker(bus)
+	ch, cancel := bus.Subscribe(nil)
+	defer cancel()
+
+	tracker.Feed(envelope("UpdateState", map[string]any{
+		"MatchGuid": "bot-match",
+		"Players": []map[string]any{
+			{"PrimaryId": "Steam|111|0", "Name": "s1gh", "TeamNum": 0},
+			{"PrimaryId": "Unknown|0|0", "Name": "Roundhouse", "TeamNum": 1},
+			{"PrimaryId": "Unknown|0|0", "Name": "Merlin", "TeamNum": 1},
+		},
+	}))
+
+	got := drainRoster(t, ch)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 _RosterChanged, got %d", len(got))
+	}
+	if len(got[0].Players) != 3 {
+		t.Fatalf("expected 3 players in payload, got %d", len(got[0].Players))
+	}
+
+	// Build an id-set; every player should land under a distinct id.
+	ids := map[string]bool{}
+	var roundhouseID, merlinID string
+	for _, p := range got[0].Players {
+		ids[p.ID] = true
+		switch p.Name {
+		case "Roundhouse":
+			roundhouseID = p.ID
+		case "Merlin":
+			merlinID = p.ID
+		}
+	}
+	if len(ids) != 3 {
+		t.Errorf("expected 3 distinct ids, got %d: %v", len(ids), ids)
+	}
+	if roundhouseID != "Bot|Roundhouse" {
+		t.Errorf("Roundhouse id: want \"Bot|Roundhouse\", got %q", roundhouseID)
+	}
+	if merlinID != "Bot|Merlin" {
+		t.Errorf("Merlin id: want \"Bot|Merlin\", got %q", merlinID)
+	}
+	// Real player should pass through untouched.
+	for _, p := range got[0].Players {
+		if p.Name == "s1gh" && p.ID != "Steam|111|0" {
+			t.Errorf("real-player id mutated: got %q", p.ID)
+		}
+	}
+	// Bots must have IsBot true (synthetic events read this field).
+	for _, p := range got[0].Players {
+		if (p.Name == "Roundhouse" || p.Name == "Merlin") && !p.IsBot {
+			t.Errorf("%s should have IsBot=true", p.Name)
+		}
+		if p.Name == "s1gh" && p.IsBot {
+			t.Errorf("s1gh should have IsBot=false")
+		}
+	}
+}
+
+// TestCanonicalizeBotId covers the boundary helper directly.
+func TestCanonicalizeBotId(t *testing.T) {
+	cases := []struct {
+		name     string
+		inID     string
+		inName   string
+		want     string
+	}{
+		{"real player passthrough", "Steam|111|0", "Alice", "Steam|111|0"},
+		{"bot with name → minted", "Unknown|0|0", "Roundhouse", "Bot|Roundhouse"},
+		{"bot without name → preserved", "Unknown|0|0", "", "Unknown|0|0"},
+		{"empty id passthrough", "", "Whatever", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := canonicalizeBotId(c.inID, c.inName); got != c.want {
+				t.Errorf("canonicalizeBotId(%q, %q) = %q, want %q", c.inID, c.inName, got, c.want)
+			}
+		})
+	}
+}
+
 func TestRosterTracker_DoesntStallOnBus(t *testing.T) {
 	// Sanity check — feeding many packets should never block. The
 	// underlying bus drops slow subscribers rather than backpressure.
