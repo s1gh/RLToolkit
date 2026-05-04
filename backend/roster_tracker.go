@@ -78,20 +78,23 @@ func (t *RosterTracker) Feed(raw []byte) {
 }
 
 // rosterPlayer is the per-player payload shipped on _RosterChanged.
-// Same field set the SDK reads when it builds a match view from
-// UpdateState, minus the fast-changing physics fields. Encounter
-// counts, isMe, aliases — that's all client-side state the SDK adds
-// after receiving this event.
+// Same shape as EnrichedPlayer (player_resolver.go) so synthetic events
+// look identical wherever a player appears — _PlayerDemolished.attacker,
+// _GoalScored.scorer, _RosterChanged.players[i] all share fields. The
+// SDK's stampClientSideFields walker stamps isMe/encounter on every
+// EnrichedPlayer it finds in a synthetic payload, so we leave those
+// blank server-side (they're inherently per-user state).
 type rosterPlayer struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Team     int    `json:"team"`
 	Platform string `json:"platform,omitempty"`
+	IsBot    bool   `json:"isBot"`
 }
 
 type rosterEvent struct {
 	Event     string         `json:"Event"`
-	MatchGUID string         `json:"match_guid"`
+	MatchGUID string         `json:"matchGuid,omitempty"`
 	Players   []rosterPlayer `json:"players"`
 }
 
@@ -183,6 +186,7 @@ func (t *RosterTracker) onUpdateState(raw []byte) {
 			Name:     p.Name,
 			Team:     p.TeamNum,
 			Platform: platformFromID(p.PrimaryID),
+			IsBot:    isBotId(p.PrimaryID),
 		})
 	}
 	t.mu.Unlock()
@@ -225,6 +229,7 @@ func (t *RosterTracker) publish(guid string, players []updateStatePlayer) {
 			Name:     p.Name,
 			Team:     p.TeamNum,
 			Platform: platformFromID(p.PrimaryID),
+			IsBot:    isBotId(p.PrimaryID),
 		})
 	}
 	b, err := json.Marshal(rosterEvent{

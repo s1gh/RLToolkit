@@ -953,6 +953,12 @@
     // null because the roster payload doesn't carry them; if a plugin
     // subscribes to both onRoster and onTick/onMatch the next
     // UpdateState will overwrite with the full physics state.
+    //
+    // Each entry in `list` is a backend-enriched player: the
+    // {id, name, team, platform, isBot} shape that every synthetic
+    // event ships. We still compute encounterCount/aliases here
+    // (per-user ledger state the backend can't know) and isMe is
+    // already stamped by stampClientSideFields() upstream.
     function buildFromRoster(guid, list) {
       const players = list.map((p) => {
         const id = p.id || '';
@@ -962,8 +968,8 @@
           id,
           name,
           team: p.team | 0,
-          isMe: identity._isMe(id),
-          isBot: isBotId(id),
+          isMe: p.isMe === true,
+          isBot: p.isBot === true,
           score: 0,
           goals: 0,
           assists: 0,
@@ -986,7 +992,7 @@
           aliases: enc ? enc.names.filter((n) => n !== name) : [],
           firstSeen: enc ? enc.first_seen : null,
           lastSeen: enc ? enc.last_seen : null,
-          platform: p.platform || (id ? id.split('|')[0] : '?'),
+          platform: p.platform || '',
           // No raw RL frame available on a roster-only build. Stash a
           // minimal stub mimicking the RL Players shape so recordRoster
           // (which reads cur.raw.Players for ledger writes) keeps
@@ -1045,7 +1051,7 @@
       if (!env) return;
       // The synthetic envelope arrives with top-level fields, not the
       // standard {Event, Data} shape — see backend/roster_tracker.go.
-      const guid = env.match_guid || env.MatchGUID || 'local';
+      const guid = env.matchGuid || env.match_guid || env.MatchGUID || 'local';
       const list = Array.isArray(env.players) ? env.players : [];
       cur = buildFromRoster(guid, list);
 
