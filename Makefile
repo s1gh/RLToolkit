@@ -83,8 +83,21 @@ check:
 # Build the combined launcher installer for the current host.
 # Cross-compilation requires per-target Go builds; do those manually
 # (e.g. `GOOS=windows GOARCH=amd64 go build -o ...rl-toolkit-x86_64-pc-windows-msvc.exe`).
+#
+# Two recipe variants because the host shell differs by OS:
+#   - Windows: cmd.exe via the `OS=Windows_NT` env var. Uses for /F + cd /d.
+#   - Linux/macOS: POSIX sh. Uses $(...) command substitution.
+ifeq ($(OS),Windows_NT)
+launcher:
+	@for /f "tokens=2" %%i in ('rustc -vV ^| findstr /B "host:"') do @( \
+	  echo host triple: %%i && \
+	  cd backend && go build -o ../overlay/src-tauri/binaries/rl-toolkit-%%i.exe . && \
+	  cd ../overlay/src-tauri && cargo tauri build \
+	)
+else
 launcher:
 	@triple=$$(rustc -vV | sed -n 's/host: //p'); \
 	  echo "host triple: $$triple"; \
 	  cd backend && go build -o ../overlay/src-tauri/binaries/rl-toolkit-$$triple . && \
 	  cd ../overlay/src-tauri && cargo tauri build
+endif
