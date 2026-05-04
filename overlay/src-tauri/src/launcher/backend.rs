@@ -159,25 +159,36 @@ fn pid_alive(pid: u32) -> bool {
 
 /// Spawn the bundled `rl-toolkit` sidecar. Returns the running child wrapped
 /// in `BackendOwnership::SpawnedSidecar`. Stdout/stderr are piped to the
-/// launcher's log file (see `launcher::ipc::log_path`).
-pub fn spawn_sidecar(app: &AppHandle) -> Result<BackendOwnership, String> {
+/// launcher's log file at `log_path`.
+pub fn spawn_sidecar(app: &AppHandle, log_path: std::path::PathBuf) -> Result<BackendOwnership, String> {
+    use std::io::Write;
     let cmd = app
         .shell()
         .sidecar("rl-toolkit")
         .map_err(|e| format!("locate sidecar: {e}"))?;
-    let (mut rx, child) = cmd
-        .spawn()
-        .map_err(|e| format!("spawn sidecar: {e}"))?;
+    let (mut rx, child) = cmd.spawn().map_err(|e| format!("spawn sidecar: {e}"))?;
 
-    // Drain the sidecar's stdout/stderr asynchronously so the OS pipe
-    // buffer never back-pressures the Go process. For v1 we just discard;
-    // a future task wires this to data/launcher.log.
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .ok();
+
     tauri::async_runtime::spawn(async move {
+        let mut log = log_file;
         while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(_) | CommandEvent::Stderr(_) => {}
+            let line: Option<Vec<u8>> = match event {
+                CommandEvent::Stdout(b) => Some(b),
+                CommandEvent::Stderr(b) => Some(b),
                 CommandEvent::Terminated(_) => break,
-                _ => {}
+                _ => None,
+            };
+            if let (Some(buf), Some(f)) = (line, log.as_mut()) {
+                let _ = f.write_all(&buf);
+                let _ = f.write_all(b"\n");
             }
         }
     });

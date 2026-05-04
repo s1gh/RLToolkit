@@ -76,6 +76,10 @@ pub fn run(args: Args) {
             let app_for_probe = handle.clone();
             std::thread::spawn(move || {
                 use crate::launcher::backend::{probe_status, spawn_sidecar, BackendOwnership, ProbeOutcome};
+                let log_path = std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    .join("data")
+                    .join("launcher.log");
                 let url = format!("{}/api/status", toolkit_url.trim_end_matches('/'));
                 let outcome = probe_status(&url, std::time::Duration::from_millis(500));
 
@@ -85,7 +89,7 @@ pub fn run(args: Args) {
                         BackendOwnership::Attached
                     }
                     ProbeOutcome::Unreachable => {
-                        match spawn_sidecar(&app_for_probe) {
+                        match spawn_sidecar(&app_for_probe, log_path.clone()) {
                             Ok(b) => {
                                 set_attached(&app_for_probe, false);
                                 b

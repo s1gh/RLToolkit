@@ -121,7 +121,11 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
         if let Some(mut owned) = slot.take() {
             owned.terminate(std::time::Duration::from_secs(2));
         }
-        match spawn_sidecar(&app) {
+        let log_path = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("data")
+            .join("launcher.log");
+        match spawn_sidecar(&app, log_path) {
             Ok(new_owned) => *slot = Some(new_owned),
             Err(e) => return Err(e),
         }
