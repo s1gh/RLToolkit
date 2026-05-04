@@ -239,6 +239,18 @@ Every typed payload includes the original RL envelope under `.raw` if you
 need access to a field the SDK didn't surface. `matchGuid` (when
 present) lets you correlate events that fired in the same match.
 
+> **Heads up — the SDK no longer normalizes `GoalScored`, `BallHit`,
+> `CrossbarHit`, `StatfeedEvent`, or `MatchEnded`.** Subscribing to
+> those raw event names in `events: { ... }` is now a no-op (the wire
+> event still flows on the bus but the SDK doesn't reshape it).
+> Use the synthetic equivalents (`_GoalScored`, `_BallHit`,
+> `_CrossbarHit`, `_StatfeedEvent`, `_MatchEnded`) which carry richer
+> data — see [Synthetic events (backend-enriched)](#synthetic-events-backend-enriched).
+> The payload shapes documented in this section are kept for
+> reference; the synthetic equivalents share the same field names
+> wherever possible (`scorer`, `assister`, `mainTarget`, etc.) so the
+> migration is mostly a name swap.
+
 ##### `UpdateState` / `onTick(state)` / `onMatch(state)`
 
 The richest payload — a fully enriched view of the current match.
