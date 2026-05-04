@@ -8,6 +8,7 @@ const conn = $("#conn");
 const ownership = $("#ownership-badge");
 const overlayToggle = $("#overlay-toggle");
 const restartBtn = $("#restart-btn");
+const toggleBackendBtn = $("#toggle-backend-btn");
 const fallback = document.getElementById("fallback");
 const fallbackMsg = document.getElementById("fallback-msg");
 const fallbackRetry = document.getElementById("fallback-retry");
@@ -32,12 +33,19 @@ async function refreshStatus() {
   restartBtn.disabled = s.attached;
   overlayToggle.checked = !!s.overlay_enabled;
 
+  if (toggleBackendBtn) {
+    toggleBackendBtn.disabled = s.attached;
+    toggleBackendBtn.textContent = s.stopped_by_user ? "Start backend" : "Stop backend";
+  }
+
   if (s.body_state === "dashboard") {
     fallback.hidden = true;
   } else {
     fallback.hidden = false;
     fallbackMsg.textContent = s.message || "Backend not responding";
     fallbackRetry.hidden = s.body_state === "starting";
+    fallbackRetry.textContent = s.body_state === "stopped" ? "Start" : "Retry";
+    fallbackRetry.dataset.action = s.body_state === "stopped" ? "start" : "restart";
   }
 
   document.getElementById("tray-banner").hidden = !!s.tray_ok;
@@ -71,7 +79,10 @@ async function reloadDashboard() {
   iframe.src = `${url}${sep}_t=${Date.now()}`;
 }
 
-fallbackRetry.addEventListener("click", () => invoke("restart_backend").catch(() => {}));
+fallbackRetry.addEventListener("click", () => {
+  const cmd = fallbackRetry.dataset.action === "start" ? "start_backend" : "restart_backend";
+  invoke(cmd).catch(() => {});
+});
 
 overlayToggle.addEventListener("change", e => {
   invoke("toggle_overlay", { enabled: e.target.checked }).catch(() => {});
@@ -82,6 +93,14 @@ document.querySelectorAll("[data-cmd]").forEach(btn => {
     document.getElementById("overflow")?.removeAttribute("open");
     if (btn.dataset.cmd === "open_settings") {
       await openSettings();
+      return;
+    }
+    if (btn.dataset.cmd === "toggle_backend") {
+      // Dispatch to start_backend or stop_backend based on current label.
+      const cmd = btn.textContent.trim().toLowerCase().startsWith("start")
+        ? "start_backend"
+        : "stop_backend";
+      invoke(cmd).catch(() => {});
       return;
     }
     invoke(btn.dataset.cmd).catch(() => {});

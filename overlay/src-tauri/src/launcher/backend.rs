@@ -56,13 +56,17 @@ use tauri_plugin_shell::ShellExt;
 /// Tracks who started the running backend. `SpawnedSidecar` holds a real
 /// `tauri_plugin_shell` child (production); `SpawnedRaw` holds a
 /// `std::process::Child` (integration tests using a fake binary). `Attached`
-/// and `Unavailable` are no-ops on terminate.
+/// and `Unavailable` are no-ops on terminate. `StoppedByUser` is a deliberate
+/// stop the user requested — distinct from `Unavailable` (which means we
+/// tried and gave up) so the UI can show "Start backend" rather than
+/// "Backend crashed".
 #[derive(Debug)]
 pub enum BackendOwnership {
     SpawnedSidecar(CommandChild),
     SpawnedRaw(std::process::Child),
     Attached,
     Unavailable,
+    StoppedByUser,
 }
 
 // Convenience constructor for tests.
@@ -98,7 +102,9 @@ impl BackendOwnership {
                     eprintln!("[launcher] sidecar still alive after {grace:?}");
                 }
             }
-            BackendOwnership::Attached | BackendOwnership::Unavailable => {}
+            BackendOwnership::Attached
+            | BackendOwnership::Unavailable
+            | BackendOwnership::StoppedByUser => {}
         }
     }
 

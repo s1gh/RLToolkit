@@ -42,6 +42,7 @@ pub fn run(args: Args) {
         attached: false,
         starting: true,
         tray_ok: true,
+        stopped_by_user: false,
     };
 
     install_plugins(tauri::Builder::default())
@@ -51,6 +52,8 @@ pub fn run(args: Args) {
             ipc::get_toolkit_url,
             ipc::toggle_overlay,
             ipc::restart_backend,
+            ipc::stop_backend,
+            ipc::start_backend,
             ipc::open_data_folder,
             ipc::open_dashboard_in_browser,
             ipc::open_external_url,

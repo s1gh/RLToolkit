@@ -13,6 +13,9 @@ pub struct LauncherCtx {
     pub attached: bool,
     pub starting: bool,
     pub tray_ok: bool,
+    /// True when the user explicitly stopped the backend via Stop. Distinct
+    /// from "crashed" so the UI shows "Start backend" instead of "Restart".
+    pub stopped_by_user: bool,
 }
 
 pub type LauncherState = Mutex<LauncherCtx>;
@@ -25,6 +28,7 @@ pub enum BodyState {
     NotResponding,
     Crashed,
     PortConflict,
+    Stopped,
 }
 
 #[derive(Serialize)]
@@ -36,6 +40,7 @@ pub struct StatusView {
     pub body_state: BodyState,
     pub message: Option<String>,
     pub tray_ok: bool,
+    pub stopped_by_user: bool,
 }
 
 #[tauri::command]
@@ -51,18 +56,22 @@ pub fn get_status(state: State<LauncherState>) -> StatusView {
         std::time::Duration::from_millis(500),
     );
 
-    let (body_state, message) = match (&outcome, ctx.starting, ctx.attached) {
-        (ProbeOutcome::Toolkit, _, _) => (BodyState::Dashboard, None),
-        (_, true, _) => (BodyState::Starting, Some("Starting backend…".to_string())),
-        (ProbeOutcome::Unrelated, _, _) => (
+    let (body_state, message) = match (&outcome, ctx.starting, ctx.attached, ctx.stopped_by_user) {
+        (ProbeOutcome::Toolkit, _, _, _) => (BodyState::Dashboard, None),
+        (_, true, _, _) => (BodyState::Starting, Some("Starting backend…".to_string())),
+        (ProbeOutcome::Unrelated, _, _, _) => (
             BodyState::PortConflict,
             Some("Port 8080 is already in use by another application.".to_string()),
         ),
-        (ProbeOutcome::Unreachable, _, true) => (
+        (ProbeOutcome::Unreachable, _, _, true) => (
+            BodyState::Stopped,
+            Some("Backend stopped.".to_string()),
+        ),
+        (ProbeOutcome::Unreachable, _, true, _) => (
             BodyState::NotResponding,
             Some("Backend not responding.".to_string()),
         ),
-        (ProbeOutcome::Unreachable, _, false) => (
+        (ProbeOutcome::Unreachable, _, false, _) => (
             BodyState::Crashed,
             Some("Backend crashed — Restart.".to_string()),
         ),
@@ -76,6 +85,7 @@ pub fn get_status(state: State<LauncherState>) -> StatusView {
         body_state,
         message,
         tray_ok: ctx.tray_ok,
+        stopped_by_user: ctx.stopped_by_user,
     }
 }
 
@@ -132,7 +142,70 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
             .join("data")
             .join("launcher.log");
         match spawn_sidecar(&app, log_path, plugins_dir, data_dir) {
-            Ok(new_owned) => *slot = Some(new_owned),
+            Ok(new_owned) => {
+                *slot = Some(new_owned);
+                drop(slot);
+                state.lock().unwrap().stopped_by_user = false;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+/// Stop the running backend. Errors when attached (we don't own it).
+#[tauri::command]
+pub fn stop_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), String> {
+    use crate::launcher::backend::BackendOwnership;
+    use tauri::Manager;
+
+    if state.lock().unwrap().attached {
+        return Err("backend not owned by launcher".into());
+    }
+
+    if let Some(handle) = app.try_state::<crate::launcher::BackendHandle>() {
+        let mut slot = handle.0.lock().unwrap();
+        if let Some(mut owned) = slot.take() {
+            owned.terminate(std::time::Duration::from_secs(2));
+        }
+        *slot = Some(BackendOwnership::StoppedByUser);
+        drop(slot);
+        state.lock().unwrap().stopped_by_user = true;
+    }
+    Ok(())
+}
+
+/// Start the backend. Used after stop_backend; spawns a fresh sidecar.
+#[tauri::command]
+pub fn start_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), String> {
+    use crate::launcher::backend::spawn_sidecar;
+    use tauri::Manager;
+
+    if state.lock().unwrap().attached {
+        return Err("backend not owned by launcher".into());
+    }
+
+    let (plugins_dir, data_dir) = {
+        let ctx = state.lock().unwrap();
+        let s = ctx.settings.load();
+        (s.plugins_dir.clone(), s.data_dir.clone())
+    };
+
+    if let Some(handle) = app.try_state::<crate::launcher::BackendHandle>() {
+        let mut slot = handle.0.lock().unwrap();
+        if let Some(mut owned) = slot.take() {
+            owned.terminate(std::time::Duration::from_secs(2));
+        }
+        let log_path = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("data")
+            .join("launcher.log");
+        match spawn_sidecar(&app, log_path, plugins_dir, data_dir) {
+            Ok(new_owned) => {
+                *slot = Some(new_owned);
+                drop(slot);
+                state.lock().unwrap().stopped_by_user = false;
+            }
             Err(e) => return Err(e),
         }
     }
