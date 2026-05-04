@@ -3,3 +3,4 @@
 
 pub mod cli;
 pub mod launcher;
+pub mod overlay_bridge;

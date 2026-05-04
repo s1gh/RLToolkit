@@ -45,13 +45,29 @@ pub fn get_status(state: State<LauncherState>) -> StatusView {
 }
 
 #[tauri::command]
-pub fn toggle_overlay(enabled: bool, state: State<LauncherState>) -> Result<(), String> {
-    let mut ctx = state.lock().unwrap();
-    ctx.overlay_enabled = enabled;
-    let mut s = ctx.settings.load();
-    s.overlay_enabled = enabled;
-    ctx.settings.save(&s).map_err(|e| e.to_string())?;
-    // Phase C will hook the actual overlay window show/hide.
+pub fn toggle_overlay(
+    enabled: bool,
+    app: AppHandle,
+    state: State<LauncherState>,
+) -> Result<(), String> {
+    use tauri::Manager;
+    {
+        let mut ctx = state.lock().unwrap();
+        ctx.overlay_enabled = enabled;
+        let mut s = ctx.settings.load();
+        s.overlay_enabled = enabled;
+        ctx.settings.save(&s).map_err(|e| e.to_string())?;
+    } // release the lock before calling out
+
+    if enabled {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+        } else {
+            crate::overlay_bridge::ensure_overlay(&app)?;
+        }
+    } else if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
     Ok(())
 }
 

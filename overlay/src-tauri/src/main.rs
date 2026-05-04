@@ -562,10 +562,120 @@ fn launcher_mode_active(args: &Args) -> bool {
     args.plugin.is_none()
 }
 
+/// Build the overlay window from the launcher's app instance.
+/// Uses unified mode with hardcoded defaults — the launcher owns the
+/// lifecycle, so we skip hotkey and tray registration here (C2 will add
+/// those). Focus-watcher is also skipped: in launcher mode the overlay
+/// is always shown when toggled on, regardless of game window.
+fn build_overlay_for_launcher(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::Manager;
+    // If the window already exists (e.g. toggle called twice), just show it.
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        return Ok(());
+    }
+
+    let toolkit_url = if let Some(state) = app.try_state::<crate::launcher::ipc::LauncherState>() {
+        state.lock().unwrap().toolkit_url.clone()
+    } else {
+        "http://localhost:8080".to_string()
+    };
+
+    let url = unified_url(&toolkit_url);
+    let title = "RL Toolkit – Overlay".to_string();
+
+    build_overlay_window(app, &Mode::Unified, &url, &title, false, None)
+}
+
+/// Construct the overlay webview window inside the given app.
+///
+/// Handles both the overlay-only path (called from `main_overlay`'s
+/// `.setup` closure) and the launcher path (called from
+/// `build_overlay_for_launcher`). The window is always labelled `"main"`.
+///
+/// Parameters:
+/// - `mode`         — Plugin or Unified, controls sizing/anchoring.
+/// - `url`          — Webview URL string (already constructed by caller).
+/// - `title`        — Window title string.
+/// - `persist_cache`— When false (default), opens in incognito mode so
+///                    the webview cache is discarded on each launch.
+/// - `monitor`      — Optional output index (Linux/Wayland only).
+fn build_overlay_window(
+    app: &AppHandle,
+    mode: &Mode,
+    url: &str,
+    title: &str,
+    persist_cache: bool,
+    monitor: Option<usize>,
+) -> tauri::Result<()> {
+    let parsed = url::Url::parse(url).map_err(tauri::Error::InvalidUrl)?;
+
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
+        .title(title)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .focused(false)
+        .visible(false);
+
+    if !persist_cache {
+        builder = builder.incognito(true);
+    }
+
+    if let Mode::Plugin { manifest } = mode {
+        builder = builder.inner_size(manifest.width as f64, manifest.height as f64);
+    }
+
+    let window = builder.build()?;
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = window.set_ignore_cursor_events(true);
+    }
+
+    #[cfg(target_os = "windows")]
+    apply_windows_no_border(&window);
+
+    match mode {
+        Mode::Plugin { manifest } => {
+            #[cfg(target_os = "linux")]
+            apply_layer_shell_plugin(&window, manifest, monitor);
+
+            #[cfg(not(target_os = "linux"))]
+            {
+                // For plugin mode from launcher, we don't have managed WidgetState.
+                // apply_pixel_position requires a tauri::State, so we skip on non-linux
+                // when called from the launcher path. The window will appear at default
+                // position; the toolkit handles per-plugin layout.
+                let _ = monitor;
+            }
+        }
+        Mode::Unified => {
+            #[cfg(target_os = "linux")]
+            apply_layer_shell_unified(&window, monitor);
+
+            #[cfg(not(target_os = "linux"))]
+            apply_fullscreen_position(&window);
+        }
+    }
+
+    window.show()?;
+
+    Ok(())
+}
+
 fn main() {
     let args = Args::parse();
 
     if launcher_mode_active(&args) {
+        // Install the overlay factory the launcher can call later.
+        // Must be a bare fn pointer (no captures), so the body calls a
+        // free function that takes only &AppHandle.
+        rl_widget::overlay_bridge::install(|app| {
+            build_overlay_for_launcher(app).map_err(|e| format!("{e}"))
+        });
         launcher::run(args);
         return;
     }
@@ -651,60 +761,25 @@ fn main_overlay(args: Args) {
                 );
             }
 
-            let parsed = url::Url::parse(&url).map_err(|e| format!("bad url {url}: {e}"))?;
+            // Build the overlay window via the shared helper.
+            build_overlay_window(
+                app.handle(),
+                &mode_for_setup,
+                &url,
+                &title,
+                args_for_setup.persist_cache,
+                args_for_setup.monitor,
+            )?;
 
-            let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
-                .title(&title)
-                .decorations(false)
-                .transparent(true)
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .resizable(false)
-                .focused(false)
-                .visible(false);
-
-            // Incognito-by-default kills cross-session webview caching so
-            // an edited plugin asset always shows up on the next launch.
-            // See the --persist-cache flag for the rationale.
-            if !args_for_setup.persist_cache {
-                builder = builder.incognito(true);
-            }
-
-            if let Mode::Plugin { manifest, .. } = &mode_for_setup {
-                builder = builder.inner_size(manifest.width as f64, manifest.height as f64);
-            }
-
-            let window = builder.build()?;
-
+            // In plugin mode on non-linux, apply pixel positioning using
+            // the managed WidgetState (only available in the overlay-only app).
             #[cfg(not(target_os = "linux"))]
-            {
-                let _ = window.set_ignore_cursor_events(true);
-            }
-
-            #[cfg(target_os = "windows")]
-            apply_windows_no_border(&window);
-
-            match &mode_for_setup {
-                Mode::Plugin { manifest, .. } => {
-                    #[cfg(target_os = "linux")]
-                    apply_layer_shell_plugin(&window, manifest, args_for_setup.monitor);
-
-                    #[cfg(not(target_os = "linux"))]
-                    {
-                        let state = app.state::<Mutex<WidgetState>>();
-                        apply_pixel_position(&window, &state);
-                    }
-                }
-                Mode::Unified => {
-                    #[cfg(target_os = "linux")]
-                    apply_layer_shell_unified(&window, args_for_setup.monitor);
-
-                    #[cfg(not(target_os = "linux"))]
-                    apply_fullscreen_position(&window);
+            if let Mode::Plugin { .. } = &mode_for_setup {
+                if let Some(window) = app.get_webview_window("main") {
+                    let state = app.state::<Mutex<WidgetState>>();
+                    apply_pixel_position(&window, &state);
                 }
             }
-
-            window.show()?;
 
             // Start the foreground-window watcher. It owns a clone of the
             // app handle and runs until the process exits. Disabled (early

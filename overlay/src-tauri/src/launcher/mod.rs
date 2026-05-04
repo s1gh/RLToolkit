@@ -105,6 +105,27 @@ pub fn run(args: Args) {
                 }
                 clear_starting(&app_for_probe);
 
+                // Autostart the overlay if overlay_enabled was set.
+                let auto = {
+                    use tauri::Manager;
+                    let state: tauri::State<LauncherState> = app_for_probe.state();
+                    let ctx = state.lock().unwrap();
+                    ctx.overlay_enabled
+                };
+                if auto {
+                    if let Err(e) = crate::overlay_bridge::ensure_overlay(&app_for_probe) {
+                        eprintln!("[launcher] overlay autostart failed: {e}");
+                        // Persist enabled=false so we don't loop on next launch.
+                        if let Some(s) = app_for_probe.try_state::<LauncherState>() {
+                            let mut ctx = s.lock().unwrap();
+                            ctx.overlay_enabled = false;
+                            let mut on_disk = ctx.settings.load();
+                            on_disk.overlay_enabled = false;
+                            let _ = ctx.settings.save(&on_disk);
+                        }
+                    }
+                }
+
                 // Park the ownership in app state so quit can drain it.
                 let owned = std::sync::Arc::new(std::sync::Mutex::new(Some(owned)));
                 app_for_probe.manage(BackendHandle(owned));
