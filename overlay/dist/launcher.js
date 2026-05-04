@@ -1,4 +1,7 @@
-const invoke = window.__TAURI__.core.invoke;
+if (!window.__TAURI__) {
+  console.error("__TAURI__ global not injected — launcher webview misconfigured");
+}
+const invoke = window.__TAURI__?.core?.invoke ?? (() => Promise.reject(new Error("Tauri not ready")));
 
 const $ = sel => document.querySelector(sel);
 const conn = $("#conn");

@@ -10,7 +10,7 @@ pub fn build_launcher_window(
     app: &AppHandle,
     _toolkit_url: &str,
 ) -> tauri::Result<tauri::WebviewWindow> {
-    WebviewWindowBuilder::new(
+    let win = WebviewWindowBuilder::new(
         app,
         "launcher",
         WebviewUrl::App("launcher.html".into()),
@@ -21,5 +21,10 @@ pub fn build_launcher_window(
     .resizable(true)
     .decorations(true)
     .visible(true)
-    .build()
+    .build()?;
+
+    #[cfg(debug_assertions)]
+    win.open_devtools();
+
+    Ok(win)
 }
