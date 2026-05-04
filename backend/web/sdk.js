@@ -1429,6 +1429,14 @@
 
   // Plain pass-through events: nothing to resolve, but we still surface them
   // through the typed bus so plugins have one consistent API.
+  //
+  // The 5 events that used to have heavy SDK normalizers (GoalScored,
+  // BallHit, CrossbarHit, StatfeedEvent, MatchEnded) are included here
+  // as plain pass-throughs — every event name listed in the official
+  // Psyonix Stats API docs works as `events: { Foo(d) { d.raw.* } }`.
+  // The full wire payload sits under `.raw`. For pre-resolved players +
+  // correlations + diff fields, subscribe to the synthetic equivalents
+  // (`_GoalScored`, `_BallHit`, `_MatchEnded`, …) instead.
   [
     'MatchCreated',
     'MatchInitialized',
@@ -1442,6 +1450,11 @@
     'GoalReplayEnd',
     'PodiumStart',
     'ReplayCreated',
+    'GoalScored',
+    'BallHit',
+    'CrossbarHit',
+    'StatfeedEvent',
+    'MatchEnded',
   ].forEach((name) => {
     bus.on(name, (d) => {
       emitTyped(name, {

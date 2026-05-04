@@ -239,17 +239,19 @@ Every typed payload includes the original RL envelope under `.raw` if you
 need access to a field the SDK didn't surface. `matchGuid` (when
 present) lets you correlate events that fired in the same match.
 
-> **Heads up — the SDK no longer normalizes `GoalScored`, `BallHit`,
-> `CrossbarHit`, `StatfeedEvent`, or `MatchEnded`.** Subscribing to
-> those raw event names in `events: { ... }` is now a no-op (the wire
-> event still flows on the bus but the SDK doesn't reshape it).
-> Use the synthetic equivalents (`_GoalScored`, `_BallHit`,
-> `_CrossbarHit`, `_StatfeedEvent`, `_MatchEnded`) which carry richer
-> data — see [Synthetic events (backend-enriched)](#synthetic-events-backend-enriched).
-> The payload shapes documented in this section are kept for
-> reference; the synthetic equivalents share the same field names
-> wherever possible (`scorer`, `assister`, `mainTarget`, etc.) so the
-> migration is mostly a name swap.
+> **Heads up — `GoalScored`, `BallHit`, `CrossbarHit`, `StatfeedEvent`,
+> and `MatchEnded` are now plain pass-throughs**, not the typed payloads
+> documented below. Subscribing via `events: { GoalScored(d) { ... } }`
+> still fires, but `d` is `{ matchGuid, raw }` — the original Psyonix
+> wire envelope sits under `d.raw` (e.g. `d.raw.Scorer.Name`,
+> `d.raw.GoalSpeed`). For pre-resolved players, modifier flags,
+> own-goal detection, etc., subscribe to the synthetic equivalent —
+> `_GoalScored`, `_BallHit`, `_CrossbarHit`, `_StatfeedEvent`,
+> `_MatchEnded` — see [Synthetic events (backend-enriched)](#synthetic-events-backend-enriched).
+> The payload shapes documented in this section describe the synthetic
+> equivalents (field names match where possible: `scorer`, `assister`,
+> `mainTarget`, etc.) — they're not what `events: { GoalScored }`
+> delivers anymore.
 
 ##### `UpdateState` / `onTick(state)` / `onMatch(state)`
 
