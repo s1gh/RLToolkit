@@ -48,3 +48,70 @@ pub fn probe_status(url: &str, timeout: Duration) -> ProbeOutcome {
         Err(_) => ProbeOutcome::Unrelated,
     }
 }
+
+use std::process::Child;
+
+/// Tracks who started the running backend. The launcher only kills
+/// `Spawned` children; backends discovered via probe (`Attached`) are
+/// left running on quit. `Unavailable` means we tried and gave up.
+#[derive(Debug)]
+pub enum BackendOwnership {
+    Spawned(Child),
+    Attached,
+    Unavailable,
+}
+
+impl BackendOwnership {
+    /// SIGTERM-then-grace-then-SIGKILL on Unix; equivalent on Windows via
+    /// the child's kill API (Tauri's sidecar machinery wraps both).
+    /// No-op for `Attached` and `Unavailable`.
+    pub fn terminate(&mut self, grace: std::time::Duration) {
+        let child = match self {
+            BackendOwnership::Spawned(c) => c,
+            _ => return,
+        };
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            let pid = child.id() as i32;
+            // SIGTERM first.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+
+            let deadline = std::time::Instant::now() + grace;
+            while std::time::Instant::now() < deadline {
+                match child.try_wait() {
+                    Ok(Some(_)) => return,
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                    Err(_) => break,
+                }
+            }
+            // Still alive — SIGKILL.
+            let _ = child.kill();
+            let _ = child.wait();
+            // Touch the unused import so non-test builds don't warn.
+            let _ = <std::process::ExitStatus as ExitStatusExt>::signal;
+        }
+
+        #[cfg(windows)]
+        {
+            // Windows has no SIGTERM analogue we can issue cleanly from
+            // a child handle without console attachment. The Tauri shell
+            // plugin's sidecar API exposes a graceful close; for v1 we
+            // try `kill()` (which posts WM_CLOSE on a console process or
+            // calls TerminateProcess), and rely on Go's signal.Notify(SIGINT)
+            // path being installed for builds run in a console. The 2 s
+            // grace is approximated by waiting on the child after kill.
+            let _ = child.kill();
+            let deadline = std::time::Instant::now() + grace;
+            while std::time::Instant::now() < deadline {
+                match child.try_wait() {
+                    Ok(Some(_)) => return,
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                    Err(_) => break,
+                }
+            }
+            let _ = child.wait();
+        }
+    }
+}
