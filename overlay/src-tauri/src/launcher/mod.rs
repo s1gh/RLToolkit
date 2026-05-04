@@ -10,14 +10,13 @@ use crate::cli::Args;
 use ipc::{LauncherCtx, LauncherState};
 use settings::SettingsStore;
 use std::sync::Mutex;
-use tauri::Builder;
+use tauri::{Builder, Manager};
 
 pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            use tauri::Manager;
             if let Some(w) = app.get_webview_window("launcher") {
                 let _ = w.unminimize();
                 let _ = w.show();
@@ -52,8 +51,13 @@ pub fn run(args: Args) {
             ipc::open_dashboard_in_browser,
             ipc::quit,
         ])
-        .setup(|app| {
-            window::build_launcher_window(&app.handle())?;
+        .setup(move |app| {
+            let url = {
+                let state: tauri::State<LauncherState> = app.state();
+                let url = state.lock().unwrap().toolkit_url.clone();
+                url
+            };
+            window::build_launcher_window(&app.handle(), &url)?;
             Ok(())
         })
         .run(tauri::generate_context!())
