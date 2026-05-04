@@ -71,6 +71,9 @@ func (t *RosterTracker) Feed(raw []byte) {
 		t.lastGUID = ""
 		t.lastRoster = nil
 		t.mu.Unlock()
+		// Emit an empty roster so plugins listening to _RosterChanged
+		// (e.g., dejavu) clear their match view when the match ends.
+		t.publish("", nil)
 	}
 }
 

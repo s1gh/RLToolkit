@@ -218,13 +218,20 @@ func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
 	})
 	tracker.Feed(pkt)
 	drainRoster(t, ch)
-	// MatchDestroyed clears the cache; the same UpdateState afterwards
-	// should re-emit because the tracker considers it fresh.
+	// MatchDestroyed clears the cache AND emits an empty roster so plugins
+	// clear their match view. The same UpdateState afterwards should re-emit
+	// because the tracker considers it fresh.
 	tracker.Feed([]byte(`{"Event":"MatchDestroyed"}`))
 	tracker.Feed(pkt)
 	got := drainRoster(t, ch)
-	if len(got) != 1 {
-		t.Errorf("expected 1 event after MatchDestroyed, got %d", len(got))
+	if len(got) != 2 {
+		t.Errorf("expected 2 events after MatchDestroyed (empty + re-emit), got %d", len(got))
+	}
+	if len(got) >= 1 && len(got[0].Players) != 0 {
+		t.Errorf("first event after MatchDestroyed should be empty roster, got %d players", len(got[0].Players))
+	}
+	if len(got) >= 2 && len(got[1].Players) != 1 {
+		t.Errorf("second event after MatchDestroyed should re-emit 1 player, got %d", len(got[1].Players))
 	}
 }
 
