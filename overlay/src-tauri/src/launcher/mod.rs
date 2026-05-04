@@ -6,13 +6,14 @@ pub mod settings;
 #[cfg(test)]
 mod tests;
 
+use crate::cli::Args;
 use tauri::Builder;
 
 /// Apply launcher-mode plugins to the Tauri builder. Called from `main.rs`
 /// only when launcher mode is selected. Today we register:
 /// - `tauri-plugin-shell` (sidecar process spawning)
 /// - `tauri-plugin-single-instance` (focus existing window on second launch)
-pub fn run() {
+pub fn run(_args: Args) {
     eprintln!("[rl-widget] launcher mode placeholder — pass --no-launcher to use the overlay");
     std::process::exit(0);
 }
