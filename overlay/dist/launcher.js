@@ -1,7 +1,4 @@
-import { invoke } from "https://cdn.jsdelivr.net/npm/@tauri-apps/api@2/core";
-// Note: Tauri normally injects @tauri-apps/api as a global. The above import
-// is a placeholder; the actual production wiring uses the global `__TAURI__`
-// object. See B5 where this is finalized.
+const invoke = window.__TAURI__.core.invoke;
 
 const $ = sel => document.querySelector(sel);
 const conn = $("#conn");
