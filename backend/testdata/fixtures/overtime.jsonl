@@ -1,0 +1,5 @@
+{"Event":"MatchCreated","Data":"{\"MatchGuid\":\"ot-match\"}"}
+{"Event":"MatchInitialized","Data":"{\"MatchGuid\":\"ot-match\"}"}
+{"Event":"UpdateState","Data":"{\"MatchGuid\":\"ot-match\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":2},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":2}],\"Ball\":{\"TeamNum\":255},\"bOvertime\":false,\"bReplay\":false}}"}
+{"Event":"UpdateState","Data":"{\"MatchGuid\":\"ot-match\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":2},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":2}],\"Ball\":{\"TeamNum\":255},\"bOvertime\":true,\"bReplay\":false}}"}
+{"Event":"UpdateState","Data":"{\"MatchGuid\":\"ot-match\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":2},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":2}],\"Ball\":{\"TeamNum\":255},\"bOvertime\":true,\"bReplay\":false}}"}

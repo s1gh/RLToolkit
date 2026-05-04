@@ -1910,6 +1910,34 @@
       stability: 'provisional',
       since: '1.1',
     },
+    // Match milestones (Phase 4b). Once-per-occurrence per match.
+    {
+      name: '_FirstTouch',
+      category: 'play',
+      shape: 'first-touch',
+      livePhases: ['live'],
+      desc: 'First BallHit after each RoundStarted. Re-arms every round.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_FirstBlood',
+      category: 'scoring',
+      shape: 'first-blood',
+      livePhases: ['live', 'replay'],
+      desc: 'First _GoalScored of the match.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_OvertimeStarted',
+      category: 'lifecycle',
+      shape: 'overtime-started',
+      livePhases: ['live'],
+      desc: 'Rising edge of Game.bOvertime. Once per match.',
+      stability: 'provisional',
+      since: '1.1',
+    },
   ];
 
   // Frozen views by category for the common "give me everything in group X" need.

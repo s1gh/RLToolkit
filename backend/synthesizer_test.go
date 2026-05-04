@@ -504,6 +504,126 @@ func TestSynthesizer_DiffEvents(t *testing.T) {
 	}
 }
 
+// TestSynthesizer_FirstTouch asserts that the first BallHit after
+// RoundStarted produces a _FirstTouch envelope.
+func TestSynthesizer_FirstTouch(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/basic_match.jsonl", "_FirstTouch")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _FirstTouch, got %d", len(got))
+	}
+	ev := got[0]
+	players, ok := ev["players"].([]interface{})
+	if !ok || len(players) != 1 {
+		t.Fatalf("players: want 1, got %v", ev["players"])
+	}
+	p := players[0].(map[string]interface{})
+	if p["name"] != "Alice" {
+		t.Errorf("first toucher: want Alice, got %v", p["name"])
+	}
+	// timeFromCountdownEndSeconds should be present and non-negative.
+	if elapsed, ok := ev["timeFromCountdownEndSeconds"].(float64); !ok || elapsed < 0 {
+		t.Errorf("timeFromCountdownEndSeconds: want non-negative number, got %v", ev["timeFromCountdownEndSeconds"])
+	}
+}
+
+// TestSynthesizer_FirstTouch_OnlyOncePerKickoff: the basic_match
+// fixture has only one BallHit, so we don't need to also assert
+// non-re-fire here. But we do need to check that re-arming on a
+// second RoundStarted works. Inline fixture.
+func TestSynthesizer_FirstTouch_RearmsOnNextRound(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	feed := func(raw []byte) {
+		roster.Feed(raw)
+		bus.Publish(raw)
+		synth.Feed(raw)
+	}
+
+	ch, cancel := bus.Subscribe(map[string]struct{}{"_FirstTouch": {}})
+	defer cancel()
+
+	// Roster.
+	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":0},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}],\"Ball\":{\"TeamNum\":255}}}"}`))
+
+	// First round.
+	feed([]byte(`{"Event":"RoundStarted","Data":"{\"MatchGuid\":\"rt\"}"}`))
+	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1500}}"}`))
+	// Second BallHit in the same round should NOT produce another _FirstTouch.
+	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1800}}"}`))
+	// New round (kickoff after a goal) re-arms.
+	feed([]byte(`{"Event":"RoundStarted","Data":"{\"MatchGuid\":\"rt\"}"}`))
+	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1700}}"}`))
+
+	count := 0
+	for {
+		select {
+		case raw := <-ch:
+			if extractEventName(raw) == "_FirstTouch" {
+				count++
+			}
+		default:
+			goto done
+		}
+	}
+done:
+	if count != 2 {
+		t.Errorf("_FirstTouch count: want 2 (one per RoundStarted), got %d", count)
+	}
+}
+
+// TestSynthesizer_FirstBlood asserts that the first GoalScored per
+// match produces _FirstBlood + that subsequent goals do not.
+func TestSynthesizer_FirstBlood(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/basic_match.jsonl", "_FirstBlood")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _FirstBlood, got %d", len(got))
+	}
+	ev := got[0]
+	scorer, ok := ev["scorer"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("scorer missing: %v", ev)
+	}
+	if scorer["name"] != "Alice" {
+		t.Errorf("scorer.name: want Alice, got %v", scorer["name"])
+	}
+	if got, want := ev["scoringTeam"].(float64), 0.0; got != want {
+		t.Errorf("scoringTeam: want %v, got %v", want, got)
+	}
+}
+
+// TestSynthesizer_OvertimeStarted asserts that the rising bOvertime
+// edge produces exactly one _OvertimeStarted.
+func TestSynthesizer_OvertimeStarted(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/overtime.jsonl", "_OvertimeStarted")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _OvertimeStarted, got %d", len(got))
+	}
+	ev := got[0]
+	if got, want := ev["scoreBlue"].(float64), 2.0; got != want {
+		t.Errorf("scoreBlue: want %v, got %v", want, got)
+	}
+	if got, want := ev["scoreOrange"].(float64), 2.0; got != want {
+		t.Errorf("scoreOrange: want %v, got %v", want, got)
+	}
+}
+
 // TestSynthesizer_PlayerLeft asserts that a player disappearing from
 // the roster between two ticks emits _PlayerLeft with the resolved
 // identity.
