@@ -1630,14 +1630,13 @@
             render();
           },
 
-          // The Demolish event lives on the statfeed. mainTarget is the
-          // attacker, secondaryTarget is the victim — see the SDK's
-          // `events: { StatfeedEvent }` docs for the full payload shape.
+          // _PlayerDemolished is the backend's enriched envelope for a
+          // Demolish statfeed: attacker / victim are pre-resolved against
+          // the live roster, plus isSelfDemo / isTeamDemo flags. The SDK
+          // stamps `isMe` onto each enriched player at dispatch time.
           events: {
-            StatfeedEvent(s) {
-              if (s.eventName !== 'Demolish') return;
-              const attacker = s.mainTarget;
-              const victim = s.secondaryTarget;
+            _PlayerDemolished(payload) {
+              const { attacker, victim, isSelfDemo } = payload || {};
               if (!attacker || !victim) return;
 
               // Count only YOUR demos. `isMe` is set by the SDK from the
@@ -1645,6 +1644,10 @@
               // an identity, nothing in the lobby is "me" and we silently
               // ignore — the control page nudges them to fix that.
               if (!attacker.isMe) return;
+              // A self-demo (you blew yourself up) shouldn't count toward
+              // demos dealt to others. Backend computes the flag from
+              // attacker.id === victim.id.
+              if (isSelfDemo) return;
 
               const vid = victim.id;
               const vname = victim.name || 'Player';
