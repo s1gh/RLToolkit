@@ -8,6 +8,7 @@ pub mod window;
 mod tests;
 
 use crate::cli::Args;
+use crate::focus_watcher;
 use ipc::{LauncherCtx, LauncherState};
 use settings::SettingsStore;
 use std::sync::Mutex;
@@ -61,7 +62,7 @@ pub fn run(args: Args) {
             ipc::get_settings,
             ipc::save_settings,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
             let (toolkit_url, initial_settings) = {
                 let state: tauri::State<LauncherState> = app.state();
@@ -73,6 +74,13 @@ pub fn run(args: Args) {
 
             // Build the window immediately so the user sees something while we probe.
             window::build_launcher_window(&handle, &toolkit_url, &initial_settings)?;
+
+            // Drive real RL focus events into every webview the launcher
+            // owns (the launcher window itself ignores them; the overlay
+            // window — created later via build_overlay_for_launcher —
+            // forwards them to plugin iframes for hide_when_unfocused).
+            let rule = focus_watcher::match_rule_from_arg(args.game_match.as_deref());
+            focus_watcher::spawn(handle.clone(), rule);
 
             if let Err(e) = tray::setup_tray(&handle, "RL Toolkit") {
                 eprintln!("[launcher] tray failed: {e}");

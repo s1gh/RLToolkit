@@ -2,5 +2,6 @@
 //! The CLI entry point remains in `src/main.rs`.
 
 pub mod cli;
+pub mod focus_watcher;
 pub mod launcher;
 pub mod overlay_bridge;

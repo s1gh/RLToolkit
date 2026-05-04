@@ -178,18 +178,23 @@ pub fn spawn_sidecar(
         .sidecar("rl-toolkit")
         .map_err(|e| format!("locate sidecar: {e}"))?;
 
-    let mut args = Vec::<String>::new();
-    if let Some(p) = plugins_dir {
-        args.push("-plugins".to_string());
-        args.push(p);
-    }
-    if let Some(d) = data_dir {
-        args.push("-data".to_string());
-        args.push(d);
-    }
-    if !args.is_empty() {
-        cmd = cmd.args(args);
-    }
+    // Resolve unset dirs against the launcher's cwd so the sidecar uses
+    // ./plugins and ./data from where the user launched the app, instead
+    // of the backend's own exe-relative defaults (which point inside the
+    // launcher's bundle).
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let plugins = plugins_dir
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| cwd.join("plugins").to_string_lossy().into_owned());
+    let data = data_dir
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(|| cwd.join("data").to_string_lossy().into_owned());
+    cmd = cmd.args([
+        "-plugins".to_string(),
+        plugins,
+        "-data".to_string(),
+        data,
+    ]);
 
     let (mut rx, child) = cmd.spawn().map_err(|e| format!("spawn sidecar: {e}"))?;
 

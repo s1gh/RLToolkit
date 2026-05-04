@@ -132,9 +132,14 @@ document.querySelectorAll("[data-pick]").forEach(btn => {
   btn.addEventListener("click", async () => {
     const targetId = btn.dataset.pick;
     try {
-      const picked = await invoke("plugin:dialog|open", { directory: true, multiple: false });
+      const picked = await invoke("plugin:dialog|open", {
+        options: { directory: true, multiple: false },
+      });
       if (picked) document.getElementById(targetId).value = picked;
-    } catch (_) {}
+    } catch (e) {
+      settingsHint.textContent = "Browse failed: " + (e?.message || e);
+      settingsHint.hidden = false;
+    }
   });
 });
 
@@ -143,8 +148,8 @@ document.getElementById("settings-save").addEventListener("click", async () => {
   const data = dataDirInput.value.trim();
   try {
     const respawned = await invoke("save_settings", {
-      plugins_dir: plugins || null,
-      data_dir: data || null,
+      pluginsDir: plugins || null,
+      dataDir: data || null,
     });
     if (respawned) {
       closeSettings();

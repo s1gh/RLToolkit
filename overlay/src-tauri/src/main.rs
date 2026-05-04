@@ -41,8 +41,8 @@
 
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
-mod focus_watcher;
 use rl_widget::cli::Args;
+use rl_widget::focus_watcher;
 use rl_widget::launcher;
 
 use clap::Parser;
@@ -567,24 +567,37 @@ fn launcher_mode_active(args: &Args) -> bool {
 /// lifecycle, so we skip hotkey and tray registration here (C2 will add
 /// those). Focus-watcher is also skipped: in launcher mode the overlay
 /// is always shown when toggled on, regardless of game window.
-fn build_overlay_for_launcher(app: &AppHandle) -> tauri::Result<()> {
+fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
     use tauri::Manager;
-    // If the window already exists (e.g. toggle called twice), just show it.
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        return Ok(());
-    }
+    let app = app.clone();
 
-    let toolkit_url = if let Some(state) = app.try_state::<crate::launcher::ipc::LauncherState>() {
-        state.lock().unwrap().toolkit_url.clone()
-    } else {
-        "http://localhost:8080".to_string()
-    };
+    // GTK window creation must happen on the main thread. The launcher
+    // calls us from a background probe thread, so dispatch to main.
+    app.clone().run_on_main_thread(move || {
+        // If the window already exists (e.g. toggle called twice), just show it.
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            return;
+        }
 
-    let url = unified_url(&toolkit_url);
-    let title = "RL Toolkit – Overlay".to_string();
+        let toolkit_url = if let Some(state) = app.try_state::<crate::launcher::ipc::LauncherState>() {
+            state.lock().unwrap().toolkit_url.clone()
+        } else {
+            "http://localhost:8080".to_string()
+        };
 
-    build_overlay_window(app, &Mode::Unified, &url, &title, false, None)
+        let url = unified_url(&toolkit_url);
+        let title = "RL Toolkit – Overlay".to_string();
+
+        if let Err(e) = build_overlay_window(&app, &Mode::Unified, &url, &title, false, None) {
+            eprintln!("[launcher] build_overlay_window failed: {e}");
+            return;
+        }
+
+        // The focus watcher (spawned in launcher::run) drives real
+        // __rlt_focus__ messages into the overlay webview. Plugins with
+        // hide_when_unfocused=1 wait on those before rendering.
+    }).map_err(|e| e.to_string())
 }
 
 /// Construct the overlay webview window inside the given app.
@@ -674,7 +687,7 @@ fn main() {
         // Must be a bare fn pointer (no captures), so the body calls a
         // free function that takes only &AppHandle.
         rl_widget::overlay_bridge::install(|app| {
-            build_overlay_for_launcher(app).map_err(|e| format!("{e}"))
+            build_overlay_for_launcher(app)
         });
         launcher::run(args);
         return;
