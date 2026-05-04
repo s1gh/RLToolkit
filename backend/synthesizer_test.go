@@ -97,6 +97,84 @@ func TestSynthesizer_StatfeedEvent_NoSecondaryTarget(t *testing.T) {
 	}
 }
 
+// TestSynthesizer_BallHit replays the basic_match fixture and asserts
+// that the BallHit row produces a _BallHit with Alice resolved against
+// the roster.
+func TestSynthesizer_BallHit(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/basic_match.jsonl", "_BallHit")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _BallHit, got %d", len(got))
+	}
+	ev := got[0]
+
+	if ev["matchGuid"] != "match-abc-123" {
+		t.Errorf("matchGuid: want match-abc-123, got %v", ev["matchGuid"])
+	}
+	players, ok := ev["players"].([]interface{})
+	if !ok {
+		t.Fatalf("players missing or wrong type: %T", ev["players"])
+	}
+	if len(players) != 1 {
+		t.Fatalf("players: want 1, got %d", len(players))
+	}
+	p, ok := players[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("players[0] wrong type: %T", players[0])
+	}
+	if p["id"] != "Steam|111|0" {
+		t.Errorf("players[0].id: want Steam|111|0, got %v", p["id"])
+	}
+	if p["name"] != "Alice" {
+		t.Errorf("players[0].name: want Alice, got %v", p["name"])
+	}
+	// Speed/location should round-trip from the wire payload.
+	if got, want := ev["postHitSpeed"].(float64), 1500.0; got != want {
+		t.Errorf("postHitSpeed: want %v, got %v", want, got)
+	}
+}
+
+// TestSynthesizer_CrossbarHit replays a one-shot fixture and asserts
+// that BallLastTouch.Player is resolved against the roster.
+func TestSynthesizer_CrossbarHit(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/crossbar_hit.jsonl", "_CrossbarHit")
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 _CrossbarHit, got %d", len(got))
+	}
+	ev := got[0]
+
+	if got, want := ev["ballSpeed"].(float64), 2300.0; got != want {
+		t.Errorf("ballSpeed: want %v, got %v", want, got)
+	}
+	if got, want := ev["impactForce"].(float64), 12000.0; got != want {
+		t.Errorf("impactForce: want %v, got %v", want, got)
+	}
+
+	lt, ok := ev["ballLastTouch"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ballLastTouch missing or wrong type: %T", ev["ballLastTouch"])
+	}
+	p, ok := lt["player"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ballLastTouch.player wrong type: %T", lt["player"])
+	}
+	if p["id"] != "Steam|111|0" {
+		t.Errorf("ballLastTouch.player.id: want Steam|111|0, got %v", p["id"])
+	}
+	if p["name"] != "Alice" {
+		t.Errorf("ballLastTouch.player.name: want Alice, got %v", p["name"])
+	}
+}
+
 func containsBytes(haystack, needle []byte) bool {
 	for i := 0; i+len(needle) <= len(haystack); i++ {
 		match := true
