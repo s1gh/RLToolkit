@@ -56,14 +56,16 @@ pub fn run(args: Args) {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            let toolkit_url = {
+            let (toolkit_url, initial_settings) = {
                 let state: tauri::State<LauncherState> = app.state();
-                let url = state.lock().unwrap().toolkit_url.clone();
-                url
+                let ctx = state.lock().unwrap();
+                let url = ctx.toolkit_url.clone();
+                let settings = ctx.settings.load();
+                (url, settings)
             };
 
             // Build the window immediately so the user sees something while we probe.
-            window::build_launcher_window(&handle, &toolkit_url)?;
+            window::build_launcher_window(&handle, &toolkit_url, &initial_settings)?;
 
             if let Err(e) = tray::setup_tray(&handle, "RL Toolkit") {
                 eprintln!("[launcher] tray failed: {e}");
