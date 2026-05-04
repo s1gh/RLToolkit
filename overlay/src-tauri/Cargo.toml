@@ -20,6 +20,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "2", features = ["json"] }
 clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+dirs = "5"
+tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
 url = "2"
 
 # Linux-only: layer-shell so the widget lives on the overlay layer
@@ -49,6 +53,9 @@ windows-sys = { version = "0.59", features = [
 objc2 = "0.5"
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSRunningApplication"] }
 objc2-foundation = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 opt-level = "s"
