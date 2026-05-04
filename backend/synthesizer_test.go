@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 // TestSynthesizer_StatfeedEvent_Demolish replays a fixture where Alice
 // demolishes Bob and asserts that the synthesizer publishes a
@@ -405,6 +408,153 @@ func TestSynthesizer_CrossbarHit(t *testing.T) {
 	}
 	if p["name"] != "Alice" {
 		t.Errorf("ballLastTouch.player.name: want Alice, got %v", p["name"])
+	}
+}
+
+// TestSynthesizer_DiffEvents replays a fixture with three UpdateStates
+// designed to trigger _PlayerJoined, _PlayerScoreChanged, _BoostPickup,
+// _BallPossessionChanged, and _TeamScoreChanged. Asserts presence and
+// shape of each.
+func TestSynthesizer_DiffEvents(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/diff_events.jsonl", "")
+
+	// Build a {eventName: count} map and a {eventName: []payloads} map.
+	counts := map[string]int{}
+	byName := map[string][]map[string]interface{}{}
+	for _, ev := range got {
+		name, _ := ev["Event"].(string)
+		counts[name]++
+		byName[name] = append(byName[name], ev)
+	}
+
+	if counts["_PlayerJoined"] < 1 {
+		t.Errorf("_PlayerJoined: want ≥1, got %d", counts["_PlayerJoined"])
+	}
+	if counts["_PlayerScoreChanged"] < 2 {
+		t.Errorf("_PlayerScoreChanged: want ≥2 (Alice across two ticks), got %d", counts["_PlayerScoreChanged"])
+	}
+	if counts["_BoostPickup"] != 1 {
+		t.Errorf("_BoostPickup: want 1 (Alice 33→75), got %d", counts["_BoostPickup"])
+	}
+	if counts["_BallPossessionChanged"] < 2 {
+		t.Errorf("_BallPossessionChanged: want ≥2 (255→0 and 0→1), got %d", counts["_BallPossessionChanged"])
+	}
+	if counts["_TeamScoreChanged"] != 1 {
+		t.Errorf("_TeamScoreChanged: want 1 (Blue 0→1), got %d", counts["_TeamScoreChanged"])
+	}
+
+	// Inspect _PlayerJoined for Bob.
+	var sawBob bool
+	for _, ev := range byName["_PlayerJoined"] {
+		p, _ := ev["player"].(map[string]interface{})
+		if p["name"] == "Bob" {
+			sawBob = true
+			if p["team"].(float64) != 1 {
+				t.Errorf("_PlayerJoined Bob.team: want 1, got %v", p["team"])
+			}
+		}
+	}
+	if !sawBob {
+		t.Errorf("_PlayerJoined Bob: not seen")
+	}
+
+	// Inspect _BoostPickup payload shape.
+	if bp := byName["_BoostPickup"]; len(bp) >= 1 {
+		ev := bp[0]
+		if ev["boostBefore"].(float64) != 33 {
+			t.Errorf("_BoostPickup.boostBefore: want 33, got %v", ev["boostBefore"])
+		}
+		if ev["boostAfter"].(float64) != 75 {
+			t.Errorf("_BoostPickup.boostAfter: want 75, got %v", ev["boostAfter"])
+		}
+		if ev["delta"].(float64) != 42 {
+			t.Errorf("_BoostPickup.delta: want 42, got %v", ev["delta"])
+		}
+	}
+
+	// Inspect _TeamScoreChanged.
+	if ts := byName["_TeamScoreChanged"]; len(ts) >= 1 {
+		ev := ts[0]
+		if ev["teamNum"].(float64) != 0 {
+			t.Errorf("_TeamScoreChanged.teamNum: want 0, got %v", ev["teamNum"])
+		}
+		if ev["before"].(float64) != 0 {
+			t.Errorf("_TeamScoreChanged.before: want 0, got %v", ev["before"])
+		}
+		if ev["after"].(float64) != 1 {
+			t.Errorf("_TeamScoreChanged.after: want 1, got %v", ev["after"])
+		}
+	}
+
+	// _PlayerScoreChanged should have a delta map with non-zero entries.
+	for _, ev := range byName["_PlayerScoreChanged"] {
+		delta, _ := ev["delta"].(map[string]interface{})
+		if len(delta) == 0 {
+			t.Errorf("_PlayerScoreChanged.delta: want non-empty, got empty map")
+		}
+		for k, v := range delta {
+			if v.(float64) == 0 {
+				t.Errorf("_PlayerScoreChanged.delta[%q]: zero delta should be omitted", k)
+			}
+		}
+	}
+}
+
+// TestSynthesizer_PlayerLeft asserts that a player disappearing from
+// the roster between two ticks emits _PlayerLeft with the resolved
+// identity.
+func TestSynthesizer_PlayerLeft(t *testing.T) {
+	bus := NewEventBus()
+	roster := NewRosterTracker(bus)
+	synth := NewSynthesizer(bus, roster)
+
+	feed := func(raw []byte) {
+		roster.Feed(raw)
+		bus.Publish(raw)
+		synth.Feed(raw)
+	}
+
+	ch, cancel := bus.Subscribe(map[string]struct{}{"_PlayerLeft": {}})
+	defer cancel()
+
+	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0},{\"PrimaryId\":\"Steam|222|0\",\"Name\":\"Bob\",\"TeamNum\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":0},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}],\"Ball\":{\"TeamNum\":255}}}"}`))
+	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":0},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}],\"Ball\":{\"TeamNum\":255}}}"}`))
+
+	var seen []map[string]interface{}
+	for {
+		select {
+		case raw := <-ch:
+			var ev map[string]interface{}
+			_ = json.Unmarshal(raw, &ev)
+			// Framing-bypass synthetics (_RosterChanged) reach every
+			// subscriber regardless of filter — drop them here so
+			// this test only asserts on _PlayerLeft.
+			if ev["Event"] != "_PlayerLeft" {
+				continue
+			}
+			seen = append(seen, ev)
+		default:
+			goto done
+		}
+	}
+done:
+
+	if len(seen) != 1 {
+		for i, ev := range seen {
+			t.Logf("event %d: %#v", i, ev)
+		}
+		t.Fatalf("expected 1 _PlayerLeft, got %d", len(seen))
+	}
+	p, _ := seen[0]["player"].(map[string]interface{})
+	if p["name"] != "Bob" {
+		t.Errorf("_PlayerLeft.player.name: want Bob, got %v", p["name"])
+	}
+	if p["id"] != "Steam|222|0" {
+		t.Errorf("_PlayerLeft.player.id: want Steam|222|0, got %v", p["id"])
 	}
 }
 

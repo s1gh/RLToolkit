@@ -1853,6 +1853,63 @@
       stability: 'provisional',
       since: '1.1',
     },
+    // UpdateState-diff events (Phase 4). Backend compares current vs
+    // previous tick and emits the change directly — plugins skip
+    // UpdateState entirely.
+    {
+      name: '_PlayerJoined',
+      category: 'roster',
+      shape: 'player-event',
+      livePhases: '*',
+      desc: 'Roster diff: player appeared this tick.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_PlayerLeft',
+      category: 'roster',
+      shape: 'player-event',
+      livePhases: '*',
+      desc: 'Roster diff: player disappeared this tick.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_PlayerScoreChanged',
+      category: 'stat',
+      shape: 'score-delta',
+      livePhases: '*',
+      desc: 'Per-player stat diff. Only fields that moved appear in `delta`.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_BoostPickup',
+      category: 'play',
+      shape: 'boost-pickup',
+      livePhases: ['live'],
+      desc: 'Player Boost rose between ticks (not a respawn). Spectator-only for opponents.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_BallPossessionChanged',
+      category: 'play',
+      shape: 'possession',
+      livePhases: ['live'],
+      desc: 'Game.Ball.TeamNum changed. before/after nullable — 255 → null.',
+      stability: 'provisional',
+      since: '1.1',
+    },
+    {
+      name: '_TeamScoreChanged',
+      category: 'scoring',
+      shape: 'team-score-delta',
+      livePhases: ['live', 'replay'],
+      desc: 'A team Score moved. Pair with _OwnGoal for own-goal verification.',
+      stability: 'provisional',
+      since: '1.1',
+    },
   ];
 
   // Frozen views by category for the common "give me everything in group X" need.

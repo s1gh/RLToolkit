@@ -19,11 +19,12 @@ type Synthesizer struct {
 	// the gate, which is what the unit tests do.
 	phaseMachine *PhaseMachine
 
-	// teamsMu guards lastTeams. Cached from the most recent UpdateState
-	// so _MatchEnded can resolve WinnerTeamNum to a team name without a
-	// second round-trip. Grows in Phase 4 (diff events).
+	// teamsMu guards lastTeams + lastTick. Cached from the most recent
+	// UpdateState so _MatchEnded can resolve WinnerTeamNum to a name
+	// and Phase-4 diff emitters can compare current vs previous tick.
 	teamsMu   sync.Mutex
 	lastTeams []teamRef
+	lastTick  *tickSnapshot
 
 	// correlation buffers same-frame and adjacent-tick events so emitters
 	// like _GoalScored can look back for modifier Statfeeds (AerialGoal,
@@ -82,21 +83,83 @@ func (s *Synthesizer) Feed(raw []byte) {
 	}
 }
 
-// onUpdateState caches the latest Teams[] for downstream enrichment and
-// runs score-delta detection for _OwnGoal. Decodes only Game.Teams; the
-// full UpdateState is decoded elsewhere when needed. This must stay
-// cheap — runs at PacketSendRate.
+// tickSnapshot is the slice of UpdateState we cache for diff emitters.
+// Only fields read by Phase-4 events are kept — the full envelope is
+// big and we don't need most of it.
+type tickSnapshot struct {
+	matchGUID  string
+	teams      []teamRef
+	players    []tickPlayer
+	ballTeam   int  // Game.Ball.TeamNum; 255 = untouched
+	hasBall    bool // false when Game.Ball was absent
+	overtime   bool
+}
+
+// tickPlayer is the per-player slice of UpdateState we cache.
+type tickPlayer struct {
+	id          string
+	name        string
+	team        int
+	score       int
+	goals       int
+	assists     int
+	saves       int
+	shots       int
+	touches     int
+	carTouches  int
+	demos       int
+	boost       *int // pointer because RL omits in non-spectator mode
+	demolished  bool
+}
+
+// updateStateFull mirrors the wire shape we need for Phase-4 diffs.
+// Same case-tolerant pattern as the rest of the synthesizer: accept
+// PascalCase or lowercase top-level keys.
+type updateStateFull struct {
+	MatchGUID    string                  `json:"MatchGuid"`
+	MatchGUIDLow string                  `json:"matchguid"`
+	Game         *updateStateGame        `json:"Game"`
+	GameLow      *updateStateGame        `json:"game"`
+	Players      []updateStateFullPlayer `json:"Players"`
+	PlayersLow   []updateStateFullPlayer `json:"players"`
+}
+
+type updateStateGame struct {
+	Teams     []wireTeam `json:"Teams"`
+	Ball      *struct {
+		TeamNum int `json:"TeamNum"`
+	} `json:"Ball"`
+	BOvertime bool `json:"bOvertime"`
+}
+
+type updateStateFullPlayer struct {
+	PrimaryID    string `json:"PrimaryId"`
+	Name         string `json:"Name"`
+	TeamNum      int    `json:"TeamNum"`
+	Score        int    `json:"Score"`
+	Goals        int    `json:"Goals"`
+	Assists      int    `json:"Assists"`
+	Saves        int    `json:"Saves"`
+	Shots        int    `json:"Shots"`
+	Touches      int    `json:"Touches"`
+	CarTouches   int    `json:"CarTouches"`
+	Demos        int    `json:"Demos"`
+	Boost        *int   `json:"Boost"`
+	BDemolished  bool   `json:"bDemolished"`
+}
+
+// onUpdateState caches the latest UpdateState slice for downstream
+// enrichment and runs Phase-4 diff emitters: _PlayerJoined / _PlayerLeft,
+// _PlayerScoreChanged, _BoostPickup, _BallPossessionChanged,
+// _TeamScoreChanged, plus _OwnGoal (which predates Phase 4 but lives
+// here for ordering with _TeamScoreChanged). Stays cheap — most of
+// the work is sub-millisecond integer compares.
 func (s *Synthesizer) onUpdateState(raw []byte) {
 	inner := unwrapInnerData(raw)
 	if inner == "" {
 		return
 	}
-	var d struct {
-		MatchGUID    string     `json:"MatchGuid"`
-		MatchGUIDLow string     `json:"matchguid"`
-		Game         *gameTeams `json:"Game"`
-		GameLow      *gameTeams `json:"game"`
-	}
+	var d updateStateFull
 	if err := json.Unmarshal([]byte(inner), &d); err != nil {
 		return
 	}
@@ -107,6 +170,8 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 	if g == nil || len(g.Teams) == 0 {
 		return
 	}
+
+	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
 	teams := make([]teamRef, 0, len(g.Teams))
 	for _, t := range g.Teams {
 		teams = append(teams, teamRef{
@@ -118,18 +183,338 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 		})
 	}
 
-	// Compute per-team score deltas against the prior cache before we
-	// overwrite. A delta of +1 with a recent ball touch by the opposing
-	// team is the own-goal signature. A team going +1 with no recent
-	// ball touch (forfeit, mercy rule) does not trigger.
+	wirePlayers := d.Players
+	if len(wirePlayers) == 0 {
+		wirePlayers = d.PlayersLow
+	}
+	players := make([]tickPlayer, 0, len(wirePlayers))
+	for _, p := range wirePlayers {
+		var boost *int
+		if p.Boost != nil {
+			b := *p.Boost
+			boost = &b
+		}
+		players = append(players, tickPlayer{
+			id:         p.PrimaryID,
+			name:       p.Name,
+			team:       p.TeamNum,
+			score:      p.Score,
+			goals:      p.Goals,
+			assists:    p.Assists,
+			saves:      p.Saves,
+			shots:      p.Shots,
+			touches:    p.Touches,
+			carTouches: p.CarTouches,
+			demos:      p.Demos,
+			boost:      boost,
+			demolished: p.BDemolished,
+		})
+	}
+
+	curr := &tickSnapshot{
+		matchGUID: guid,
+		teams:     teams,
+		players:   players,
+		overtime:  g.BOvertime,
+	}
+	if g.Ball != nil {
+		curr.ballTeam = g.Ball.TeamNum
+		curr.hasBall = true
+	}
+
 	s.teamsMu.Lock()
-	prev := s.lastTeams
+	prev := s.lastTick
+	prevTeams := s.lastTeams
+	s.lastTick = curr
 	s.lastTeams = teams
 	s.teamsMu.Unlock()
 
-	if len(prev) > 0 {
-		guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
-		s.detectOwnGoal(prev, teams, guid)
+	// _OwnGoal predates Phase 4 but is also a per-team-score-delta
+	// emitter, so we keep it here. Skip the compare on the first tick
+	// (no baseline).
+	if len(prevTeams) > 0 {
+		s.detectOwnGoal(prevTeams, teams, guid)
+	}
+
+	if prev == nil {
+		// First tick: no diffs to compute.
+		return
+	}
+
+	// Different-match guard: when the match guid changes, every
+	// "diff" against the previous snapshot would be misleading. The
+	// new tick is a fresh baseline.
+	if prev.matchGUID != "" && curr.matchGUID != "" && prev.matchGUID != curr.matchGUID {
+		return
+	}
+
+	s.diffPlayers(prev, curr)
+	s.diffTeamScores(prev, curr)
+	s.diffBallPossession(prev, curr)
+}
+
+// diffPlayers walks the previous + current player lists and emits
+// _PlayerJoined / _PlayerLeft on roster identity changes,
+// _PlayerScoreChanged on stat-field deltas, and _BoostPickup on a
+// rising boost edge during live play.
+func (s *Synthesizer) diffPlayers(prev, curr *tickSnapshot) {
+	prevByID := make(map[string]*tickPlayer, len(prev.players))
+	for i := range prev.players {
+		p := &prev.players[i]
+		if p.id != "" {
+			prevByID[p.id] = p
+		}
+	}
+	currByID := make(map[string]*tickPlayer, len(curr.players))
+	for i := range curr.players {
+		p := &curr.players[i]
+		if p.id != "" {
+			currByID[p.id] = p
+		}
+	}
+
+	// _PlayerJoined: ids in curr but not in prev.
+	for id, p := range currByID {
+		if _, was := prevByID[id]; was {
+			continue
+		}
+		s.emitPlayerJoined(curr.matchGUID, p)
+	}
+	// _PlayerLeft: ids in prev but not in curr.
+	for id, p := range prevByID {
+		if _, still := currByID[id]; still {
+			continue
+		}
+		s.emitPlayerLeft(prev.matchGUID, p)
+	}
+
+	// _PlayerScoreChanged + _BoostPickup: walk the intersection.
+	for id, c := range currByID {
+		p, ok := prevByID[id]
+		if !ok {
+			continue
+		}
+		s.emitPlayerScoreChangedIfDelta(curr.matchGUID, p, c)
+		s.emitBoostPickupIfRising(curr.matchGUID, p, c)
+	}
+}
+
+// emitPlayerJoined publishes a _PlayerJoined envelope. Phase is left
+// to the SDK to attach (it has the lifecycle subscription). We carry
+// just the identity bits.
+func (s *Synthesizer) emitPlayerJoined(guid string, p *tickPlayer) {
+	if p == nil || p.id == "" {
+		return
+	}
+	enriched := &EnrichedPlayer{
+		ID:       p.id,
+		Name:     p.name,
+		Team:     p.team,
+		Platform: platformFromID(p.id),
+		IsBot:    isBotId(p.id),
+	}
+	out := struct {
+		Event     string          `json:"Event"`
+		MatchGUID string          `json:"matchGuid,omitempty"`
+		Player    *EnrichedPlayer `json:"player"`
+	}{
+		Event:     "_PlayerJoined",
+		MatchGUID: guid,
+		Player:    enriched,
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
+	}
+}
+
+func (s *Synthesizer) emitPlayerLeft(guid string, p *tickPlayer) {
+	if p == nil || p.id == "" {
+		return
+	}
+	enriched := &EnrichedPlayer{
+		ID:       p.id,
+		Name:     p.name,
+		Team:     p.team,
+		Platform: platformFromID(p.id),
+		IsBot:    isBotId(p.id),
+	}
+	out := struct {
+		Event     string          `json:"Event"`
+		MatchGUID string          `json:"matchGuid,omitempty"`
+		Player    *EnrichedPlayer `json:"player"`
+	}{
+		Event:     "_PlayerLeft",
+		MatchGUID: guid,
+		Player:    enriched,
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
+	}
+}
+
+// emitPlayerScoreChangedIfDelta compares the seven non-spectator stat
+// fields. Only sends a delta map for fields that actually moved, so
+// subscribers can branch on (e.g.) `delta.demos > 0` without checking
+// for the field's existence.
+func (s *Synthesizer) emitPlayerScoreChangedIfDelta(guid string, prev, curr *tickPlayer) {
+	delta := map[string]int{}
+	if curr.score != prev.score {
+		delta["score"] = curr.score - prev.score
+	}
+	if curr.goals != prev.goals {
+		delta["goals"] = curr.goals - prev.goals
+	}
+	if curr.assists != prev.assists {
+		delta["assists"] = curr.assists - prev.assists
+	}
+	if curr.saves != prev.saves {
+		delta["saves"] = curr.saves - prev.saves
+	}
+	if curr.shots != prev.shots {
+		delta["shots"] = curr.shots - prev.shots
+	}
+	if curr.touches != prev.touches {
+		delta["touches"] = curr.touches - prev.touches
+	}
+	if curr.demos != prev.demos {
+		delta["demos"] = curr.demos - prev.demos
+	}
+	if len(delta) == 0 {
+		return
+	}
+	enriched := &EnrichedPlayer{
+		ID:       curr.id,
+		Name:     curr.name,
+		Team:     curr.team,
+		Platform: platformFromID(curr.id),
+		IsBot:    isBotId(curr.id),
+	}
+	out := struct {
+		Event     string          `json:"Event"`
+		MatchGUID string          `json:"matchGuid,omitempty"`
+		Player    *EnrichedPlayer `json:"player"`
+		Delta     map[string]int  `json:"delta"`
+	}{
+		Event:     "_PlayerScoreChanged",
+		MatchGUID: guid,
+		Player:    enriched,
+		Delta:     delta,
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
+	}
+}
+
+// emitBoostPickupIfRising fires when the player's Boost increased
+// (i.e., they picked up a pad or ran over a big-boost icon). Suppress
+// the post-respawn case (demolished → not demolished) — that's a boost
+// reset, not a pickup. Also suppress the first observation (no
+// baseline), which happens when prev.boost is nil (non-spectator
+// blackout) — we have no idea whether the value moved.
+func (s *Synthesizer) emitBoostPickupIfRising(guid string, prev, curr *tickPlayer) {
+	if prev.boost == nil || curr.boost == nil {
+		return
+	}
+	if *curr.boost <= *prev.boost {
+		return
+	}
+	if prev.demolished && !curr.demolished {
+		// Respawn boost-reset, not a pickup.
+		return
+	}
+	enriched := &EnrichedPlayer{
+		ID:       curr.id,
+		Name:     curr.name,
+		Team:     curr.team,
+		Platform: platformFromID(curr.id),
+		IsBot:    isBotId(curr.id),
+	}
+	out := struct {
+		Event       string          `json:"Event"`
+		MatchGUID   string          `json:"matchGuid,omitempty"`
+		Player      *EnrichedPlayer `json:"player"`
+		BoostBefore int             `json:"boostBefore"`
+		BoostAfter  int             `json:"boostAfter"`
+		Delta       int             `json:"delta"`
+	}{
+		Event:       "_BoostPickup",
+		MatchGUID:   guid,
+		Player:      enriched,
+		BoostBefore: *prev.boost,
+		BoostAfter:  *curr.boost,
+		Delta:       *curr.boost - *prev.boost,
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
+	}
+}
+
+// diffTeamScores fires _TeamScoreChanged when any team's Score moves.
+// Distinct from _OwnGoal: this fires for every score delta, including
+// regular goals.
+func (s *Synthesizer) diffTeamScores(prev, curr *tickSnapshot) {
+	prevByNum := make(map[int]int, len(prev.teams))
+	for _, t := range prev.teams {
+		prevByNum[t.TeamNum] = t.Score
+	}
+	for _, t := range curr.teams {
+		old, ok := prevByNum[t.TeamNum]
+		if !ok || t.Score == old {
+			continue
+		}
+		out := struct {
+			Event     string `json:"Event"`
+			MatchGUID string `json:"matchGuid,omitempty"`
+			TeamNum   int    `json:"teamNum"`
+			TeamName  string `json:"teamName,omitempty"`
+			Before    int    `json:"before"`
+			After     int    `json:"after"`
+			Delta     int    `json:"delta"`
+		}{
+			Event:     "_TeamScoreChanged",
+			MatchGUID: curr.matchGUID,
+			TeamNum:   t.TeamNum,
+			TeamName:  t.Name,
+			Before:    old,
+			After:     t.Score,
+			Delta:     t.Score - old,
+		}
+		if b, err := json.Marshal(out); err == nil {
+			s.bus.Publish(b)
+		}
+	}
+}
+
+// diffBallPossession fires _BallPossessionChanged when the ball's
+// TeamNum field changes. Normalize 255 (RL's "untouched" sentinel) to
+// null in the JSON via *int.
+func (s *Synthesizer) diffBallPossession(prev, curr *tickSnapshot) {
+	if !prev.hasBall || !curr.hasBall {
+		return
+	}
+	if prev.ballTeam == curr.ballTeam {
+		return
+	}
+	toNullable := func(team int) *int {
+		if team == 255 {
+			return nil
+		}
+		t := team
+		return &t
+	}
+	out := struct {
+		Event     string `json:"Event"`
+		MatchGUID string `json:"matchGuid,omitempty"`
+		Before    *int   `json:"before"`
+		After     *int   `json:"after"`
+	}{
+		Event:     "_BallPossessionChanged",
+		MatchGUID: curr.matchGUID,
+		Before:    toNullable(prev.ballTeam),
+		After:     toNullable(curr.ballTeam),
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
 	}
 }
 

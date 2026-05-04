@@ -74,4 +74,15 @@ var EventCatalog = []EventCatalogEntry{
 	{Name: "_Center", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Center with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
 	{Name: "_Clear", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Clear with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
 	{Name: "_BicycleHit", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "BicycleHit with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
+
+	// ─── UpdateState diff events (Phase 4) ────────────────────
+	// Synthesized by comparing the current UpdateState against the
+	// previous tick. Plugins that subscribe to these get exactly the
+	// state change they care about without parsing UpdateState themselves.
+	{Name: "_PlayerJoined", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player appeared this tick that wasn't in the previous tick.", Stability: "provisional", Since: "1.1"},
+	{Name: "_PlayerLeft", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player disappeared this tick.", Stability: "provisional", Since: "1.1"},
+	{Name: "_PlayerScoreChanged", Category: "stat", Shape: "score-delta", LivePhases: anyPhase, Desc: "Per-player stat diff (score, goals, assists, saves, shots, touches, demos). Only fields that moved appear in delta.", Stability: "provisional", Since: "1.1"},
+	{Name: "_BoostPickup", Category: "play", Shape: "boost-pickup", LivePhases: liveOnly, Desc: "Player's Boost increased between ticks (and not because of a respawn). Boost field is omitted in non-spectator mode for opponents — pickup detection only works for visible players.", Stability: "provisional", Since: "1.1"},
+	{Name: "_BallPossessionChanged", Category: "play", Shape: "possession", LivePhases: liveOnly, Desc: "Game.Ball.TeamNum changed between ticks. before/after are nullable — RL's untouched sentinel (255) is normalized to null.", Stability: "provisional", Since: "1.1"},
+	{Name: "_TeamScoreChanged", Category: "scoring", Shape: "team-score-delta", LivePhases: liveOrReplay, Desc: "A team's Score moved between ticks. Fires for every score change including regular goals; pair with _OwnGoal for own-goal verification.", Stability: "provisional", Since: "1.1"},
 }
