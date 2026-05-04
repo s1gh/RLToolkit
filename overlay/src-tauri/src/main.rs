@@ -42,7 +42,6 @@
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 mod focus_watcher;
-#[allow(unused_imports)]
 use rl_widget::launcher;
 
 use clap::Parser;
@@ -630,6 +629,15 @@ fn launcher_mode_active(args: &Args) -> bool {
 fn main() {
     let args = Args::parse();
 
+    if launcher_mode_active(&args) {
+        launcher::run();
+        return;
+    }
+
+    main_overlay(args);
+}
+
+fn main_overlay(args: Args) {
     let (mode, url, title) = match args.plugin.clone() {
         Some(name) if !name.is_empty() => {
             let manifest = match fetch_manifest(&args.toolkit, &name) {

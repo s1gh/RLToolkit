@@ -12,6 +12,11 @@ use tauri::Builder;
 /// only when launcher mode is selected. Today we register:
 /// - `tauri-plugin-shell` (sidecar process spawning)
 /// - `tauri-plugin-single-instance` (focus existing window on second launch)
+pub fn run() {
+    eprintln!("[rl-widget] launcher mode placeholder — pass --no-launcher to use the overlay");
+    std::process::exit(0);
+}
+
 pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .plugin(tauri_plugin_shell::init())
