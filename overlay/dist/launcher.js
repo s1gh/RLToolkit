@@ -17,6 +17,7 @@ const pluginsDirInput = document.getElementById("plugins-dir");
 const dataDirInput = document.getElementById("data-dir");
 
 let lastConnected = false;
+let suppressReloadUntil = 0;
 
 async function refreshStatus() {
   let s;
@@ -43,8 +44,10 @@ async function refreshStatus() {
 
   // Reload the dashboard iframe whenever the backend transitions from
   // disconnected → connected. Picks up restarts (settings save, manual
-  // restart-backend, external respawn) without a stale view.
-  if (s.connected && !lastConnected) {
+  // restart-backend, external respawn) without a stale view. The
+  // suppress window prevents a duplicate reload right after save_settings
+  // already scheduled one.
+  if (s.connected && !lastConnected && Date.now() >= suppressReloadUntil) {
     reloadDashboard();
   }
   lastConnected = s.connected;
@@ -128,10 +131,9 @@ document.getElementById("settings-save").addEventListener("click", async () => {
     });
     if (respawned) {
       closeSettings();
-      // Wait briefly for the new backend to come up, then reload the
-      // dashboard. The 2s status poll catches steady-state, but on a
-      // fresh respawn the iframe still has the old backend's HTML.
-      lastConnected = false; // force the next-poll reconnect path too
+      // Suppress the polling-driven reconnect-reload for ~5s; we'll do
+      // the reload explicitly once at +800ms.
+      suppressReloadUntil = Date.now() + 5000;
       setTimeout(() => { reloadDashboard(); }, 800);
     } else {
       // Attached — user must restart their backend manually.
