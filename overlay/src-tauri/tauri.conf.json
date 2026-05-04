@@ -9,12 +9,13 @@
   "app": {
     "windows": [],
     "withGlobalTauri": true,
-    "security": {
-      "csp": null
-    }
+    "security": { "csp": null }
   },
   "bundle": {
-    "active": false,
-    "targets": "all"
+    "active": true,
+    "targets": "all",
+    "externalBin": ["binaries/rl-toolkit"],
+    "category": "Utility",
+    "shortDescription": "RL Toolkit launcher and overlay"
   }
 }
