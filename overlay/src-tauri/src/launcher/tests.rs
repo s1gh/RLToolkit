@@ -110,3 +110,20 @@ fn probe_returns_unreachable_when_nothing_listening() {
         other => panic!("expected Unreachable, got {:?}", other),
     }
 }
+
+use crate::launcher::backend::BackendOwnership;
+
+#[test]
+fn ownership_attached_does_not_kill_on_terminate() {
+    let mut owned = BackendOwnership::Attached;
+    // terminate is a no-op on Attached.
+    owned.terminate(std::time::Duration::from_millis(10));
+    assert!(matches!(owned, BackendOwnership::Attached));
+}
+
+#[test]
+fn ownership_unavailable_terminate_is_noop() {
+    let mut owned = BackendOwnership::Unavailable;
+    owned.terminate(std::time::Duration::from_millis(10));
+    assert!(matches!(owned, BackendOwnership::Unavailable));
+}
