@@ -3,16 +3,30 @@
 
 use rl_widget::launcher::backend::{probe_status, BackendOwnership, ProbeOutcome};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::Duration;
 
+fn ensure_fake_backend_built() {
+    static BUILT: OnceLock<()> = OnceLock::new();
+    BUILT.get_or_init(|| {
+        let status = std::process::Command::new(env!("CARGO"))
+            .args(["build", "--example", "fake_backend"])
+            .status()
+            .expect("cargo build --example fake_backend");
+        assert!(status.success(), "fake_backend example failed to build");
+    });
+}
+
 fn fake_backend_path() -> std::path::PathBuf {
-    // Cargo places integration-test binaries' siblings — including auxiliary
-    // [[bin]] entries — alongside the test executable's parent's parent.
+    // Cargo places example binaries in target/<profile>/examples/.
+    // Integration-test executables live in target/<profile>/deps/,
+    // so we walk up from there (or from target/<profile>/ directly) into examples/.
     let test_exe = std::env::current_exe().unwrap();
     let mut dir = test_exe.parent().unwrap().to_path_buf();
     if dir.ends_with("deps") {
         dir.pop();
     }
+    dir.push("examples");
     let exe = if cfg!(windows) { "fake_backend.exe" } else { "fake_backend" };
     dir.join(exe)
 }
@@ -26,6 +40,7 @@ fn free_port() -> u16 {
 
 #[test]
 fn probe_attaches_to_running_backend() {
+    ensure_fake_backend_built();
     let port = free_port();
     let mut child = Command::new(fake_backend_path())
         .args(["--port", &port.to_string()])
@@ -48,6 +63,7 @@ fn probe_attaches_to_running_backend() {
 
 #[test]
 fn ownership_spawned_terminate_kills_child() {
+    ensure_fake_backend_built();
     let port = free_port();
     let child = Command::new(fake_backend_path())
         .args(["--port", &port.to_string()])
