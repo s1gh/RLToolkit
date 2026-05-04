@@ -108,6 +108,17 @@ struct Args {
     /// etc.).
     #[arg(long)]
     persist_cache: bool,
+
+    /// Run the launcher (control panel) instead of the overlay-only path.
+    /// Defaulted to true when no other overlay-shaping flag is passed; pass
+    /// `--no-launcher` to force overlay-only behavior.
+    #[arg(long)]
+    launcher: bool,
+
+    /// Force overlay-only behavior, suppressing the launcher window even
+    /// when no other flags are passed.
+    #[arg(long)]
+    no_launcher: bool,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -603,6 +614,17 @@ fn setup_hotkey(app: &AppHandle, combo: &str) -> Result<(), String> {
         })
         .map_err(|e| format!("could not register quit hotkey {combo:?}: {e}"))?;
     Ok(())
+}
+
+fn launcher_mode_active(args: &Args) -> bool {
+    if args.no_launcher {
+        return false;
+    }
+    if args.launcher {
+        return true;
+    }
+    // Default: launcher when no overlay-shaping flags were passed.
+    args.plugin.is_none()
 }
 
 fn main() {
