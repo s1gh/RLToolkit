@@ -62,6 +62,13 @@ type RLClient struct {
 	// can emit _LifecyclePhaseChanged events on gameplay-phase edges.
 	phaseMachine *PhaseMachine
 
+	// synth, if set, is fed every packet AFTER the trackers have updated
+	// so it can publish _-prefixed enriched events (player references
+	// resolved against the live roster, etc.). Runs in the dispatcher so
+	// the synthetic event lands on the bus inline with the raw event
+	// that triggered it.
+	synth *Synthesizer
+
 	mu     sync.RWMutex
 	status RLStatus
 
@@ -113,6 +120,10 @@ func (c *RLClient) AttachRosterTracker(t *RosterTracker) { c.roster = t }
 // for gameplay-phase transitions. Call before Run.
 func (c *RLClient) AttachPhaseMachine(m *PhaseMachine) { c.phaseMachine = m }
 
+// AttachSynthesizer wires a Synthesizer so it observes every packet for
+// synthetic event emission. Call before Run.
+func (c *RLClient) AttachSynthesizer(s *Synthesizer) { c.synth = s }
+
 func (c *RLClient) Status() RLStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -140,6 +151,13 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 			c.phaseMachine.Feed(msg)
 		}
 		c.bus.Publish(msg)
+		// Synthesizers run after the raw event lands on the bus so
+		// subscribers see "raw event, then enriched _-prefixed event"
+		// in that order. Roster-resolution reads the tracker state
+		// the *.Feed calls above just updated.
+		if c.synth != nil {
+			c.synth.Feed(msg)
+		}
 		}
 	}
 }

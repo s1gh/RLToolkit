@@ -48,4 +48,10 @@ var EventCatalog = []EventCatalogEntry{
 	{Name: "PodiumStart", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Game entered podium state.", Stability: "stable", Since: "1.0"},
 	{Name: "MatchDestroyed", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Player left the match.", Stability: "stable", Since: "1.0"},
 	{Name: "ReplayCreated", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Match-history replay loaded (NOT goal replays).", Stability: "stable", Since: "1.0"},
+
+	// ─── Synthetic events ──────────────────────────────────────
+	// _-prefixed events emitted by the toolkit, not by Rocket League.
+	// Player references are pre-resolved against the live roster, so
+	// subscribers don't need to do their own enrichment.
+	{Name: "_StatfeedEvent", Category: "stat", Shape: "stat-enriched", LivePhases: liveOrReplay, Desc: "StatfeedEvent with MainTarget/SecondaryTarget pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
 }

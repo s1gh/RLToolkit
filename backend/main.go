@@ -81,6 +81,8 @@ func runServe() {
 	client.AttachRosterTracker(roster)
 	phaseMachine := NewPhaseMachine(bus)
 	client.AttachPhaseMachine(phaseMachine)
+	synth := NewSynthesizer(bus, roster)
+	client.AttachSynthesizer(synth)
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
 	if err != nil {
