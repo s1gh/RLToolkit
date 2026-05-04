@@ -176,6 +176,20 @@ pub fn open_dashboard_in_browser(app: AppHandle, state: State<LauncherState>) ->
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// Open an arbitrary URL in the user's default browser. Used by the
+/// dashboard iframe to route `target="_blank"` clicks (Open buttons,
+/// API endpoint links, etc.) out of the webview and into a real browser.
+/// Restricted to http/https schemes so a malicious dashboard payload
+/// can't pop open `file://` or shell schemes.
+#[tauri::command]
+pub fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("only http/https URLs allowed".into());
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     app.exit(0);

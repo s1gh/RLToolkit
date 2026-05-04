@@ -601,5 +601,26 @@ window.addEventListener('message', (e) => {
   if (e.origin !== location.origin) return;
   if (e.data && e.data.type === 'rlt:settings:close') closeSettingsModal();
 });
+
+// When the dashboard is embedded inside the RL Toolkit launcher, links
+// with target="_blank" can't open a new tab — there's no tab system in
+// the launcher's webview. Forward those clicks to the launcher via
+// postMessage so it can open the URL in the user's real browser.
+const inLauncher = window.parent !== window;
+if (inLauncher) {
+  document.addEventListener('click', (ev) => {
+    const a = ev.target.closest && ev.target.closest('a[target="_blank"]');
+    if (!a) return;
+    const href = a.getAttribute('href');
+    if (!href) return;
+    // Resolve relative URLs against the dashboard's origin so the
+    // launcher gets an absolute URL to hand to the OS opener.
+    let absolute;
+    try { absolute = new URL(href, location.href).toString(); }
+    catch (_) { return; }
+    ev.preventDefault();
+    window.parent.postMessage({ type: 'rl-launcher:open-external', url: absolute }, '*');
+  });
+}
 </script>
 </body></html>

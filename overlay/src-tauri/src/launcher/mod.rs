@@ -53,6 +53,7 @@ pub fn run(args: Args) {
             ipc::restart_backend,
             ipc::open_data_folder,
             ipc::open_dashboard_in_browser,
+            ipc::open_external_url,
             ipc::quit,
             ipc::get_settings,
             ipc::save_settings,

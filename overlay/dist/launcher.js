@@ -155,6 +155,18 @@ async function loadDashboard() {
   }
 }
 
+// Bridge: the embedded dashboard iframe sends external-open requests via
+// postMessage so links with target="_blank" can be routed to the user's
+// real browser instead of failing silently inside the webview iframe.
+window.addEventListener("message", event => {
+  const data = event.data;
+  if (!data || typeof data !== "object") return;
+  if (data.type !== "rl-launcher:open-external") return;
+  const url = typeof data.url === "string" ? data.url : null;
+  if (!url) return;
+  invoke("open_external_url", { url }).catch(() => {});
+});
+
 setInterval(refreshStatus, 2000);
 refreshStatus();
 loadDashboard();
