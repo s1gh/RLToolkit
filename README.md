@@ -2,9 +2,10 @@
 
 A lightweight, plugin-based framework for the Rocket League Stats API.
 
-RL Toolkit consists of two components:
-- **Server** (`rl-toolkit`) - A Go application that connects to Rocket League's Stats API and serves plugin data via HTTP
-- **Overlay** (`rl-widget`) - A Rust/Tauri desktop widget that displays plugin overlays on top of your game
+RL Toolkit ships in two flavors:
+
+- **Launcher** (recommended) — a single desktop app that bundles the server, embeds the dashboard, and manages the overlay window. One thing to install, one thing to run.
+- **Two binaries** — the server (`rl-toolkit`) and the overlay (`rl-widget`) as separate executables. Useful for headless backends, CI, or running the server on one machine and the overlay on another.
 
 Both run natively on **Windows**, **Linux**, and **macOS**.
 
@@ -13,12 +14,31 @@ Both run natively on **Windows**, **Linux**, and **macOS**.
 ## What You'll Need Before Starting
 
 - **Rocket League** installed and updated
-- The `rl-toolkit` server running (either pre-built or compiled from source)
-- *(Optional)* The `rl-widget` overlay app for desktop overlays
+- Either the launcher app, or both the `rl-toolkit` server and (optional) `rl-widget` overlay binaries
 
 ---
 
-## Quick Start
+## Quick Start (with the launcher)
+
+1. Enable the Rocket League Stats API (see [step 1 below](#1-enable-the-rocket-league-stats-api)).
+2. Run the launcher binary from your release.
+3. The control panel opens, the backend starts in the background, and the overlay appears if it was on at last quit.
+
+From the control panel you can:
+
+- Toggle the overlay on/off (top-right switch)
+- Manage plugins via the embedded dashboard
+- Access **Settings** (overflow menu `⋯`) to configure custom plugin and data directories
+- **Stop / Start / Restart** the backend
+- Open the dashboard in your default browser (useful for OBS Browser Source URLs)
+
+The launcher hides to the system tray on close. Right-click the tray icon for **Show**, **Toggle Overlay**, and **Quit**.
+
+The two-binary workflow below is still fully supported. Run the launcher with `--no-launcher` to suppress the launcher window and behave like the legacy `rl-widget` overlay-only binary.
+
+---
+
+## Quick Start (manual two-binary)
 
 ### 1. Enable the Rocket League Stats API
 
@@ -166,9 +186,10 @@ Your player data is saved in `data/dejavu.json` and persists between sessions.
 
 ### Prerequisites
 
-**Both platforms need:**
+**All platforms need:**
 - [Go 1.22+](https://go.dev/dl/) (for the server)
-- [Rust](https://rustup.rs) (for the overlay widget)
+- [Rust](https://rustup.rs) (for the overlay widget and launcher)
+- For the launcher installer (optional): the Tauri CLI — `cargo install tauri-cli --version "^2.0"`
 
 **Linux additional:**
 ```bash
@@ -182,6 +203,75 @@ sudo apt install libwebkit2gtk-4.1-dev libgtk-layer-shell-dev libgtk-3-dev
 **Windows additional:**
 - [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/) with "Desktop development with C++"
 - WebView2 runtime (pre-installed on Windows 11, may need [manual install](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) on older Windows 10)
+
+### Building the Launcher (recommended)
+
+The launcher is a Tauri app that bundles the Go backend as a sidecar. Build it once and you have a single executable that runs everything.
+
+**Quick path (Linux/macOS, host platform only):**
+
+```bash
+make launcher
+```
+
+This:
+1. Detects the host's Rust target triple via `rustc -vV`
+2. Builds `rl-toolkit` for that target → `overlay/src-tauri/binaries/rl-toolkit-<triple>`
+3. Runs `cargo tauri build` → produces a per-OS installer under `overlay/src-tauri/target/release/bundle/`
+
+The bundle output depends on your platform: `.deb` and `.AppImage` on Linux, `.dmg` on macOS, `.msi` and `.exe` on Windows.
+
+**Manual steps (any platform, including Windows):**
+
+The Go backend must be placed at `overlay/src-tauri/binaries/rl-toolkit-<rust-target-triple>` before the Tauri build runs. The triple is whatever `rustc -vV` reports as `host:`.
+
+*Linux (x86_64):*
+```bash
+cd backend
+go build -o ../overlay/src-tauri/binaries/rl-toolkit-x86_64-unknown-linux-gnu .
+cd ../overlay/src-tauri
+cargo tauri build
+```
+
+*Windows (x86_64):*
+```powershell
+cd backend
+go build -o ../overlay/src-tauri/binaries/rl-toolkit-x86_64-pc-windows-msvc.exe .
+cd ../overlay/src-tauri
+cargo tauri build
+```
+
+*macOS (Apple Silicon):*
+```bash
+cd backend
+go build -o ../overlay/src-tauri/binaries/rl-toolkit-aarch64-apple-darwin .
+cd ../overlay/src-tauri
+cargo tauri build
+```
+
+(For Intel macs use `x86_64-apple-darwin` instead.)
+
+**Cross-compiling the backend:**
+
+Go cross-compiles trivially via `GOOS`/`GOARCH`, so you can prepare per-target sidecar binaries from any host:
+
+```bash
+GOOS=windows GOARCH=amd64 go build -o ../overlay/src-tauri/binaries/rl-toolkit-x86_64-pc-windows-msvc.exe .
+GOOS=linux   GOARCH=amd64 go build -o ../overlay/src-tauri/binaries/rl-toolkit-x86_64-unknown-linux-gnu .
+GOOS=darwin  GOARCH=arm64 go build -o ../overlay/src-tauri/binaries/rl-toolkit-aarch64-apple-darwin .
+```
+
+The Tauri build itself, however, must run on the target OS — Tauri's webview library links against native OS libraries and cannot be cross-compiled.
+
+**Running the launcher in development:**
+
+```bash
+cd overlay/src-tauri
+cargo run                 # opens the launcher, spawns the bundled backend
+cargo run -- --no-launcher  # legacy overlay-only mode (no launcher window)
+```
+
+`cargo run` requires the sidecar binary to be present at `binaries/rl-toolkit-<triple>` — if it isn't, the launcher will report "spawn failed: No such file or directory" until you build it (one `go build -o ...` from the manual steps above is enough).
 
 ### Building the Server (rl-toolkit)
 
@@ -221,6 +311,8 @@ cargo build --release
 
 ## Command Line Options
 
+### Server (`rl-toolkit`)
+
 ```
   -rl-addr string    RL Stats API address (default "127.0.0.1:49123")
   -port int          HTTP server port (default 8080)
@@ -232,6 +324,20 @@ Example: Run on a different port with custom plugin location
 ```bash
 ./rl-toolkit -port 9000 -plugins ./my-plugins -data ./my-data
 ```
+
+### Launcher / Overlay (`rl-widget`)
+
+```
+  --no-launcher       Force overlay-only mode (legacy two-binary behavior)
+  --plugin <name>     Single-plugin overlay window (sets overlay-only mode)
+  --toolkit <url>     Toolkit base URL (default "http://localhost:8080")
+  --quit-hotkey <k>   Global hotkey for the overlay (default "Ctrl+Shift+Q")
+  --game-match <s>    Game-window-title substring for focus gating
+  --monitor <n>       Output index for the overlay (Linux/Wayland)
+  --persist-cache     Keep webview cache across launches
+```
+
+With no flags, `rl-widget` opens the launcher. Pass `--no-launcher` or `--plugin=<name>` to bypass it and run the legacy overlay-only path.
 
 ---
 
@@ -267,6 +373,18 @@ curl http://localhost:8080/api/events
 **Widget won't build on Linux**
 - Install `webkit2gtk-4.1` and `gtk-layer-shell` for your distribution
 - Make sure `pkg-config` is installed
+
+**Launcher reports "spawn failed: No such file or directory"**
+- The bundled `rl-toolkit` sidecar binary is missing. Build it:
+  ```bash
+  cd backend
+  go build -o ../overlay/src-tauri/binaries/rl-toolkit-$(rustc -vV | sed -n 's/host: //p') .
+  ```
+- See [Building the Launcher](#building-the-launcher-recommended) for the full instructions.
+
+**Launcher pill stuck on "connecting…"**
+- The backend isn't reachable on `http://localhost:8080`. If you started the launcher with `--toolkit=<other-url>`, check it's correct.
+- Try the **Restart backend** item in the overflow menu to respawn the sidecar.
 
 **SmartScreen warning on Windows**
 - The executables are unsigned. Click "More info" → "Run anyway"
