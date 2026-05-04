@@ -11,7 +11,7 @@ RELEASE_DIR   := release
 WIDGET_BIN    := rl-widget
 TAURI_TARGET  := overlay/src-tauri/target/release
 
-.PHONY: all linux windows clean run fmt fmt-check lint check release release-go release-widget release-clean
+.PHONY: all linux windows clean run fmt fmt-check lint check release release-go release-widget release-clean launcher
 
 all: linux windows
 
@@ -79,3 +79,12 @@ lint:
 # One-shot: lint + format together (read-only, suitable for CI).
 check:
 	$(BIOME) check .
+
+# Build the combined launcher installer for the current host.
+# Cross-compilation requires per-target Go builds; do those manually
+# (e.g. `GOOS=windows GOARCH=amd64 go build -o ...rl-toolkit-x86_64-pc-windows-msvc.exe`).
+launcher:
+	@triple=$$(rustc -vV | sed -n 's/host: //p'); \
+	  echo "host triple: $$triple"; \
+	  cd backend && go build -o ../overlay/src-tauri/binaries/rl-toolkit-$$triple . && \
+	  cd ../overlay/src-tauri && cargo tauri build
