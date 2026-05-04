@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -346,6 +347,89 @@ func TestRosterTracker_RewritesBotIds(t *testing.T) {
 	}
 }
 
+// TestRewriteUpdateStateBotIds covers the dispatcher-level wire rewriter.
+// Every downstream raw-bus subscriber depends on this — without it,
+// SDK-side match.build (which reads raw UpdateState directly) would
+// still see the Unknown|0|0 collision.
+func TestRewriteUpdateStateBotIds(t *testing.T) {
+	t.Run("rewrites bot ids in PascalCase wire", func(t *testing.T) {
+		raw := envelope("UpdateState", map[string]any{
+			"MatchGuid": "m",
+			"Players": []map[string]any{
+				{"PrimaryId": "Steam|111|0", "Name": "Alice", "TeamNum": 0},
+				{"PrimaryId": "Unknown|0|0", "Name": "Roundhouse", "TeamNum": 1},
+				{"PrimaryId": "Unknown|0|0", "Name": "Merlin", "TeamNum": 1},
+			},
+		})
+		out := rewriteUpdateStateBotIds(raw)
+
+		// Decode to verify.
+		var env struct {
+			Data string `json:"Data"`
+		}
+		if err := json.Unmarshal(out, &env); err != nil {
+			t.Fatalf("envelope decode: %v", err)
+		}
+		var inner struct {
+			Players []struct {
+				PrimaryID string `json:"PrimaryId"`
+				Name      string `json:"Name"`
+			} `json:"Players"`
+		}
+		if err := json.Unmarshal([]byte(env.Data), &inner); err != nil {
+			t.Fatalf("inner decode: %v", err)
+		}
+		want := map[string]string{
+			"Alice":      "Steam|111|0",
+			"Roundhouse": "Bot|Roundhouse",
+			"Merlin":     "Bot|Merlin",
+		}
+		for _, p := range inner.Players {
+			if got := want[p.Name]; p.PrimaryID != got {
+				t.Errorf("%s: want id %q, got %q", p.Name, got, p.PrimaryID)
+			}
+		}
+	})
+
+	t.Run("returns original when no bot sentinel present", func(t *testing.T) {
+		raw := envelope("UpdateState", map[string]any{
+			"MatchGuid": "m",
+			"Players": []map[string]any{
+				{"PrimaryId": "Steam|111|0", "Name": "Alice", "TeamNum": 0},
+				{"PrimaryId": "Steam|222|0", "Name": "Bob", "TeamNum": 1},
+			},
+		})
+		out := rewriteUpdateStateBotIds(raw)
+		// Same backing array — fast path returned input unchanged.
+		if &raw[0] != &out[0] {
+			t.Errorf("expected fast-path passthrough (same backing array)")
+		}
+	})
+
+	t.Run("preserves bot id when name missing", func(t *testing.T) {
+		raw := envelope("UpdateState", map[string]any{
+			"MatchGuid": "m",
+			"Players": []map[string]any{
+				{"PrimaryId": "Unknown|0|0", "Name": "", "TeamNum": 1},
+			},
+		})
+		out := rewriteUpdateStateBotIds(raw)
+		// No rewrite happened — fast path or not, the wire shouldn't
+		// contain a "Bot|" id since we have no name to mint from.
+		if bytes.Contains(out, []byte("Bot|")) {
+			t.Errorf("unexpected Bot| id minted from empty name: %s", out)
+		}
+	})
+
+	t.Run("malformed envelope passes through unchanged", func(t *testing.T) {
+		raw := []byte("not json at all but contains Unknown|0|0 substring")
+		out := rewriteUpdateStateBotIds(raw)
+		if !bytes.Equal(raw, out) {
+			t.Errorf("malformed input should pass through; got %q", out)
+		}
+	})
+}
+
 // TestCanonicalizeBotId covers the boundary helper directly.
 func TestCanonicalizeBotId(t *testing.T) {
 	cases := []struct {
@@ -355,8 +439,10 @@ func TestCanonicalizeBotId(t *testing.T) {
 		want     string
 	}{
 		{"real player passthrough", "Steam|111|0", "Alice", "Steam|111|0"},
+		{"real player named Bot still passes", "Steam|111|0", "Bot", "Steam|111|0"},
 		{"bot with name → minted", "Unknown|0|0", "Roundhouse", "Bot|Roundhouse"},
 		{"bot without name → preserved", "Unknown|0|0", "", "Unknown|0|0"},
+		{"bot name with pipe sanitized", "Unknown|0|0", "Round|house", "Bot|Round_house"},
 		{"empty id passthrough", "", "Whatever", ""},
 	}
 	for _, c := range cases {

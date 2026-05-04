@@ -1,6 +1,10 @@
 package main
 
-import "strings"
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+)
 
 // ShortcutRef is the minimal player reference found in raw RL event
 // payloads (e.g., Scorer, MainTarget, BallLastTouch.Player).
@@ -134,11 +138,23 @@ const rlBotPrimaryID = "Unknown|0|0"
 // unchanged. Apply at every UpdateState wire-decode site so every
 // downstream consumer sees one consistent id per bot.
 //
-// The rewrite uses "Bot|<name>" — Name is RL's only stable per-bot
-// identifier across ticks within a match (RL keeps bot names stable
-// for the duration of a match). A bot named "Roundhouse" becomes
-// id="Bot|Roundhouse"; a different bot "Merlin" gets id="Bot|Merlin"
-// even though both arrive on the wire with PrimaryId="Unknown|0|0".
+// The rewrite uses "Bot|<sanitized-name>" — Name is RL's only stable
+// per-bot identifier across ticks within a match (RL keeps bot names
+// stable for the duration of a match). A bot named "Roundhouse"
+// becomes id="Bot|Roundhouse"; a different bot "Merlin" gets
+// id="Bot|Merlin" even though both arrive on the wire with
+// PrimaryId="Unknown|0|0".
+//
+// Why "Bot|" can't collide with a real player: PrimaryId is always
+// shaped Platform|UserId|SubId, and Psyonix's platform list
+// (Steam/Epic/PS4/XboxOne/Switch/Unknown) doesn't include "Bot".
+// A real user's display name could be "Bot" but the id starts with
+// the platform, never the display name.
+//
+// Names are sanitized: any `|` in the bot name would break
+// platformFromID's "everything before the first |" rule, so we
+// replace it with `_`. Other characters pass through (RL bot names
+// are well-formed in practice).
 //
 // If RL ships a bot with no name (shouldn't happen but defensive),
 // the original Unknown|0|0 is preserved — better one collision than
@@ -150,5 +166,108 @@ func canonicalizeBotId(primaryID, name string) string {
 	if name == "" {
 		return primaryID
 	}
-	return "Bot|" + name
+	return "Bot|" + strings.ReplaceAll(name, "|", "_")
+}
+
+// rewriteUpdateStateBotIds returns a copy of the raw envelope with every
+// Players[].PrimaryId rewritten via canonicalizeBotId. Called from the
+// RL-client dispatcher before the bus publish, so every downstream
+// consumer — bus subscribers, hosted-bus aggregator, direct-mode
+// plugins, the SDK's match.build — sees one canonical id per bot.
+//
+// Fast path: if the wire bytes don't contain the Unknown|0|0 sentinel,
+// return the input unchanged. The vast majority of packets in a
+// human-only match hit this branch and skip the decode/re-marshal
+// allocation entirely.
+//
+// Failure mode: if the JSON round-trip fails for any reason (malformed
+// envelope, unexpected nesting), we return the input unchanged rather
+// than dropping the packet. The downstream roster_tracker /
+// synthesizer also call canonicalizeBotId on their own decoded copies
+// as a defense-in-depth, so a missed rewrite here only affects raw-bus
+// subscribers (and even then, only for that one packet).
+func rewriteUpdateStateBotIds(raw []byte) []byte {
+	if !bytes.Contains(raw, []byte(rlBotPrimaryID)) {
+		return raw
+	}
+
+	var env map[string]any
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return raw
+	}
+	// The envelope's Data field is a JSON-encoded string holding the
+	// inner UpdateState payload. Pull either casing.
+	var dataKey string
+	switch {
+	case env["Data"] != nil:
+		dataKey = "Data"
+	case env["data"] != nil:
+		dataKey = "data"
+	default:
+		return raw
+	}
+	innerStr, ok := env[dataKey].(string)
+	if !ok {
+		return raw
+	}
+
+	var inner map[string]any
+	if err := json.Unmarshal([]byte(innerStr), &inner); err != nil {
+		return raw
+	}
+	// Players[] may be PascalCase or lowercase; only one of the two is
+	// present per envelope per RL build.
+	var playersKey string
+	switch {
+	case inner["Players"] != nil:
+		playersKey = "Players"
+	case inner["players"] != nil:
+		playersKey = "players"
+	default:
+		return raw
+	}
+	playersAny, ok := inner[playersKey].([]any)
+	if !ok {
+		return raw
+	}
+	idKey := "PrimaryId"
+	nameKey := "Name"
+	if playersKey == "players" {
+		idKey = "primaryid"
+		nameKey = "name"
+	}
+	rewrote := false
+	for _, pAny := range playersAny {
+		p, ok := pAny.(map[string]any)
+		if !ok {
+			continue
+		}
+		pid, _ := p[idKey].(string)
+		if pid != rlBotPrimaryID {
+			continue
+		}
+		name, _ := p[nameKey].(string)
+		if name == "" {
+			continue
+		}
+		p[idKey] = "Bot|" + strings.ReplaceAll(name, "|", "_")
+		rewrote = true
+	}
+	if !rewrote {
+		// Sentinel string was somewhere in the bytes but not on a
+		// PrimaryId field — return the original to avoid spurious
+		// re-marshaling cost.
+		return raw
+	}
+
+	innerOut, err := json.Marshal(inner)
+	if err != nil {
+		return raw
+	}
+	env[dataKey] = string(innerOut)
+	out, err := json.Marshal(env)
+	if err != nil {
+		return raw
+	}
+	return out
 }

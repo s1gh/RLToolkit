@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -141,6 +142,21 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 			if !ok {
 				return
 			}
+		// Canonicalize bot ids on UpdateState envelopes before anything
+		// downstream sees them. The wire ships every bot under the
+		// "Unknown|0|0" sentinel; without rewriting here, bus subscribers
+		// that read raw UpdateState (notably the SDK's match.build) would
+		// collapse multiple bots into one player. Trackers + synthesizer
+		// also call canonicalizeBotId on their own decoded copies as a
+		// belt-and-braces guard, but doing it once here means raw-bus
+		// readers benefit too. The helper short-circuits when the
+		// sentinel string isn't in the wire bytes.
+		for _, m := range updateStateMarkers {
+			if bytes.Contains(msg, m) {
+				msg = rewriteUpdateStateBotIds(msg)
+				break
+			}
+		}
 		if c.lifecycle != nil {
 			c.lifecycle.Feed(msg)
 		}
