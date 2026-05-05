@@ -46,6 +46,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 .conn[data-status="connected"]    { color: var(--green); }
 .conn[data-status="connecting"]   { color: var(--gold); }
 .conn[data-status="disconnected"] { color: var(--red); }
+.conn[data-status="warning"]      { color: var(--gold); }
 
 .badge {
   font-size: 11px; padding: 2px 6px; border-radius: 999px;

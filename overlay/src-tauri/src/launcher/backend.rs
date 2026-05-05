@@ -12,7 +12,7 @@ use std::time::Duration;
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProbeOutcome {
     /// 200 + JSON shape we recognize as the toolkit.
-    Toolkit,
+    Toolkit { rl_api: String },
     /// 200 (or non-error) but the body is not the toolkit's shape.
     Unrelated,
     /// Connection refused, timeout, or other transport error.
@@ -21,8 +21,7 @@ pub enum ProbeOutcome {
 
 #[derive(Deserialize)]
 struct StatusEnvelope {
-    #[allow(dead_code)]
-    rl_api: serde_json::Value,
+    rl_api: String,
 }
 
 pub fn probe_status(url: &str, timeout: Duration) -> ProbeOutcome {
@@ -44,7 +43,7 @@ pub fn probe_status(url: &str, timeout: Duration) -> ProbeOutcome {
     }
 
     match resp.json::<StatusEnvelope>() {
-        Ok(_) => ProbeOutcome::Toolkit,
+        Ok(env) => ProbeOutcome::Toolkit { rl_api: env.rl_api },
         Err(_) => ProbeOutcome::Unrelated,
     }
 }
@@ -171,6 +170,7 @@ pub fn spawn_sidecar(
     log_path: std::path::PathBuf,
     plugins_dir: Option<String>,
     data_dir: Option<String>,
+    rl_addr: Option<String>,
 ) -> Result<BackendOwnership, String> {
     use std::io::Write;
     let mut cmd = app
@@ -195,6 +195,9 @@ pub fn spawn_sidecar(
         "-data".to_string(),
         data,
     ]);
+    if let Some(addr) = rl_addr.filter(|a| !a.trim().is_empty()) {
+        cmd = cmd.args(["-rl-addr".to_string(), addr]);
+    }
 
     let (mut rx, child) = cmd.spawn().map_err(|e| format!("spawn sidecar: {e}"))?;
 

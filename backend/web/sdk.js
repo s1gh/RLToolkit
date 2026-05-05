@@ -156,6 +156,13 @@
     const inOverlay = __rltIsOverlay;
     const anchor = params.get('anchor') || 'top-left';
     overlayHideWhenUnfocused = inOverlay && params.has('hide_when_unfocused');
+    const overlayGated = inOverlay && (params.has('hide_when_unfocused') || params.has('phases'));
+    if (overlayGated) {
+      const s = document.createElement('style');
+      s.textContent = 'body{display:none!important}';
+      s.id = '__rlt_gate_style';
+      (document.head || document.documentElement).appendChild(s);
+    }
     if (inOverlay && params.has('phases')) {
       const list = (params.get('phases') || '')
         .split(',')
@@ -170,11 +177,7 @@
         const html = document.documentElement;
         const body = document.body;
         if (!body) return;
-        // Tag the document so plugin CSS can target .overlay-mode for
-        // transparent backgrounds, no padding, etc — same convention every
-        // plugin used by hand before; now it's automatic.
         body.classList.add('overlay-mode');
-        // Fill the iframe completely.
         html.style.margin = '0';
         html.style.padding = '0';
         html.style.height = '100%';
@@ -183,16 +186,13 @@
         body.style.minHeight = '100%';
         body.style.height = '100%';
         body.style.width = '100%';
-        // Pin content to the manifest's anchor corner. If either gate
-        // is on (hide-when-unfocused or show-during-phase), start with
-        // display:none so nothing paints before the gates clear; the
-        // combined subscriber below restores 'flex' once both pass.
-        // Otherwise apply 'flex' immediately (default behavior).
         const gated = overlayHideWhenUnfocused || overlayPhaseGate !== null;
         body.style.display = gated ? 'none' : 'flex';
         body.style.flexDirection = 'column';
         body.style.alignItems = hAlign;
         body.style.justifyContent = vAlign;
+        const gateStyle = document.getElementById('__rlt_gate_style');
+        if (gateStyle) gateStyle.remove();
       };
       if (document.body) apply();
       else document.addEventListener('DOMContentLoaded', apply, { once: true });

@@ -21,6 +21,7 @@ pub struct LauncherSettings {
     pub quit_hotkey: Option<String>,
     pub plugins_dir: Option<String>,
     pub data_dir: Option<String>,
+    pub rl_addr: Option<String>,
 }
 
 pub struct SettingsStore {

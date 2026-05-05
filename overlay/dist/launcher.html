@@ -26,7 +26,7 @@
         <li><button data-cmd="toggle_backend" id="toggle-backend-btn">Stop backend</button></li>
         <li><button data-cmd="restart_backend" id="restart-btn">Restart backend</button></li>
         <li><button data-cmd="open_data_folder">Open data folder</button></li>
-        <li><button data-cmd="open_dashboard_in_browser">Open dashboard in browser</button></li>
+        <li><button data-cmd="open_dashboard_in_browser">Open in browser</button></li>
         <li><button data-cmd="open_settings" id="settings-btn">Settings</button></li>
         <li class="sep"></li>
         <li><button data-cmd="quit">Quit</button></li>
@@ -61,6 +61,12 @@
         <div class="path-input">
           <input type="text" id="data-dir" placeholder="./data (default)">
           <button type="button" data-pick="data-dir">Browse…</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="rl-addr">Rocket League Stats API address</label>
+        <div class="path-input">
+          <input type="text" id="rl-addr" placeholder="127.0.0.1:49123 (default)">
         </div>
       </div>
       <p class="hint" id="settings-hint" hidden></p>

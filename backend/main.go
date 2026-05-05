@@ -51,7 +51,7 @@ Usage:
 
 Server flags (serve):
   -rl-addr  host:port for RL Stats API (default 127.0.0.1:49123)
-  -port     HTTP port (default 8080)
+  -port     HTTP port (default 49200)
   -plugins  plugin directory (default <exe-dir>/plugins)
   -data     data directory (default <exe-dir>/data)
 `)
@@ -223,7 +223,7 @@ func splitFlagsAndPositional(args []string) (flags, positional []string) {
 func parseFlags() Config {
 	exeDir := executableDir()
 	rlAddr := flag.String("rl-addr", "127.0.0.1:49123", "RL Stats API address (host:port)")
-	httpPort := flag.Int("port", 8080, "HTTP server port")
+	httpPort := flag.Int("port", 49200, "HTTP server port")
 	pluginDir := flag.String("plugins", filepath.Join(exeDir, "plugins"), "Plugin directory path")
 	dataDir := flag.String("data", filepath.Join(exeDir, "data"), "Data directory path")
 	flag.Parse()

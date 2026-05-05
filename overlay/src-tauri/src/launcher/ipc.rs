@@ -41,6 +41,7 @@ pub struct StatusView {
     pub message: Option<String>,
     pub tray_ok: bool,
     pub stopped_by_user: bool,
+    pub rl_api: Option<String>,
 }
 
 #[tauri::command]
@@ -57,11 +58,11 @@ pub fn get_status(state: State<LauncherState>) -> StatusView {
     );
 
     let (body_state, message) = match (&outcome, ctx.starting, ctx.attached, ctx.stopped_by_user) {
-        (ProbeOutcome::Toolkit, _, _, _) => (BodyState::Dashboard, None),
+        (ProbeOutcome::Toolkit { .. }, _, _, _) => (BodyState::Dashboard, None),
         (_, true, _, _) => (BodyState::Starting, Some("Starting backend…".to_string())),
         (ProbeOutcome::Unrelated, _, _, _) => (
             BodyState::PortConflict,
-            Some("Port 8080 is already in use by another application.".to_string()),
+            Some("Port is already in use by another application.".to_string()),
         ),
         (ProbeOutcome::Unreachable, _, _, true) => (
             BodyState::Stopped,
@@ -77,8 +78,13 @@ pub fn get_status(state: State<LauncherState>) -> StatusView {
         ),
     };
 
+    let rl_api = match &outcome {
+        ProbeOutcome::Toolkit { rl_api } => Some(rl_api.clone()),
+        _ => None,
+    };
+
     StatusView {
-        connected: matches!(outcome, ProbeOutcome::Toolkit),
+        connected: matches!(outcome, ProbeOutcome::Toolkit { .. }),
         starting: ctx.starting,
         attached: ctx.attached,
         overlay_enabled: ctx.overlay_enabled,
@@ -86,6 +92,7 @@ pub fn get_status(state: State<LauncherState>) -> StatusView {
         message,
         tray_ok: ctx.tray_ok,
         stopped_by_user: ctx.stopped_by_user,
+        rl_api,
     }
 }
 
@@ -126,10 +133,10 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
         return Err("backend not owned by launcher".into());
     }
 
-    let (plugins_dir, data_dir) = {
+    let (plugins_dir, data_dir, rl_addr) = {
         let ctx = state.lock().unwrap();
         let s = ctx.settings.load();
-        (s.plugins_dir.clone(), s.data_dir.clone())
+        (s.plugins_dir.clone(), s.data_dir.clone(), s.rl_addr.clone())
     };
 
     if let Some(handle) = app.try_state::<crate::launcher::BackendHandle>() {
@@ -141,7 +148,7 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("data")
             .join("launcher.log");
-        match spawn_sidecar(&app, log_path, plugins_dir, data_dir) {
+        match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => {
                 *slot = Some(new_owned);
                 drop(slot);
@@ -185,10 +192,10 @@ pub fn start_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), 
         return Err("backend not owned by launcher".into());
     }
 
-    let (plugins_dir, data_dir) = {
+    let (plugins_dir, data_dir, rl_addr) = {
         let ctx = state.lock().unwrap();
         let s = ctx.settings.load();
-        (s.plugins_dir.clone(), s.data_dir.clone())
+        (s.plugins_dir.clone(), s.data_dir.clone(), s.rl_addr.clone())
     };
 
     if let Some(handle) = app.try_state::<crate::launcher::BackendHandle>() {
@@ -200,7 +207,7 @@ pub fn start_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), 
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("data")
             .join("launcher.log");
-        match spawn_sidecar(&app, log_path, plugins_dir, data_dir) {
+        match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => {
                 *slot = Some(new_owned);
                 drop(slot);
@@ -272,6 +279,7 @@ pub fn quit(app: AppHandle) {
 pub struct LauncherSettingsView {
     pub plugins_dir: Option<String>,
     pub data_dir: Option<String>,
+    pub rl_addr: Option<String>,
 }
 
 #[tauri::command]
@@ -281,6 +289,7 @@ pub fn get_settings(state: State<LauncherState>) -> LauncherSettingsView {
     LauncherSettingsView {
         plugins_dir: s.plugins_dir,
         data_dir: s.data_dir,
+        rl_addr: s.rl_addr,
     }
 }
 
@@ -288,6 +297,7 @@ pub fn get_settings(state: State<LauncherState>) -> LauncherSettingsView {
 pub fn save_settings(
     plugins_dir: Option<String>,
     data_dir: Option<String>,
+    rl_addr: Option<String>,
     app: AppHandle,
     state: State<LauncherState>,
 ) -> Result<bool, String> {
@@ -299,6 +309,7 @@ pub fn save_settings(
         let mut s = ctx.settings.load();
         s.plugins_dir = plugins_dir.clone().filter(|p| !p.trim().is_empty());
         s.data_dir = data_dir.clone().filter(|p| !p.trim().is_empty());
+        s.rl_addr = rl_addr.clone().filter(|p| !p.trim().is_empty());
         ctx.settings.save(&s).map_err(|e| e.to_string())?;
         ctx.attached
     };
@@ -319,7 +330,7 @@ pub fn save_settings(
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("data")
             .join("launcher.log");
-        match spawn_sidecar(&app, log_path, plugins_dir, data_dir) {
+        match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => *slot = Some(new_owned),
             Err(e) => return Err(e),
         }

@@ -97,23 +97,23 @@ pub fn run(args: Args) {
                     .unwrap_or_else(|_| std::path::PathBuf::from("."))
                     .join("data")
                     .join("launcher.log");
-                let (plugins_dir, data_dir) = {
+                let (plugins_dir, data_dir, rl_addr) = {
                     use tauri::Manager;
                     let state: tauri::State<LauncherState> = app_for_probe.state();
                     let ctx = state.lock().unwrap();
                     let s = ctx.settings.load();
-                    (s.plugins_dir.clone(), s.data_dir.clone())
+                    (s.plugins_dir.clone(), s.data_dir.clone(), s.rl_addr.clone())
                 };
                 let url = format!("{}/api/status", toolkit_url.trim_end_matches('/'));
                 let outcome = probe_status(&url, std::time::Duration::from_millis(500));
 
                 let owned = match outcome {
-                    ProbeOutcome::Toolkit => {
+                    ProbeOutcome::Toolkit { .. } => {
                         set_attached(&app_for_probe, true);
                         BackendOwnership::Attached
                     }
                     ProbeOutcome::Unreachable => {
-                        match spawn_sidecar(&app_for_probe, log_path.clone(), plugins_dir, data_dir) {
+                        match spawn_sidecar(&app_for_probe, log_path.clone(), plugins_dir, data_dir, rl_addr) {
                             Ok(b) => {
                                 set_attached(&app_for_probe, false);
                                 b
@@ -134,7 +134,7 @@ pub fn run(args: Args) {
                 if matches!(owned, BackendOwnership::SpawnedSidecar(_) | BackendOwnership::SpawnedRaw(_)) {
                     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
                     while std::time::Instant::now() < deadline {
-                        if probe_status(&url, std::time::Duration::from_millis(300)) == ProbeOutcome::Toolkit {
+                        if matches!(probe_status(&url, std::time::Duration::from_millis(300)), ProbeOutcome::Toolkit { .. }) {
                             break;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(200));

@@ -88,11 +88,6 @@ endif
 
 release: backend launcher
 	@mkdir -p $(OUT_DIR)
-	# Plugins are build output: nuke + recopy so a release reflects
-	# the latest plugin source verbatim, with no stale leftovers from
-	# a previous build still hanging around.
-	rm -rf $(OUT_DIR)/plugins
-	cp -r plugins $(OUT_DIR)/plugins
 	# data/ is runtime state (per-plugin stores, encounter ledger,
 	# discoveries) that grows as the user plays. The backend creates
 	# files on first write, so we don't need to seed anything — and

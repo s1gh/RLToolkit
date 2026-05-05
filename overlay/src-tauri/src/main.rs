@@ -583,7 +583,7 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
         let toolkit_url = if let Some(state) = app.try_state::<crate::launcher::ipc::LauncherState>() {
             state.lock().unwrap().toolkit_url.clone()
         } else {
-            "http://localhost:8080".to_string()
+            "http://localhost:49200".to_string()
         };
 
         let url = unified_url(&toolkit_url);

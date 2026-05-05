@@ -21,14 +21,11 @@
   const params = new URLSearchParams(location.search);
   const editMode = params.get('edit') === '1';
 
-  const [plugins, overrides] = await Promise.all([
-    fetch('/api/plugins').then(r => r.json()),
-    fetch('/api/overlay/overrides').then(r => r.json()).catch(() => ({})),
-  ]);
+  let plugins = await fetch('/api/plugins').then(r => r.json());
+  const overrides = await fetch('/api/overlay/overrides').then(r => r.json()).catch(() => ({}));
 
-  // Build the final overlay config per plugin: manifest first, override on top.
-  function mergeConfig(overridesMap) {
-    return plugins
+  function mergeConfig(pluginList, overridesMap) {
+    return pluginList
       .filter(p => p.overlay?.file)
       .map(p => ({
         plugin: p,
@@ -36,7 +33,12 @@
       }));
   }
 
-  const merged = mergeConfig(overrides);
+  async function reflow(overridesMap) {
+    plugins = await fetch('/api/plugins').then(r => r.json()).catch(() => plugins);
+    applyConfig(mergeConfig(plugins, overridesMap));
+  }
+
+  const merged = mergeConfig(plugins, overrides);
 
   if (editMode) {
     // Hand off to the editor. It reads window.__rltOverlayContext for the
@@ -146,7 +148,7 @@
 
       // Reflow event: handled here, NOT forwarded to plugins.
       if (env.Event === '_OverridesChanged') {
-        applyConfig(mergeConfig(env.Data || {}));
+        reflow(env.Data || {});
         return;
       }
 
@@ -183,7 +185,7 @@
       // anything the editor changed while we were down.
       fetch('/api/overlay/overrides')
         .then(r => r.json())
-        .then(o => applyConfig(mergeConfig(o)))
+        .then(o => reflow(o))
         .catch((err) => console.warn('[rlt overlay] resync failed', err));
     };
     es.onerror = (e) => {

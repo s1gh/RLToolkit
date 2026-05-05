@@ -14,7 +14,7 @@ pub struct Args {
     pub plugin: Option<String>,
 
     /// Toolkit base URL.
-    #[arg(long, default_value = "http://localhost:8080")]
+    #[arg(long, default_value = "http://localhost:49200")]
     pub toolkit: String,
 
     /// Global hotkey to quit the overlay. Format follows Tauri's

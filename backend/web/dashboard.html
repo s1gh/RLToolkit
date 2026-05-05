@@ -78,30 +78,6 @@ button{font-family:inherit}
   margin-top:3px; letter-spacing:0;
 }
 
-.conn{
-  display:inline-flex; align-items:center; gap:8px;
-  padding:7px 14px;
-  background:var(--bg-2); border:1px solid var(--line);
-  border-radius:99px;
-  font-size:12px; font-weight:600;
-  color:var(--txt-2);
-  letter-spacing:0;
-}
-.conn::before{
-  content:''; width:7px; height:7px; border-radius:50%;
-  background:var(--txt-3);
-}
-.conn[data-status="connected"]    { color:#fff; }
-.conn[data-status="connected"]::before{
-  background:var(--green); box-shadow:0 0 0 3px rgba(34,197,94,.18);
-  animation:pulse 2.4s ease-in-out infinite;
-}
-.conn[data-status="connecting"]::before{ background:var(--gold); }
-.conn[data-status="disconnected"]::before{ background:#ef4444; }
-@keyframes pulse{
-  0%,100%{ box-shadow:0 0 0 3px rgba(34,197,94,.16); }
-  50%   { box-shadow:0 0 0 6px rgba(34,197,94,.04); }
-}
 
 /* ─── Section heading ──────────────────────────────────────── */
 .section-head{
@@ -392,7 +368,6 @@ button{font-family:inherit}
         <div class="tag">Stats API · Plugin Host</div>
       </div>
     </div>
-    <span class="conn" id="conn" data-status="disconnected">disconnected</span>
   </header>
 
   <section>
@@ -433,23 +408,6 @@ button{font-family:inherit}
 'use strict';
 
 // ─── Connection pill — short polling, no SSE ───────────────
-// Dashboard is a launcher, not a monitor. /api/status every few seconds is
-// plenty, and avoids the long-lived SSE connection (which Firefox warns
-// about whenever you navigate away).
-const conn = document.getElementById('conn');
-async function pingStatus() {
-  try {
-    const r = await fetch('/api/status', { cache: 'no-store' });
-    const j = await r.json();
-    conn.dataset.status = j.rl_api || 'disconnected';
-    conn.textContent = j.rl_api || 'disconnected';
-  } catch {
-    conn.dataset.status = 'disconnected';
-    conn.textContent = 'disconnected';
-  }
-}
-pingStatus();
-setInterval(pingStatus, 5000);
 
 // ─── Plugin list ───────────────────────────────────────────
 // Fetch plugins + overrides together so the per-card enabled toggle

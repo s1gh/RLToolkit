@@ -16,6 +16,7 @@ const settingsModal = document.getElementById("settings-modal");
 const settingsHint = document.getElementById("settings-hint");
 const pluginsDirInput = document.getElementById("plugins-dir");
 const dataDirInput = document.getElementById("data-dir");
+const rlAddrInput = document.getElementById("rl-addr");
 
 let lastConnected = false;
 let suppressReloadUntil = 0;
@@ -27,8 +28,16 @@ async function refreshStatus() {
   } catch (_) {
     return;
   }
-  conn.dataset.status = s.connected ? "connected" : (s.starting ? "connecting" : "disconnected");
-  conn.textContent = conn.dataset.status === "connecting" ? "connecting…" : conn.dataset.status;
+  if (!s.connected) {
+    conn.dataset.status = s.starting ? "connecting" : "disconnected";
+    conn.textContent = s.starting ? "connecting…" : "disconnected";
+  } else if (s.rl_api === "connected") {
+    conn.dataset.status = "connected";
+    conn.textContent = "connected";
+  } else {
+    conn.dataset.status = "warning";
+    conn.textContent = "game " + (s.rl_api || "disconnected");
+  }
   ownership.hidden = !s.attached;
   restartBtn.disabled = s.attached;
   overlayToggle.checked = !!s.overlay_enabled;
@@ -64,7 +73,7 @@ async function refreshStatus() {
 async function reloadDashboard() {
   const iframe = document.getElementById("dashboard");
   if (!iframe) return;
-  let url = "http://localhost:8080/";
+  let url = "http://localhost:49200/";
   try {
     url = (await invoke("get_toolkit_url")) || url;
   } catch (_) {}
@@ -112,9 +121,11 @@ async function openSettings() {
     const s = await invoke("get_settings");
     pluginsDirInput.value = s.plugins_dir || "";
     dataDirInput.value = s.data_dir || "";
+    rlAddrInput.value = s.rl_addr || "";
   } catch (_) {
     pluginsDirInput.value = "";
     dataDirInput.value = "";
+    rlAddrInput.value = "";
   }
   settingsHint.hidden = true;
   settingsHint.textContent = "";
@@ -146,10 +157,12 @@ document.querySelectorAll("[data-pick]").forEach(btn => {
 document.getElementById("settings-save").addEventListener("click", async () => {
   const plugins = pluginsDirInput.value.trim();
   const data = dataDirInput.value.trim();
+  const rlAddr = rlAddrInput.value.trim();
   try {
     const respawned = await invoke("save_settings", {
       pluginsDir: plugins || null,
       dataDir: data || null,
+      rlAddr: rlAddr || null,
     });
     if (respawned) {
       closeSettings();
@@ -171,9 +184,9 @@ document.getElementById("settings-save").addEventListener("click", async () => {
 async function loadDashboard() {
   try {
     const url = await invoke("get_toolkit_url");
-    document.getElementById("dashboard").src = url || "http://localhost:8080/";
+    document.getElementById("dashboard").src = url || "http://localhost:49200/";
   } catch (_) {
-    document.getElementById("dashboard").src = "http://localhost:8080/";
+    document.getElementById("dashboard").src = "http://localhost:49200/";
   }
 }
 
