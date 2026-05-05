@@ -29,3 +29,6 @@ overlay/src-tauri/gen/
 docs/*
 !docs/superpowers/
 *.zip
+
+# Local git worktrees
+.worktrees/
