@@ -413,8 +413,12 @@
       return;
     }
     // Synthetic _RosterChanged: top-level match_guid + players,
-    // not inside Data. Hand the whole envelope through.
+    // not inside Data. Hand the whole envelope through. The
+    // players[] array carries EnrichedPlayer-shaped entries with
+    // isMe blank server-side, so stamp before emitting — same
+    // contract as the other synthetic events below.
     if (event === '_RosterChanged') {
+      stampClientSideFields(msg);
       bus.emit('_RosterChanged', msg);
       return;
     }
@@ -1464,6 +1468,41 @@
     });
   });
 
+  // Synthetic _-prefix events are dispatched onto the raw `bus` from
+  // dispatchEnvelope, but plugin handlers registered via
+  // `events: { _PlayerDemolished(...) }` listen on `eventsBus`. Bridge
+  // each known synthetic onto eventsBus so register()-style subscribers
+  // and the RLT.events.onEnriched* helpers actually receive them. The
+  // payload is passed through unchanged — synthetics ship pre-shaped
+  // from the backend, no wrapping needed.
+  [
+    '_StatfeedEvent',
+    '_PlayerDemolished',
+    '_UnknownStatfeed',
+    '_BallHit',
+    '_CrossbarHit',
+    '_MatchEnded',
+    '_GoalScored',
+    '_OwnGoal',
+    '_FlipReset',
+    '_HatTrick',
+    '_Save',
+    '_EpicSave',
+    '_Shot',
+    '_Assist',
+    '_Center',
+    '_Clear',
+    '_BicycleHit',
+    '_FirstTouch',
+    '_FirstBlood',
+    '_OvertimeStarted',
+    '_GoalReplayContext',
+    '_MatchSummary',
+    '_LifecyclePhaseChanged',
+  ].forEach((name) => {
+    bus.on(name, (payload) => emitTyped(name, payload));
+  });
+
   // Helper that wires RLT.events.onName(fn) and exposes a typed history.
   function makeOn(name) {
     return (fn) => {
@@ -2033,28 +2072,18 @@
 
   // ─── Statfeed eventName registry ───────────────────────────
   // RL ships StatfeedEvent.eventName as raw asset names ('Demolish',
-  // 'AerialGoal', 'FlipReset', …). The official Stats API docs do NOT
-  // enumerate these — the list below is what's been observed in-game.
-  // Use RLT.stats.* in plugin code instead of bare strings so typos
-  // surface as undefined rather than silent no-ops.
+  // 'AerialGoal', 'FlipReset', …). The toolkit's authoritative list
+  // lives in verifiedStatfeedNames (backend/statfeed_discoveries.go);
+  // the server inlines that registry into the literal below at request
+  // time so the SDK has no separate copy to maintain. Use RLT.stats.*
+  // in plugin code instead of bare strings — typos surface as
+  // undefined rather than silent no-ops, and any name added on the
+  // backend automatically becomes available here on the next reload.
   //
-  // To discover new ones, run the debug plugin and watch for entries
-  // here that aren't in this list — then add them.
   // `known` is attached BEFORE the freeze so plugins can do
   // stats.known.has(s.eventName) when filtering against the verified
   // set. (Adding it after Object.freeze would throw in strict mode.)
-  const stats = {
-    SHOT: 'Shot', // type: "Shot on Goal"
-    GOAL: 'Goal', // also fires GoalScored
-    AERIAL_GOAL: 'AerialGoal',
-    LONG_GOAL: 'LongGoal',
-    TURTLE_GOAL: 'TurtleGoal',
-    HAT_TRICK: 'HatTrick', // 3+ goals by same player
-    SAVE: 'Save',
-    DEMOLISH: 'Demolish', // secondaryTarget = demolished player
-    FLIP_RESET: 'FlipReset',
-    WIN: 'Win',
-  };
+  const stats = /*__RLT_STATS__*/ {};
   stats.known = new Set(Object.values(stats));
   Object.freeze(stats);
 
@@ -2351,7 +2380,15 @@
         }
       };
       if (identity.isReady() && encounters.isReady()) {
-        fireReady();
+        // Defer to a microtask so plugins doing `const handle =
+        // RLT.plugin.register({ ready() { handle.store.… } })` don't
+        // hit a TDZ — when both stores are already loaded synchronously
+        // (cache warm, fast disk), firing ready() inline runs the
+        // handler before the outer `const handle = …` binding is
+        // assigned, and any closure read of `handle` from inside ready
+        // throws ReferenceError. The async-load path below is naturally
+        // safe because change events fire on a later turn.
+        Promise.resolve().then(fireReady);
       } else {
         // Each store emits 'change' once on initial load. Either may
         // already be ready; check inside fireReady() before firing.
@@ -2360,12 +2397,18 @@
       }
 
       // Logged with the resolved version (spec → manifest → unknown).
-      // For plugins that rely on the async manifest fetch, the line at
-      // register-time may show "(no version)"; the handle gets patched
-      // when the manifest arrives. The Go server logs the manifest
-      // version separately at file-load time, so the truth is always
-      // visible somewhere.
-      console.debug('[RLT] plugin registered:', handle.name, handle.version || '(no version)');
+      // When the manifest is still loading we defer the log to the
+      // promise resolution so the printed version reflects the patched
+      // metadata instead of the synchronous null fallback. The Go
+      // server logs the manifest version separately at file-load time,
+      // so the truth is always visible somewhere.
+      const logRegistered = () =>
+        console.debug('[RLT] plugin registered:', handle.name, handle.version || '(no version)');
+      if (manifestLoaded || handle.version) {
+        logRegistered();
+      } else {
+        manifestPromise.then(logRegistered);
+      }
       return handle;
     }
 
