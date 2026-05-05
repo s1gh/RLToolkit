@@ -88,9 +88,18 @@ endif
 
 release: backend launcher
 	@mkdir -p $(OUT_DIR)
-	rm -rf $(OUT_DIR)/plugins $(OUT_DIR)/data
+	# Plugins are build output: nuke + recopy so a release reflects
+	# the latest plugin source verbatim, with no stale leftovers from
+	# a previous build still hanging around.
+	rm -rf $(OUT_DIR)/plugins
 	cp -r plugins $(OUT_DIR)/plugins
-	cp -r data $(OUT_DIR)/data
+	# data/ is runtime state (per-plugin stores, encounter ledger,
+	# discoveries) that grows as the user plays. The backend creates
+	# files on first write, so we don't need to seed anything — and
+	# we deliberately do NOT clobber whatever's there from previous
+	# runs. A release rebuild during active use should never lose
+	# the user's accumulated demo totals or best-streak record.
+	@mkdir -p $(OUT_DIR)/data
 	@echo ""
 	@echo "Release artefacts under $(OUT_DIR)/:"
 	@find $(OUT_DIR) -maxdepth 1 | sort
