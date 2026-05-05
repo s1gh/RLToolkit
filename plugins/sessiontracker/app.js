@@ -121,5 +121,131 @@
 
       mountView();
     },
+
+    events: {
+      _LifecyclePhaseChanged(p) {
+        // Accumulate live-phase duration for the current match.
+        if (p.from === 'live' && typeof p.phaseDurationSeconds === 'number') {
+          perMatch.liveDurationSec += p.phaseDurationSeconds;
+        }
+        // Reset per-match accumulators when leaving 'podium' or hitting
+        // 'lobby' (start of a fresh match).
+        if (p.to === 'lobby' || p.to === 'none') {
+          perMatch = newPerMatch();
+        }
+      },
+
+      _GoalScored(p) {
+        if (!p.scorer || !p.scorer.isMe) return;
+        const m = p.modifiers || {};
+        if (m.isAerialGoal)   perMatch.highlights.push('aerialGoal');
+        if (m.isBicycleGoal)  perMatch.highlights.push('bicycleGoal');
+        if (m.isOvertimeGoal) perMatch.highlights.push('otGoal');
+        // Live-tracked totals:
+        if (!bucket) return;
+        const t = bucket.totals;
+        if (typeof p.goalTime === 'number') {
+          if (t.fastestGoalSec === null || p.goalTime < t.fastestGoalSec) {
+            t.fastestGoalSec = p.goalTime;
+          }
+        }
+        if (typeof p.goalSpeed === 'number') {
+          // goalSpeed is km/h per the docs; track max.
+          if (t.hardestShotKmh === null || p.goalSpeed > t.hardestShotKmh) {
+            t.hardestShotKmh = p.goalSpeed;
+          }
+        }
+        scheduleSaveExternal();
+      },
+
+      _HatTrick(p) {
+        if (p.mainTarget && p.mainTarget.isMe) {
+          perMatch.highlights.push('hatTrick');
+        }
+      },
+
+      _EpicSave(p) {
+        if (p.mainTarget && p.mainTarget.isMe) {
+          perMatch.highlights.push('epicSave');
+        }
+      },
+
+      _FlipReset(p) {
+        if (p.mainTarget && p.mainTarget.isMe) {
+          perMatch.highlights.push('flipReset');
+        }
+      },
+
+      _FirstBlood(p) {
+        // _FirstBlood doesn't carry a player directly; rely on the
+        // correlated _GoalScored.scorer if present, otherwise on
+        // RLT.match.current.me.
+        const me = RLT.match.current && RLT.match.current.me;
+        const scorerId = (p.correlatedGoalScorer && p.correlatedGoalScorer.id)
+          || (p.scorer && p.scorer.id);
+        if (me && scorerId && scorerId === me.id) {
+          perMatch.highlights.push('firstBlood');
+        }
+      },
+
+      _PlayerDemolished(p) {
+        if (!bucket) return;
+        if (p.attacker && p.attacker.isMe) bucket.totals.demosGiven++;
+        if (p.victim && p.victim.isMe)     bucket.totals.demosReceived++;
+        scheduleSaveExternal();
+      },
+
+      _OwnGoal(p) {
+        if (!bucket) return;
+        if (p.deflector && p.deflector.isMe) bucket.totals.ownGoals++;
+        scheduleSaveExternal();
+      },
+
+      _MatchSummary(p) {
+        if (!bucket) return;
+        const view = RLT.match.current || { arena: '', raw: {} };
+        const myTeam = (view.me && (view.me.team === 0 || view.me.team === 1))
+          ? view.me.team : null;
+        const rec = window.SessionTrackerState.buildMatchRecord({
+          summary: p,
+          matchView: view,
+          myTeam,
+          accum: {
+            durationSec: perMatch.liveDurationSec,
+            highlights:  perMatch.highlights,
+            endedAt:     new Date().toISOString(),
+          },
+        });
+        if (!rec) {
+          // Identity not claimed — show a one-time toast.
+          if (!window._sessionTrackerNagged) {
+            window._sessionTrackerNagged = true;
+            if (RLT.ui && RLT.ui.toast) {
+              RLT.ui.toast('Session tracker: claim your identity in Déjà Vu to enable tracking', 4000);
+            }
+          }
+          perMatch = newPerMatch();
+          return;
+        }
+        bucket.matches.push(rec);
+        // Recompute aggregates derivable from match list, then preserve
+        // live-tracked fields (fastestGoalSec, hardestShotKmh, demosGiven,
+        // demosReceived, ownGoals) which recomputeTotals doesn't know about.
+        const live = {
+          fastestGoalSec: bucket.totals.fastestGoalSec,
+          hardestShotKmh: bucket.totals.hardestShotKmh,
+          demosGiven:     bucket.totals.demosGiven,
+          demosReceived:  bucket.totals.demosReceived,
+          ownGoals:       bucket.totals.ownGoals,
+        };
+        bucket.totals = Object.assign(
+          window.SessionTrackerState.recomputeTotals(bucket.matches),
+          live,
+        );
+        perMatch = newPerMatch();
+        scheduleSaveExternal();
+        if (window._sessionTrackerRender) window._sessionTrackerRender();
+      },
+    },
   });
 })();
