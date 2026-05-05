@@ -146,9 +146,14 @@
   let overlayPhaseGate = null; // null = no gate; Set<string> = whitelist
   const __rltUrlParams = new URLSearchParams(location.search);
   const __rltIsSettingsView = __rltUrlParams.has('settings');
+  // Module-scope overlay flag. The "in-game widget" instance is the
+  // canonical writer for any persisted plugin state (see store gating
+  // in makeNamespacedStore below). Plugin pages opened on the
+  // dashboard read the same store but skip writes by default.
+  const __rltIsOverlay = __rltUrlParams.has('overlay');
   try {
     const params = __rltUrlParams;
-    const inOverlay = params.has('overlay');
+    const inOverlay = __rltIsOverlay;
     const anchor = params.get('anchor') || 'top-left';
     overlayHideWhenUnfocused = inOverlay && params.has('hide_when_unfocused');
     if (inOverlay && params.has('phases')) {
@@ -601,7 +606,34 @@
   // `handle.store` returned by `register()`. Same shape, different
   // namespace — the only thing that varies is which folder the data
   // lands in on disk (data/<ns>.json).
-  function makeNamespacedStore(ns) {
+  //
+  // Writes are gated by default: only the in-game overlay instance
+  // (?overlay=1) persists. Dashboard / settings instances read the
+  // same store but their set/delete calls are no-ops. Why: with
+  // both the widget and the dashboard mounted, every state change
+  // would hit disk twice — same value, racing — so we pick the
+  // widget as the canonical writer (it's the one that's actually
+  // running while you play). Plugins that genuinely need to write
+  // from the control view (e.g. settings panels) opt back in via
+  // `RLT.plugin.register({ allowWrites: true, … })`.
+  let warnedReadOnlyStores = new Set();
+  function makeNamespacedStore(ns, opts) {
+    const allowWrites = !!(opts && opts.allowWrites) || __rltIsOverlay;
+    function readOnlyNoOp(action) {
+      // Warn once per (ns, action) so a noisy plugin that calls
+      // set() on every event doesn't spam the console. Reads still
+      // work normally so the dashboard can render.
+      const key = ns + ':' + action;
+      if (!warnedReadOnlyStores.has(key)) {
+        warnedReadOnlyStores.add(key);
+        console.warn(
+          '[RLT] store.' + action + ' ignored on read-only instance (' + ns +
+          '). The in-game widget is the canonical writer; pass ' +
+          '{allowWrites: true} to register() to override.',
+        );
+      }
+      return Promise.resolve(false);
+    }
     return {
       get(key) {
         return storeGet(ns, key);
@@ -610,9 +642,11 @@
         return storeGet(ns, '');
       },
       set(key, val) {
+        if (!allowWrites) return readOnlyNoOp('set');
         return storeSet(ns, key, val);
       },
       delete(key) {
+        if (!allowWrites) return readOnlyNoOp('delete');
         return storeDelete(ns, key);
       },
     };
@@ -2260,7 +2294,10 @@
       // Per-plugin scoped store. Defaults to the page-level pluginName
       // (most plugins won't override `spec.name`). Same shape and
       // semantics as the top-level RLT.store.
-      const pluginStore = makeNamespacedStore(name);
+      // Writes default to overlay-only (see makeNamespacedStore).
+      // Plugins that legitimately need to write from the control
+      // view set spec.allowWrites = true to opt back in.
+      const pluginStore = makeNamespacedStore(name, { allowWrites: !!spec.allowWrites });
 
       // Wire event handlers — keys are event names from the catalog.
       if (spec.events) {
