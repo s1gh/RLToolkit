@@ -9,13 +9,15 @@ type correlationEntry struct {
 }
 
 // CorrelationBuffer keeps a sliding window of recent events keyed by
-// name so that synthetic event emitters can look back a small number of
-// ticks for related events (e.g., a GoalScored looking back for a
-// StatfeedEvent that carries a modifier flag).
+// name so that synthetic event emitters can look back for related
+// events (e.g., a GoalScored looking back for a StatfeedEvent that
+// carries a modifier flag).
 //
-// The buffer is NOT tick-aligned; it is event-aligned. "Ticks" are
-// approximated by the number of events recorded since the target event.
-// At 60 Hz with ~5 events per tick, a capacity of 15 covers ~3 ticks.
+// The buffer is event-aligned, not time-aligned: capacity counts
+// events written, not seconds elapsed or RL ticks. PacketSendRate
+// changes the wall-clock spacing between writes but not how many
+// events of context surround any given target event, so lookback
+// sizes here are independent of RL's configured tick rate.
 type CorrelationBuffer struct {
 	mu       sync.Mutex
 	capacity int
@@ -43,19 +45,19 @@ func (c *CorrelationBuffer) Record(name string, payload interface{}) {
 }
 
 // FindWithin searches backward through the buffer for the most recent
-// event with the given name that satisfies the predicate. `ticks` is
-// the maximum number of events to look back. Returns nil if no match.
-func (c *CorrelationBuffer) FindWithin(name string, ticks int, predicate func(interface{}) bool) interface{} {
+// event with the given name that satisfies the predicate. `lookback`
+// is the maximum number of events to scan. Returns nil if no match.
+func (c *CorrelationBuffer) FindWithin(name string, lookback int, predicate func(interface{}) bool) interface{} {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Search from newest to oldest.
-	for i := len(c.entries) - 1; i >= 0 && ticks > 0; i-- {
+	for i := len(c.entries) - 1; i >= 0 && lookback > 0; i-- {
 		e := c.entries[i]
 		if e.name == name && predicate(e.payload) {
 			return e.payload
 		}
-		ticks--
+		lookback--
 	}
 	return nil
 }
