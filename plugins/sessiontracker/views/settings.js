@@ -47,6 +47,9 @@
     sw.addEventListener('change', async () => {
       s.showStreak = sw.checked;
       await saveSettings(store, s);
+      if (window.SessionTrackerOverlay && window.SessionTrackerOverlay.setSetting) {
+        window.SessionTrackerOverlay.setSetting('showStreak', s.showStreak);
+      }
       if (window._sessionTrackerRender) window._sessionTrackerRender();
     });
 

@@ -64,5 +64,12 @@
     render(root);
   }
 
-  window.SessionTrackerOverlay = { mount };
+  function setSetting(key, value) {
+    if (key in settings) {
+      settings[key] = value;
+      if (window._sessionTrackerRender) window._sessionTrackerRender();
+    }
+  }
+
+  window.SessionTrackerOverlay = { mount, setSetting };
 })();
