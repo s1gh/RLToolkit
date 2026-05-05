@@ -1,6 +1,8 @@
 # Build artifacts
 /rl-toolkit
 /rl-toolkit.exe
+/backend/rl-toolkit
+/backend/rl-toolkit.exe
 /release/
 *.exe
 

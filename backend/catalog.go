@@ -17,6 +17,17 @@ type EventCatalogEntry struct {
 	Desc       string   `json:"desc"`
 	Stability  string   `json:"stability"` // "stable" | "provisional" | "experimental"
 	Since      string   `json:"since"`     // "1.0", "1.1", etc.
+	// SubscriptionGroup buckets events that overlap on the wire so
+	// plugin authors can see at a glance "if I subscribe to X, do I
+	// also need Y?" Empty = no overlap concern. Conventions:
+	//   - "scoring"          — _GoalScored / _OwnGoal / _TeamScoreChanged
+	//                          all fire for the same goal at different
+	//                          confidence levels. Pick one.
+	//   - "statfeed:catchall" — _StatfeedEvent fires for every variant.
+	//   - "statfeed:promoted" — Phase-3 dedicated events (_Save, _Shot…).
+	//                          Subscribe to one or the other; both =
+	//                          double-firing.
+	SubscriptionGroup string `json:"subscriptionGroup,omitempty"`
 }
 
 var anyPhase = []string{} // documents intent: empty = any phase
@@ -53,53 +64,57 @@ var EventCatalog = []EventCatalogEntry{
 	// _-prefixed events emitted by the toolkit, not by Rocket League.
 	// Player references are pre-resolved against the live roster, so
 	// subscribers don't need to do their own enrichment.
-	{Name: "_StatfeedEvent", Category: "stat", Shape: "stat-enriched", LivePhases: liveOrReplay, Desc: "StatfeedEvent with MainTarget/SecondaryTarget pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
+	{Name: "_StatfeedEvent", Category: "stat", Shape: "stat-enriched", LivePhases: liveOrReplay, Desc: "StatfeedEvent with MainTarget/SecondaryTarget pre-resolved against the live roster. NOTE: fires for every Statfeed variant including those with dedicated promoted events (_Save, _Shot, _PlayerDemolished, …). Subscribing to both this and a promoted event will see the same Statfeed twice.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:catchall"},
 	{Name: "_BallHit", Category: "play", Shape: "ballhit-enriched", LivePhases: liveOnly, Desc: "BallHit with Players[] pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
 	{Name: "_CrossbarHit", Category: "play", Shape: "crossbar-enriched", LivePhases: liveOnly, Desc: "CrossbarHit with BallLastTouch.Player pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
 	{Name: "_MatchEnded", Category: "lifecycle", Shape: "matchend-enriched", LivePhases: anyPhase, Desc: "MatchEnded with winnerName, scoreBlue, scoreOrange resolved from the cached final UpdateState.", Stability: "provisional", Since: "1.1"},
-	{Name: "_GoalScored", Category: "scoring", Shape: "goal-enriched", LivePhases: liveOrReplay, Desc: "GoalScored with Scorer/Assister/BallLastTouch resolved + scoringTeam/concedingTeam/isOwnGoal flags + same-frame modifiers (aerial/long/turtle/hatTrick/etc.).", Stability: "provisional", Since: "1.1"},
-	{Name: "_OwnGoal", Category: "scoring", Shape: "owngoal", LivePhases: liveOrReplay, Desc: "Score delta verified against the previous tick + opposing-team last touch. Phase-gated to live/replay so forfeit and mercy-rule score-ups don't false-positive.", Stability: "provisional", Since: "1.1"},
+	{Name: "_GoalScored", Category: "scoring", Shape: "goal-enriched", LivePhases: liveOrReplay, Desc: "GoalScored with Scorer/Assister/BallLastTouch resolved + scoringTeam/concedingTeam/isOwnGoal flags + same-frame modifiers (aerial/long/turtle/hatTrick/etc.). The isOwnGoal flag is heuristic and synchronous (last-touch on conceding team). For verified own-goal detection use _OwnGoal.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "scoring"},
+	{Name: "_OwnGoal", Category: "scoring", Shape: "owngoal", LivePhases: liveOrReplay, Desc: "Score delta verified against the previous tick + opposing-team last touch. Phase-gated to live/replay so off-gameplay score-ups don't false-positive. Higher confidence than _GoalScored.isOwnGoal (which is synchronous and heuristic).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "scoring"},
 
 	// ─── Statfeed promotions (Phase 3) ────────────────────────
 	// Each Statfeed variant gets a dedicated _-prefixed event with the
 	// targets resolved + per-variant correlation when applicable. The
-	// generic _StatfeedEvent above keeps firing as the catch-all.
-	{Name: "_PlayerDemolished", Category: "stat", Shape: "demolish", LivePhases: liveOrReplay, Desc: "Demolish with attacker / victim resolved + isSelfDemo / isTeamDemo flags.", Stability: "provisional", Since: "1.1"},
-	{Name: "_FlipReset", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "FlipReset with MainTarget resolved.", Stability: "provisional", Since: "1.1"},
-	{Name: "_HatTrick", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "HatTrick with MainTarget resolved + goalsThisMatch counter.", Stability: "provisional", Since: "1.1"},
-	{Name: "_Save", Category: "stat", Shape: "save", LivePhases: liveOrReplay, Desc: "Save with MainTarget resolved + correlatedShot (most recent opposing-team Shot).", Stability: "provisional", Since: "1.1"},
-	{Name: "_EpicSave", Category: "stat", Shape: "save", LivePhases: liveOrReplay, Desc: "Same as _Save but for the EpicSave variant. Mutually exclusive with _Save on the wire.", Stability: "provisional", Since: "1.1"},
-	{Name: "_Shot", Category: "stat", Shape: "shot", LivePhases: liveOrReplay, Desc: "Shot with MainTarget resolved + correlatedTouch (same-frame BallHit).", Stability: "provisional", Since: "1.1"},
-	{Name: "_Assist", Category: "stat", Shape: "assist", LivePhases: liveOrReplay, Desc: "Assist with MainTarget resolved + correlatedGoal (most recent _GoalScored).", Stability: "provisional", Since: "1.1"},
-	{Name: "_Center", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Center with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
-	{Name: "_Clear", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Clear with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
-	{Name: "_BicycleHit", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "BicycleHit with MainTarget resolved + correlatedTouch.", Stability: "provisional", Since: "1.1"},
+	// generic _StatfeedEvent above keeps firing as the catch-all — pick
+	// one or the other to avoid double-handling.
+	{Name: "_PlayerDemolished", Category: "stat", Shape: "demolish", LivePhases: liveOrReplay, Desc: "Demolish with attacker / victim resolved + isSelfDemo / isTeamDemo flags + attackerSpeed / attackerWasSupersonic from the most recent UpdateState (SPECTATOR-only).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_FlipReset", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "FlipReset with MainTarget resolved + flipResetsThisMatch counter.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_HatTrick", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "HatTrick with MainTarget resolved + goalsThisMatch counter.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_Save", Category: "stat", Shape: "save", LivePhases: liveOrReplay, Desc: "Save with MainTarget resolved + correlatedShot (most recent opposing-team Shot).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_EpicSave", Category: "stat", Shape: "save", LivePhases: liveOrReplay, Desc: "Same as _Save but for the EpicSave variant. Mutually exclusive with _Save on the wire.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_Shot", Category: "stat", Shape: "shot", LivePhases: liveOrReplay, Desc: "Shot with MainTarget resolved + correlatedTouch (same-frame BallHit with pre/post hit speeds).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_Assist", Category: "stat", Shape: "assist", LivePhases: liveOrReplay, Desc: "Assist with MainTarget resolved + correlatedGoal (most recent _GoalScored).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_Center", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Center with MainTarget resolved + correlatedTouch (with pre/post hit speeds).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_Clear", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Clear with MainTarget resolved + correlatedTouch (with pre/post hit speeds).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_BicycleHit", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "BicycleHit with MainTarget resolved + correlatedTouch (with pre/post hit speeds). For bicycle-hits that scored, see _GoalScored.modifiers.isBicycleGoal.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
 
 	// ─── UpdateState diff events (Phase 4) ────────────────────
 	// Synthesized by comparing the current UpdateState against the
 	// previous tick. Plugins that subscribe to these get exactly the
 	// state change they care about without parsing UpdateState themselves.
-	{Name: "_PlayerJoined", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player appeared this tick that wasn't in the previous tick.", Stability: "provisional", Since: "1.1"},
-	{Name: "_PlayerLeft", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player disappeared this tick.", Stability: "provisional", Since: "1.1"},
+	{Name: "_PlayerJoined", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player appeared this tick that wasn't in the previous tick. Includes current lifecycle phase so consumers can distinguish lobby joins from mid-match joins.", Stability: "provisional", Since: "1.1"},
+	{Name: "_PlayerLeft", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player disappeared this tick. Includes current lifecycle phase so consumers can distinguish lobby leaves from mid-match rage-quits.", Stability: "provisional", Since: "1.1"},
 	{Name: "_PlayerScoreChanged", Category: "stat", Shape: "score-delta", LivePhases: anyPhase, Desc: "Per-player stat diff (score, goals, assists, saves, shots, touches, demos). Only fields that moved appear in delta.", Stability: "provisional", Since: "1.1"},
 	{Name: "_BoostPickup", Category: "play", Shape: "boost-pickup", LivePhases: liveOnly, Desc: "Player's Boost increased between ticks (and not because of a respawn). Boost field is omitted in non-spectator mode for opponents — pickup detection only works for visible players.", Stability: "provisional", Since: "1.1"},
-	{Name: "_BallPossessionChanged", Category: "play", Shape: "possession", LivePhases: liveOnly, Desc: "Game.Ball.TeamNum changed between ticks. before/after are nullable — RL's untouched sentinel (255) is normalized to null.", Stability: "provisional", Since: "1.1"},
-	{Name: "_TeamScoreChanged", Category: "scoring", Shape: "team-score-delta", LivePhases: liveOrReplay, Desc: "A team's Score moved between ticks. Fires for every score change including regular goals; pair with _OwnGoal for own-goal verification.", Stability: "provisional", Since: "1.1"},
+	{Name: "_BallPossessionChanged", Category: "play", Shape: "possession", LivePhases: liveOnly, Desc: "Game.Ball.TeamNum changed between ticks. before/after are nullable — RL's untouched sentinel (255) is normalized to null. Includes triggeredBy (player + pre/post hit speeds) from the most recent BallHit when available.", Stability: "provisional", Since: "1.1"},
+	{Name: "_TeamScoreChanged", Category: "scoring", Shape: "team-score-delta", LivePhases: liveOrReplay, Desc: "A team's Score moved between ticks. Catch-all for score changes — fires alongside _GoalScored (regular goals) and _OwnGoal (verified own goals). Subscribe to one of the three depending on the level of detail you need; subscribing to all means every goal is delivered three times.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "scoring"},
 
 	// ─── Match milestones (Phase 4b) ──────────────────────────
 	// Once-per-occurrence events that mark notable moments in a match.
 	// Each is gated by per-match flags reset on MatchCreated/Destroyed.
 	{Name: "_FirstTouch", Category: "play", Shape: "first-touch", LivePhases: liveOnly, Desc: "First BallHit after each RoundStarted (i.e., kickoff first touch). Re-arms every round.", Stability: "provisional", Since: "1.1"},
 	{Name: "_FirstBlood", Category: "scoring", Shape: "first-blood", LivePhases: liveOrReplay, Desc: "First _GoalScored of the match. secondsIntoMatch counts from MatchInitialized.", Stability: "provisional", Since: "1.1"},
-	{Name: "_OvertimeStarted", Category: "lifecycle", Shape: "overtime-started", LivePhases: liveOnly, Desc: "Rising edge of Game.bOvertime. Fires once per match.", Stability: "provisional", Since: "1.1"},
+	{Name: "_OvertimeStarted", Category: "lifecycle", Shape: "overtime-started", LivePhases: liveOnly, Desc: "Rising edge of Game.bOvertime. Fires once per match. Includes tiedAt (the tied score going into OT).", Stability: "provisional", Since: "1.1"},
+	{Name: "_DemoChain", Category: "stat", Shape: "demo-chain", LivePhases: liveOrReplay, Desc: "Same attacker registered ≥2 demos within a rolling 5s window. Self-demos and team-demos are excluded. Re-fires with updated count + victims[] for each subsequent demo inside the window.", Stability: "provisional", Since: "1.2"},
+	{Name: "_FastestShotOfMatch", Category: "scoring", Shape: "fastest-shot", LivePhases: liveOrReplay, Desc: "Per-match max ball speed (in Unreal Units/second) was surpassed. Sources: BallHit.postHitSpeed and GoalScored.goalSpeed. Re-fires only when the previous max is beaten.", Stability: "provisional", Since: "1.2"},
+	{Name: "_KickoffConverted", Category: "scoring", Shape: "kickoff-converted", LivePhases: liveOnly, Desc: "First _Shot or _GoalScored within ~10s of RoundStarted, attributed to the team responsible. Once-per-round.", Stability: "provisional", Since: "1.2"},
 
 	// ─── Lifecycle + summary (Phase 5) ────────────────────────
 	// Framing-bypass: _LifecyclePhaseChanged is delivered to every
 	// subscriber regardless of the ?events= filter.
 	{Name: "_LifecyclePhaseChanged", Category: "lifecycle", Shape: "phase-transition", LivePhases: anyPhase, Desc: "Phase machine edge: from/to phase, phaseDurationSeconds, trigger event name. Fires on every gameplay-phase transition (lobby/countdown/live/paused/replay/podium/none).", Stability: "stable", Since: "1.1"},
-	{Name: "_GoalReplayContext", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on the bReplay rising edge (start of a goal replay) with the most recent _GoalScored payload, so plugins know which goal the replay is for without correlating themselves. Edge-detected on UpdateState because recent RL builds skip the discrete GoalReplayStart event.", Stability: "provisional", Since: "1.1"},
+	{Name: "_GoalReplayContext", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on the bReplay rising edge (start of a goal replay) with the full _GoalScored payload (scorer, assister, ballLastTouch, goalSpeed, goalTime, impactLocation, isOwnGoal, modifiers), so plugins know which goal the replay is for without correlating themselves. Edge-detected on UpdateState because recent RL builds skip the discrete GoalReplayStart event.", Stability: "provisional", Since: "1.1"},
 	{Name: "_MatchSummary", Category: "lifecycle", Shape: "match-summary", LivePhases: anyPhase, Desc: "Fires ~2s after MatchEnded (or on PodiumStart / MatchDestroyed, whichever first). Final scores, winner, MVP if it arrived, encounter ledger deltas.", Stability: "provisional", Since: "1.1"},
-	{Name: "_MatchMVP", Category: "lifecycle", Shape: "match-mvp", LivePhases: anyPhase, Desc: "Fires whenever the MVP Statfeed arrives, regardless of _MatchSummary timing. RL can ship MVP several seconds after PodiumStart (past the summary settle window), so this event guarantees delivery.", Stability: "provisional", Since: "1.1"},
+	{Name: "_MatchMVP", Category: "lifecycle", Shape: "match-mvp", LivePhases: anyPhase, Desc: "Fires whenever the MVP Statfeed arrives, regardless of _MatchSummary timing. Includes winnerTeamNum, arrivedAfterSummary (true if _MatchSummary already published), and secondsAfterMatchEnd. RL can ship MVP several seconds after PodiumStart (past the summary settle window), so this event guarantees delivery.", Stability: "provisional", Since: "1.1"},
 
 	// ─── Discoverability (Phase 6) ────────────────────────────
 	// _UnknownStatfeed fires whenever a StatfeedEvent.EventName is not
