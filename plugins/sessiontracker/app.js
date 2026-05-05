@@ -117,6 +117,7 @@
         save:  () => scheduleSave(handle),
         perMatch: () => perMatch,
         resetPerMatch: () => { perMatch = newPerMatch(); },
+        _handle: handle,
       };
 
       mountView();

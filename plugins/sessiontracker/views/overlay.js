@@ -4,6 +4,9 @@
 (function () {
   const MAX_TICKS = 10;
 
+  // Cached settings loaded once on mount. Defaults until the load resolves.
+  let settings = { showStreak: true };
+
   function render(root) {
     const s = window.SessionTracker && window.SessionTracker.state();
     if (!s) {
@@ -12,7 +15,7 @@
     }
     const t = s.totals;
     const last10 = s.matches.slice(-MAX_TICKS);
-    const streak = t.currentStreak && t.currentStreak.count >= 2
+    const streak = (settings.showStreak && t.currentStreak && t.currentStreak.count >= 2)
       ? `${t.currentStreak.kind === 'win' ? 'W' : 'L'}${t.currentStreak.count}`
       : '';
 
@@ -48,6 +51,16 @@
       });
     }
     window._sessionTrackerRender = schedule;
+    // Load settings once; re-render after they arrive.
+    (async () => {
+      try {
+        const stored = await RLT.store.get('settings');
+        if (stored && typeof stored.showStreak === 'boolean') {
+          settings.showStreak = stored.showStreak;
+          schedule();
+        }
+      } catch (_) { /* defaults are fine */ }
+    })();
     render(root);
   }
 

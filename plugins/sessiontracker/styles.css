@@ -97,3 +97,26 @@
 
 .st-rivals { list-style: none; padding: 0; margin: 0; font-size: 13px; }
 .st-rivals li { padding: 4px 0; opacity: 0.85; }
+
+/* ── Settings ────────────────────────────────────────────── */
+.st-settings {
+  max-width: 480px;
+  margin: 24px auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.st-settings h2 { margin: 0; font-size: 18px; }
+.st-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.st-row-toggle { flex-direction: row; align-items: center; gap: 8px; }
+.st-actions { display: flex; justify-content: flex-end; }
+.st-danger {
+  align-self: flex-start;
+  background: rgba(220, 80, 80, 0.18);
+  border: 1px solid rgba(220, 80, 80, 0.35);
+  color: var(--rlt-txt, #ddd);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
