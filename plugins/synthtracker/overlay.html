@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SynthTracker</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <script src="/sdk.js" data-plugin="synthtracker"></script>
+    <style>
+      body {
+        font-family: var(--rlt-display);
+        margin: 0;
+        padding: 12px;
+        color: var(--rlt-txt);
+        background: var(--rlt-bg-0);
+      }
+      body.overlay-mode { background: transparent; padding: 0; }
+
+      .card {
+        background: var(--rlt-bg-1);
+        border: 1px solid var(--rlt-line);
+        border-radius: 12px;
+        padding: 12px 14px;
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .top {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .title {
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #e6edf3;
+      }
+      .meta { font-size: 12px; color: #e6edf3; }
+      .meta b { color: var(--rlt-cyan); }
+
+      .panes {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        min-height: 0;
+      }
+      .right-col {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 10px;
+        min-height: 0;
+      }
+      .pane {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        background: var(--rlt-bg-0);
+        border: 1px solid var(--rlt-line);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      .pane-mods { flex: 0 0 auto; }
+      .mods {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 2px 10px;
+        font-family: monospace;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .mods .mod-name { color: #b9c4cf; }
+      .mods .mod-name.hit { color: #f0f6fc; font-weight: bold; }
+      .mods .mod-count { text-align: right; color: var(--rlt-cyan); }
+      .mods .mod-count.zero-c { color: #b9c4cf; }
+      .mvp {
+        margin-top: 8px;
+        padding-top: 6px;
+        border-top: 1px solid var(--rlt-line);
+        font-family: monospace;
+        font-size: 12px;
+        color: #b9c4cf;
+      }
+      .mvp .mvp-name { color: var(--rlt-cyan); font-weight: bold; }
+      .speed {
+        margin-top: 8px;
+        padding-top: 6px;
+        border-top: 1px solid var(--rlt-line);
+        font-family: monospace;
+        font-size: 12px;
+        line-height: 1.55;
+        color: #e6edf3;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 8px;
+        row-gap: 2px;
+      }
+      .speed .lbl { color: #b9c4cf; }
+      .speed .val { color: var(--rlt-cyan); }
+      .speed .val.dim { color: #b9c4cf; }
+      .pane-h {
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #e6edf3;
+        margin-bottom: 6px;
+      }
+
+      .rows {
+        flex: 1;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        color: #e6edf3;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 8px;
+        padding: 2px 0;
+        border-bottom: 1px solid var(--rlt-line);
+      }
+      .row.zero .name { color: #b9c4cf; }
+      .row.hit .name { color: var(--rlt-cyan); font-weight: bold; }
+      .row.recent { background: rgba(34, 211, 238, 0.12); }
+      .name { word-break: break-all; color: #f0f6fc; }
+      .count { text-align: right; color: var(--rlt-cyan); }
+      .count.zero-c { color: #b9c4cf; }
+      .ago { text-align: right; color: #b9c4cf; font-size: 11px; }
+
+      .log {
+        flex: 1;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        color: #e6edf3;
+      }
+      .log-entry {
+        padding: 4px 0;
+        border-bottom: 1px solid var(--rlt-line);
+      }
+      .log-entry .ts { color: #b9c4cf; font-size: 11px; }
+      .log-entry .ev { color: var(--rlt-cyan); font-weight: bold; margin-left: 6px; }
+      .log-entry pre {
+        margin: 4px 0 0;
+        padding: 4px 6px;
+        background: var(--rlt-bg-1);
+        border: 1px solid var(--rlt-line);
+        border-radius: 4px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: #f0f6fc;
+        max-height: 140px;
+        overflow-y: auto;
+      }
+
+      .controls { display: flex; gap: 6px; }
+      button {
+        font: inherit;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        background: var(--rlt-bg-0);
+        color: #e6edf3;
+        border: 1px solid var(--rlt-line);
+        border-radius: 4px;
+        padding: 3px 8px;
+        cursor: pointer;
+      }
+      button:hover { color: var(--rlt-cyan); border-color: var(--rlt-cyan); }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="top">
+        <div class="title">Synthetic Event Tracker</div>
+        <div class="meta">
+          phase <b id="phase">—</b> ·
+          tracked <b id="tracked">0</b> ·
+          fired <b id="fired">0</b> ·
+          total <b id="total">0</b>
+          <span class="controls" style="margin-left:8px">
+            <button id="clear">clear</button>
+          </span>
+        </div>
+      </div>
+
+      <div class="panes">
+        <div class="pane">
+          <div class="pane-h">Counts (synthetic events only)</div>
+          <div id="rows" class="rows"></div>
+        </div>
+        <div class="right-col">
+          <div class="pane pane-mods">
+            <div class="pane-h">Goal modifiers · MVP · Speed</div>
+            <div id="mods" class="mods"></div>
+            <div id="mvp" class="mvp">last MVP: <span class="mvp-name">—</span></div>
+            <div id="speed" class="speed">
+              <span class="lbl">latest</span><span class="val dim" data-speed="latest">—</span>
+              <span class="lbl">fastest</span><span class="val dim" data-speed="max">—</span>
+              <span class="lbl">slowest</span><span class="val dim" data-speed="min">—</span>
+              <span class="lbl">avg</span><span class="val dim" data-speed="avg">—</span>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="pane-h">Last 30 payloads</div>
+            <div id="log" class="log"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const rowsEl = document.getElementById('rows');
+        const logEl = document.getElementById('log');
+        const phaseEl = document.getElementById('phase');
+        const trackedEl = document.getElementById('tracked');
+        const firedEl = document.getElementById('fired');
+        const totalEl = document.getElementById('total');
+        const clearBtn = document.getElementById('clear');
+
+        // Pull every synthetic from the SDK catalog (names starting with "_").
+        // This way the tracker stays in sync if new synthetics are added — no
+        // hard-coded list to maintain here.
+        const synthetics = RLT.events.catalog
+          .map((e) => e.name)
+          .filter((n) => n.startsWith('_'))
+          // _ConnectionStatus / _Lifecycle / _RosterChanged / _LifecyclePhaseChanged
+          // are framing signals that always bypass the filter on the server,
+          // and they'll show up here regardless. Keep them in the list so
+          // their counts are visible alongside the gameplay synthetics.
+          .sort();
+
+        const counts = {};
+        const lastSeen = {}; // ms timestamp
+        const recentNames = new Set(); // for highlight pulse
+        let totalEvents = 0;
+        let firedDistinct = 0;
+        const logBuf = []; // [{ ts, name, payload }]
+        const LOG_MAX = 30;
+
+        // Goal modifiers ride on _GoalScored.modifiers as boolean flags;
+        // MVP rides on _MatchSummary.mvp as an EnrichedPlayer. Neither is
+        // a top-level event, so we surface them here separately. The flag
+        // list mirrors backend/synthesizer.go modifierStatfeedNames so a
+        // new modifier added there shows up here without code changes.
+        const MODIFIER_FLAGS = [
+          'isAerialGoal',
+          'isBackwardsGoal',
+          'isBicycleGoal',
+          'isLongGoal',
+          'isTurtleGoal',
+          'isOvertimeGoal',
+          'isPoolShot',
+          'isHoopsSwishGoal',
+          'isHatTrickGoal',
+          'isFlipResetGoal',
+          'isOwnGoal', // shipped on _GoalScored too (same-frame heuristic)
+        ];
+        const modCounts = Object.fromEntries(MODIFIER_FLAGS.map((f) => [f, 0]));
+        const modsEl = document.getElementById('mods');
+        const mvpNameEl = document.querySelector('#mvp .mvp-name');
+
+        // Goal speed comes off _GoalScored.goalSpeed. On this RL build
+        // the wire value is already km/h (older builds shipped uu/s — if
+        // future RL changes back, we'll need to detect and convert).
+        const speedStats = { latest: null, max: null, min: null, sum: 0, n: 0 };
+        const speedEls = {
+          latest: document.querySelector('[data-speed="latest"]'),
+          max:    document.querySelector('[data-speed="max"]'),
+          min:    document.querySelector('[data-speed="min"]'),
+          avg:    document.querySelector('[data-speed="avg"]'),
+        };
+        function fmtSpeed(v) {
+          if (v == null) return '—';
+          return v.toFixed(1) + ' km/h';
+        }
+
+        function buildRows() {
+          rowsEl.innerHTML = '';
+          for (const name of synthetics) {
+            counts[name] = 0;
+            const row = document.createElement('div');
+            row.className = 'row zero';
+            row.dataset.name = name;
+            row.innerHTML =
+              '<span class="name">' + name + '</span>' +
+              '<span class="count zero-c">0</span>' +
+              '<span class="ago">—</span>';
+            rowsEl.appendChild(row);
+          }
+          trackedEl.textContent = String(synthetics.length);
+        }
+
+        function buildModsPane() {
+          modsEl.innerHTML = '';
+          for (const flag of MODIFIER_FLAGS) {
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'mod-name';
+            nameSpan.dataset.flag = flag;
+            nameSpan.textContent = flag;
+            const countSpan = document.createElement('span');
+            countSpan.className = 'mod-count zero-c';
+            countSpan.dataset.flag = flag;
+            countSpan.textContent = '0';
+            modsEl.appendChild(nameSpan);
+            modsEl.appendChild(countSpan);
+          }
+        }
+
+        function refreshMod(flag) {
+          const c = modCounts[flag] || 0;
+          const nameEl = modsEl.querySelector('.mod-name[data-flag="' + flag + '"]');
+          const countEl = modsEl.querySelector('.mod-count[data-flag="' + flag + '"]');
+          if (nameEl) nameEl.classList.toggle('hit', c > 0);
+          if (countEl) {
+            countEl.textContent = String(c);
+            countEl.classList.toggle('zero-c', c === 0);
+          }
+        }
+
+        function fmtAgo(ms) {
+          if (!ms) return '—';
+          const s = Math.floor((Date.now() - ms) / 1000);
+          if (s < 1) return 'now';
+          if (s < 60) return s + 's';
+          if (s < 3600) return Math.floor(s / 60) + 'm';
+          return Math.floor(s / 3600) + 'h';
+        }
+
+        function refreshRow(name) {
+          const row = rowsEl.querySelector('[data-name="' + name + '"]');
+          if (!row) return;
+          const c = counts[name] || 0;
+          row.classList.toggle('zero', c === 0);
+          row.classList.toggle('hit', c > 0);
+          row.classList.toggle('recent', recentNames.has(name));
+          row.children[1].textContent = String(c);
+          row.children[1].classList.toggle('zero-c', c === 0);
+          row.children[2].textContent = fmtAgo(lastSeen[name]);
+        }
+
+        function refreshAllAgo() {
+          for (const name of synthetics) {
+            const row = rowsEl.querySelector('[data-name="' + name + '"]');
+            if (row) row.children[2].textContent = fmtAgo(lastSeen[name]);
+          }
+        }
+        setInterval(refreshAllAgo, 1000);
+
+        function renderLog() {
+          logEl.innerHTML = logBuf
+            .map((entry) => {
+              const ts = new Date(entry.ts).toLocaleTimeString('en', {
+                hour12: false,
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+              });
+              let json;
+              try {
+                json = JSON.stringify(entry.payload, null, 2);
+              } catch (_) {
+                json = String(entry.payload);
+              }
+              if (json && json.length > 1200) json = json.slice(0, 1200) + '… (truncated)';
+              return (
+                '<div class="log-entry">' +
+                  '<span class="ts">' + ts + '</span>' +
+                  '<span class="ev">' + entry.name + '</span>' +
+                  '<pre>' + escapeHtml(json) + '</pre>' +
+                '</div>'
+              );
+            })
+            .join('');
+        }
+
+        function escapeHtml(s) {
+          return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        }
+
+        // Tally modifier flags off a _GoalScored payload. Backend ships
+        // the flat envelope (no Data wrapper) for synthetics, so the
+        // payload IS the goal record itself. modifiers is omitempty —
+        // absent when no flag fired.
+        function tallyModifiers(payload) {
+          const mods = payload && payload.modifiers;
+          if (mods) {
+            for (const flag of MODIFIER_FLAGS) {
+              if (mods[flag]) {
+                modCounts[flag] = (modCounts[flag] || 0) + 1;
+                refreshMod(flag);
+              }
+            }
+          }
+          // isOwnGoal is tracked off the verified _OwnGoal event (see
+          // record() below), not _GoalScored.isOwnGoal. The latter is
+          // a same-frame heuristic that fails for solo own goals
+          // (scorer == last-toucher), while _OwnGoal is verified via
+          // score-delta in onUpdateState and works in every case.
+        }
+
+        function recordGoalSpeed(payload) {
+          const uu = payload && payload.goalSpeed;
+          if (typeof uu !== 'number' || !isFinite(uu)) return;
+          speedStats.latest = uu;
+          speedStats.max = speedStats.max == null ? uu : Math.max(speedStats.max, uu);
+          speedStats.min = speedStats.min == null ? uu : Math.min(speedStats.min, uu);
+          speedStats.sum += uu;
+          speedStats.n += 1;
+          const avg = speedStats.sum / speedStats.n;
+          speedEls.latest.textContent = fmtSpeed(speedStats.latest);
+          speedEls.max.textContent    = fmtSpeed(speedStats.max);
+          speedEls.min.textContent    = fmtSpeed(speedStats.min);
+          speedEls.avg.textContent    = fmtSpeed(avg);
+          for (const el of Object.values(speedEls)) el.classList.remove('dim');
+        }
+
+        function resetGoalSpeed() {
+          speedStats.latest = null;
+          speedStats.max = null;
+          speedStats.min = null;
+          speedStats.sum = 0;
+          speedStats.n = 0;
+          for (const k of Object.keys(speedEls)) {
+            speedEls[k].textContent = '—';
+            speedEls[k].classList.add('dim');
+          }
+        }
+
+        function setMVP(payload) {
+          // Both _MatchSummary and _MatchMVP carry the MVP under the
+          // same `mvp` field. Either can win the race: RL sometimes
+          // ships the MVP Statfeed after the _MatchSummary settle
+          // window has already expired, in which case _MatchMVP is
+          // the only path that delivers it.
+          const mvp = payload && payload.mvp;
+          if (!mvp) return;
+          const name = mvp.name || mvp.Name || '(unknown)';
+          const team = mvp.team != null ? mvp.team : (mvp.Team != null ? mvp.Team : null);
+          const teamLabel = team === 0 ? 'Blue' : team === 1 ? 'Orange' : '';
+          mvpNameEl.textContent = teamLabel ? name + ' (' + teamLabel + ')' : name;
+        }
+
+        function record(name, payload) {
+          if (!(name in counts)) {
+            // Synthetic emitted by the server but not in the SDK catalog —
+            // surface it anyway so we notice. Add a row dynamically.
+            counts[name] = 0;
+            synthetics.push(name);
+            const row = document.createElement('div');
+            row.className = 'row zero';
+            row.dataset.name = name;
+            row.innerHTML =
+              '<span class="name">' + name + ' <em style="color:var(--rlt-amber,#fbbf24)">(uncatalogued)</em></span>' +
+              '<span class="count zero-c">0</span>' +
+              '<span class="ago">—</span>';
+            rowsEl.appendChild(row);
+            trackedEl.textContent = String(synthetics.length);
+          }
+          if (counts[name] === 0) firedDistinct += 1;
+          counts[name] += 1;
+          lastSeen[name] = Date.now();
+          totalEvents += 1;
+          recentNames.add(name);
+          setTimeout(() => { recentNames.delete(name); refreshRow(name); }, 1500);
+
+          firedEl.textContent = String(firedDistinct);
+          totalEl.textContent = String(totalEvents);
+          refreshRow(name);
+
+          if (name === '_GoalScored') {
+            tallyModifiers(payload);
+            recordGoalSpeed(payload);
+          }
+          if (name === '_OwnGoal') {
+            // Verified own goal — score-delta confirmed in the backend.
+            // Use this instead of _GoalScored.isOwnGoal so solo own goals
+            // (scorer is the last-toucher) still tick the counter.
+            modCounts.isOwnGoal = (modCounts.isOwnGoal || 0) + 1;
+            refreshMod('isOwnGoal');
+          }
+          if (name === '_MatchSummary' || name === '_MatchMVP') setMVP(payload);
+
+          logBuf.unshift({ ts: Date.now(), name, payload });
+          if (logBuf.length > LOG_MAX) logBuf.length = LOG_MAX;
+          renderLog();
+        }
+
+        clearBtn.addEventListener('click', () => {
+          for (const k of Object.keys(counts)) counts[k] = 0;
+          for (const k of Object.keys(lastSeen)) delete lastSeen[k];
+          totalEvents = 0;
+          firedDistinct = 0;
+          logBuf.length = 0;
+          firedEl.textContent = '0';
+          totalEl.textContent = '0';
+          synthetics.forEach(refreshRow);
+          for (const f of MODIFIER_FLAGS) modCounts[f] = 0;
+          MODIFIER_FLAGS.forEach(refreshMod);
+          mvpNameEl.textContent = '—';
+          resetGoalSpeed();
+          renderLog();
+        });
+
+        buildRows();
+        buildModsPane();
+
+        // Build the events handler map up front so the SDK auto-subscribes
+        // to every synthetic on connect (rather than calling RLT.on per
+        // name, which also works but doesn't fan through the same
+        // register() phase gating).
+        const eventHandlers = {};
+        for (const name of synthetics) {
+          eventHandlers[name] = (payload) => record(name, payload);
+        }
+
+        RLT.plugin.register({
+          // Track across every phase so framing signals (lifecycle, phase
+          // changes, roster) are visible alongside gameplay synthetics.
+          whilePhase: '*',
+          events: eventHandlers,
+        });
+
+        // Also catch any synthetic that lands but isn't in the catalog
+        // (server-side new emits before SDK update). The wildcard fires
+        // for every event the SDK hands to the bus, so filter to "_".
+        RLT.on('*', (name, payload) => {
+          if (typeof name === 'string' && name.startsWith('_') && !(name in counts)) {
+            record(name, payload);
+          }
+        });
+
+        // Lifecycle phase indicator — handy for verifying that phase-gated
+        // synthetics (like _OwnGoal, only live/replay) only fire when expected.
+        if (RLT.match && typeof RLT.match.onLifecycle === 'function') {
+          RLT.match.onLifecycle((phase) => { phaseEl.textContent = phase || '—'; });
+        }
+        if (RLT.match && RLT.match.lifecycle && RLT.match.lifecycle.phase) {
+          phaseEl.textContent = RLT.match.lifecycle.phase;
+        }
+      })();
+    </script>
+  </body>
+</html>
