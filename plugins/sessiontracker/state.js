@@ -64,5 +64,41 @@
     return t;
   }
 
-  window.SessionTrackerState = { computeStreaks, recomputeTotals };
+  function buildMatchRecord({ summary, matchView, myTeam, accum }) {
+    if (myTeam !== 0 && myTeam !== 1) return null;
+    const myEntry = (summary.players || []).find((e) => e.player && e.player.isMe);
+    const myStats = myEntry
+      ? {
+          goals:   myEntry.goals   || 0,
+          assists: myEntry.assists || 0,
+          saves:   myEntry.saves   || 0,
+          shots:   myEntry.shots   || 0,
+          demos:   myEntry.demos   || 0,
+          score:   myEntry.score   || 0,
+        }
+      : { goals: 0, assists: 0, saves: 0, shots: 0, demos: 0, score: 0 };
+    const result = summary.winnerTeamNum === myTeam ? 'win' : 'loss';
+    const scoreFor     = myTeam === 0 ? (summary.scoreBlue   || 0) : (summary.scoreOrange || 0);
+    const scoreAgainst = myTeam === 0 ? (summary.scoreOrange || 0) : (summary.scoreBlue   || 0);
+    return {
+      endedAt:      accum.endedAt,
+      result,
+      scoreFor, scoreAgainst,
+      durationSec:  accum.durationSec || 0,
+      arena:        matchView.arena || '',
+      playlist:     extractPlaylist(matchView.raw) || null,
+      mvp:          !!(summary.mvp && summary.mvp.isMe),
+      myStats,
+      highlights:   (accum.highlights || []).slice(),
+    };
+  }
+
+  function extractPlaylist(raw) {
+    if (!raw) return null;
+    if (typeof raw.Playlist === 'string') return raw.Playlist;
+    if (raw.Game && typeof raw.Game.Playlist === 'string') return raw.Game.Playlist;
+    return null;
+  }
+
+  window.SessionTrackerState = { computeStreaks, recomputeTotals, buildMatchRecord };
 })(typeof window !== 'undefined' ? window : globalThis);
