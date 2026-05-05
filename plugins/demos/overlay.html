@@ -1006,7 +1006,13 @@
             <h2>All time</h2>
             <span class="badge"
               ><span id="total">0</span> demos ·
-              <span id="all-count">0</span> rivals</span
+              <span id="all-count">0</span> rivals<span
+                id="all-best-wrap"
+                hidden
+              >
+                · best <span id="all-best">x0</span>
+                <span id="all-best-word"></span></span
+              ></span
             >
           </div>
           <div id="all-list"></div>
@@ -1234,6 +1240,17 @@
         // and are visible to any other plugin that wants to read them.
         let totals = {};
 
+        // Hydration gate. The SSE handler replays this match's
+        // _PlayerDemolished history on subscribe so a refresh
+        // mid-match repopulates `current`. Those replay frames land
+        // BEFORE ready() finishes awaiting handle.store.getAll(), so
+        // without a gate the event handler would mutate (and persist)
+        // an empty totals object, wiping the on-disk all-time history.
+        // We buffer replay events until hydration completes, then
+        // drain them in order.
+        let hydrated = false;
+        const pendingDemos = [];
+
         // `current[playerId] = { name, count }` — only the demos in the
         // active match. Reset whenever the match guid changes. In-memory
         // only; nothing meaningful to persist here.
@@ -1426,6 +1443,20 @@
             .slice(0, 10);
           $('all-list').innerHTML = rowsHtml(allEntries, '◆', 'no demolitions yet');
           $('all-count').textContent = Object.keys(totals).length;
+
+          // All-time best streak. Hidden until the player has scored
+          // at least one demo (allTimeBestStreak >= 1) so a fresh
+          // install doesn't show "best x0" on an empty card. The tier
+          // word is only set once a streak hits 2 (TIER's first min)
+          // so we only render the word when it's non-empty.
+          const bestWrap = $('all-best-wrap');
+          if (allTimeBestStreak >= 1) {
+            bestWrap.hidden = false;
+            $('all-best').textContent = 'x' + allTimeBestStreak;
+            $('all-best-word').textContent = allTimeBestStreakWord || '';
+          } else {
+            bestWrap.hidden = true;
+          }
         }
 
         // Last structural fingerprint — covers everything renderOverlay
@@ -1485,17 +1516,15 @@
           // playing. The dashboard's All Time card shows the total.
           $('ov-total').textContent = matchDemoCount();
 
-          // BEST badge — all-time personal record. Hidden until the
-          // player has ever achieved a streak of 2+, so a fresh
-          // install stays uncluttered until the first real combo.
+          // BEST badge — all-time personal record. Always visible
+          // in-game so the player has a number to chase. Shows "x0"
+          // (and a blank tier word) on a fresh install before the
+          // first demo lands; the first applyDemo call ratchets it
+          // up to 1 and the badge starts moving.
           const best = $('ov-best');
-          if (ui.bestStreak >= 2) {
-            best.hidden = false;
-            $('ov-best-streak').textContent = 'x' + ui.bestStreak;
-            $('ov-best-word').textContent = ui.bestStreakWord;
-          } else {
-            best.hidden = true;
-          }
+          best.hidden = false;
+          $('ov-best-streak').textContent = 'x' + ui.bestStreak;
+          $('ov-best-word').textContent = ui.bestStreakWord;
 
           // LAST chip — most-recent victim of THIS match. Mounts on
           // the first demo and persists for the rest of the match
@@ -1552,6 +1581,133 @@
           });
         }
 
+        // applyDemo runs the per-demo bookkeeping for one
+        // _PlayerDemolished envelope. Two call sites:
+        //
+        //   - Live events: full path — bumps both current (this match)
+        //     and totals (all-time), runs combo bookkeeping, persists
+        //     to disk.
+        //
+        //   - Replay drain (isReplay=true): bumps only `current`. The
+        //     all-time totals on disk already reflect the live events
+        //     when they originally fired, so re-incrementing them
+        //     during a refresh would double-count every demo. Combo
+        //     bookkeeping is also skipped — replays are framing data,
+        //     not events the user is reacting to in real time, and
+        //     re-firing shake / streak logic on a refresh would feel
+        //     like a phantom demo.
+        function applyDemo(payload, isReplay) {
+          const { attacker, victim, isSelfDemo } = payload || {};
+          if (!attacker || !victim) return;
+
+          // Count only YOUR demos. `isMe` is set by the SDK from the
+          // claimed identity (RLT.me.id). If the user hasn't claimed
+          // an identity, nothing in the lobby is "me" and we silently
+          // ignore — the control page nudges them to fix that.
+          if (!attacker.isMe) return;
+          // A self-demo (you blew yourself up) shouldn't count toward
+          // demos dealt to others. Backend computes the flag from
+          // attacker.id === victim.id.
+          if (isSelfDemo) return;
+
+          const vid = victim.id;
+          const vname = victim.name || 'Player';
+
+          if (!current[vid]) current[vid] = { name: vname, count: 0 };
+          current[vid].count += 1;
+          current[vid].name = vname;
+
+          // Replay path stops here — see header comment.
+          if (isReplay) {
+            render();
+            return;
+          }
+
+          if (!totals[vid]) totals[vid] = { name: vname, count: 0 };
+          totals[vid].count += 1;
+          totals[vid].name = vname;
+
+          // ─── Combo ───
+          // Bank time, not wall-clock — replay/menu pauses don't
+          // burn the window. A demo while the bank is paused (we
+          // shouldn't fire one here, but defensively) still uses
+          // the current bank value, which is fine.
+          const now = bankNow();
+          const sinceLast = lastDemoAt ? now - lastDemoAt : Infinity;
+          if (sinceLast <= COMBO_WINDOW_MS) {
+            // Within window — extend the streak.
+            currentStreak += 1;
+          } else {
+            // Outside window OR first demo — start fresh at 1.
+            // (A demo during the break hold also lands here because
+            // BREAK_HOLD_MS pushes sinceLast past COMBO_WINDOW_MS.)
+            currentStreak = 1;
+          }
+          lastDemoAt = now;
+          lastVictimName = vname;
+          lastMatchVictim = vname;
+
+          // Update the all-time personal record. The BEST badge
+          // shows this, so a new record updates live mid-streak —
+          // the hit that breaks your old record is the moment the
+          // badge ticks up. Persisted via handle.store below
+          // alongside totals.
+          if (currentStreak > allTimeBestStreak) {
+            allTimeBestStreak = currentStreak;
+            const t = tierFor(currentStreak);
+            allTimeBestStreakWord = t ? t.word : '';
+            // Update the BEST chip directly. rAF batching is fine for
+            // the leaderboard rows (their state is settled in `totals`
+            // by the time render runs) but a same-frame update has bit
+            // us before — paint the chip synchronously so a streak
+            // boundary always lands. Cheap: two textContent writes.
+            const bestEl = document.getElementById('all-best');
+            const wordEl = document.getElementById('all-best-word');
+            const wrapEl = document.getElementById('all-best-wrap');
+            if (bestEl) bestEl.textContent = 'x' + allTimeBestStreak;
+            if (wordEl) wordEl.textContent = allTimeBestStreakWord || '';
+            if (wrapEl) wrapEl.hidden = false;
+          }
+
+          // Shake escalation by tier. The new ultra tiers below
+          // tier-apocalypse use shake-extreme.
+          const tier = tierFor(currentStreak);
+          if (tier && (tier.cls === 'tier-hot' || tier.cls === 'tier-bloom')) {
+            triggerShake('light');
+          } else if (tier && tier.cls === 'tier-apocalypse') {
+            triggerShake('hard');
+          } else if (tier && (
+            tier.cls === 'tier-armageddon' ||
+            tier.cls === 'tier-extinction' ||
+            tier.cls === 'tier-genocide'
+          )) {
+            triggerShake('extreme');
+          }
+
+          // Kick the rAF loop so the timer bar drains smoothly.
+          ensureActiveLoop();
+
+          // Fire-and-forget save. The SDK gates writes by default so
+          // only the in-game widget (?overlay=1) actually persists —
+          // the dashboard control view runs this handler too (so the
+          // "This Match" / "All Time" panels live-update during play)
+          // but its set() calls are no-ops. See makeNamespacedStore
+          // in sdk.js. Three keys persist: the per-victim totals map,
+          // plus the all-time best streak (number + tier word) so the
+          // BEST badge survives restarts.
+          handle.store.set('totals', totals).catch((e) => {
+            console.error('[demos] save failed:', e);
+          });
+          handle.store.set('allTimeBestStreak', allTimeBestStreak).catch((e) => {
+            console.error('[demos] save failed:', e);
+          });
+          handle.store.set('allTimeBestStreakWord', allTimeBestStreakWord).catch((e) => {
+            console.error('[demos] save failed:', e);
+          });
+
+          render();
+        }
+
         // ─── Plugin registration ────────────────────────────────────
         // The handle returned by register() exposes a per-plugin `store`
         // that's namespaced by manifest.name on disk. Use it for anything
@@ -1562,54 +1718,79 @@
           whilePhase: ['live', 'replay', 'countdown', 'paused'],
 
           // init() runs synchronously at register-time, before any SSE
-          // events fire. Two responsibilities, split by mode:
+          // events fire. Three pieces, two view-specific and one shared:
           //
-          // - Overlay mode: subscribe to lifecycle phase changes to
-          //   drive the playable-time bank (only ticks during live /
-          //   countdown — see PLAYABLE_PHASES). Also kill the streak
-          //   when the phase leaves the streak-preserving set (live /
-          //   countdown / replay / paused), e.g. on match end. We
-          //   intentionally do NOT reset on entering replay or paused —
-          //   those just freeze the bank without ending the combo.
+          // - Overlay mode: grow the iframe to fit content (long tier
+          //   words and 4-digit counts overflow the manifest's width).
           //
           // - Dashboard mode: wire the connection pill. onStatusStable
           //   fires on change only, so we seed from statusStable() once
           //   to handle the case where the SDK connected before this
           //   subscriber arrived.
+          //
+          // - Both views: subscribe to lifecycle phase changes to drive
+          //   the playable-time bank (only ticks during live / countdown
+          //   — see PLAYABLE_PHASES) and kill the streak when the phase
+          //   leaves the streak-preserving set (live / countdown /
+          //   replay / paused), e.g. on match end. The dashboard needs
+          //   this just as much as the overlay: combo extension reads
+          //   bankNow(), and without the bank ticking the local streak
+          //   caps at 1 and the BEST pill stays stale until refresh.
           init() {
             if (isOverlay) {
-              const lifecycle = RLT.match?.lifecycle;
-              if (!lifecycle) return;
-              // Seed the bank gate from the current phase (matters when
-              // the plugin loads mid-match).
-              setPlayablePhase(PLAYABLE_PHASES.has(lifecycle.phase));
-              // Streak-preserving phases — anything else kills the
-              // streak. Includes the bank-tick phases plus the freeze
-              // phases (replay, paused).
-              const KEEP_STREAK = new Set(['live', 'countdown', 'replay', 'paused']);
-              lifecycle.onChange((newPhase) => {
-                setPlayablePhase(PLAYABLE_PHASES.has(newPhase));
-                if (!KEEP_STREAK.has(newPhase) && currentStreak > 0) {
-                  // Match boundary or post-match: streak dies instantly.
-                  resetComboState();
+              // Grow the iframe to fit content. The widget's manifest
+              // sets a baseline width; long tier words (ARMAGEDDON,
+              // OBLITERATED, ANNIHILATED) and 4-digit demo counts can
+              // overflow the BEST chip and clip at the iframe edge.
+              // fitWidth is monotonic (only widens, never shrinks) so
+              // the manifest's width acts as a minimum and the widget
+              // expands as content demands. Same pattern dejavu uses;
+              // see plugins/dejavu/app.js.
+              if (RLT.widget?.isHosted?.()) {
+                RLT.widget.fitWidth({
+                  target: '.ov',
+                  maxWidth: 600,
+                  extra: 8,
+                });
+              }
+            } else {
+              const c = $('conn');
+              if (c) {
+                const paint = (s) => {
+                  c.dataset.status = s;
+                  c.textContent = s === 'connected' ? 'live' : s;
+                  // Connection state feeds the THIS MATCH pill (offline
+                  // vs idle/live/…), so re-render whenever it flips.
                   render();
-                }
-              });
-              return;
+                };
+                paint(RLT.statusStable());
+                RLT.onStatusStable(paint);
+              }
             }
-            const c = $('conn');
-            if (!c) return;
-            const paint = (s) => {
-              c.dataset.status = s;
-              c.textContent = s === 'connected' ? 'live' : s;
-              // Connection state feeds the THIS MATCH pill (offline
-              // vs idle/live/…), so re-render whenever it flips.
-              render();
-            };
-            paint(RLT.statusStable());
-            RLT.onStatusStable(paint);
-            // (Phase transitions repaint via the spec.onLifecycle
-            // hook below — no init-side subscription needed.)
+
+            // Bank gate + streak reset both views run, so the dashboard
+            // computes currentStreak / allTimeBestStreak the same way
+            // the overlay does. Without this, bankNow() stays at 0 on
+            // the dashboard, sinceLast is always Infinity, and the
+            // local streak caps at 1 — the BEST pill would only show
+            // the right value after a refresh hydrated it from disk.
+            const lifecycle = RLT.match?.lifecycle;
+            if (!lifecycle) return;
+            // Seed the bank gate from the current phase (matters when
+            // the plugin loads mid-match).
+            setPlayablePhase(PLAYABLE_PHASES.has(lifecycle.phase));
+            // Streak-preserving phases — anything else kills the
+            // streak. Includes the bank-tick phases plus the freeze
+            // phases (replay, paused).
+            const KEEP_STREAK = new Set(['live', 'countdown', 'replay', 'paused']);
+            lifecycle.onChange((newPhase) => {
+              setPlayablePhase(PLAYABLE_PHASES.has(newPhase));
+              if (!KEEP_STREAK.has(newPhase) && currentStreak > 0) {
+                // Match boundary or post-match: streak dies instantly.
+                resetComboState();
+                render();
+              }
+            });
           },
 
           async ready() {
@@ -1641,6 +1822,20 @@
             // the plugin loads (e.g. user opened the dashboard mid-match).
             const m = RLT.match.current;
             if (m) currentGuid = m.guid;
+
+            // Hydration done. Drain any _PlayerDemolished events the
+            // SSE replay delivered while we were awaiting the store
+            // fetch. These are flagged as replays so applyDemo only
+            // updates `current` (this match's victim list) — totals
+            // already reflect those demos from when they fired live,
+            // and combo / shake / persistence are intentionally
+            // skipped on the replay path. New events arriving after
+            // this point skip the buffer (hydrated=true) and run the
+            // full live path.
+            hydrated = true;
+            while (pendingDemos.length > 0) {
+              applyDemo(pendingDemos.shift(), true);
+            }
             render();
           },
 
@@ -1650,95 +1845,17 @@
           // stamps `isMe` onto each enriched player at dispatch time.
           events: {
             _PlayerDemolished(payload) {
-              const { attacker, victim, isSelfDemo } = payload || {};
-              if (!attacker || !victim) return;
-
-              // Count only YOUR demos. `isMe` is set by the SDK from the
-              // claimed identity (RLT.me.id). If the user hasn't claimed
-              // an identity, nothing in the lobby is "me" and we silently
-              // ignore — the control page nudges them to fix that.
-              if (!attacker.isMe) return;
-              // A self-demo (you blew yourself up) shouldn't count toward
-              // demos dealt to others. Backend computes the flag from
-              // attacker.id === victim.id.
-              if (isSelfDemo) return;
-
-              const vid = victim.id;
-              const vname = victim.name || 'Player';
-
-              if (!current[vid]) current[vid] = { name: vname, count: 0 };
-              current[vid].count += 1;
-              current[vid].name = vname;
-
-              if (!totals[vid]) totals[vid] = { name: vname, count: 0 };
-              totals[vid].count += 1;
-              totals[vid].name = vname;
-
-              // ─── Combo ───
-              // Bank time, not wall-clock — replay/menu pauses don't
-              // burn the window. A demo while the bank is paused (we
-              // shouldn't fire one here, but defensively) still uses
-              // the current bank value, which is fine.
-              const now = bankNow();
-              const sinceLast = lastDemoAt ? now - lastDemoAt : Infinity;
-              if (sinceLast <= COMBO_WINDOW_MS) {
-                // Within window — extend the streak.
-                currentStreak += 1;
-              } else {
-                // Outside window OR first demo — start fresh at 1.
-                // (A demo during the break hold also lands here because
-                // BREAK_HOLD_MS pushes sinceLast past COMBO_WINDOW_MS.)
-                currentStreak = 1;
+              // Until ready() has loaded persisted totals from disk,
+              // buffer instead of mutating. Otherwise the SSE replay
+              // (sent on subscribe before ready() finishes) would
+              // bump totals from {}, then persist that to disk and
+              // wipe the all-time history. Drain happens at the end
+              // of ready().
+              if (!hydrated) {
+                pendingDemos.push(payload);
+                return;
               }
-              lastDemoAt = now;
-              lastVictimName = vname;
-              lastMatchVictim = vname;
-
-              // Update the all-time personal record. The BEST badge
-              // shows this, so a new record updates live mid-streak —
-              // the hit that breaks your old record is the moment the
-              // badge ticks up. Persisted via handle.store below
-              // alongside totals.
-              if (currentStreak > allTimeBestStreak) {
-                allTimeBestStreak = currentStreak;
-                const t = tierFor(currentStreak);
-                allTimeBestStreakWord = t ? t.word : '';
-              }
-
-              // Shake escalation by tier. The new ultra tiers below
-              // tier-apocalypse use shake-extreme.
-              const tier = tierFor(currentStreak);
-              if (tier && (tier.cls === 'tier-hot' || tier.cls === 'tier-bloom')) {
-                triggerShake('light');
-              } else if (tier && tier.cls === 'tier-apocalypse') {
-                triggerShake('hard');
-              } else if (tier && (
-                tier.cls === 'tier-armageddon' ||
-                tier.cls === 'tier-extinction' ||
-                tier.cls === 'tier-genocide'
-              )) {
-                triggerShake('extreme');
-              }
-
-              // Kick the rAF loop so the timer bar drains smoothly.
-              ensureActiveLoop();
-
-              // Fire-and-forget save; the store debounces so rapid demos
-              // (a triple-demo from a kickoff scrum) coalesce into one
-              // disk write. Three keys persist: the per-victim totals
-              // map, plus the all-time best streak (number + tier
-              // word) so the BEST badge survives restarts.
-              handle.store.set('totals', totals).catch((e) => {
-                console.error('[demos] save failed:', e);
-              });
-              handle.store.set('allTimeBestStreak', allTimeBestStreak).catch((e) => {
-                console.error('[demos] save failed:', e);
-              });
-              handle.store.set('allTimeBestStreakWord', allTimeBestStreakWord).catch((e) => {
-                console.error('[demos] save failed:', e);
-              });
-
-              render();
+              applyDemo(payload);
             },
 
             // Match boundary handling. Two discrete events drive
