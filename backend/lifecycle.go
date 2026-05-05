@@ -161,17 +161,27 @@ func (t *LifecycleTracker) onUpdateState(raw []byte) {
 	// false→true / true→false transitions gives us reliable replay
 	// phase gating regardless of which event names RL emits.
 	//
-	// On entering replay we set PhaseReplay unconditionally — replay
-	// dominates whatever phase we were in. On leaving, we only revert
-	// to PhaseLive if the snapshot is still PhaseReplay; CountdownBegin
-	// often fires the same tick as the bReplay false-edge (post-goal
-	// kickoff) and we must not clobber the countdown phase it set.
+	// On entering replay we set PhaseReplay only when we're in an
+	// active gameplay phase. RL has been observed to keep streaming
+	// UpdateStates with bReplay=true into the post-match podium /
+	// "waiting for new match" screen; entering replay there would
+	// stick the phase machine on "replay" forever (no UpdateState
+	// arrives to flip the falling edge once the user backs out).
+	//
+	// On leaving replay we only revert to PhaseLive if the snapshot
+	// is still PhaseReplay; CountdownBegin often fires the same tick
+	// as the bReplay false-edge (post-goal kickoff) and we must not
+	// clobber the countdown phase it set.
 	wasReplay := t.inReplay.Load()
 	nowReplay := scanBReplay(raw)
 	if nowReplay != wasReplay {
 		t.inReplay.Store(nowReplay)
 		if nowReplay {
-			t.update(func(s *LifecycleSnapshot) { s.Phase = PhaseReplay })
+			t.update(func(s *LifecycleSnapshot) {
+				if s.Phase == PhaseLive || s.Phase == PhaseCountdown || s.Phase == PhasePaused {
+					s.Phase = PhaseReplay
+				}
+			})
 		} else {
 			t.update(func(s *LifecycleSnapshot) {
 				if s.Phase == PhaseReplay {
@@ -258,10 +268,17 @@ func (t *LifecycleTracker) onEvent(event, status string, data json.RawMessage) {
 	// pass GoalReplayWillEnd through the bus for plugins that subscribe,
 	// but it doesn't drive phase.
 	case "MatchEnded":
+		// Drop any stale replay state — if a final-goal replay was in
+		// progress when MatchEnded fired, we don't want a future
+		// UpdateState's bReplay=false to retroactively flip phase to
+		// PhaseLive in the wrong context.
+		t.inReplay.Store(false)
 		t.update(func(s *LifecycleSnapshot) { s.Phase = PhaseEnded })
 	case "PodiumStart":
+		t.inReplay.Store(false)
 		t.update(func(s *LifecycleSnapshot) { s.Phase = PhasePodium })
 	case "MatchDestroyed":
+		t.inReplay.Store(false)
 		t.update(func(s *LifecycleSnapshot) {
 			s.MatchActive = false
 			s.Phase = PhaseNone
@@ -269,6 +286,7 @@ func (t *LifecycleTracker) onEvent(event, status string, data json.RawMessage) {
 		})
 	case "_ConnectionStatus":
 		if status != "" && status != string(StatusConnected) {
+			t.inReplay.Store(false)
 			t.update(func(s *LifecycleSnapshot) {
 				s.MatchActive = false
 				s.Phase = PhaseNone
