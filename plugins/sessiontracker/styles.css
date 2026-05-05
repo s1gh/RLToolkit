@@ -1,0 +1,5 @@
+/* Session Tracker — overlay + dashboard styles. Filled in over later tasks. */
+#root {
+  font-family: var(--rlt-saira-condensed, sans-serif);
+  color: var(--rlt-txt, #ddd);
+}
