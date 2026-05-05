@@ -237,6 +237,15 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return rc.Flush() == nil
 	}
 
+	// First-frame: ship the process boot ID so plugins can detect a
+	// launcher restart and reset per-session state. Framing-bypass —
+	// every subscriber receives this regardless of the events filter.
+	{
+		bootFrame := []byte(`{"Event":"_BootId","bootId":"` + BootID() + `"}`)
+		if !writeFrame(sseDataPrefix, bootFrame, sseRecordEnd) {
+			return
+		}
+	}
 	if !writeFrame(sseDataPrefix, newStatusEvent(s.client.Status()), sseRecordEnd) {
 		return
 	}
