@@ -7,10 +7,16 @@ import (
 )
 
 // ShortcutRef is the minimal player reference found in raw RL event
-// payloads (e.g., Scorer, MainTarget, BallLastTouch.Player).
+// payloads (e.g., Scorer, MainTarget, BallLastTouch.Player). Shortcut
+// is RL's per-match player slot index (0..N), shipped as a JSON
+// number on the wire — not a string. Decoding it as a string used to
+// silently fail the whole inner Decode of any event carrying a
+// ShortcutRef (StatfeedEvent, GoalScored, BallHit), which is why
+// every downstream synthetic event (_PlayerDemolished, _GoalScored,
+// _BallHit) stopped firing the moment an event carried one.
 type ShortcutRef struct {
 	Name     string `json:"Name"`
-	Shortcut string `json:"Shortcut"`
+	Shortcut int    `json:"Shortcut"`
 	TeamNum  int    `json:"TeamNum"`
 }
 
@@ -39,30 +45,23 @@ func (r *RosterTracker) RosterSnapshot() []rosterPlayer {
 }
 
 // ResolveByShortcut maps a {Name, Shortcut, TeamNum} stub to a fully
-// enriched player using the current live roster. The Shortcut field is
-// the player's name as it appears in the event payload; we match against
-// the roster by name (case-sensitive) because PrimaryId is not always
-// present in event stubs. Falls back to building a minimal enriched stub
-// from the ref itself if no roster match is found.
+// enriched player using the current live roster. Lookup is by Name —
+// RL names are unique within a match. Shortcut is RL's per-match
+// slot index (a number), kept on the enriched output for plugins that
+// need it but not used for the roster join. Falls back to building a
+// minimal enriched stub from the ref itself if no roster match is
+// found.
 func (r *RosterTracker) ResolveByShortcut(ref ShortcutRef) *EnrichedPlayer {
-	if ref.Name == "" && ref.Shortcut == "" {
+	if ref.Name == "" {
 		return nil
-	}
-	// Prefer Shortcut when present (it's the authoritative name field in
-	// most event stubs), fall back to Name.
-	lookup := ref.Shortcut
-	if lookup == "" {
-		lookup = ref.Name
 	}
 
 	r.mu.Lock()
 	roster := r.lastRoster
 	r.mu.Unlock()
 
-	// Search the roster by name. RL names are unique within a match, so
-	// the first hit is the right player.
 	for _, p := range roster {
-		if p.Name == lookup {
+		if p.Name == ref.Name {
 			return rosterPlayerToEnriched(p)
 		}
 	}
@@ -108,12 +107,8 @@ func rosterPlayerToEnriched(p rosterPlayer) *EnrichedPlayer {
 // stubToEnriched builds a minimal EnrichedPlayer from a ShortcutRef when
 // the player is not found in the live roster.
 func stubToEnriched(ref ShortcutRef) *EnrichedPlayer {
-	name := ref.Name
-	if name == "" {
-		name = ref.Shortcut
-	}
 	return &EnrichedPlayer{
-		Name: name,
+		Name: ref.Name,
 		Team: ref.TeamNum,
 	}
 }
@@ -180,34 +175,37 @@ func canonicalizeBotId(primaryID, name string) string {
 // human-only match hit this branch and skip the decode/re-marshal
 // allocation entirely.
 //
-// Failure mode: if the JSON round-trip fails for any reason (malformed
-// envelope, unexpected nesting), we return the input unchanged rather
-// than dropping the packet. The downstream roster_tracker /
-// synthesizer also call canonicalizeBotId on their own decoded copies
-// as a defense-in-depth, so a missed rewrite here only affects raw-bus
+// Splice strategy: we decode only the inner Data payload, mutate it,
+// then splice the re-encoded inner string back into the original raw
+// bytes in place of the original Data value. This preserves the outer
+// envelope's byte layout — crucially, the position of the "Event" key.
+// Going through json.Marshal on the outer envelope reorders keys
+// alphabetically (Data before Event); extractEventName scans only the
+// first 96 bytes of the wire, so a reordered envelope with a multi-KB
+// Data string buried before the Event key would parse as eventName="",
+// and EventBus.Publish would drop the packet for every filtered
+// subscriber. Splicing avoids the reorder entirely.
+//
+// Failure mode: if any decode step fails (malformed envelope,
+// unexpected nesting), we return the input unchanged rather than
+// dropping the packet. The downstream roster_tracker / synthesizer
+// also call canonicalizeBotId on their own decoded copies as a
+// defense-in-depth, so a missed rewrite here only affects raw-bus
 // subscribers (and even then, only for that one packet).
 func rewriteUpdateStateBotIds(raw []byte) []byte {
 	if !bytes.Contains(raw, []byte(rlBotPrimaryID)) {
 		return raw
 	}
 
-	var env map[string]any
-	if err := json.Unmarshal(raw, &env); err != nil {
+	dataStart, dataEnd, dataKey := findDataValueSpan(raw)
+	if dataKey == "" {
 		return raw
 	}
-	// The envelope's Data field is a JSON-encoded string holding the
-	// inner UpdateState payload. Pull either casing.
-	var dataKey string
-	switch {
-	case env["Data"] != nil:
-		dataKey = "Data"
-	case env["data"] != nil:
-		dataKey = "data"
-	default:
-		return raw
-	}
-	innerStr, ok := env[dataKey].(string)
-	if !ok {
+	// dataStart..dataEnd covers the JSON-string token including the
+	// surrounding quotes. Decode just that slice to get the inner
+	// payload as a Go string.
+	var innerStr string
+	if err := json.Unmarshal(raw[dataStart:dataEnd], &innerStr); err != nil {
 		return raw
 	}
 
@@ -264,10 +262,84 @@ func rewriteUpdateStateBotIds(raw []byte) []byte {
 	if err != nil {
 		return raw
 	}
-	env[dataKey] = string(innerOut)
-	out, err := json.Marshal(env)
+	// Re-encode the new inner payload as a JSON string token (quoted,
+	// escaped) so it can be spliced back into the outer envelope where
+	// the original Data value sat.
+	newDataValue, err := json.Marshal(string(innerOut))
 	if err != nil {
 		return raw
 	}
+
+	out := make([]byte, 0, len(raw)+len(newDataValue)-(dataEnd-dataStart))
+	out = append(out, raw[:dataStart]...)
+	out = append(out, newDataValue...)
+	out = append(out, raw[dataEnd:]...)
 	return out
+}
+
+// findDataValueSpan locates the JSON-string value of the top-level
+// "Data" (or "data") field in an RL envelope and returns its byte span
+// in raw, plus which casing was found. The returned span includes the
+// surrounding quotes so json.Unmarshal can decode it as a string.
+//
+// Returns key="" when the field isn't present or the envelope can't be
+// parsed at the top level. Uses encoding/json's tokenizer to stay
+// robust across whitespace, escape sequences, and any extra top-level
+// fields RL might add in future builds.
+func findDataValueSpan(raw []byte) (start, end int, key string) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token()
+	if err != nil {
+		return 0, 0, ""
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return 0, 0, ""
+	}
+	for dec.More() {
+		// Next token is a key (string).
+		keyTok, err := dec.Token()
+		if err != nil {
+			return 0, 0, ""
+		}
+		k, _ := keyTok.(string)
+		// Position of the value: InputOffset is the byte offset *after*
+		// the most recent token. We want the start of the value, which
+		// the decoder advances to next.
+		if k == "Data" || k == "data" {
+			// Read the value as RawMessage to capture its byte span.
+			before := int(dec.InputOffset())
+			var rm json.RawMessage
+			if err := dec.Decode(&rm); err != nil {
+				return 0, 0, ""
+			}
+			after := int(dec.InputOffset())
+			// Walk forward from `before` (just past the closing quote
+			// of the key) past whitespace and the `:` separator to land
+			// on the first byte of the value token.
+			s := before
+			// Skip whitespace before colon.
+			for s < after && (raw[s] == ' ' || raw[s] == '\t' || raw[s] == '\n' || raw[s] == '\r') {
+				s++
+			}
+			if s >= after || raw[s] != ':' {
+				return 0, 0, ""
+			}
+			s++ // past ':'
+			// Skip whitespace before value.
+			for s < after && (raw[s] == ' ' || raw[s] == '\t' || raw[s] == '\n' || raw[s] == '\r') {
+				s++
+			}
+			if s >= after || raw[s] != '"' {
+				// Data isn't a JSON-string value — bail.
+				return 0, 0, ""
+			}
+			return s, after, k
+		}
+		// Skip the value of any other key.
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return 0, 0, ""
+		}
+	}
+	return 0, 0, ""
 }

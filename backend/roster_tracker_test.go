@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -426,6 +428,47 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 		out := rewriteUpdateStateBotIds(raw)
 		if !bytes.Equal(raw, out) {
 			t.Errorf("malformed input should pass through; got %q", out)
+		}
+	})
+
+	// Regression: the original implementation re-marshaled the outer
+	// envelope through map[string]any, which sorts keys alphabetically.
+	// A rewritten UpdateState then started with `{"Data":"..."`, and
+	// because Data carries the full per-tick payload (multi-KB), the
+	// "Event" key landed past extractEventName's 96-byte scan window,
+	// returning "" — so EventBus.Publish dropped the packet for every
+	// filtered subscriber. That manifested as widgets showing briefly
+	// then vanishing the moment a bot match started.
+	t.Run("preserves outer envelope so extractEventName still works", func(t *testing.T) {
+		// Pad the inner payload so the Event key would be way past the
+		// 96-byte window if the rewriter reordered the outer envelope.
+		players := []map[string]any{
+			{"PrimaryId": "Unknown|0|0", "Name": "Roundhouse", "TeamNum": 1},
+		}
+		// 50 lookalike fields to fatten the inner payload past 96 bytes.
+		extras := map[string]any{}
+		for i := 0; i < 50; i++ {
+			extras[strings.Repeat("x", 4)+strconv.Itoa(i)] = "filler-value-filler-value-filler-value"
+		}
+		inner := map[string]any{
+			"MatchGuid": "m",
+			"Players":   players,
+			"Extras":    extras,
+		}
+		raw := envelope("UpdateState", inner)
+		out := rewriteUpdateStateBotIds(raw)
+		if name := extractEventName(out); name != "UpdateState" {
+			t.Fatalf("extractEventName after rewrite = %q, want %q (rewrite broke envelope ordering)", name, "UpdateState")
+		}
+		// And the inner payload is still well-formed and rewritten.
+		var env struct {
+			Data string `json:"Data"`
+		}
+		if err := json.Unmarshal(out, &env); err != nil {
+			t.Fatalf("envelope decode: %v", err)
+		}
+		if !strings.Contains(env.Data, `"PrimaryId":"Bot|Roundhouse"`) {
+			t.Errorf("inner Data missing rewritten bot id: %s", env.Data)
 		}
 	})
 }

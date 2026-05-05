@@ -71,7 +71,7 @@ func TestSynthesizer_StatfeedEvent_NoSecondaryTarget(t *testing.T) {
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"m\",\"EventName\":\"Save\",\"Type\":\"Normal\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}}"}`))
+	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"m\",\"EventName\":\"Save\",\"Type\":\"Normal\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}}"}`))
 
 	// Drain.
 	var got []byte
@@ -267,7 +267,7 @@ func TestSynthesizer_OwnGoal_PhaseGate(t *testing.T) {
 
 	feed([]byte(`{"Event":"MatchCreated","Data":"{\"MatchGuid\":\"x\"}"}`))
 	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0},{\"PrimaryId\":\"Steam|222|0\",\"Name\":\"Bob\",\"TeamNum\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":0},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}]}}"}`))
-	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"Name\":\"Bob\",\"Shortcut\":\"Bob\",\"TeamNum\":1}],\"Ball\":{\"PreHitSpeed\":1000,\"PostHitSpeed\":1500}}"}`))
+	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"Name\":\"Bob\",\"Shortcut\":2,\"TeamNum\":1}],\"Ball\":{\"PreHitSpeed\":1000,\"PostHitSpeed\":1500}}"}`))
 	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"x\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0},{\"PrimaryId\":\"Steam|222|0\",\"Name\":\"Bob\",\"TeamNum\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":1},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":0}]}}"}`))
 
 	// Drain the bus and assert no _OwnGoal landed.
@@ -294,7 +294,7 @@ func TestSynthesizer_GoalScored_DropsEmptyScorer(t *testing.T) {
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	synth.Feed([]byte(`{"Event":"GoalScored","Data":"{\"MatchGuid\":\"x\",\"Scorer\":{\"Name\":\"\",\"Shortcut\":\"\",\"TeamNum\":0}}"}`))
+	synth.Feed([]byte(`{"Event":"GoalScored","Data":"{\"MatchGuid\":\"x\",\"Scorer\":{\"Name\":\"\",\"Shortcut\":0,\"TeamNum\":0}}"}`))
 
 	select {
 	case raw := <-ch:
@@ -554,12 +554,12 @@ func TestSynthesizer_FirstTouch_RearmsOnNextRound(t *testing.T) {
 
 	// First round.
 	feed([]byte(`{"Event":"RoundStarted","Data":"{\"MatchGuid\":\"rt\"}"}`))
-	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1500}}"}`))
+	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1500}}"}`))
 	// Second BallHit in the same round should NOT produce another _FirstTouch.
-	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1800}}"}`))
+	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1800}}"}`))
 	// New round (kickoff after a goal) re-arms.
 	feed([]byte(`{"Event":"RoundStarted","Data":"{\"MatchGuid\":\"rt\"}"}`))
-	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1700}}"}`))
+	feed([]byte(`{"Event":"BallHit","Data":"{\"MatchGuid\":\"rt\",\"Players\":[{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}],\"Ball\":{\"PostHitSpeed\":1700}}"}`))
 
 	count := 0
 	for {
@@ -637,9 +637,9 @@ func TestSynthesizer_UnknownStatfeed(t *testing.T) {
 	roster.Feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"u\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0}]}"}`))
 
 	// Known: should NOT produce _UnknownStatfeed.
-	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"u\",\"EventName\":\"Save\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}}"}`))
+	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"u\",\"EventName\":\"Save\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}}"}`))
 	// Unknown: should fire _UnknownStatfeed.
-	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"u\",\"EventName\":\"NewExoticMove\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}}"}`))
+	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"u\",\"EventName\":\"NewExoticMove\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}}"}`))
 
 	count := 0
 	for {
@@ -787,7 +787,7 @@ func TestSynthesizer_MatchSummary_WithMVP(t *testing.T) {
 	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"mvp\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0,\"Score\":300,\"Goals\":2,\"Assists\":1,\"Saves\":0,\"Shots\":3,\"Demos\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":2},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":1}],\"Ball\":{\"TeamNum\":0}}}"}`))
 	feed([]byte(`{"Event":"MatchEnded","Data":"{\"MatchGuid\":\"mvp\",\"WinnerTeamNum\":0}"}`))
 	// MVP statfeed lands AFTER MatchEnded.
-	feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"mvp\",\"EventName\":\"MVP\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0}}"}`))
+	feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"mvp\",\"EventName\":\"MVP\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}}"}`))
 	feed([]byte(`{"Event":"PodiumStart","Data":"{\"MatchGuid\":\"mvp\"}"}`))
 
 	var summary map[string]interface{}
@@ -935,7 +935,7 @@ func TestSynthesizer_NonFramingSyntheticsAreFilterable(t *testing.T) {
 seedDrained:
 
 	// Synth fires both _StatfeedEvent and _PlayerDemolished.
-	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"m\",\"EventName\":\"Demolish\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":\"Alice\",\"TeamNum\":0},\"SecondaryTarget\":{\"Name\":\"Bob\",\"Shortcut\":\"Bob\",\"TeamNum\":1}}"}`))
+	synth.Feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"m\",\"EventName\":\"Demolish\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0},\"SecondaryTarget\":{\"Name\":\"Bob\",\"Shortcut\":2,\"TeamNum\":1}}"}`))
 
 	// Drain everything available; we should see _PlayerDemolished only.
 	var events []string

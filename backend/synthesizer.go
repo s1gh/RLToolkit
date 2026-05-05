@@ -67,6 +67,16 @@ type Synthesizer struct {
 	summaryFinalSnap *tickSnapshot
 	summaryMVP      *EnrichedPlayer
 	summaryCancel   chan struct{}
+
+	// Per-match log of _PlayerDemolished envelopes (raw bytes, ready to
+	// rewrite to a fresh SSE subscriber). Reset on MatchCreated / first
+	// MatchInitialized of a new guid and on MatchDestroyed. Plugins
+	// reloading mid-match (e.g. dashboard refresh, OBS source reload)
+	// get the full demo history replayed on subscribe so per-match
+	// counters in the demos plugin survive page reloads without each
+	// plugin needing its own persistence layer.
+	demolishMu  sync.Mutex
+	demolishLog [][]byte
 }
 
 // matchSummarySettleWindow is how long after MatchEnded we wait for
@@ -203,6 +213,11 @@ func (s *Synthesizer) resetMatchMilestones() {
 	s.overtimeStartedFired = false
 	s.matchInitializedAt = time.Time{}
 	s.matchMu.Unlock()
+	// Per-match demo log clears with the milestone state so a back-to-
+	// back rematch into the same lobby starts with an empty replay set.
+	s.demolishMu.Lock()
+	s.demolishLog = nil
+	s.demolishMu.Unlock()
 }
 
 func (s *Synthesizer) onMatchInitialized() {
@@ -1058,6 +1073,26 @@ func (s *Synthesizer) emitPlayerDemolished(guid string, attacker, victim *Enrich
 		return
 	}
 	s.bus.Publish(b)
+	s.demolishMu.Lock()
+	s.demolishLog = append(s.demolishLog, b)
+	s.demolishMu.Unlock()
+}
+
+// DemolishLog returns a snapshot of every _PlayerDemolished envelope
+// published since the current match started. Used by the SSE handler
+// to replay the per-match demo history to a freshly-connected client
+// so per-match counters survive page refreshes without each plugin
+// implementing its own persistence. Returns nil when no demos have
+// been logged yet.
+func (s *Synthesizer) DemolishLog() [][]byte {
+	s.demolishMu.Lock()
+	defer s.demolishMu.Unlock()
+	if len(s.demolishLog) == 0 {
+		return nil
+	}
+	out := make([][]byte, len(s.demolishLog))
+	copy(out, s.demolishLog)
+	return out
 }
 
 // _HatTrick fires when the scorer's Goals count hits 3. We expose the
@@ -1806,7 +1841,7 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	// Scorer.Name; without this drop, a synthetic event with name
 	// "Unknown" overwrites the prior tick's scorer for any plugin that
 	// caches the latest goal. Mirror that guard here.
-	if scorerRef == nil || (scorerRef.Name == "" && scorerRef.Shortcut == "") {
+	if scorerRef == nil || scorerRef.Name == "" {
 		return
 	}
 	scorer := s.roster.ResolveByShortcut(*scorerRef)
@@ -1843,7 +1878,7 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	out.ScoringTeam = &scoringTeam
 	out.ConcedingTeam = &concedingTeam
 
-	if assisterRef != nil && (assisterRef.Name != "" || assisterRef.Shortcut != "") {
+	if assisterRef != nil && assisterRef.Name != "" {
 		out.Assister = s.roster.ResolveByShortcut(*assisterRef)
 	}
 
@@ -1984,13 +2019,13 @@ func (s *Synthesizer) collectGoalModifiers(scorer *ShortcutRef) *goalModifiers {
 }
 
 // sameShortcutPlayer compares two shortcut refs for "same player". RL's
-// Shortcut is the authoritative spectator-name identifier; Name is the
-// human-readable form. Either match counts; both empty means no match.
+// Shortcut is the per-match slot index (number); Name is the
+// human-readable form. Either match counts; both unset means no match.
 func sameShortcutPlayer(a, b *ShortcutRef) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	if a.Shortcut != "" && b.Shortcut != "" && a.Shortcut == b.Shortcut {
+	if a.Shortcut != 0 && b.Shortcut != 0 && a.Shortcut == b.Shortcut {
 		return true
 	}
 	if a.Name != "" && b.Name != "" && a.Name == b.Name {
