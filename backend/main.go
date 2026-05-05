@@ -110,7 +110,7 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, client: client, lifecycle: lifecycle, overrides: overrides, discoveries: discoveries, config: cfg}
+	srv := &Server{bus: bus, store: store, plugins: pm, client: client, lifecycle: lifecycle, roster: roster, synth: synth, overrides: overrides, discoveries: discoveries, config: cfg}
 	go client.Run(ctx)
 	go lifecycle.Run(ctx)
 	// Periodically flush new Statfeed-name discoveries to disk. The store

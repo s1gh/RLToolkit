@@ -20,6 +20,8 @@ type Server struct {
 	plugins     *PluginManager
 	client      *RLClient
 	lifecycle   *LifecycleTracker
+	roster      *RosterTracker
+	synth       *Synthesizer
 	overrides   *OverridesStore
 	discoveries *StatfeedDiscoveryStore
 	config      Config
@@ -191,8 +193,24 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	ch, cancel := s.bus.Subscribe(parseEventsFilter(r.URL.Query().Get("events")))
+	filter := parseEventsFilter(r.URL.Query().Get("events"))
+	ch, cancel := s.bus.Subscribe(filter)
 	defer cancel()
+	// wantsEvent gates the per-match replay blocks below: nil filter
+	// means "deliver everything", otherwise check the explicit set.
+	// Synthetic _-prefixed events that aren't framing signals
+	// (_RosterChanged, _Lifecycle, _ConnectionStatus,
+	// _LifecyclePhaseChanged) need an explicit opt-in by the
+	// subscriber, same as RL events — so we honor the filter on
+	// replay too instead of pushing _PlayerDemolished history to
+	// plugins that didn't ask for it.
+	wantsEvent := func(name string) bool {
+		if filter == nil {
+			return true
+		}
+		_, ok := filter[name]
+		return ok
+	}
 
 	// Per-write deadline: an Fprintf can block indefinitely against a
 	// stalled client TCP buffer (hidden tab, frozen OBS browser source,
@@ -234,6 +252,34 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			Since:       snap.Since,
 		}); err == nil {
 			if !writeFrame(sseDataPrefix, init, sseRecordEnd) {
+				return
+			}
+		}
+	}
+	// Replay the cached roster so a plugin refreshing mid-match (or
+	// connecting after the most recent roster delta) sees the current
+	// player list immediately, without having to wait for the next
+	// roster-identity change. _RosterChanged is a framing signal — it
+	// bypasses the per-subscriber filter on the bus, so every subscriber
+	// expects to receive it; the SSE entry-point is the only place that
+	// can give a freshly-connected client what it missed.
+	if s.roster != nil {
+		if init := s.roster.Snapshot(); init != nil {
+			if !writeFrame(sseDataPrefix, init, sseRecordEnd) {
+				return
+			}
+		}
+	}
+	// Replay this match's _PlayerDemolished history. Lets the demos
+	// plugin (and any plugin that aggregates demos) repopulate its
+	// per-match state on a page refresh without each plugin needing
+	// its own persistence layer. The log clears on MatchCreated /
+	// MatchDestroyed, so a fresh match starts clean. Skipped when the
+	// subscriber didn't ask for _PlayerDemolished — replay shouldn't
+	// expand the wire surface beyond the negotiated filter.
+	if s.synth != nil && wantsEvent("_PlayerDemolished") {
+		for _, raw := range s.synth.DemolishLog() {
+			if !writeFrame(sseDataPrefix, raw, sseRecordEnd) {
 				return
 			}
 		}

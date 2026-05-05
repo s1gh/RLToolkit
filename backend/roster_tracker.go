@@ -229,6 +229,34 @@ func fingerprint(guid string, players []updateStatePlayer) string {
 	return b.String()
 }
 
+// Snapshot returns the most recently published _RosterChanged envelope
+// as raw JSON, or nil if the tracker hasn't seen a roster yet (or just
+// cleared it on MatchDestroyed). Used by the SSE handler to replay the
+// current roster to a fresh subscriber — without it, a plugin refreshing
+// mid-match has to wait for the next roster delta (which may never come
+// during stable play) to repopulate match.current.
+func (t *RosterTracker) Snapshot() []byte {
+	t.mu.Lock()
+	if len(t.lastRoster) == 0 {
+		t.mu.Unlock()
+		return nil
+	}
+	guid := t.lastGUID
+	out := make([]rosterPlayer, len(t.lastRoster))
+	copy(out, t.lastRoster)
+	t.mu.Unlock()
+
+	b, err := json.Marshal(rosterEvent{
+		Event:     "_RosterChanged",
+		MatchGUID: guid,
+		Players:   out,
+	})
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
 func (t *RosterTracker) publish(guid string, players []updateStatePlayer) {
 	out := make([]rosterPlayer, 0, len(players))
 	for _, p := range players {
