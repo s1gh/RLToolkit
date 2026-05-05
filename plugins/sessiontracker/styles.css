@@ -100,23 +100,92 @@
 
 /* ── Settings ────────────────────────────────────────────── */
 .st-settings {
-  max-width: 480px;
-  margin: 24px auto;
-  padding: 20px;
+  padding: 20px 24px 24px;
   display: flex;
   flex-direction: column;
+  gap: 28px;
+}
+
+.st-set-section { display: flex; flex-direction: column; gap: 12px; }
+.st-set-section h3 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  opacity: 0.5;
+  font-family: var(--rlt-mono, monospace);
+}
+
+/* Toggle: hide native checkbox, use custom track + thumb */
+.st-toggle {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.st-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.st-toggle-track {
+  flex: none;
+  width: 36px; height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: background 160ms ease, border-color 160ms ease;
+  position: relative;
+  margin-top: 2px;
+}
+.st-toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  transition: transform 160ms ease, background 160ms ease;
+}
+.st-toggle input:checked + .st-toggle-track {
+  background: rgba(80, 180, 220, 0.45);
+  border-color: rgba(80, 180, 220, 0.6);
+}
+.st-toggle input:checked + .st-toggle-track .st-toggle-thumb {
+  transform: translateX(16px);
+  background: #fff;
+}
+.st-toggle input:focus-visible + .st-toggle-track {
+  outline: 2px solid var(--rlt-cyan, #6cf);
+  outline-offset: 2px;
+}
+
+.st-toggle-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.st-toggle-title { font-size: 14px; }
+.st-toggle-hint { font-size: 12px; opacity: 0.6; line-height: 1.45; }
+
+/* Row layout for the "Reset session" action — text on the left, button on the right */
+.st-set-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 16px;
 }
-.st-settings h2 { margin: 0; font-size: 18px; }
-.st-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.st-row-toggle { flex-direction: row; align-items: center; gap: 8px; }
-.st-actions { display: flex; justify-content: flex-end; }
+.st-set-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.st-set-row-title { font-size: 14px; }
+.st-set-row-hint  { font-size: 12px; opacity: 0.6; line-height: 1.45; }
+
 .st-danger {
-  align-self: flex-start;
-  background: rgba(220, 80, 80, 0.18);
-  border: 1px solid rgba(220, 80, 80, 0.35);
+  flex: none;
+  background: rgba(220, 80, 80, 0.16);
+  border: 1px solid rgba(220, 80, 80, 0.4);
   color: var(--rlt-txt, #ddd);
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: 4px;
   cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  transition: background 120ms ease, border-color 120ms ease;
 }
+.st-danger:hover {
+  background: rgba(220, 80, 80, 0.28);
+  border-color: rgba(220, 80, 80, 0.6);
+}
+.st-danger:active { background: rgba(220, 80, 80, 0.4); }

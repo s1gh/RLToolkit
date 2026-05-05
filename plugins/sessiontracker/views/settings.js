@@ -14,35 +14,39 @@
 
   async function mount(root) {
     const handle = window.SessionTracker && window.SessionTracker._handle;
-    // Fall back to RLT.store if the handle wasn't exposed (defensive — Task 13
-    // depends on Task 9's `_handle` export. If it ever races, this still works
-    // because RLT.store is plugin-scoped when sdk.js was loaded with data-plugin).
     const store = (handle && handle.store) || RLT.store;
 
     let s = await loadSettings(store);
 
     root.innerHTML = `
       <div class="st-settings">
-        <h2>Session Tracker — Settings</h2>
+        <section class="st-set-section">
+          <h3>Display</h3>
+          <label class="st-toggle">
+            <input type="checkbox" id="st-streak" ${s.showStreak ? 'checked' : ''} />
+            <span class="st-toggle-track"><span class="st-toggle-thumb"></span></span>
+            <span class="st-toggle-label">
+              <span class="st-toggle-title">Streak badge</span>
+              <span class="st-toggle-hint">Show a Wn / Ln chip next to the score when on a run.</span>
+            </span>
+          </label>
+        </section>
 
-        <label class="st-field st-row-toggle">
-          <input type="checkbox" id="st-streak" ${s.showStreak ? 'checked' : ''} />
-          <span>Show streak badge</span>
-        </label>
-
-        <div class="st-field">
-          <button id="st-reset" type="button" class="st-danger">Reset session now</button>
-        </div>
-
-        <div class="st-actions">
-          <button id="st-done" type="button">Done</button>
-        </div>
+        <section class="st-set-section">
+          <h3>Session</h3>
+          <div class="st-set-row">
+            <div class="st-set-row-text">
+              <span class="st-set-row-title">Reset session</span>
+              <span class="st-set-row-hint">Clear matches and stats for the current launcher session. The session continues — only the numbers reset.</span>
+            </div>
+            <button id="st-reset" type="button" class="st-danger">Reset</button>
+          </div>
+        </section>
       </div>
     `;
 
-    const sw   = root.querySelector('#st-streak');
-    const rst  = root.querySelector('#st-reset');
-    const done = root.querySelector('#st-done');
+    const sw  = root.querySelector('#st-streak');
+    const rst = root.querySelector('#st-reset');
 
     sw.addEventListener('change', async () => {
       s.showStreak = sw.checked;
@@ -50,7 +54,6 @@
       if (window.SessionTrackerOverlay && window.SessionTrackerOverlay.setSetting) {
         window.SessionTrackerOverlay.setSetting('showStreak', s.showStreak);
       }
-      if (window._sessionTrackerRender) window._sessionTrackerRender();
     });
 
     rst.addEventListener('click', async () => {
@@ -69,7 +72,6 @@
       };
       await store.set('session', fresh);
       if (window.SessionTracker) {
-        // Patch the in-memory bucket too (the views read from it).
         const live = window.SessionTracker.state();
         if (live) {
           live.matches.length = 0;
@@ -79,10 +81,6 @@
       }
       if (window._sessionTrackerRender) window._sessionTrackerRender();
       if (RLT.ui && RLT.ui.toast) RLT.ui.toast('Session reset', 1500);
-    });
-
-    done.addEventListener('click', () => {
-      if (RLT.settings && RLT.settings.close) RLT.settings.close();
     });
   }
 
