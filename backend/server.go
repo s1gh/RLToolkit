@@ -38,6 +38,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/lifecycle", s.handleLifecycle)
 	mux.HandleFunc("/api/statfeed-discoveries", s.handleStatfeedDiscoveries)
 	mux.HandleFunc("/api/metrics", s.handleMetrics)
+	mux.HandleFunc("/api/boot-id", s.handleBootID)
 	mux.HandleFunc("/api/overlay/overrides", s.handleOverlayOverridesAll)
 	mux.HandleFunc("/api/overlay/overrides/", s.handleOverlayOverridesOne)
 	mux.HandleFunc("/overlay", s.handleOverlay)
@@ -590,4 +591,12 @@ func marshalOverridesChanged(data map[string]OverlayOverride) []byte {
 		return nil
 	}
 	return b
+}
+
+// handleBootID returns the process-lifetime boot ID. Plugins read this
+// on load to detect a backend restart (i.e. a fresh launcher session)
+// and reset their per-session state.
+func (s *Server) handleBootID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"bootId":"` + BootID() + `"}`))
 }
