@@ -1,5 +1,58 @@
-/* Session Tracker — overlay + dashboard styles. Filled in over later tasks. */
+/* Session Tracker — overlay + dashboard styles. */
+
 #root {
   font-family: var(--rlt-saira-condensed, sans-serif);
   color: var(--rlt-txt, #ddd);
+}
+
+/* ── Overlay ─────────────────────────────────────────────── */
+.st-overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--rlt-bg-0, rgba(0, 0, 0, 0.55));
+  border-radius: 6px;
+  width: max-content;
+  min-width: 240px;
+}
+
+.st-row { display: flex; align-items: baseline; gap: 8px; }
+
+.st-score { gap: 10px; }
+.st-wl    { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
+.st-streak {
+  font-size: 12px; opacity: 0.7;
+  font-family: var(--rlt-mono, monospace);
+}
+
+.st-spark { gap: 2px; }
+.st-tick {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: st-fade-in 400ms ease forwards;
+}
+.st-tick-win  { background: rgba(80, 200, 100, 0.78); }
+.st-tick-loss { background: rgba(220, 80, 80, 0.78); }
+.st-spark-empty {
+  display: inline-block;
+  width: 100%; height: 14px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.15);
+}
+
+@keyframes st-fade-in { to { opacity: 1; } }
+
+.st-stats { gap: 12px; font-size: 12px; opacity: 0.75; }
+.st-stats > span { display: inline-flex; gap: 4px; align-items: baseline; }
+.st-num {
+  font-family: var(--rlt-saira-condensed, sans-serif);
+  font-weight: 600;
+}
+.st-lbl {
+  font-family: var(--rlt-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 1px;
+  opacity: 0.7;
 }
