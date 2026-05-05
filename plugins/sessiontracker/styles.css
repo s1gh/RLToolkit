@@ -56,3 +56,44 @@
   letter-spacing: 1px;
   opacity: 0.7;
 }
+
+/* ── Dashboard ───────────────────────────────────────────────── */
+.st-dash {
+  max-width: 720px;
+  margin: 24px auto;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.st-header {
+  font-size: 13px;
+  opacity: 0.65;
+  letter-spacing: 0.3px;
+}
+
+.st-hero { display: flex; flex-direction: column; gap: 8px; }
+.st-hero .st-wl { font-size: 44px; font-weight: 700; letter-spacing: 1px; }
+.st-hero .st-streak { font-size: 14px; opacity: 0.75; font-family: var(--rlt-mono, monospace); }
+.st-spark-wide { flex-wrap: wrap; gap: 3px; }
+.st-meta { font-size: 13px; opacity: 0.7; }
+
+.st-section { display: flex; flex-direction: column; gap: 8px; }
+.st-section h3 {
+  font-size: 12px; letter-spacing: 1.4px; text-transform: uppercase;
+  opacity: 0.55; margin: 0; font-family: var(--rlt-mono, monospace);
+}
+
+.st-totals { display: flex; flex-wrap: wrap; gap: 14px 22px; font-size: 14px; }
+.st-highlights { font-size: 13px; opacity: 0.85; line-height: 1.6; }
+
+.st-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.st-table th, .st-table td {
+  text-align: left; padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.st-table th { opacity: 0.5; font-weight: 500; font-family: var(--rlt-mono, monospace); font-size: 11px; }
+
+.st-rivals { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+.st-rivals li { padding: 4px 0; opacity: 0.85; }
