@@ -79,6 +79,10 @@ endif
 # productName override in tauri.launcher.json only renames the bundles
 # (.deb / .rpm / .AppImage / .msi). We copy the binary out as
 # RLT-Launcher and the bundles stay under target/release/bundle/.
+#
+# --no-bundle produces just the exe; the sidecar (rl-toolkit) lands
+# next to it in target/release/. Both are copied to OUT_DIR so the
+# launcher can locate the sidecar at runtime.
 
 ifeq ($(HOST_OS),windows)
 launcher:
@@ -92,8 +96,10 @@ launcher:
 	)
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(LAUNCHER)$(EXE))
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(WIDGET_BIN)$(EXE))
+	$(call CP,$(TAURI_TARGET)/$(BINARY)$(EXE),$(OUT_DIR)/$(BINARY)$(EXE))
 	@echo -- $(OUT_DIR)/$(LAUNCHER)$(EXE)
 	@echo -- $(OUT_DIR)/$(WIDGET_BIN)$(EXE)
+	@echo -- $(OUT_DIR)/$(BINARY)$(EXE) (sidecar)
 else
 launcher:
 	@$(call MKDIR,$(OUT_DIR))
@@ -105,8 +111,10 @@ launcher:
 	  cargo tauri build --no-bundle --config tauri.launcher.json
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(LAUNCHER)$(EXE))
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(WIDGET_BIN)$(EXE))
+	$(call CP,$(TAURI_TARGET)/$(BINARY)$(EXE),$(OUT_DIR)/$(BINARY)$(EXE))
 	@echo "→ $(OUT_DIR)/$(LAUNCHER)$(EXE)"
 	@echo "→ $(OUT_DIR)/$(WIDGET_BIN)$(EXE)"
+	@echo "→ $(OUT_DIR)/$(BINARY)$(EXE) (sidecar)"
 endif
 
 # --- release: full stack (backend + launcher, launcher emits widget too)
