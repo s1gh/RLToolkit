@@ -103,5 +103,13 @@
     // _RosterChanged event (see backend/roster_tracker.go) and does
     // not subscribe to UpdateState.
     onRoster: scheduleRender,
+    // The THIS MATCH pill label reflects lifecycle.phase
+    // (idle/lobby/countdown/live/replay/podium/ended), so a phase
+    // transition without a roster move (countdown → live, live →
+    // replay, etc.) still needs a repaint. onLifecycle bypasses
+    // whilePhase gating in the SDK by design — exactly what we want
+    // here so the pill keeps tracking through phases the plugin
+    // doesn't otherwise act on.
+    onLifecycle: scheduleRender,
   });
 })();

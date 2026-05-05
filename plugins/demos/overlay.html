@@ -1398,15 +1398,24 @@
 
           $('total').textContent = totalCount();
 
+          // Pill mirrors dejavu's THIS MATCH badge byte-for-byte —
+          // see plugins/dejavu/views/match.js#updateBadge. Same
+          // vocabulary so the two plugins never disagree.
+          let label = 'offline';
+          if (RLT.status() === 'connected') {
+            const m = RLT.match.current;
+            if (!m) label = 'idle';
+            else if (!m.players || m.players.length === 0) label = 'lobby';
+            else label = RLT.match.lifecycle?.phase || 'live';
+          }
+          $('match-badge').textContent = label;
+
           const matchEntries = Object.entries(current).sort((a, b) => b[1].count - a[1].count);
           $('match-list').innerHTML = rowsHtml(
             matchEntries,
             '◇',
             currentGuid ? 'no demos yet — go hunting' : 'queue up to start tracking',
           );
-          $('match-badge').textContent = currentGuid
-            ? matchEntries.length + ' victims'
-            : 'no match';
 
           // Cap the rendered list at the top 10 most-demolished — the
           // long tail isn't useful at a glance. The "rivals" badge
@@ -1593,9 +1602,14 @@
             const paint = (s) => {
               c.dataset.status = s;
               c.textContent = s === 'connected' ? 'live' : s;
+              // Connection state feeds the THIS MATCH pill (offline
+              // vs idle/live/…), so re-render whenever it flips.
+              render();
             };
             paint(RLT.statusStable());
             RLT.onStatusStable(paint);
+            // (Phase transitions repaint via the spec.onLifecycle
+            // hook below — no init-side subscription needed.)
           },
 
           async ready() {
@@ -1747,6 +1761,20 @@
               cleanupMatchState();
               render();
             },
+          },
+
+          // Lifecycle phase changes drive the THIS MATCH pill label
+          // and the empty-state body copy. Also anchors currentGuid
+          // to the lifecycle snapshot so a page refresh mid-match
+          // repopulates the body without waiting for MatchCreated
+          // (which only fires at match start and isn't replayed on a
+          // fresh SSE subscriber).
+          onLifecycle() {
+            const lcGuid = RLT.match?.lifecycle?.guid || null;
+            if (lcGuid && lcGuid !== currentGuid) {
+              currentGuid = lcGuid;
+            }
+            render();
           },
 
           // Backstop for the "user backed out without RL emitting
