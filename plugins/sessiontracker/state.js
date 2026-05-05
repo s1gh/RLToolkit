@@ -27,5 +27,42 @@
     return { current, best };
   }
 
-  window.SessionTrackerState = { computeStreaks };
+  function recomputeTotals(matches) {
+    const t = {
+      wins: 0, losses: 0,
+      goals: 0, assists: 0, saves: 0, shots: 0, demos: 0,
+      mvps: 0,
+      timeInMatchesSec: 0,
+      currentStreak: null, bestStreak: null,
+      hatTricks: 0, aerialGoals: 0, bicycleGoals: 0,
+      epicSaves: 0, flipResets: 0, otGoals: 0,
+      fastestGoalSec: null, hardestShotKmh: null,
+      demosGiven: 0, demosReceived: 0, ownGoals: 0,
+    };
+    for (const m of matches) {
+      if (m.result === 'win') t.wins++;
+      else if (m.result === 'loss') t.losses++;
+      const s = m.myStats || {};
+      t.goals   += s.goals   || 0;
+      t.assists += s.assists || 0;
+      t.saves   += s.saves   || 0;
+      t.shots   += s.shots   || 0;
+      t.demos   += s.demos   || 0;
+      if (m.mvp) t.mvps++;
+      t.timeInMatchesSec += m.durationSec || 0;
+      const h = m.highlights || [];
+      if (h.includes('hatTrick'))     t.hatTricks++;
+      if (h.includes('aerialGoal'))   t.aerialGoals++;
+      if (h.includes('bicycleGoal'))  t.bicycleGoals++;
+      if (h.includes('epicSave'))     t.epicSaves++;
+      if (h.includes('flipReset'))    t.flipResets++;
+      if (h.includes('otGoal'))       t.otGoals++;
+    }
+    const streaks = computeStreaks(matches);
+    t.currentStreak = streaks.current;
+    t.bestStreak    = streaks.best;
+    return t;
+  }
+
+  window.SessionTrackerState = { computeStreaks, recomputeTotals };
 })(typeof window !== 'undefined' ? window : globalThis);
