@@ -15,6 +15,6 @@
     "opacity": 0.55,
     "click_through": true,
     "hide_when_unfocused": true,
-    "show_during_phase": ["live", "replay", "paused", "ended"]
+    "show_during_phase": ["lobby", "countdown", "live", "replay", "paused", "podium"]
   }
 }

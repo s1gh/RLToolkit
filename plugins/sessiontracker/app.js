@@ -211,8 +211,23 @@
       _MatchSummary(p) {
         if (!bucket) return;
         const view = RLT.match.current || { arena: '', raw: {} };
-        const myTeam = (view.me && (view.me.team === 0 || view.me.team === 1))
-          ? view.me.team : null;
+        // Prefer the team carried on _MatchSummary.players[].player — by
+        // the time _MatchSummary fires (post-MatchEnded, settle-window),
+        // RLT.match.current.me may be null because UpdateState stopped.
+        // Fall back to view.me, then to RLT.me.id matched against the
+        // payload's player list.
+        let myTeam = null;
+        const fromSummary = (p.players || []).find((e) => e.player && e.player.isMe);
+        if (fromSummary && (fromSummary.player.team === 0 || fromSummary.player.team === 1)) {
+          myTeam = fromSummary.player.team;
+        } else if (view.me && (view.me.team === 0 || view.me.team === 1)) {
+          myTeam = view.me.team;
+        } else if (RLT.me && RLT.me.id) {
+          const byId = (p.players || []).find((e) => e.player && e.player.id === RLT.me.id);
+          if (byId && (byId.player.team === 0 || byId.player.team === 1)) {
+            myTeam = byId.player.team;
+          }
+        }
         const rec = window.SessionTrackerState.buildMatchRecord({
           summary: p,
           matchView: view,
@@ -224,11 +239,16 @@
           },
         });
         if (!rec) {
-          // Identity not claimed — show a one-time toast.
+          // Couldn't determine my team from this match's payload (no
+          // claimed identity, or roster cleared before settle). Show a
+          // one-time toast hinting at the most likely cause.
           if (!window._sessionTrackerNagged) {
             window._sessionTrackerNagged = true;
             if (RLT.ui && RLT.ui.toast) {
-              RLT.ui.toast('Session tracker: claim your identity in Déjà Vu to enable tracking', 4000);
+              const msg = (RLT.me && RLT.me.id)
+                ? "Session tracker couldn't read this match — try playing another round."
+                : 'Session tracker: claim your identity in Déjà Vu to enable tracking';
+              RLT.ui.toast(msg, 4000);
             }
           }
           perMatch = newPerMatch();
