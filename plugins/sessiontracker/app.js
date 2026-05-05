@@ -181,9 +181,13 @@
 
       _PlayerDemolished(p) {
         if (!bucket) return;
-        if (p.attacker && p.attacker.isMe) bucket.totals.demosGiven++;
-        if (p.victim && p.victim.isMe)     bucket.totals.demosReceived++;
+        if (p.attacker && p.attacker.isMe) {
+          bucket.totals.demosGiven++;
+          bucket.totals.demos++;
+        }
+        if (p.victim && p.victim.isMe) bucket.totals.demosReceived++;
         scheduleSave();
+        if (window._sessionTrackerRender) window._sessionTrackerRender();
       },
 
       _OwnGoal(p) {
