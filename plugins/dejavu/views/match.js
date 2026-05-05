@@ -31,21 +31,13 @@ DV.match = (function () {
       buildScaffold(host, m, standoutId);
     }
     patchValues(host, m);
-    updateBadge(m);
+    updateBadge();
   }
 
-  // The pill in the card header — reflects connection + match state.
-  // Stays terse: we'd rather show one of {offline, idle, lobby, live, …}
-  // than try to express every transition.
-  function updateBadge(m) {
+  function updateBadge() {
     const badge = $('match-badge');
     if (!badge) return;
-    let label = 'offline';
-    if (RLT.status() === 'connected') {
-      if (!m) label = 'idle';
-      else if (!m.players || m.players.length === 0) label = 'lobby';
-      else label = RLT.match.lifecycle?.phase || 'live';
-    }
+    const label = RLT.ui.matchBadgeLabel();
     if (badge.textContent !== label) badge.textContent = label;
   }
 

@@ -10,13 +10,15 @@
     <div id="root"></div>
     <style>
       body {
-        font-family: var(--rlt-ui, 'Inter', system-ui, sans-serif);
+        font-family: var(--rlt-ui, "Inter", system-ui, sans-serif);
         font-size: 13px;
         color: var(--rlt-txt, #e9ecf2);
         background: var(--rlt-bg-0, #08090f);
         margin: 0;
       }
-      body.overlay-mode { background: transparent; }
+      body.overlay-mode {
+        background: transparent;
+      }
       .settings {
         padding: 22px 24px;
         max-width: 560px;
@@ -27,7 +29,9 @@
         font-weight: 700;
         margin: 0 0 14px;
       }
-      .field { margin-bottom: 18px; }
+      .field {
+        margin-bottom: 18px;
+      }
       .field-label {
         display: block;
         font-size: 12px;
@@ -38,10 +42,14 @@
         letter-spacing: 0.04em;
       }
       .radio-row {
-        display: flex; flex-wrap: wrap; gap: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
       }
       .radio-row label {
-        display: inline-flex; align-items: center; gap: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
         padding: 8px 14px;
         border: 1px solid var(--rlt-line, #252938);
         border-radius: 8px;
@@ -49,15 +57,22 @@
         cursor: pointer;
         font-size: 13px;
       }
-      .radio-row input[type=radio] { display: none; }
+      .radio-row input[type="radio"] {
+        display: none;
+      }
       .radio-row label:has(input:checked) {
         border-color: var(--rlt-cyan, #22d3ee);
         color: var(--rlt-cyan, #22d3ee);
       }
       .upload-row {
-        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
       }
-      .upload-row input[type=file] { display: none; }
+      .upload-row input[type="file"] {
+        display: none;
+      }
       .upload-btn {
         padding: 8px 14px;
         border-radius: 8px;
@@ -69,7 +84,10 @@
         font-size: 12px;
         cursor: pointer;
       }
-      .upload-btn:hover { background: var(--rlt-bg-2, #161922); border-color: var(--rlt-txt-3, #6c739a); }
+      .upload-btn:hover {
+        background: var(--rlt-bg-2, #161922);
+        border-color: var(--rlt-txt-3, #6c739a);
+      }
       .filename {
         font-size: 12px;
         color: var(--rlt-txt-2, #a6abbf);
@@ -81,9 +99,11 @@
         margin-top: 6px;
       }
       .slider-row {
-        display: flex; align-items: center; gap: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
       }
-      .slider-row input[type=range] {
+      .slider-row input[type="range"] {
         flex: 1;
         appearance: none;
         -webkit-appearance: none;
@@ -92,16 +112,18 @@
         background: var(--rlt-line, #252938);
         outline: none;
       }
-      .slider-row input[type=range]::-webkit-slider-thumb {
+      .slider-row input[type="range"]::-webkit-slider-thumb {
         appearance: none;
         -webkit-appearance: none;
-        width: 16px; height: 16px;
+        width: 16px;
+        height: 16px;
         border-radius: 50%;
         background: var(--rlt-txt, #e9ecf2);
         cursor: pointer;
       }
-      .slider-row input[type=range]::-moz-range-thumb {
-        width: 16px; height: 16px;
+      .slider-row input[type="range"]::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
         border-radius: 50%;
         background: var(--rlt-txt, #e9ecf2);
         border: none;
@@ -114,13 +136,16 @@
         text-align: right;
       }
       .check-row {
-        display: inline-flex; align-items: center; gap: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
         cursor: pointer;
       }
-      .check-row input[type=checkbox] {
+      .check-row input[type="checkbox"] {
         appearance: none;
         -webkit-appearance: none;
-        width: 18px; height: 18px;
+        width: 18px;
+        height: 18px;
         border: 1px solid var(--rlt-line, #252938);
         border-radius: 4px;
         background: var(--rlt-bg-2, #161922);
@@ -128,20 +153,25 @@
         position: relative;
         flex-shrink: 0;
       }
-      .check-row input[type=checkbox]:checked {
+      .check-row input[type="checkbox"]:checked {
         background: var(--rlt-cyan, #22d3ee);
         border-color: var(--rlt-cyan, #22d3ee);
       }
-      .check-row input[type=checkbox]:checked::after {
-        content: '';
+      .check-row input[type="checkbox"]:checked::after {
+        content: "";
         position: absolute;
-        left: 5px; top: 2px;
-        width: 5px; height: 9px;
-        border: solid #08090f; border-width: 0 2px 2px 0;
+        left: 5px;
+        top: 2px;
+        width: 5px;
+        height: 9px;
+        border: solid #08090f;
+        border-width: 0 2px 2px 0;
         transform: rotate(45deg);
       }
       .actions {
-        display: flex; gap: 10px; margin-top: 24px;
+        display: flex;
+        gap: 10px;
+        margin-top: 24px;
       }
       .btn {
         padding: 8px 14px;
@@ -159,24 +189,31 @@
         color: #08090f;
         border-color: transparent;
       }
-      .control { padding: 22px 24px; max-width: 720px; margin: 0 auto; }
-      .control p { margin: 0 0 12px; line-height: 1.5; }
+      .control {
+        padding: 22px 24px;
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      .control p {
+        margin: 0 0 12px;
+        line-height: 1.5;
+      }
     </style>
     <script>
       (function () {
         const params = new URLSearchParams(location.search);
         const isSettings = RLT.isSettingsView;
-        const isOverlay = params.has('overlay');
+        const isOverlay = params.has("overlay");
 
-        const STORE_KEY = 'config';
+        const STORE_KEY = "config";
         const DEFAULTS = {
-          selected: 'preset:bonk',
+          selected: "preset:bonk",
           customDataUrl: null,
           customName: null,
           volume: 0.7,
           playInReplays: true,
         };
-        const PRESETS = ['bonk', 'clang', 'airhorn'];
+        const PRESETS = ["bonk", "clang", "airhorn"];
         const MAX_CUSTOM_BYTES = 500 * 1024;
         const DEBOUNCE_MS = 250;
 
@@ -191,29 +228,32 @@
           return merged;
         }
         function resolveSoundUrl(cfg) {
-          if (cfg.selected === 'custom' && cfg.customDataUrl) {
+          if (cfg.selected === "custom" && cfg.customDataUrl) {
             return cfg.customDataUrl;
           }
-          let preset = 'bonk';
-          if (typeof cfg.selected === 'string' && cfg.selected.startsWith('preset:')) {
-            const p = cfg.selected.slice('preset:'.length);
+          let preset = "bonk";
+          if (
+            typeof cfg.selected === "string" &&
+            cfg.selected.startsWith("preset:")
+          ) {
+            const p = cfg.selected.slice("preset:".length);
             if (PRESETS.indexOf(p) >= 0) preset = p;
           }
-          return 'sounds/' + preset + '.mp3';
+          return "sounds/" + preset + ".mp3";
         }
         function playSound(cfg) {
           try {
             const audio = new Audio(resolveSoundUrl(cfg));
             audio.volume = Math.max(0, Math.min(1, cfg.volume ?? 0.7));
             const p = audio.play();
-            if (p && typeof p.catch === 'function') p.catch(() => {});
+            if (p && typeof p.catch === "function") p.catch(() => {});
           } catch (_) {
             // Construction failures are silent — playback is best-effort.
           }
         }
 
         async function renderSettings() {
-          const root = document.getElementById('root');
+          const root = document.getElementById("root");
           root.innerHTML = `
             <section class="settings">
               <h2>Crossbar sound</h2>
@@ -263,103 +303,114 @@
           let cfg = await readConfig();
 
           const radios = root.querySelectorAll('input[name="src"]');
-          radios.forEach(r => { r.checked = (r.value === cfg.selected); });
-          const customField = root.querySelector('#custom-field');
-          const customNameEl = root.querySelector('#custom-name');
-          const uploadErr = root.querySelector('#upload-err');
-          const volume = root.querySelector('#volume');
-          const volumeVal = root.querySelector('#volume-val');
-          volume.value = String(Math.round((cfg.volume ?? 0.7) * 100));
-          volumeVal.textContent = volume.value + '%';
-          customField.hidden = (cfg.selected !== 'custom');
-          customNameEl.textContent = cfg.customName || 'No file selected';
-
-          root.querySelector('#upload-trigger').addEventListener('click', () => {
-            root.querySelector('#upload').click();
+          radios.forEach((r) => {
+            r.checked = r.value === cfg.selected;
           });
-          const playInReplays = root.querySelector('#play-in-replays');
+          const customField = root.querySelector("#custom-field");
+          const customNameEl = root.querySelector("#custom-name");
+          const uploadErr = root.querySelector("#upload-err");
+          const volume = root.querySelector("#volume");
+          const volumeVal = root.querySelector("#volume-val");
+          volume.value = String(Math.round((cfg.volume ?? 0.7) * 100));
+          volumeVal.textContent = volume.value + "%";
+          customField.hidden = cfg.selected !== "custom";
+          customNameEl.textContent = cfg.customName || "No file selected";
+
+          root
+            .querySelector("#upload-trigger")
+            .addEventListener("click", () => {
+              root.querySelector("#upload").click();
+            });
+          const playInReplays = root.querySelector("#play-in-replays");
           playInReplays.checked = cfg.playInReplays !== false;
 
-          radios.forEach(r => {
-            r.addEventListener('change', async () => {
+          radios.forEach((r) => {
+            r.addEventListener("change", async () => {
               if (!r.checked) return;
               cfg = await writeConfig({ selected: r.value });
-              customField.hidden = (cfg.selected !== 'custom');
+              customField.hidden = cfg.selected !== "custom";
             });
           });
 
-          volume.addEventListener('input', () => {
-            volumeVal.textContent = volume.value + '%';
+          volume.addEventListener("input", () => {
+            volumeVal.textContent = volume.value + "%";
           });
-          volume.addEventListener('change', async () => {
+          volume.addEventListener("change", async () => {
             cfg = await writeConfig({ volume: Number(volume.value) / 100 });
           });
 
-          playInReplays.addEventListener('change', async () => {
+          playInReplays.addEventListener("change", async () => {
             cfg = await writeConfig({ playInReplays: playInReplays.checked });
           });
 
-          const upload = root.querySelector('#upload');
-          upload.addEventListener('change', () => {
+          const upload = root.querySelector("#upload");
+          upload.addEventListener("change", () => {
             uploadErr.hidden = true;
-            uploadErr.textContent = '';
+            uploadErr.textContent = "";
             const file = upload.files?.[0];
             if (!file) return;
             if (file.size > MAX_CUSTOM_BYTES) {
               uploadErr.hidden = false;
-              uploadErr.textContent = 'File too large (max 500 KB).';
-              upload.value = '';
+              uploadErr.textContent = "File too large (max 500 KB).";
+              upload.value = "";
               return;
             }
             const reader = new FileReader();
             reader.onerror = () => {
               uploadErr.hidden = false;
-              uploadErr.textContent = 'Could not read file.';
+              uploadErr.textContent = "Could not read file.";
             };
             reader.onload = async () => {
-              const dataUrl = String(reader.result || '');
+              const dataUrl = String(reader.result || "");
               if (dataUrl.length > MAX_CUSTOM_BYTES * 2) {
                 uploadErr.hidden = false;
-                uploadErr.textContent = 'Encoded file exceeds limit.';
+                uploadErr.textContent = "Encoded file exceeds limit.";
                 return;
               }
               cfg = await writeConfig({
-                selected: 'custom',
+                selected: "custom",
                 customDataUrl: dataUrl,
                 customName: file.name,
               });
               customNameEl.textContent = cfg.customName;
-              radios.forEach(r => { r.checked = (r.value === 'custom'); });
+              radios.forEach((r) => {
+                r.checked = r.value === "custom";
+              });
               customField.hidden = false;
             };
             reader.readAsDataURL(file);
           });
 
-          root.querySelector('#test').addEventListener('click', async () => {
+          root.querySelector("#test").addEventListener("click", async () => {
             cfg = await readConfig();
             playSound(cfg);
           });
 
-          root.querySelector('#done').addEventListener('click', () => {
+          root.querySelector("#done").addEventListener("click", () => {
             RLT.settings.close();
           });
         }
 
         function renderOverlay() {
           // No visible UI — root stays empty.
-          document.getElementById('root').remove();
+          document.getElementById("root").remove();
           let lastHitAt = 0;
           RLT.plugin.register({
-            name: 'crossbar',
+            name: "crossbar",
             events: {
               async _CrossbarHit() {
-                const now = (typeof performance !== 'undefined' && performance.now)
-                  ? performance.now()
-                  : Date.now();
+                const now =
+                  typeof performance !== "undefined" && performance.now
+                    ? performance.now()
+                    : Date.now();
                 if (now - lastHitAt < DEBOUNCE_MS) return;
                 lastHitAt = now;
                 const cfg = await readConfig();
-                if (!cfg.playInReplays && RLT.match.lifecycle.phase === 'replay') return;
+                if (
+                  !cfg.playInReplays &&
+                  RLT.match.lifecycle.phase === "replay"
+                )
+                  return;
                 playSound(cfg);
               },
             },
@@ -367,7 +418,7 @@
         }
 
         function renderControl() {
-          const root = document.getElementById('root');
+          const root = document.getElementById("root");
           root.innerHTML = `
             <section class="control">
               <h2 style="font-size:18px;margin:0 0 12px">Crossbar Sound</h2>

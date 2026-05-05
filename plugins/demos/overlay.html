@@ -1243,7 +1243,7 @@
         // Hydration gate. The SSE handler replays this match's
         // _PlayerDemolished history on subscribe so a refresh
         // mid-match repopulates `current`. Those replay frames land
-        // BEFORE ready() finishes awaiting handle.store.getAll(), so
+        // BEFORE ready() finishes awaiting RLT.store.getAll(), so
         // without a gate the event handler would mutate (and persist)
         // an empty totals object, wiping the on-disk all-time history.
         // We buffer replay events until hydration completes, then
@@ -1277,7 +1277,7 @@
         // the left column, which mounts on the first demo of a match
         // and stays put for the rest of it.
         let lastMatchVictim = '';
-        // All-time personal record. Persisted via handle.store so it
+        // All-time personal record. Persisted via RLT.store so it
         // survives across matches, sessions, and toolkit restarts. The
         // BEST badge in the overlay shows this so the player has a
         // record to chase. Updated in the demo handler whenever the
@@ -1415,17 +1415,7 @@
 
           $('total').textContent = totalCount();
 
-          // Pill mirrors dejavu's THIS MATCH badge byte-for-byte —
-          // see plugins/dejavu/views/match.js#updateBadge. Same
-          // vocabulary so the two plugins never disagree.
-          let label = 'offline';
-          if (RLT.status() === 'connected') {
-            const m = RLT.match.current;
-            if (!m) label = 'idle';
-            else if (!m.players || m.players.length === 0) label = 'lobby';
-            else label = RLT.match.lifecycle?.phase || 'live';
-          }
-          $('match-badge').textContent = label;
+          $('match-badge').textContent = RLT.ui.matchBadgeLabel();
 
           const matchEntries = Object.entries(current).sort((a, b) => b[1].count - a[1].count);
           $('match-list').innerHTML = rowsHtml(
@@ -1567,19 +1557,10 @@
           $('ov-word').textContent = ui.word || '';
         }
 
-        // rAF batcher: many SDK callbacks can fire on the same frame
-        // (StatfeedEvent + onTick + onMatch all in a single SSE flush).
-        // Coalesce them so we only paint once per frame.
-        let rafScheduled = false;
-        function render() {
-          if (rafScheduled) return;
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (isOverlay) renderOverlay();
-            else renderControl();
-          });
-        }
+        const render = RLT.util.rafBatcher(() => {
+          if (isOverlay) renderOverlay();
+          else renderControl();
+        });
 
         // applyDemo runs the per-demo bookkeeping for one
         // _PlayerDemolished envelope. Two call sites:
@@ -1650,7 +1631,7 @@
           // Update the all-time personal record. The BEST badge
           // shows this, so a new record updates live mid-streak —
           // the hit that breaks your old record is the moment the
-          // badge ticks up. Persisted via handle.store below
+          // badge ticks up. Persisted via RLT.store below
           // alongside totals.
           if (currentStreak > allTimeBestStreak) {
             allTimeBestStreak = currentStreak;
@@ -1695,24 +1676,20 @@
           // in sdk.js. Three keys persist: the per-victim totals map,
           // plus the all-time best streak (number + tier word) so the
           // BEST badge survives restarts.
-          handle.store.set('totals', totals).catch((e) => {
+          RLT.store.set('totals', totals).catch((e) => {
             console.error('[demos] save failed:', e);
           });
-          handle.store.set('allTimeBestStreak', allTimeBestStreak).catch((e) => {
+          RLT.store.set('allTimeBestStreak', allTimeBestStreak).catch((e) => {
             console.error('[demos] save failed:', e);
           });
-          handle.store.set('allTimeBestStreakWord', allTimeBestStreakWord).catch((e) => {
+          RLT.store.set('allTimeBestStreakWord', allTimeBestStreakWord).catch((e) => {
             console.error('[demos] save failed:', e);
           });
 
           render();
         }
 
-        // ─── Plugin registration ────────────────────────────────────
-        // The handle returned by register() exposes a per-plugin `store`
-        // that's namespaced by manifest.name on disk. Use it for anything
-        // you want to keep across restarts.
-        const handle = RLT.plugin.register({
+        RLT.plugin.register({
           // Demolitions only happen in-play. `whilePhase` filters event
           // delivery for us — handlers below won't fire in menus.
           whilePhase: ['live', 'replay', 'countdown', 'paused'],
@@ -1723,10 +1700,8 @@
           // - Overlay mode: grow the iframe to fit content (long tier
           //   words and 4-digit counts overflow the manifest's width).
           //
-          // - Dashboard mode: wire the connection pill. onStatusStable
-          //   fires on change only, so we seed from statusStable() once
-          //   to handle the case where the SDK connected before this
-          //   subscriber arrived.
+          // - Dashboard mode: wire the connection pill via the SDK
+          //   helper, which handles seeding and change-tracking.
           //
           // - Both views: subscribe to lifecycle phase changes to drive
           //   the playable-time bank (only ticks during live / countdown
@@ -1754,18 +1729,7 @@
                 });
               }
             } else {
-              const c = $('conn');
-              if (c) {
-                const paint = (s) => {
-                  c.dataset.status = s;
-                  c.textContent = s === 'connected' ? 'live' : s;
-                  // Connection state feeds the THIS MATCH pill (offline
-                  // vs idle/live/…), so re-render whenever it flips.
-                  render();
-                };
-                paint(RLT.statusStable());
-                RLT.onStatusStable(paint);
-              }
+              RLT.ui.bindStatusPill('conn', () => render());
             }
 
             // Bank gate + streak reset both views run, so the dashboard
@@ -1802,7 +1766,7 @@
             // 200 (with {} when nothing's stored), keeping the console
             // quiet on first run.
             try {
-              const all = await handle.store.getAll();
+              const all = await RLT.store.getAll();
               const stored = all && all.totals;
               if (stored && typeof stored === 'object') totals = stored;
               // All-time best streak survives across sessions. If the

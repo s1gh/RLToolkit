@@ -85,7 +85,7 @@ DV.leaderboard = (function () {
       : '<div class="lb-platform lb-platform-empty" title="' + platformTitle + '"></div>';
 
     // Claim button when identity is unclaimed. Wired through the global
-    // data-claim-id handler in views/identity.js — no extra binding here.
+    // data-claim-id handler in app.js — no extra binding here.
     const claim = unclaimed
       ? '<button class="claim-btn lb-claim" data-claim-id="' +
         RLT.ui.escAttr(p.id) +

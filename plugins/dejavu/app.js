@@ -15,40 +15,18 @@
   // The SDK auto-adds body.overlay-mode whenever ?overlay=1, so we only
   // read the flag here to pick which views to mount.
   const isOverlay = new URLSearchParams(location.search).has('overlay');
-  const views = isOverlay ? [DV.overlay] : [DV.identity, DV.match, DV.leaderboard];
+  const views = isOverlay ? [DV.overlay] : [DV.match, DV.leaderboard];
 
-  // ─── rAF-batched render ────────────────────────────────────
-  // Multiple SDK callbacks may fire on the same frame (an UpdateState
-  // ingestion can trigger both onMatch and onEncounters in one tick).
-  // Coalesce them into one paint per frame.
-  let rafScheduled = false;
-  function scheduleRender() {
-    if (rafScheduled) return;
-    rafScheduled = true;
-    requestAnimationFrame(() => {
-      rafScheduled = false;
-      for (const v of views) v.render();
-    });
-  }
+  const scheduleRender = RLT.util.rafBatcher(() => {
+    for (const v of views) v.render();
+  });
 
   // Plugin metadata (name, version, author) comes from manifest.json —
   // see RLT.plugin.register's docs. We only declare runtime behaviour
   // here.
   RLT.plugin.register({
     init() {
-      // Connection-status pill is dejavu chrome, not match data, so it
-      // lives outside the per-view render path. Subscribe to the SDK's
-      // *stable* signal so the pill doesn't flicker through the toolkit's
-      // 30s self-reconnect cycles — see RLT.onStatusStable for details.
-      // Foreground-gating of the overlay widget itself is handled by the
-      // SDK via the manifest's `hide_when_unfocused` flag — no init code
-      // or onFocusChange handler needed in plugin code anymore.
-      RLT.onStatusStable((s) => {
-        const c = DV.dom.$('conn');
-        if (!c) return;
-        c.dataset.status = s;
-        c.textContent = s === 'connected' ? 'live' : s;
-      });
+      RLT.ui.bindStatusPill('conn');
 
       // Grow the widget's width to fit a long player name. fitWidth is
       // monotonic — it only widens, never shrinks — so the manifest's
@@ -72,19 +50,26 @@
     ready() {
       // Once the encounter ledger and identity have loaded, do the first
       // paint so the page isn't blank before the first SSE event lands.
-      window.addEventListener(
-        'DOMContentLoaded',
-        () => {
-          for (const v of views) v.bind?.();
-          scheduleRender();
-        },
-        { once: true },
-      );
-      // If DOM is already ready (script ran late), bind + render now.
-      if (document.readyState !== 'loading') {
+      let booted = false;
+      function bootstrap() {
+        if (booted) return;
+        booted = true;
         for (const v of views) v.bind?.();
+        // "This is me" buttons on match/leaderboard rows.
+        if (!isOverlay) {
+          document.addEventListener('click', async (e) => {
+            const btn = e.target.closest('[data-claim-id]');
+            if (!btn) return;
+            e.preventDefault();
+            await RLT.me.set(btn.getAttribute('data-claim-id'));
+            RLT.ui.toast('Identity claimed');
+          });
+        }
         scheduleRender();
       }
+      window.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+      // If DOM is already ready (script ran late), bind + render now.
+      if (document.readyState !== 'loading') bootstrap();
     },
 
     // Identity changes invalidate the match scaffold so player rows re-class

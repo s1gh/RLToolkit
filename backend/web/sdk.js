@@ -366,10 +366,9 @@
     };
   }
 
-  // Only overlay instances write by default; dashboard reads are free.
   let warnedReadOnlyStores = new Set();
   function makeNamespacedStore(ns, opts) {
-    const allowWrites = !!(opts && opts.allowWrites) || __rltIsOverlay;
+    const allowWrites = !!(opts && opts.allowWrites) || __rltIsOverlay || __rltIsSettingsView;
     function readOnlyNoOp(action) {
       const key = ns + ':' + action;
       if (!warnedReadOnlyStores.has(key)) {
@@ -944,6 +943,24 @@
       });
       clearTimeout(t._timer);
       t._timer = setTimeout(() => t.classList.remove('rlt-toast--show'), ms || 2000);
+    },
+    matchBadgeLabel() {
+      if (status !== 'connected') return 'offline';
+      const m = match.current;
+      if (!m) return 'idle';
+      if (!m.players || m.players.length === 0) return 'lobby';
+      return match.lifecycle?.phase || 'live';
+    },
+    bindStatusPill(elementId, onChange) {
+      const paint = (s) => {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        el.dataset.status = s;
+        el.textContent = s === 'connected' ? 'live' : s;
+        if (onChange) onChange(s);
+      };
+      paint(statusStableState.get());
+      return statusStableState.onChange(paint);
     },
   };
 
@@ -2095,6 +2112,21 @@
     };
   })();
 
+  // ─── Utility helpers ────────────────────────────────────────
+  const util = {
+    rafBatcher(fn) {
+      let scheduled = false;
+      return function scheduleRender() {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+          scheduled = false;
+          fn();
+        });
+      };
+    },
+  };
+
   // ─── Settings panel bridge ─────────────────────────────────
   const settingsApi = {
     close() {
@@ -2141,6 +2173,7 @@
     encounters,
     store,
     ui,
+    util,
     events,
     stats,
     widget,

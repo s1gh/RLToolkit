@@ -38,31 +38,6 @@
         </div>
       </header>
 
-      <!-- Identity (collapsed by default; expands on pencil click or when unclaimed) -->
-      <section class="identity-strip" id="id-strip" data-mode="collapsed">
-        <div class="il-collapsed">
-          <span class="il-label">you:</span>
-          <span class="il-name" id="id-val">unclaimed</span>
-          <button type="button" class="il-edit" id="id-edit" title="Change identity">
-            ✎
-          </button>
-          <span class="il-hint" id="id-hint" hidden
-            >— click "this is me" on your row when you're in a match</span
-          >
-        </div>
-        <div class="il-expanded" id="id-panel" hidden>
-          <input
-            class="input"
-            type="text"
-            id="id-input"
-            placeholder="Steam|76561...|0"
-          />
-          <button type="button" class="btn" id="id-set">Set</button>
-          <button type="button" class="btn ghost" id="id-clear">Clear</button>
-          <button type="button" class="btn ghost" id="id-cancel">Cancel</button>
-        </div>
-      </section>
-
       <!-- Two-column grid: live match (left) | most-met leaderboard (right) -->
       <div class="grid">
         <section class="card col-match">
@@ -105,7 +80,6 @@
     <script src="/plugins/dejavu/lib/dom.js"></script>
     <script src="/plugins/dejavu/lib/constants.js"></script>
     <script src="/plugins/dejavu/lib/returners.js"></script>
-    <script src="/plugins/dejavu/views/identity.js"></script>
     <script src="/plugins/dejavu/views/match.js"></script>
     <script src="/plugins/dejavu/views/leaderboard.js"></script>
     <script src="/plugins/dejavu/views/overlay.js"></script>
