@@ -807,6 +807,48 @@
       ev.emit('change', cur);
     });
 
+    // Re-stamp encounter fields when the ledger changes so plugins
+    // that only subscribe to onRoster (and therefore never rebuild
+    // cur from a fresh UpdateState tick) see up-to-date counts.
+    encounters.onChange(() => {
+      if (!cur) return;
+      let changed = false;
+      for (const p of cur.players) {
+        const enc = p.id ? encounters.get(p.id) : null;
+        const count = enc ? enc.count : 1;
+        if (p.encounterCount !== count) {
+          p.encounterCount = count;
+          p.aliases = enc ? enc.names.filter((n) => n !== p.name) : [];
+          p.firstSeen = enc ? enc.first_seen : null;
+          p.lastSeen = enc ? enc.last_seen : null;
+          changed = true;
+        }
+      }
+      if (changed) {
+        lastFingerprint = '';
+        ev.emit('roster', cur);
+        ev.emit('change', cur);
+      }
+    });
+
+    // Catch-up recording: RL sends the first UpdateState (which
+    // triggers _RosterChanged) before CountdownBegin, so the roster
+    // often lands while lifecycle.phase is still "created" — outside
+    // RECORDING_PHASES. When the phase later transitions into a
+    // recording phase, re-run recordRoster so the encounter ledger
+    // reflects the match. The encounters.onChange handler above
+    // re-stamps cur.players when the ledger changes, so we don't
+    // need to rebuild cur here. Read the phase from the raw
+    // _Lifecycle envelope because the lifecycle module processes the
+    // same event and may not have updated lifecycle.phase yet.
+    bus.on('_Lifecycle', (snap) => {
+      if (!snap) return;
+      const p = String(snap.phase || 'none');
+      if (!RECORDING_PHASES.has(p)) return;
+      if (!cur || cur.players.length === 0) return;
+      recordRoster();
+    });
+
     return {
       get current() {
         return cur;
