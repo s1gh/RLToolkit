@@ -37,18 +37,13 @@
   // In-memory cache of the bucket. All writes go through scheduleSave().
   let bucket = null;
   let saveTimer = null;
-  let _handleRef = null;
 
-  function scheduleSave(handle) {
+  function scheduleSave() {
     if (saveTimer) return;
     saveTimer = setTimeout(() => {
       saveTimer = null;
-      handle.store.set(STORE_KEY, bucket);
+      RLT.store.set(STORE_KEY, bucket);
     }, 50);
-  }
-
-  function scheduleSaveExternal() {
-    if (_handleRef) scheduleSave(_handleRef);
   }
 
   // Resolve current bootId from SSE frame or HTTP fallback.
@@ -97,27 +92,22 @@
   }
 
   RLT.plugin.register({
-    async ready(handle) {
-      _handleRef = handle;
-      bucket = (await handle.store.get(STORE_KEY)) || null;
+    async ready() {
+      bucket = (await RLT.store.get(STORE_KEY)) || null;
       const liveBootID = await resolveBootID();
 
       if (!liveBootID) {
-        // Couldn't resolve — leave bucket as-is, render what we have.
         if (!bucket) bucket = freshBucket('');
       } else if (!bucket || bucket.bootId !== liveBootID) {
         bucket = freshBucket(liveBootID);
-        await handle.store.set(STORE_KEY, bucket);
+        await RLT.store.set(STORE_KEY, bucket);
       }
 
-      // Expose to views via globals (classic-script convention used by
-      // dejavu et al.). Views read `window.SessionTracker.state()`.
       window.SessionTracker = {
         state: () => bucket,
-        save:  () => scheduleSave(handle),
+        save:  scheduleSave,
         perMatch: () => perMatch,
         resetPerMatch: () => { perMatch = newPerMatch(); },
-        _handle: handle,
       };
 
       mountView();
@@ -156,7 +146,7 @@
             t.hardestShotKmh = p.goalSpeed;
           }
         }
-        scheduleSaveExternal();
+        scheduleSave();
       },
 
       _HatTrick(p) {
@@ -193,13 +183,13 @@
         if (!bucket) return;
         if (p.attacker && p.attacker.isMe) bucket.totals.demosGiven++;
         if (p.victim && p.victim.isMe)     bucket.totals.demosReceived++;
-        scheduleSaveExternal();
+        scheduleSave();
       },
 
       _OwnGoal(p) {
         if (!bucket) return;
         if (p.deflector && p.deflector.isMe) bucket.totals.ownGoals++;
-        scheduleSaveExternal();
+        scheduleSave();
       },
 
       _PlayerScoreChanged(p) {
@@ -210,7 +200,7 @@
         if (typeof d.assists === 'number') t.assists += d.assists;
         if (typeof d.saves   === 'number') t.saves   += d.saves;
         if (typeof d.shots   === 'number') t.shots   += d.shots;
-        scheduleSaveExternal();
+        scheduleSave();
         if (window._sessionTrackerRender) window._sessionTrackerRender();
       },
 
@@ -256,7 +246,7 @@
           live,
         );
         perMatch = newPerMatch();
-        scheduleSaveExternal();
+        scheduleSave();
         if (window._sessionTrackerRender) window._sessionTrackerRender();
       },
     },

@@ -5,18 +5,15 @@
   const SETTINGS_KEY = 'settings';
   const DEFAULTS = { showStreak: true };
 
-  function loadSettings(store) {
-    return store.get(SETTINGS_KEY).then((s) => Object.assign({}, DEFAULTS, s || {}));
+  function loadSettings() {
+    return RLT.store.get(SETTINGS_KEY).then((s) => Object.assign({}, DEFAULTS, s || {}));
   }
-  function saveSettings(store, s) {
-    return store.set(SETTINGS_KEY, s);
+  function saveSettings(s) {
+    return RLT.store.set(SETTINGS_KEY, s);
   }
 
   async function mount(root) {
-    const handle = window.SessionTracker && window.SessionTracker._handle;
-    const store = (handle && handle.store) || RLT.store;
-
-    let s = await loadSettings(store);
+    let s = await loadSettings();
 
     root.innerHTML = `
       <div class="st-settings">
@@ -50,7 +47,7 @@
 
     sw.addEventListener('change', async () => {
       s.showStreak = sw.checked;
-      await saveSettings(store, s);
+      await saveSettings(s);
       if (window.SessionTrackerOverlay && window.SessionTrackerOverlay.setSetting) {
         window.SessionTrackerOverlay.setSetting('showStreak', s.showStreak);
       }
@@ -58,7 +55,7 @@
 
     rst.addEventListener('click', async () => {
       if (!confirm('Clear all session stats? This cannot be undone.')) return;
-      const cur = (await store.get('session')) || {};
+      const cur = (await RLT.store.get('session')) || {};
       const fresh = {
         bootId: cur.bootId || '',
         startedAt: new Date().toISOString(),
@@ -70,7 +67,7 @@
             })
           : {},
       };
-      await store.set('session', fresh);
+      await RLT.store.set('session', fresh);
       if (window.SessionTracker) {
         const live = window.SessionTracker.state();
         if (live) {
