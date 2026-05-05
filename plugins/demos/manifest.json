@@ -9,9 +9,9 @@
     "width": 380,
     "height": 220,
     "anchor": "top-left",
-    "offset_x": 12,
-    "offset_y": 12,
-    "opacity": 1,
+    "offset_x": 16,
+    "offset_y": 16,
+    "opacity": 1.0,
     "click_through": true,
     "hide_when_unfocused": true,
     "show_during_phase": ["countdown", "live", "paused", "replay", "ended"]
