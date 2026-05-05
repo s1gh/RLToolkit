@@ -390,6 +390,7 @@ Once-per-occurrence. Per-match flags reset on `MatchCreated` / `MatchDestroyed`.
 | `_LifecyclePhaseChanged` | **stable** | `from`, `to`, `phaseDurationSeconds`, `trigger`. Framing-bypass — every plugin receives this regardless of filter. |
 | `_GoalReplayContext` | provisional | Fires on `GoalReplayStart` with the most recent cached `_GoalScored` (so plugins know which goal the replay is for). |
 | `_MatchSummary` | provisional | Fires ~2s after `MatchEnded` (or earlier on `PodiumStart` / `MatchDestroyed`). Final scores, winner, MVP if it arrived, full per-player stats. `trigger` field tells you which path fired it. |
+| `_BootId` | **stable** | First-frame on every SSE connection. Carries `bootId` (16 hex chars), the process-lifetime ID. Plugins use it to detect a backend (launcher) restart. Framing-bypass. |
 
 ```js
 // _MatchSummary
@@ -408,6 +409,19 @@ Once-per-occurrence. Per-match flags reset on `MatchCreated` / `MatchDestroyed`.
   trigger: 'PodiumStart' | 'settleTimeout' | 'MatchDestroyed',
 }
 ```
+
+```js
+// _BootId payload
+{
+  Event:  '_BootId',
+  bootId: 'abc123def456...',  // 16 lowercase hex chars
+}
+```
+
+The same value is available synchronously over HTTP: `GET /api/boot-id`
+returns `{"bootId":"..."}`. Use the HTTP endpoint as a fallback when
+the SSE first-frame might be missed (direct-mode browser sources that
+reload, etc.).
 
 #### Roster + discoverability
 

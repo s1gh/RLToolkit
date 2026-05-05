@@ -1,0 +1,20 @@
+{
+  "name": "sessiontracker",
+  "title": "Session Tracker",
+  "version": "0.1.0",
+  "author": "rl-toolkit",
+  "description": "Tracks wins, losses, and stats for your current launcher session.",
+  "settings": true,
+  "overlay": {
+    "file": "overlay.html",
+    "width": 280,
+    "height": 78,
+    "anchor": "bottom-left",
+    "offset_x": 12,
+    "offset_y": 12,
+    "opacity": 0.55,
+    "click_through": true,
+    "hide_when_unfocused": true,
+    "show_during_phase": ["live", "replay", "paused", "ended"]
+  }
+}
