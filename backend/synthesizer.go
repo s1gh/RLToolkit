@@ -19,6 +19,13 @@ type Synthesizer struct {
 	// mercy rule must not flag as an own goal). Optional; nil disables
 	// the gate, which is what the unit tests do.
 	phaseMachine *PhaseMachine
+	// lifecycle exposes the bReplay-edge-driven phase the rest of the
+	// toolkit uses. Used by the per-UpdateState diff emitters to skip
+	// goal replays and post-match screens (RL keeps streaming
+	// UpdateStates with stale flags into both — without this gate
+	// every tracker would mis-attribute that activity as gameplay).
+	// Optional; nil disables the gate (unit tests pass nil).
+	lifecycle *LifecycleTracker
 
 	// discoveries is the persistent registry of unknown Statfeed names.
 	// Optional — when set, _UnknownStatfeed observations bump the
@@ -33,10 +40,10 @@ type Synthesizer struct {
 	lastTeams []teamRef
 	lastTick  *tickSnapshot
 
-	// correlation buffers same-frame and adjacent-tick events so emitters
-	// like _GoalScored can look back for modifier Statfeeds (AerialGoal,
-	// BackwardsGoal, …) and _OwnGoal can look back for the GoalScored it
-	// belongs to. Capacity 15 ≈ 3 ticks at 60 Hz / ~5 events per tick.
+	// correlation buffers recent events so emitters like _GoalScored
+	// can look back for modifier Statfeeds (AerialGoal, BackwardsGoal,
+	// …) and _OwnGoal can look back for the GoalScored it belongs to.
+	// Sized in events, not ticks — see CorrelationBuffer.
 	correlation *CorrelationBuffer
 
 	// lastBallTouchMu guards lastBallTouchPlayer/Team. Updated from each
@@ -45,6 +52,38 @@ type Synthesizer struct {
 	// this for Phase 2's score-delta own-goal detection.
 	lastBallTouchMu     sync.Mutex
 	lastBallTouchPlayer *EnrichedPlayer
+
+	// crossbarMu guards lastCrossbarHit. RL fires a burst of CrossbarHit
+	// events when the ball rolls along the goal frame (we've seen 5 in
+	// a row). Debounce so consumers see one event per real impact.
+	crossbarMu      sync.Mutex
+	lastCrossbarHit time.Time
+
+	// lastGoalMu guards lastGoal. Set when _GoalScored is published,
+	// read when GoalReplayStart arrives so _GoalReplayContext can ship
+	// the resolved goal payload without depending on the shared
+	// correlation buffer (which can evict the entry under burst load
+	// from intervening BallHit/StatfeedEvent records). Cleared on
+	// match boundaries via resetMatchMilestones.
+	lastGoalMu sync.Mutex
+	lastGoal   *goalRecord
+
+	// flipResetArmedMu guards flipResetArmed. Tracks "this player got a
+	// FlipReset and hasn't touched the ground since" — keyed by the
+	// canonical player id. Set on FlipReset statfeed, cleared the
+	// instant their bOnGround flips back to true (UpdateState diff) or
+	// when they consume it by scoring. A goal scored while still in
+	// this state is tagged Modifiers.IsFlipResetGoal.
+	flipResetArmedMu sync.Mutex
+	flipResetArmed   map[string]bool
+
+	// realGoalsMu guards realGoalsByID. Counts goals where the scorer
+	// actually scored on the opposing net (i.e. not an own goal),
+	// keyed by canonical player id. Used to suppress RL's HatTrick
+	// Statfeed when the threshold was reached only because RL counts
+	// own goals — we don't. Cleared on match boundaries.
+	realGoalsMu   sync.Mutex
+	realGoalsByID map[string]int
 
 	// matchMu guards per-match milestone state. Reset on MatchCreated
 	// / MatchDestroyed so a back-to-back match doesn't carry stale
@@ -60,13 +99,17 @@ type Synthesizer struct {
 	// Match summary settle-window state. Set on MatchEnded; cleared
 	// when _MatchSummary publishes (settle timeout, PodiumStart, or
 	// MatchDestroyed — whichever first).
-	summaryMu       sync.Mutex
-	summaryPending  bool
-	summaryGUID     string
-	summaryWinner   *int
+	summaryMu        sync.Mutex
+	summaryPending   bool
+	summaryGUID      string
+	summaryWinner    *int
 	summaryFinalSnap *tickSnapshot
-	summaryMVP      *EnrichedPlayer
-	summaryCancel   chan struct{}
+	summaryMVP       *EnrichedPlayer
+	summaryCancel    chan struct{}
+	// Tunable timeouts; defaults to the production constants. Tests
+	// override to 0 (or near-zero) so the suite doesn't wait seconds.
+	summaryEndedTimeout  time.Duration
+	summaryPodiumSettle  time.Duration
 
 	// Per-match log of _PlayerDemolished envelopes (raw bytes, ready to
 	// rewrite to a fresh SSE subscriber). Reset on MatchCreated / first
@@ -79,22 +122,51 @@ type Synthesizer struct {
 	demolishLog [][]byte
 }
 
-// matchSummarySettleWindow is how long after MatchEnded we wait for
-// the late MVP Statfeed to arrive. The plan calls this "~2s"; we set
-// 2s exactly. PodiumStart or MatchDestroyed short-circuit the wait.
-const matchSummarySettleWindow = 2 * time.Second
+// matchSummaryEndedTimeout is the outer fallback: if PodiumStart never
+// arrives (back-to-menu, network drop), flush the summary anyway after
+// this long so subscribers don't wait forever. MatchDestroyed still
+// short-circuits.
+const matchSummaryEndedTimeout = 10 * time.Second
+
+// matchSummaryPodiumSettle is the inner window we wait at PodiumStart
+// for the late MVP Statfeed. MVP is part of the podium scene, so it
+// arrives at or after PodiumStart — never before. 3s is generous
+// enough for the slowest MVP statfeed observed. Tests override via
+// SetSummaryTimings to keep the suite fast.
+const matchSummaryPodiumSettle = 3 * time.Second
 
 func NewSynthesizer(bus *EventBus, roster *RosterTracker) *Synthesizer {
 	return &Synthesizer{
-		bus:         bus,
-		roster:      roster,
-		correlation: NewCorrelationBuffer(15),
+		bus:                 bus,
+		roster:              roster,
+		correlation:         NewCorrelationBuffer(32),
+		flipResetArmed:      make(map[string]bool),
+		realGoalsByID:       make(map[string]int),
+		summaryEndedTimeout: matchSummaryEndedTimeout,
+		summaryPodiumSettle: matchSummaryPodiumSettle,
 	}
+}
+
+// SetSummaryTimings overrides the match-summary fallback / settle
+// windows. Production callers leave defaults; tests pass tiny durations
+// to avoid waiting seconds for timers to fire.
+func (s *Synthesizer) SetSummaryTimings(endedTimeout, podiumSettle time.Duration) {
+	s.summaryMu.Lock()
+	s.summaryEndedTimeout = endedTimeout
+	s.summaryPodiumSettle = podiumSettle
+	s.summaryMu.Unlock()
 }
 
 // AttachPhaseMachine wires the gameplay-phase tracker so emitters that
 // should only fire during real gameplay can gate on it. Call before Run.
 func (s *Synthesizer) AttachPhaseMachine(m *PhaseMachine) { s.phaseMachine = m }
+
+// AttachLifecycle wires the bReplay-edge-driven LifecycleTracker so
+// diff emitters can skip replays and post-match phases (RL keeps
+// streaming UpdateStates with stale boost / possession / score data
+// into both, and we don't want to publish synthetic events for that
+// phantom activity). Call before Run.
+func (s *Synthesizer) AttachLifecycle(l *LifecycleTracker) { s.lifecycle = l }
 
 // AttachDiscoveryStore wires the persistent unknown-Statfeed registry.
 // Optional — without it, _UnknownStatfeed still publishes but no entry
@@ -144,61 +216,12 @@ func (s *Synthesizer) Feed(raw []byte) {
 		s.onMatchInitialized()
 	case "RoundStarted":
 		s.armFirstTouch()
-	case "GoalReplayStart":
-		s.onGoalReplayStart(raw)
 	case "PodiumStart":
-		// PodiumStart short-circuits the summary settle window — at
-		// this point RL has frozen scores and the MVP statfeed has
-		// arrived (or never will).
-		s.flushMatchSummary("PodiumStart")
-	}
-}
-
-// onGoalReplayStart emits _GoalReplayContext with the most recently
-// cached _GoalScored, so plugins know which goal the replay is for
-// without having to correlate the events themselves.
-func (s *Synthesizer) onGoalReplayStart(raw []byte) {
-	var record *goalRecord
-	for _, p := range s.correlation.Recent("_GoalScored", 5) {
-		if g, ok := p.(*goalRecord); ok {
-			record = g
-			break
-		}
-	}
-	if record == nil {
-		// No cached goal — nothing useful to ship. The raw
-		// GoalReplayStart still flows to subscribers; we just don't
-		// add the context envelope.
-		return
-	}
-	guid := pickStr("", "")
-	// Pull guid from the envelope so subscribers can correlate against
-	// MatchGuid. Cheap full-decode given the event is rare.
-	inner := unwrapInnerData(raw)
-	if inner != "" {
-		var d struct {
-			MatchGUID    string `json:"MatchGuid"`
-			MatchGUIDLow string `json:"matchguid"`
-		}
-		if err := json.Unmarshal([]byte(inner), &d); err == nil {
-			guid = pickStr(d.MatchGUID, d.MatchGUIDLow)
-		}
-	}
-	out := struct {
-		Event         string          `json:"Event"`
-		MatchGUID     string          `json:"matchGuid,omitempty"`
-		Scorer        *EnrichedPlayer `json:"scorer,omitempty"`
-		ScoringTeam   int             `json:"scoringTeam"`
-		ConcedingTeam int             `json:"concedingTeam"`
-	}{
-		Event:         "_GoalReplayContext",
-		MatchGUID:     guid,
-		Scorer:        record.Scorer,
-		ScoringTeam:   record.ScoringTeam,
-		ConcedingTeam: record.ConcedingTeam,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		// MVP is part of the podium scene itself, so the MVP Statfeed
+		// arrives at or after PodiumStart — never before. Restart the
+		// settle window here so we wait for it instead of flushing the
+		// summary immediately. MatchDestroyed still short-circuits.
+		s.armPodiumSettle("PodiumStart")
 	}
 }
 
@@ -218,6 +241,26 @@ func (s *Synthesizer) resetMatchMilestones() {
 	s.demolishMu.Lock()
 	s.demolishLog = nil
 	s.demolishMu.Unlock()
+	// Drop the cached goal so the first GoalReplayStart of a new match
+	// can't pick up the previous match's last goal.
+	s.lastGoalMu.Lock()
+	s.lastGoal = nil
+	s.lastGoalMu.Unlock()
+	// Drop any flip-reset arming so a stale flag from the previous
+	// match can't tag the first goal of the next one.
+	s.flipResetArmedMu.Lock()
+	for k := range s.flipResetArmed {
+		delete(s.flipResetArmed, k)
+	}
+	s.flipResetArmedMu.Unlock()
+	// Reset per-player real-goal counters. Without this a player who
+	// scored 2 honest goals last match would only need 1 more this
+	// match to false-trigger _HatTrick.
+	s.realGoalsMu.Lock()
+	for k := range s.realGoalsByID {
+		delete(s.realGoalsByID, k)
+	}
+	s.realGoalsMu.Unlock()
 }
 
 func (s *Synthesizer) onMatchInitialized() {
@@ -245,6 +288,7 @@ type tickSnapshot struct {
 	ballTeam   int  // Game.Ball.TeamNum; 255 = untouched
 	hasBall    bool // false when Game.Ball was absent
 	overtime   bool
+	bReplay    bool // Game.bReplay; rising edge marks a goal replay starting
 }
 
 // tickPlayer is the per-player slice of UpdateState we cache.
@@ -262,6 +306,7 @@ type tickPlayer struct {
 	demos       int
 	boost       *int // pointer because RL omits in non-spectator mode
 	demolished  bool
+	onGround    bool
 }
 
 // updateStateFull mirrors the wire shape we need for Phase-4 diffs.
@@ -282,6 +327,7 @@ type updateStateGame struct {
 		TeamNum int `json:"TeamNum"`
 	} `json:"Ball"`
 	BOvertime bool `json:"bOvertime"`
+	BReplay   bool `json:"bReplay"`
 }
 
 type updateStateFullPlayer struct {
@@ -298,6 +344,7 @@ type updateStateFullPlayer struct {
 	Demos        int    `json:"Demos"`
 	Boost        *int   `json:"Boost"`
 	BDemolished  bool   `json:"bDemolished"`
+	BOnGround    bool   `json:"bOnGround"`
 }
 
 // onUpdateState caches the latest UpdateState slice for downstream
@@ -360,6 +407,7 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 			demos:      p.Demos,
 			boost:      boost,
 			demolished: p.BDemolished,
+			onGround:   p.BOnGround,
 		})
 	}
 
@@ -368,6 +416,7 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 		teams:     teams,
 		players:   players,
 		overtime:  g.BOvertime,
+		bReplay:   g.BReplay,
 	}
 	if g.Ball != nil {
 		curr.ballTeam = g.Ball.TeamNum
@@ -400,10 +449,65 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 		return
 	}
 
+	// Replay-edge detection runs regardless — _GoalReplayContext is
+	// the one event that's *supposed* to fire on entering replay.
+	s.diffReplayEdge(prev, curr)
+
+	// Roster + per-player score diffs run in any phase. Players can
+	// join/leave or have stats reconciled in lobby, podium, etc.
 	s.diffPlayers(prev, curr)
+
+	// Play-state diffs only make sense during active gameplay. During
+	// replay the ball/cars move on screen but nothing is actually
+	// happening; on the post-match screen RL keeps streaming
+	// UpdateStates with stale flags. Both would otherwise emit phantom
+	// _BoostPickup / _BallPossessionChanged / _TeamScoreChanged /
+	// _OvertimeStarted events.
+	if s.lifecycle != nil {
+		ph := s.lifecycle.Snapshot().Phase
+		if ph != PhaseLive && ph != PhaseCountdown && ph != PhasePaused {
+			return
+		}
+	}
+
+	s.diffPlayersLive(prev, curr)
 	s.diffTeamScores(prev, curr)
 	s.diffBallPossession(prev, curr)
 	s.diffOvertime(prev, curr)
+}
+
+// diffReplayEdge emits _GoalReplayContext on a rising bReplay edge.
+// Recent RL builds skip the discrete GoalReplayStart event entirely, so
+// the bReplay flag on the per-tick Game snapshot is the only reliable
+// "goal replay began" signal. We mirror the LifecycleTracker's edge
+// detection here so the synthetic event fires on the same builds the
+// rest of the toolkit already supports.
+func (s *Synthesizer) diffReplayEdge(prev, curr *tickSnapshot) {
+	if prev.bReplay || !curr.bReplay {
+		return
+	}
+	s.lastGoalMu.Lock()
+	record := s.lastGoal
+	s.lastGoalMu.Unlock()
+	if record == nil {
+		return
+	}
+	out := struct {
+		Event         string          `json:"Event"`
+		MatchGUID     string          `json:"matchGuid,omitempty"`
+		Scorer        *EnrichedPlayer `json:"scorer,omitempty"`
+		ScoringTeam   int             `json:"scoringTeam"`
+		ConcedingTeam int             `json:"concedingTeam"`
+	}{
+		Event:         "_GoalReplayContext",
+		MatchGUID:     curr.matchGUID,
+		Scorer:        record.Scorer,
+		ScoringTeam:   record.ScoringTeam,
+		ConcedingTeam: record.ConcedingTeam,
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.bus.Publish(b)
+	}
 }
 
 // diffOvertime fires _OvertimeStarted on a rising bOvertime edge.
@@ -448,6 +552,10 @@ func (s *Synthesizer) diffOvertime(prev, curr *tickSnapshot) {
 // _PlayerJoined / _PlayerLeft on roster identity changes,
 // _PlayerScoreChanged on stat-field deltas, and _BoostPickup on a
 // rising boost edge during live play.
+// diffPlayers emits roster changes (_PlayerJoined / _PlayerLeft).
+// Roster identity moves can land in any phase (a player can drop
+// during a goal replay), so this isn't phase-gated. Per-stat and
+// play-state diffs live in diffPlayersLive.
 func (s *Synthesizer) diffPlayers(prev, curr *tickSnapshot) {
 	prevByID := make(map[string]*tickPlayer, len(prev.players))
 	for i := range prev.players {
@@ -478,15 +586,41 @@ func (s *Synthesizer) diffPlayers(prev, curr *tickSnapshot) {
 		}
 		s.emitPlayerLeft(prev.matchGUID, p)
 	}
+}
 
-	// _PlayerScoreChanged + _BoostPickup: walk the intersection.
-	for id, c := range currByID {
-		p, ok := prevByID[id]
+// diffPlayersLive emits the play-state player diffs that only make
+// sense during active gameplay:
+//   - _PlayerScoreChanged: RL keeps streaming stats during goal
+//     replays; the goal-frame delta already fired live, so any
+//     replay-tick deltas are spurious reconciliation noise.
+//   - _BoostPickup: cars on screen during replay also "pick up boost"
+//     cosmetically; we don't want that.
+//   - flip-reset bookkeeping: used by goal modifiers that only fire
+//     during live play.
+func (s *Synthesizer) diffPlayersLive(prev, curr *tickSnapshot) {
+	prevByID := make(map[string]*tickPlayer, len(prev.players))
+	for i := range prev.players {
+		p := &prev.players[i]
+		if p.id != "" {
+			prevByID[p.id] = p
+		}
+	}
+	for i := range curr.players {
+		c := &curr.players[i]
+		if c.id == "" {
+			continue
+		}
+		p, ok := prevByID[c.id]
 		if !ok {
 			continue
 		}
 		s.emitPlayerScoreChangedIfDelta(curr.matchGUID, p, c)
 		s.emitBoostPickupIfRising(curr.matchGUID, p, c)
+		if !p.onGround && c.onGround {
+			s.flipResetArmedMu.Lock()
+			delete(s.flipResetArmed, c.id)
+			s.flipResetArmedMu.Unlock()
+		}
 	}
 }
 
@@ -946,16 +1080,32 @@ func (s *Synthesizer) onStatfeedEvent(raw []byte) {
 	// above keeps firing as the catch-all.
 	s.emitStatfeedVariant(eventName, guid, out.MainTarget, out.SecondaryTarget)
 
-	// MVP statfeed lands inside the _MatchSummary settle window in most
-	// builds. Capture it so flushMatchSummary can attach it. We don't
-	// promote MVP to its own _-prefixed event — the plan's Phase 3.3
-	// explicitly leaves MVP / Playmaker / Savior on the catch-all only.
+	// MVP arrives at or after PodiumStart. If _MatchSummary's settle
+	// window is still open we attach it there (best-effort, gives a
+	// single combined payload for plugins that only care about
+	// summaries). Either way we also publish a dedicated _MatchMVP
+	// event so MVP gets delivered even when RL ships it well after
+	// _MatchSummary has flushed (observed: several seconds late).
 	if eventName == "MVP" && out.MainTarget != nil {
 		s.summaryMu.Lock()
+		guid := s.summaryGUID
 		if s.summaryPending {
 			s.summaryMVP = out.MainTarget
 		}
 		s.summaryMu.Unlock()
+
+		mvpOut := struct {
+			Event     string          `json:"Event"`
+			MatchGUID string          `json:"matchGuid,omitempty"`
+			MVP       *EnrichedPlayer `json:"mvp"`
+		}{
+			Event:     "_MatchMVP",
+			MatchGUID: guid,
+			MVP:       out.MainTarget,
+		}
+		if b, err := json.Marshal(mvpOut); err == nil {
+			s.bus.Publish(b)
+		}
 	}
 }
 
@@ -1039,6 +1189,15 @@ func (s *Synthesizer) emitSimple(eventName, guid string, main *EnrichedPlayer) {
 }
 
 func (s *Synthesizer) emitFlipReset(guid string, main *EnrichedPlayer) {
+	// Arm the flip-reset-goal modifier for this player. Cleared when
+	// they next touch ground (in diffPlayers) or score (consumed in
+	// onGoalScored). Multiple resets in the same airborne run all map
+	// to the same armed state; we don't count them.
+	if main != nil && main.ID != "" {
+		s.flipResetArmedMu.Lock()
+		s.flipResetArmed[main.ID] = true
+		s.flipResetArmedMu.Unlock()
+	}
 	s.emitSimple("_FlipReset", guid, main)
 }
 
@@ -1095,11 +1254,18 @@ func (s *Synthesizer) DemolishLog() [][]byte {
 	return out
 }
 
-// _HatTrick fires when the scorer's Goals count hits 3. We expose the
-// goal count directly so subscribers don't need to look at UpdateState.
-// The number comes from the cached match state — see syncedGoalsFor.
+// _HatTrick fires when the scorer's Goals count hits 3. RL's HatTrick
+// Statfeed counts own goals toward the threshold; we don't, so we
+// suppress the event when the player's tracked real-goal count is
+// below 3. Goal count comes from the per-match real-goal counter.
 func (s *Synthesizer) emitHatTrick(guid string, main *EnrichedPlayer) {
 	if main == nil {
+		return
+	}
+	s.realGoalsMu.Lock()
+	real := s.realGoalsByID[main.ID]
+	s.realGoalsMu.Unlock()
+	if real < 3 {
 		return
 	}
 	out := struct {
@@ -1111,23 +1277,13 @@ func (s *Synthesizer) emitHatTrick(guid string, main *EnrichedPlayer) {
 		Event:          "_HatTrick",
 		MatchGUID:      guid,
 		MainTarget:     main,
-		GoalsThisMatch: s.syncedGoalsFor(main.ID),
+		GoalsThisMatch: real,
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
 		return
 	}
 	s.bus.Publish(b)
-}
-
-// syncedGoalsFor reads the cached per-player Goals count from the
-// most recent UpdateState. Returns 0 when the cache hasn't been
-// populated or the player isn't in it. Per-player cache grows in
-// Phase 4; for now there's no cache so this returns 0 — the plan
-// explicitly notes goalsThisMatch is best-effort until Phase 4 lands.
-func (s *Synthesizer) syncedGoalsFor(playerID string) int {
-	_ = playerID
-	return 0
 }
 
 // _Save / _EpicSave share their shape; differ only in event name. The
@@ -1138,8 +1294,8 @@ func (s *Synthesizer) emitSave(guid string, main *EnrichedPlayer, eventName stri
 		return
 	}
 	// Look back for a recent Shot statfeed by an opposing-team player.
-	// "Recent" here is the full 15-event window — saves often follow a
-	// shot by 5-30 ticks, which exceeds the modifier window.
+	// Saves can land several events after the shot (intervening BallHit /
+	// other StatfeedEvents), so use the full buffer window.
 	var correlatedShot *EnrichedPlayer
 	for _, p := range s.correlation.Recent("StatfeedEvent", 15) {
 		rec, ok := p.(*statfeedRecord)
@@ -1347,6 +1503,16 @@ type enrichedBallHit struct {
 }
 
 func (s *Synthesizer) onBallHit(raw []byte) {
+	// Phase gate: catalog says liveOnly. RL fires BallHit during goal
+	// replays (the cinematic ball bouncing around) and on the
+	// post-match screen. Skip both — they aren't real touches.
+	if s.lifecycle != nil {
+		ph := s.lifecycle.Snapshot().Phase
+		if ph != PhaseLive && ph != PhaseCountdown && ph != PhasePaused {
+			return
+		}
+	}
+
 	inner := unwrapInnerData(raw)
 	if inner == "" {
 		return
@@ -1484,7 +1650,38 @@ type enrichedCrossbarHit struct {
 	BallLastTouch *enrichedBallLastTouch `json:"ballLastTouch,omitempty"`
 }
 
+// crossbarDebounceWindow suppresses repeat _CrossbarHit emissions
+// when RL fires a burst (ball rolling along the goal frame). 500ms is
+// long enough to absorb the burst, short enough that two genuinely
+// distinct hits in a single play still both fire.
+const crossbarDebounceWindow = 500 * time.Millisecond
+
 func (s *Synthesizer) onCrossbarHit(raw []byte) {
+	// Phase gate: catalog says liveOnly but the dispatch wasn't
+	// enforcing it. RL still fires CrossbarHit during goal replays
+	// and the cinematic camera bouncing the ball off the frame
+	// shouldn't count. bReplay on the cached UpdateState is the
+	// canonical replay signal on this build (discrete
+	// GoalReplayStart/End events are unreliable).
+	s.teamsMu.Lock()
+	inReplay := s.lastTick != nil && s.lastTick.bReplay
+	s.teamsMu.Unlock()
+	if inReplay {
+		return
+	}
+
+	// Debounce: drop repeats within the window. Updates the timestamp
+	// even on drops so a long roll keeps suppressing.
+	now := time.Now()
+	s.crossbarMu.Lock()
+	if !s.lastCrossbarHit.IsZero() && now.Sub(s.lastCrossbarHit) < crossbarDebounceWindow {
+		s.lastCrossbarHit = now
+		s.crossbarMu.Unlock()
+		return
+	}
+	s.lastCrossbarHit = now
+	s.crossbarMu.Unlock()
+
 	inner := unwrapInnerData(raw)
 	if inner == "" {
 		return
@@ -1619,10 +1816,14 @@ func (s *Synthesizer) onMatchEnded(raw []byte) {
 	s.beginMatchSummary(guid, winner)
 }
 
-// beginMatchSummary captures the final-tick state and starts the
-// settle timer. If a summary is already pending (back-to-back
-// MatchEnded — shouldn't happen in practice, but defensive), the
-// existing one is cancelled and the new one takes over.
+// beginMatchSummary captures the final-tick state and arms an outer
+// fallback timer in case PodiumStart never fires (back-to-menu, network
+// drop). The real flush happens from armPodiumSettle (inner window for
+// the late MVP Statfeed) or MatchDestroyed (immediate).
+//
+// If a summary is already pending (back-to-back MatchEnded —
+// shouldn't happen in practice, but defensive), the existing one is
+// cancelled and the new one takes over.
 func (s *Synthesizer) beginMatchSummary(guid string, winner *int) {
 	// Snapshot the latest tick under teamsMu so we don't race with a
 	// concurrent UpdateState.
@@ -1643,13 +1844,42 @@ func (s *Synthesizer) beginMatchSummary(guid string, winner *int) {
 	s.summaryCancel = cancel
 	s.summaryMu.Unlock()
 
+	endedTimeout := s.summaryEndedTimeout
 	go func() {
 		select {
 		case <-cancel:
-			// Flushed early via PodiumStart / MatchDestroyed — that
-			// path already published.
-		case <-time.After(matchSummarySettleWindow):
-			s.flushMatchSummary("settleTimeout")
+			// PodiumStart rearmed the timer, or MatchDestroyed
+			// flushed early — either way we're done here.
+		case <-time.After(endedTimeout):
+			s.flushMatchSummary("endedTimeout")
+		}
+	}()
+}
+
+// armPodiumSettle restarts the settle window with a shorter post-podium
+// timer that gives RL time to ship the MVP Statfeed (which arrives only
+// at/after PodiumStart). On timeout, the summary flushes — with MVP if
+// the statfeed arrived during the window, without if it didn't.
+func (s *Synthesizer) armPodiumSettle(trigger string) {
+	s.summaryMu.Lock()
+	if !s.summaryPending {
+		s.summaryMu.Unlock()
+		return
+	}
+	if s.summaryCancel != nil {
+		close(s.summaryCancel)
+	}
+	cancel := make(chan struct{})
+	s.summaryCancel = cancel
+	settle := s.summaryPodiumSettle
+	s.summaryMu.Unlock()
+
+	go func() {
+		select {
+		case <-cancel:
+			// MatchDestroyed flushed early.
+		case <-time.After(settle):
+			s.flushMatchSummary(trigger)
 		}
 	}()
 }
@@ -1805,6 +2035,11 @@ type goalModifiers struct {
 	IsPoolShot         bool `json:"isPoolShot,omitempty"`
 	IsHoopsSwishGoal   bool `json:"isHoopsSwishGoal,omitempty"`
 	IsHatTrickGoal     bool `json:"isHatTrickGoal,omitempty"`
+	// IsFlipResetGoal is toolkit-detected, not from a Statfeed: scorer
+	// got a FlipReset and stayed airborne (bOnGround=false) until
+	// scoring. See flipResetArmed bookkeeping in onUpdateState +
+	// emitFlipReset, consumed in onGoalScored.
+	IsFlipResetGoal    bool `json:"isFlipResetGoal,omitempty"`
 }
 
 // modifierStatfeedNames maps the statfeed EventName (as RL ships it) to
@@ -1882,29 +2117,48 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 		out.Assister = s.roster.ResolveByShortcut(*assisterRef)
 	}
 
+	var lastToucher *EnrichedPlayer
 	if lastTouch != nil {
 		ref := lastTouch.Player
 		if ref == nil {
 			ref = lastTouch.PlayerLow
 		}
 		sp := pickFloat(lastTouch.Speed, lastTouch.SpeedLow)
-		var enrichedRef *EnrichedPlayer
 		if ref != nil {
-			enrichedRef = s.roster.ResolveByShortcut(*ref)
+			lastToucher = s.roster.ResolveByShortcut(*ref)
 		}
-		if enrichedRef != nil || sp != nil {
+		if lastToucher != nil || sp != nil {
 			out.BallLastTouch = &enrichedBallLastTouch{
-				Player: enrichedRef,
+				Player: lastToucher,
 				Speed:  sp,
 			}
 		}
-		// Own-goal heuristic: if the last-touch player is on the
-		// conceding team, the goal was deflected/own-goaled. The richer
-		// _OwnGoal event ships in Phase 2 with score-delta verification;
-		// this flag is the cheap header.
-		if enrichedRef != nil && enrichedRef.Team == concedingTeam {
-			out.IsOwnGoal = true
-		}
+	}
+	// Fallback: when RL ships GoalScored without a BallLastTouch block
+	// (observed on some builds, especially for own goals), use the
+	// most recent BallHit player the synthesizer cached. Same heuristic,
+	// different source.
+	if lastToucher == nil {
+		s.lastBallTouchMu.Lock()
+		lastToucher = s.lastBallTouchPlayer
+		s.lastBallTouchMu.Unlock()
+	}
+	// Own-goal heuristic: if the last-touch player is on the conceding
+	// team, the goal was deflected/own-goaled. The richer _OwnGoal
+	// event ships in Phase 2 with score-delta verification; this flag
+	// is the cheap header.
+	if lastToucher != nil && lastToucher.Team == concedingTeam {
+		out.IsOwnGoal = true
+	}
+
+	// Bump the per-player real-goal counter for non-own-goals so
+	// emitHatTrick can verify RL's HatTrick threshold against actual
+	// scoring (RL's own counter includes own goals, which most
+	// communities don't count toward a hat trick).
+	if !out.IsOwnGoal && scorer.ID != "" {
+		s.realGoalsMu.Lock()
+		s.realGoalsByID[scorer.ID]++
+		s.realGoalsMu.Unlock()
 	}
 
 	// Modifier flags via the correlation buffer. Statfeeds fire on the
@@ -1912,6 +2166,37 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	// is plenty. Match by Shortcut (RL's spectator-name identifier);
 	// fall back to Name for safety.
 	mods := s.collectGoalModifiers(scorerRef)
+
+	// RL's HatTrick Statfeed counts own goals toward the threshold. If
+	// our real-goal count is below 3 the player hasn't actually scored
+	// a hat trick (e.g. 2 honest goals + 1 own goal = 3 by RL, 2 by us).
+	// Clear the modifier flag so consumers see consistent behavior.
+	if mods != nil && mods.IsHatTrickGoal && scorer.ID != "" {
+		s.realGoalsMu.Lock()
+		real := s.realGoalsByID[scorer.ID]
+		s.realGoalsMu.Unlock()
+		if real < 3 {
+			mods.IsHatTrickGoal = false
+		}
+	}
+
+	// Flip-reset goal: scorer was armed by a prior FlipReset and
+	// hadn't touched ground since. Consume the flag so the next goal
+	// from this player isn't tagged unless they earn another reset run.
+	if scorer.ID != "" {
+		s.flipResetArmedMu.Lock()
+		armed := s.flipResetArmed[scorer.ID]
+		if armed {
+			delete(s.flipResetArmed, scorer.ID)
+		}
+		s.flipResetArmedMu.Unlock()
+		if armed {
+			if mods == nil {
+				mods = &goalModifiers{}
+			}
+			mods.IsFlipResetGoal = true
+		}
+	}
 	if mods != nil {
 		out.Modifiers = mods
 	}
@@ -1919,11 +2204,19 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	// Record the resolved goal into the correlation buffer so _OwnGoal
 	// (Phase 2) can attach it as `correlatedGoal`. The Phase-3 _Assist
 	// emitter will also read this entry.
-	s.correlation.Record("_GoalScored", &goalRecord{
+	rec := &goalRecord{
 		Scorer:        scorer,
 		ScoringTeam:   scoringTeam,
 		ConcedingTeam: concedingTeam,
-	})
+	}
+	s.correlation.Record("_GoalScored", rec)
+
+	// Dedicated cache for _GoalReplayContext. The correlation buffer is
+	// shared with BallHit/StatfeedEvent and a goal celebration can evict
+	// the _GoalScored entry before GoalReplayStart arrives.
+	s.lastGoalMu.Lock()
+	s.lastGoal = rec
+	s.lastGoalMu.Unlock()
 
 	b, err := json.Marshal(out)
 	if err != nil {

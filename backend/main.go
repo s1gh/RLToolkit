@@ -84,6 +84,7 @@ func runServe() {
 	client.AttachPhaseMachine(phaseMachine)
 	synth := NewSynthesizer(bus, roster)
 	synth.AttachPhaseMachine(phaseMachine)
+	synth.AttachLifecycle(lifecycle)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
 	synth.AttachDiscoveryStore(discoveries)
 	client.AttachSynthesizer(synth)

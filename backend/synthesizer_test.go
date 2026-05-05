@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 // TestSynthesizer_StatfeedEvent_Demolish replays a fixture where Alice
@@ -728,14 +729,18 @@ func TestSynthesizer_GoalReplayContext(t *testing.T) {
 	}
 }
 
-// TestSynthesizer_MatchSummary_PodiumStart: PodiumStart short-circuits
-// the settle timer and fires _MatchSummary with the captured final
-// state. basic_match has the full lifecycle so this exercises the
-// full path.
-func TestSynthesizer_MatchSummary_PodiumStart(t *testing.T) {
+// TestSynthesizer_MatchSummary_FullLifecycle: basic_match.jsonl runs
+// MatchEnded → PodiumStart → MatchDestroyed back-to-back (user quits
+// to menu immediately after the podium scene). The synchronous
+// MatchDestroyed flush wins over the PodiumStart settle timer, so the
+// trigger field reflects MatchDestroyed; either trigger is correct
+// for this test — what matters is that exactly one _MatchSummary
+// fires with the captured final state.
+func TestSynthesizer_MatchSummary_FullLifecycle(t *testing.T) {
 	bus := NewEventBus()
 	roster := NewRosterTracker(bus)
 	synth := NewSynthesizer(bus, roster)
+	synth.SetSummaryTimings(0, 0)
 
 	got := captureSynthetic(t, bus, nil, roster, nil, synth, "testdata/fixtures/basic_match.jsonl", "_MatchSummary")
 
@@ -743,8 +748,8 @@ func TestSynthesizer_MatchSummary_PodiumStart(t *testing.T) {
 		t.Fatalf("expected exactly 1 _MatchSummary, got %d", len(got))
 	}
 	ev := got[0]
-	if ev["trigger"] != "PodiumStart" {
-		t.Errorf("trigger: want PodiumStart, got %v", ev["trigger"])
+	if ev["trigger"] != "PodiumStart" && ev["trigger"] != "MatchDestroyed" {
+		t.Errorf("trigger: want PodiumStart or MatchDestroyed, got %v", ev["trigger"])
 	}
 	if got, want := ev["winnerTeamNum"].(float64), 0.0; got != want {
 		t.Errorf("winnerTeamNum: want %v, got %v", want, got)
@@ -772,6 +777,11 @@ func TestSynthesizer_MatchSummary_WithMVP(t *testing.T) {
 	bus := NewEventBus()
 	roster := NewRosterTracker(bus)
 	synth := NewSynthesizer(bus, roster)
+	// Short post-podium settle so the test stays fast but still leaves
+	// room for the late MVP Statfeed to arrive between PodiumStart and
+	// the flush. Production uses 3s; 50ms is plenty for synchronous
+	// fixture feeds.
+	synth.SetSummaryTimings(time.Second, 50*time.Millisecond)
 
 	feed := func(raw []byte) {
 		roster.Feed(raw)
@@ -786,9 +796,14 @@ func TestSynthesizer_MatchSummary_WithMVP(t *testing.T) {
 	feed([]byte(`{"Event":"MatchInitialized","Data":"{\"MatchGuid\":\"mvp\"}"}`))
 	feed([]byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"mvp\",\"Players\":[{\"PrimaryId\":\"Steam|111|0\",\"Name\":\"Alice\",\"TeamNum\":0,\"Score\":300,\"Goals\":2,\"Assists\":1,\"Saves\":0,\"Shots\":3,\"Demos\":1}],\"Game\":{\"Teams\":[{\"TeamNum\":0,\"Name\":\"Blue\",\"Score\":2},{\"TeamNum\":1,\"Name\":\"Orange\",\"Score\":1}],\"Ball\":{\"TeamNum\":0}}}"}`))
 	feed([]byte(`{"Event":"MatchEnded","Data":"{\"MatchGuid\":\"mvp\",\"WinnerTeamNum\":0}"}`))
-	// MVP statfeed lands AFTER MatchEnded.
-	feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"mvp\",\"EventName\":\"MVP\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}}"}`))
 	feed([]byte(`{"Event":"PodiumStart","Data":"{\"MatchGuid\":\"mvp\"}"}`))
+	// MVP statfeed lands AFTER PodiumStart — the new flow waits at
+	// PodiumStart for it. Order matches what RL actually emits: MVP
+	// is part of the podium scene.
+	feed([]byte(`{"Event":"StatfeedEvent","Data":"{\"MatchGuid\":\"mvp\",\"EventName\":\"MVP\",\"MainTarget\":{\"Name\":\"Alice\",\"Shortcut\":1,\"TeamNum\":0}}"}`))
+
+	// Wait for the settle window to expire and the flush goroutine to publish.
+	time.Sleep(150 * time.Millisecond)
 
 	var summary map[string]interface{}
 	for {
