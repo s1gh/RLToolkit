@@ -202,6 +202,18 @@
         scheduleSaveExternal();
       },
 
+      _PlayerScoreChanged(p) {
+        if (!p.player || !p.player.isMe || !bucket) return;
+        const d = p.delta || {};
+        const t = bucket.totals;
+        if (typeof d.goals   === 'number') t.goals   += d.goals;
+        if (typeof d.assists === 'number') t.assists += d.assists;
+        if (typeof d.saves   === 'number') t.saves   += d.saves;
+        if (typeof d.shots   === 'number') t.shots   += d.shots;
+        scheduleSaveExternal();
+        if (window._sessionTrackerRender) window._sessionTrackerRender();
+      },
+
       _MatchSummary(p) {
         if (!bucket) return;
         const view = RLT.match.current || { arena: '', raw: {} };
