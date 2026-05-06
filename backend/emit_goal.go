@@ -35,28 +35,25 @@ type enrichedGoalScored struct {
 	ScoringTeam    *int                   `json:"scoringTeam,omitempty"`
 	ConcedingTeam  *int                   `json:"concedingTeam,omitempty"`
 	IsOwnGoal      bool                   `json:"isOwnGoal"`
-	Modifiers      *goalModifiers         `json:"modifiers,omitempty"`
+	Modifiers      *goalModifiers         `json:"modifiers"`
 }
 
 // goalModifiers carries the same-frame statfeed flags RL fires
-// alongside a goal. Only flags that fire are populated; missing fields
-// are absent rather than `false` so consumers can use truthy checks.
-// Modifier detection is best-effort: RL's modifier statfeeds aren't
-// fully documented and game-mode-specific flags (poolShot,
-// hoopsSwishGoal) only exist in their respective modes.
+// alongside a goal. Every field is always present in the JSON output
+// so consumers get explicit false values instead of missing keys.
+// IsFlipResetGoal is toolkit-detected, not from a Statfeed: scorer
+// got a FlipReset and stayed airborne until scoring.
 type goalModifiers struct {
-	IsAerialGoal     bool `json:"isAerialGoal,omitempty"`
-	IsBackwardsGoal  bool `json:"isBackwardsGoal,omitempty"`
-	IsBicycleGoal    bool `json:"isBicycleGoal,omitempty"`
-	IsLongGoal       bool `json:"isLongGoal,omitempty"`
-	IsTurtleGoal     bool `json:"isTurtleGoal,omitempty"`
-	IsOvertimeGoal   bool `json:"isOvertimeGoal,omitempty"`
-	IsPoolShot       bool `json:"isPoolShot,omitempty"`
-	IsHoopsSwishGoal bool `json:"isHoopsSwishGoal,omitempty"`
-	IsHatTrickGoal   bool `json:"isHatTrickGoal,omitempty"`
-	// IsFlipResetGoal is toolkit-detected, not from a Statfeed:
-	// scorer got a FlipReset and stayed airborne until scoring.
-	IsFlipResetGoal bool `json:"isFlipResetGoal,omitempty"`
+	IsAerialGoal     bool `json:"isAerialGoal"`
+	IsBackwardsGoal  bool `json:"isBackwardsGoal"`
+	IsBicycleGoal    bool `json:"isBicycleGoal"`
+	IsLongGoal       bool `json:"isLongGoal"`
+	IsTurtleGoal     bool `json:"isTurtleGoal"`
+	IsOvertimeGoal   bool `json:"isOvertimeGoal"`
+	IsPoolShot       bool `json:"isPoolShot"`
+	IsHoopsSwishGoal bool `json:"isHoopsSwishGoal"`
+	IsHatTrickGoal   bool `json:"isHatTrickGoal"`
+	IsFlipResetGoal  bool `json:"isFlipResetGoal"`
 }
 
 // modifierStatfeedNames maps the statfeed EventName (as RL ships it)
@@ -273,21 +270,16 @@ func (e *GoalEmitter) processGoal(evt Event) *Event {
 
 	// HatTrick suppression: clear the modifier when the player's
 	// honest-goal count is below 3.
-	if mods != nil && mods.IsHatTrickGoal && e.goals != nil && e.goals.RealGoals(scorer.ID) < 3 {
+	if mods.IsHatTrickGoal && e.goals != nil && e.goals.RealGoals(scorer.ID) < 3 {
 		mods.IsHatTrickGoal = false
 	}
 
 	// Flip-reset goal: scorer was airborne with a flip reset and
 	// hadn't touched ground since. Consume the arm.
 	if e.flipReset != nil && e.flipReset.ConsumeFlipResetArm(scorer.ID) {
-		if mods == nil {
-			mods = &goalModifiers{}
-		}
 		mods.IsFlipResetGoal = true
 	}
-	if mods != nil {
-		out.Modifiers = mods
-	}
+	out.Modifiers = mods
 
 	// Record the resolved goal so _OwnGoal can attach it as
 	// `correlatedGoal` and _Assist can find its companion.
@@ -369,20 +361,18 @@ func marshalGoalBody(g enrichedGoalScored) ([]byte, error) {
 }
 
 // collectGoalModifiers walks the correlation buffer for same-player
-// modifier statfeeds. Free function so synth and emit_goal share the
-// same logic during the transition.
+// modifier statfeeds. Always returns a non-nil struct so consumers
+// get explicit false values for every modifier field. Consumes the
+// matched modifier statfeeds so they don't bleed into the next goal.
 func collectGoalModifiers(correlation *CorrelationBuffer, scorer *ShortcutRef) *goalModifiers {
+	mods := &goalModifiers{}
 	if scorer == nil {
-		return nil
+		return mods
 	}
-	var mods *goalModifiers
 	apply := func(name string) {
 		setter, ok := modifierStatfeedNames[name]
 		if !ok {
 			return
-		}
-		if mods == nil {
-			mods = &goalModifiers{}
 		}
 		setter(mods)
 	}
@@ -396,5 +386,16 @@ func collectGoalModifiers(correlation *CorrelationBuffer, scorer *ShortcutRef) *
 		}
 		apply(rec.EventName)
 	}
+
+	// Consume modifier statfeeds so they don't apply to the next goal.
+	correlation.RemoveByName("StatfeedEvent", func(p interface{}) bool {
+		rec, ok := p.(*statfeedRecord)
+		if !ok || rec.MainRef == nil {
+			return false
+		}
+		_, isModifier := modifierStatfeedNames[rec.EventName]
+		return isModifier && sameShortcutPlayer(rec.MainRef, scorer)
+	})
+
 	return mods
 }

@@ -75,3 +75,22 @@ func (c *CorrelationBuffer) Recent(name string, n int) []interface{} {
 	}
 	return out
 }
+
+// RemoveByName removes all entries with the given name where the
+// predicate returns true. Used to consume correlation entries so they
+// are not matched again by a later event (e.g., goal modifier
+// statfeeds that should only apply to one goal).
+func (c *CorrelationBuffer) RemoveByName(name string, predicate func(interface{}) bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	n := 0
+	for _, e := range c.entries {
+		if e.name == name && predicate(e.payload) {
+			continue
+		}
+		c.entries[n] = e
+		n++
+	}
+	c.entries = c.entries[:n]
+}

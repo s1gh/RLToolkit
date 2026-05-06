@@ -135,3 +135,75 @@ func makeGoalScoredFor(t *testing.T, scorerName string, scorerTeam int, speed fl
 	raw, _ := json.Marshal(map[string]any{"Event": "GoalScored", "Data": string(inner)})
 	return Event{Name: "GoalScored", Raw: raw}
 }
+
+func TestGoalEmitter_ModifiersAlwaysPresent(t *testing.T) {
+	roster := NewRosterTracker(NewBus())
+	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
+	correlation := NewCorrelationBuffer(8)
+	correlation.Record("StatfeedEvent", &statfeedRecord{
+		EventName: "AerialGoal",
+		MainRef:   &ShortcutRef{Name: "Ada"},
+	})
+	e := NewGoalEmitter(roster, correlation, NewTickStore(), &fakeFlipReset{}, &fakeGoalCounter{})
+
+	out := e.Process(makeGoalScored(t, "Ada", 100))
+	if len(out) != 1 {
+		t.Fatalf("expected one event, got %v", out)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(out[0].Data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	modsRaw, ok := payload["modifiers"]
+	if !ok {
+		t.Fatalf("modifiers field must always be present")
+	}
+	var mods map[string]bool
+	if err := json.Unmarshal(modsRaw, &mods); err != nil {
+		t.Fatalf("unmarshal modifiers: %v", err)
+	}
+	if mods["isAerialGoal"] != true {
+		t.Errorf("isAerialGoal: want true, got %v", mods["isAerialGoal"])
+	}
+	for _, k := range []string{"isHatTrickGoal", "isBackwardsGoal", "isBicycleGoal", "isFlipResetGoal"} {
+		if _, has := mods[k]; !has {
+			t.Errorf("%s: must be present (false), got missing", k)
+		}
+		if mods[k] != false {
+			t.Errorf("%s: want false, got %v", k, mods[k])
+		}
+	}
+}
+
+func TestGoalEmitter_ConsumesModifierStatfeeds(t *testing.T) {
+	roster := NewRosterTracker(NewBus())
+	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
+	correlation := NewCorrelationBuffer(8)
+	correlation.Record("StatfeedEvent", &statfeedRecord{
+		EventName: "AerialGoal",
+		MainRef:   &ShortcutRef{Name: "Ada"},
+	})
+	e := NewGoalEmitter(roster, correlation, NewTickStore(), &fakeFlipReset{}, &fakeGoalCounter{})
+
+	// First goal: aerial.
+	out := e.Process(makeGoalScored(t, "Ada", 100))
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(out[0].Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	var mods map[string]bool
+	_ = json.Unmarshal(payload["modifiers"], &mods)
+	if !mods["isAerialGoal"] {
+		t.Fatalf("first goal: expected isAerialGoal=true, got %+v", mods)
+	}
+
+	// Second goal: same buffer, no new statfeed — should be plain.
+	out = e.Process(makeGoalScored(t, "Ada", 100))
+	if err := json.Unmarshal(out[0].Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(payload["modifiers"], &mods)
+	if mods["isAerialGoal"] {
+		t.Fatalf("second goal must not inherit modifier from first; got %+v", mods)
+	}
+}
