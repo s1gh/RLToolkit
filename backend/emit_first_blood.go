@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"sync"
 	"time"
 )
 
@@ -17,13 +16,8 @@ import (
 // All three reset on MatchCreated / MatchDestroyed so a back-to-back
 // rematch into the same lobby starts fresh.
 //
-// Why parse `evt.Raw` for the upstream synthetic events: while the
-// legacy Synthesizer is still the producer of `_BallHit` and
-// `_GoalScored`, those events arrive on the wire as flat JSON
-// (everything inline alongside `"Event"`) and `evt.Data` is empty.
-// `payloadBytes` reads from whichever side is populated.
+// No mutex: emit processors run single-threaded inside Pipeline.Run.
 type FirstBloodEmitter struct {
-	mu                   sync.Mutex
 	awaitingFirstTouch   bool
 	firstBloodFired      bool
 	overtimeStartedFired bool
@@ -37,18 +31,14 @@ func NewFirstBloodEmitter() *FirstBloodEmitter { return &FirstBloodEmitter{} }
 func (e *FirstBloodEmitter) Process(evt Event) []Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
-		e.reset()
+		*e = FirstBloodEmitter{}
 		return nil
 	case "MatchInitialized":
-		e.mu.Lock()
 		e.matchInitializedAt = time.Now()
-		e.mu.Unlock()
 		return nil
 	case "RoundStarted":
-		e.mu.Lock()
 		e.awaitingFirstTouch = true
 		e.roundStartedAt = time.Now()
-		e.mu.Unlock()
 		return nil
 	case "_BallHit":
 		return e.emitFirstTouch(evt)
@@ -60,26 +50,12 @@ func (e *FirstBloodEmitter) Process(evt Event) []Event {
 	return nil
 }
 
-func (e *FirstBloodEmitter) reset() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.awaitingFirstTouch = false
-	e.firstBloodFired = false
-	e.overtimeStartedFired = false
-	e.wasOvertime = false
-	e.matchInitializedAt = time.Time{}
-	e.roundStartedAt = time.Time{}
-}
-
 func (e *FirstBloodEmitter) emitFirstTouch(evt Event) []Event {
-	e.mu.Lock()
 	if !e.awaitingFirstTouch {
-		e.mu.Unlock()
 		return nil
 	}
 	e.awaitingFirstTouch = false
 	roundStart := e.roundStartedAt
-	e.mu.Unlock()
 
 	var p struct {
 		MatchGUID    string            `json:"matchGuid"`
@@ -115,14 +91,11 @@ func (e *FirstBloodEmitter) emitFirstTouch(evt Event) []Event {
 }
 
 func (e *FirstBloodEmitter) emitFirstBlood(evt Event) []Event {
-	e.mu.Lock()
 	if e.firstBloodFired {
-		e.mu.Unlock()
 		return nil
 	}
 	e.firstBloodFired = true
 	matchStart := e.matchInitializedAt
-	e.mu.Unlock()
 
 	var p struct {
 		MatchGUID     string          `json:"matchGuid"`
@@ -188,16 +161,13 @@ func (e *FirstBloodEmitter) emitOvertime(evt Event) []Event {
 		return nil
 	}
 
-	e.mu.Lock()
 	prev := e.wasOvertime
 	e.wasOvertime = d.Game.BOvertime
 	if prev || !d.Game.BOvertime || e.overtimeStartedFired {
-		e.mu.Unlock()
 		return nil
 	}
 	e.overtimeStartedFired = true
 	matchStart := e.matchInitializedAt
-	e.mu.Unlock()
 
 	teams := d.Teams
 	if len(teams) == 0 {

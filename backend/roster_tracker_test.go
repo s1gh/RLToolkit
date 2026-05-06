@@ -25,6 +25,15 @@ func envelope(eventName string, inner any) []byte {
 	return outer
 }
 
+// feedRaw decodes a raw RL envelope into the typed Event shape the
+// pipeline produces, then hands it to RosterTracker.Observe — the
+// production path runs the same way (RLSource decodes once, the
+// pipeline broadcasts the typed Event to every state processor).
+func feedRaw(t *testing.T, tracker *RosterTracker, raw []byte) {
+	t.Helper()
+	tracker.Observe(Event{Name: extractEventName(raw), Raw: raw})
+}
+
 // drain pulls everything currently on the channel without blocking.
 // Returns the parsed _RosterChanged events in order.
 func drainRoster(t *testing.T, ch <-chan []byte) []rosterEvent {
@@ -54,7 +63,7 @@ func TestRosterTracker_EmitsOnFirstSeen(t *testing.T) {
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	tracker.Feed(envelope("UpdateState", map[string]any{
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 		"MatchGuid": "match-1",
 		"Players": []map[string]any{
 			{"PrimaryId": "Steam|111|0", "Name": "Alice", "TeamNum": 0},
@@ -90,12 +99,12 @@ func TestRosterTracker_NoEmitOnIdenticalRoster(t *testing.T) {
 			{"PrimaryId": "Steam|111|0", "Name": "Alice", "TeamNum": 0},
 		},
 	})
-	tracker.Feed(pkt)
+	feedRaw(t, tracker, pkt)
 	first := drainRoster(t, ch)
 	if len(first) != 1 {
 		t.Fatalf("first feed: expected 1 event, got %d", len(first))
 	}
-	tracker.Feed(pkt) // identical
+	feedRaw(t, tracker, pkt) // identical
 	second := drainRoster(t, ch)
 	if len(second) != 0 {
 		t.Errorf("second identical feed: expected 0 events, got %d", len(second))
@@ -108,14 +117,14 @@ func TestRosterTracker_EmitsOnLateJoiner(t *testing.T) {
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	tracker.Feed(envelope("UpdateState", map[string]any{
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 		"MatchGuid": "m",
 		"Players": []map[string]any{
 			{"PrimaryId": "Steam|111|0", "Name": "A", "TeamNum": 0},
 		},
 	}))
 	drainRoster(t, ch)
-	tracker.Feed(envelope("UpdateState", map[string]any{
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 		"MatchGuid": "m",
 		"Players": []map[string]any{
 			{"PrimaryId": "Steam|111|0", "Name": "A", "TeamNum": 0},
@@ -137,7 +146,7 @@ func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	tracker.Feed(envelope("UpdateState", map[string]any{
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 		"MatchGuid": "m",
 		"Players": []map[string]any{
 			{"PrimaryId": "Steam|111|0", "Name": "A", "TeamNum": 0},
@@ -146,7 +155,7 @@ func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
 	}))
 	drainRoster(t, ch)
 	// Same roster, different order — fingerprint should match.
-	tracker.Feed(envelope("UpdateState", map[string]any{
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 		"MatchGuid": "m",
 		"Players": []map[string]any{
 			{"PrimaryId": "Steam|222|0", "Name": "B", "TeamNum": 1},
@@ -165,7 +174,7 @@ func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	tracker.Feed(envelope("UpdateState", map[string]any{
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 		"MatchGuid": "m",
 		"Players": []map[string]any{
 			{"PrimaryId": "Steam|111|0", "Name": "A", "TeamNum": 0},
@@ -174,7 +183,7 @@ func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
 	drainRoster(t, ch)
 	// Same roster identity, name typo correction. Should NOT emit —
 	// the SDK's encounter ledger handles alias drift on its side.
-	tracker.Feed(envelope("UpdateState", map[string]any{
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 		"MatchGuid": "m",
 		"Players": []map[string]any{
 			{"PrimaryId": "Steam|111|0", "Name": "Alice", "TeamNum": 0},
@@ -195,9 +204,9 @@ func TestRosterTracker_EmitsOnGuidChange(t *testing.T) {
 	roster := []map[string]any{
 		{"PrimaryId": "Steam|111|0", "Name": "A", "TeamNum": 0},
 	}
-	tracker.Feed(envelope("UpdateState", map[string]any{"MatchGuid": "m1", "Players": roster}))
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{"MatchGuid": "m1", "Players": roster}))
 	drainRoster(t, ch)
-	tracker.Feed(envelope("UpdateState", map[string]any{"MatchGuid": "m2", "Players": roster}))
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{"MatchGuid": "m2", "Players": roster}))
 	got := drainRoster(t, ch)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 event on guid change, got %d", len(got))
@@ -219,13 +228,13 @@ func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
 			{"PrimaryId": "Steam|111|0", "Name": "A", "TeamNum": 0},
 		},
 	})
-	tracker.Feed(pkt)
+	feedRaw(t, tracker, pkt)
 	drainRoster(t, ch)
 	// MatchDestroyed clears the cache AND emits an empty roster so plugins
 	// clear their match view. The same UpdateState afterwards should re-emit
 	// because the tracker considers it fresh.
-	tracker.Feed([]byte(`{"Event":"MatchDestroyed"}`))
-	tracker.Feed(pkt)
+	feedRaw(t, tracker, []byte(`{"Event":"MatchDestroyed"}`))
+	feedRaw(t, tracker, pkt)
 	got := drainRoster(t, ch)
 	if len(got) != 2 {
 		t.Errorf("expected 2 events after MatchDestroyed (empty + re-emit), got %d", len(got))
@@ -244,7 +253,7 @@ func TestRosterTracker_IgnoresNonUpdateState(t *testing.T) {
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	tracker.Feed([]byte(`{"Event":"GoalScored","Data":"{}"}`))
+	feedRaw(t, tracker, []byte(`{"Event":"GoalScored","Data":"{}"}`))
 	got := drainRoster(t, ch)
 	if len(got) != 0 {
 		t.Errorf("expected 0 events on non-UpdateState, got %d", len(got))
@@ -271,7 +280,7 @@ func TestRosterTracker_LowercaseWire(t *testing.T) {
 		Event: "updatestate",
 		Data:  string(innerBytes),
 	})
-	tracker.Feed(outer)
+	feedRaw(t, tracker, outer)
 	got := drainRoster(t, ch)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 event on lowercase wire, got %d", len(got))
@@ -294,7 +303,7 @@ func TestRosterTracker_RewritesBotIds(t *testing.T) {
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	tracker.Feed(envelope("UpdateState", map[string]any{
+	feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 		"MatchGuid": "bot-match",
 		"Players": []map[string]any{
 			{"PrimaryId": "Steam|111|0", "Name": "s1gh", "TeamNum": 0},
@@ -509,7 +518,7 @@ func TestRosterTracker_DoesntStallOnBus(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 1000; i++ {
-			tracker.Feed(envelope("UpdateState", map[string]any{
+			feedRaw(t, tracker, envelope("UpdateState", map[string]any{
 				"MatchGuid": "m",
 				"Players": []map[string]any{
 					{"PrimaryId": "Steam|" + string(rune(i%26+'a')) + "|0", "Name": "A", "TeamNum": 0},

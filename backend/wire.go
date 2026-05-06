@@ -15,36 +15,28 @@ import (
 // ("Event":"GoalScored"). We accept both keys and normalize the value
 // to canonical PascalCase via canonicalEventName so every downstream
 // comparison stays PascalCase.
+//
+// Implementation: decode the envelope's two name keys via the JSON
+// parser. The Data field is captured as a json.RawMessage and thrown
+// away — no allocation for the multi-KB inner payload, and field
+// order in the envelope no longer matters (a previous substring-scan
+// implementation broke whenever Data appeared before Event).
 func extractEventName(raw []byte) string {
-	// Bound the scan to the head of the envelope — Event is reliably
-	// near the start, and a malformed/giant payload shouldn't make us
-	// walk the whole thing.
-	head := raw
-	if len(head) > 96 {
-		head = head[:96]
+	var env struct {
+		EventPascal string `json:"Event"`
+		EventLower  string `json:"event"`
 	}
-	for _, marker := range eventKeyMarkers {
-		i := bytes.Index(head, marker)
-		if i < 0 {
-			continue
-		}
-		rest := raw[i+len(marker):]
-		end := bytes.IndexByte(rest, '"')
-		if end < 0 {
-			return ""
-		}
-		return canonicalEventName(rest[:end])
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return ""
 	}
-	return ""
-}
-
-// eventKeyMarkers are checked in order; first hit wins. The lowercase
-// form is what we actually see on the wire — kept second only because
-// PascalCase is the documented form and we want to stay forward-
-// compatible if RL switches back.
-var eventKeyMarkers = [][]byte{
-	[]byte(`"Event":"`),
-	[]byte(`"event":"`),
+	name := env.EventPascal
+	if name == "" {
+		name = env.EventLower
+	}
+	if name == "" {
+		return ""
+	}
+	return canonicalEventName([]byte(name))
 }
 
 // canonicalEventName maps an extracted name to its PascalCase form. The
@@ -85,13 +77,6 @@ var lowerToCanonical = func() map[string]string {
 	m["replaywillend"] = "GoalReplayWillEnd"
 	return m
 }()
-
-// updateStateMarkers detect an UpdateState envelope by substring
-// without a full unmarshal. Used on the lifecycle hot path.
-var updateStateMarkers = [][]byte{
-	[]byte(`"Event":"UpdateState"`),
-	[]byte(`"event":"updatestate"`),
-}
 
 // bReplayTrueMarkers are the four casings/escape-forms of
 // `"bReplay":true` we may see in an UpdateState payload. The flag

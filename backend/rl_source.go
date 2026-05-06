@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -111,18 +110,24 @@ func (s *RLSource) Status() RLStatus {
 // sentinel; without rewriting, downstream code that reads raw
 // UpdateState would collapse multiple bots into one player.
 func (s *RLSource) enqueue(msg []byte) {
-	for _, m := range updateStateMarkers {
-		if bytes.Contains(msg, m) {
-			msg = rewriteUpdateStateBotIds(msg)
-			break
-		}
-	}
-	name := extractEventName(msg)
 	var env struct {
-		Data      json.RawMessage `json:"Data,omitempty"`
-		DataLower json.RawMessage `json:"data,omitempty"`
+		EventPascal string          `json:"Event"`
+		EventLower  string          `json:"event"`
+		Data        json.RawMessage `json:"Data,omitempty"`
+		DataLower   json.RawMessage `json:"data,omitempty"`
 	}
 	_ = json.Unmarshal(msg, &env)
+	rawName := env.EventPascal
+	if rawName == "" {
+		rawName = env.EventLower
+	}
+	name := canonicalEventName([]byte(rawName))
+	if name == "UpdateState" {
+		msg = rewriteUpdateStateBotIds(msg)
+		// rewriteUpdateStateBotIds may rebuild the envelope; re-pull
+		// Data so the channel sees the post-rewrite bytes.
+		_ = json.Unmarshal(msg, &env)
+	}
 	data := env.Data
 	if len(data) == 0 {
 		data = env.DataLower

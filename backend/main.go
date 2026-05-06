@@ -17,13 +17,6 @@ import (
 	"time"
 )
 
-// rosterAdapter bridges the legacy RosterTracker.Feed into the
-// pipeline. Stage 5 replaces this with a native StateProcessor that
-// owns the roster snapshot.
-type rosterAdapter struct{ r *RosterTracker }
-
-func (a rosterAdapter) Observe(evt Event) { a.r.Feed(evt.Raw) }
-
 // synthAdapter bridges the legacy Synthesizer.Feed into the pipeline.
 // During Stage 5 the synthesizer keeps its current "publish via the
 // Broadcaster I was handed" shape, but the adapter swaps in itself as
@@ -127,9 +120,10 @@ func runServe() {
 	// therefore consume its synthetic events as inputs — this is what
 	// lets emit_fastest_shot.go see the _BallHit / _GoalScored stream.
 	pipe := NewPipeline()
-	pipe.AddState(rosterAdapter{roster})
+	pipe.AddState(roster)
 	pipe.AddState(matchState)
 	pipe.AddEmit(matchState)
+	pipe.AddEmit(NewBallHitEmitter(roster, matchState))
 	pipe.AddEmit(synthBridge)
 	pipe.AddEmit(NewFastestShotEmitter())
 	pipe.AddEmit(NewFirstBloodEmitter())

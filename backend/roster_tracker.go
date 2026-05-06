@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"sort"
 	"strconv"
@@ -42,30 +41,16 @@ func NewRosterTracker(bus *Bus) *RosterTracker {
 	return &RosterTracker{bus: bus}
 }
 
-// Feed inspects every dispatched packet. Non-UpdateState envelopes are
-// cheap to skip (substring miss, no JSON decode); UpdateState envelopes
-// pull their inner Data string out and run the fingerprint comparison.
-//
-// MatchDestroyed clears the tracker so the next match starts fresh.
-// Without this a back-to-back rejoin into the same lobby (same guid,
-// same roster) would silently no-op and a late-mounted plugin would
-// see no _RosterChanged event.
-func (t *RosterTracker) Feed(raw []byte) {
-	head := raw
-	if len(head) > 96 {
-		head = head[:96]
-	}
-	for _, m := range updateStateMarkers {
-		if bytes.Contains(head, m) {
-			t.onUpdateState(raw)
-			return
-		}
-	}
-	// Fast-path miss: only one non-UpdateState event matters for our
-	// state — MatchDestroyed clears the cache so a re-mount of the
-	// same match guid still emits _RosterChanged.
-	event := extractEventName(raw)
-	if event == "MatchDestroyed" || event == "_ConnectionStatus" {
+// Observe inspects every event from the pipeline. Routes UpdateState
+// to the fingerprint-comparison path; MatchDestroyed and a lost
+// connection clear the tracker so a back-to-back rejoin into the same
+// lobby (same guid, same roster) still emits _RosterChanged for a
+// late-mounted plugin.
+func (t *RosterTracker) Observe(evt Event) {
+	switch evt.Name {
+	case "UpdateState":
+		t.onUpdateState(evt.Raw)
+	case "MatchDestroyed", "_ConnectionStatus":
 		t.mu.Lock()
 		t.lastFp = ""
 		t.lastGUID = ""

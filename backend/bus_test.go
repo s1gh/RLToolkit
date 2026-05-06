@@ -55,25 +55,24 @@ func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *Ro
 	defer cancel()
 
 	feed := func(raw []byte) {
-		if roster != nil {
-			roster.Feed(raw)
+		name := extractEventName(raw)
+		var env struct {
+			Data      json.RawMessage `json:"Data,omitempty"`
+			DataLower json.RawMessage `json:"data,omitempty"`
 		}
-		var evt Event
+		_ = json.Unmarshal(raw, &env)
+		data := env.Data
+		if len(data) == 0 {
+			data = env.DataLower
+		}
+		evt := Event{Name: name, Data: data, Raw: raw}
+		if roster != nil {
+			roster.Observe(evt)
+		}
 		if matchState != nil {
-			name := extractEventName(raw)
-			var env struct {
-				Data      json.RawMessage `json:"Data,omitempty"`
-				DataLower json.RawMessage `json:"data,omitempty"`
-			}
-			_ = json.Unmarshal(raw, &env)
-			data := env.Data
-			if len(data) == 0 {
-				data = env.DataLower
-			}
-			evt = Event{Name: name, Data: data, Raw: raw}
 			matchState.Observe(evt)
 		}
-		bus.Broadcast(Event{Raw: raw})
+		bus.Broadcast(evt)
 		if matchState != nil {
 			for _, out := range matchState.Process(evt) {
 				bus.Broadcast(out)
