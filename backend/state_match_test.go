@@ -27,3 +27,60 @@ func TestMatchState_InitialSnapshot(t *testing.T) {
 		t.Errorf("since too far in the past: %v", snap.Since)
 	}
 }
+
+func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
+	ms := NewMatchState()
+
+	feed := func(name, data string) []Event {
+		evt := Event{Name: name, Data: []byte(data), Raw: []byte(`{"Event":"` + name + `","Data":` + data + `}`)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	cases := []struct {
+		name    string
+		data    string
+		want    Phase
+		emit    bool
+		trigger string
+	}{
+		{"MatchCreated", `"{\"MatchGuid\":\"abc\"}"`, PhasePhaseLobby, true, "MatchCreated"},
+		{"CountdownBegin", `""`, PhasePhaseCountdown, true, "CountdownBegin"},
+		{"RoundStarted", `""`, PhasePhaseLive, true, "RoundStarted"},
+		{"MatchPaused", `""`, PhasePhasePaused, true, "MatchPaused"},
+		{"MatchUnpaused", `""`, PhasePhaseLive, true, "MatchUnpaused"},
+		{"MatchEnded", `""`, PhasePhaseEnded, true, "MatchEnded"},
+		{"PodiumStart", `""`, PhasePhasePodium, true, "PodiumStart"},
+		{"MatchDestroyed", `""`, PhasePhaseNone, true, "MatchDestroyed"},
+	}
+
+	for _, c := range cases {
+		emitted := feed(c.name, c.data)
+		snap := ms.Snapshot()
+		if snap.Phase != c.want {
+			t.Fatalf("after %s: phase=%q, want %q", c.name, snap.Phase, c.want)
+		}
+		if c.emit && len(emitted) != 1 {
+			t.Fatalf("after %s: expected 1 _MatchState emission, got %d", c.name, len(emitted))
+		}
+		if c.emit && emitted[0].Name != "_MatchState" {
+			t.Fatalf("after %s: emission name=%q, want _MatchState", c.name, emitted[0].Name)
+		}
+	}
+}
+
+func TestMatchState_NoEmissionOnIdentityTransition(t *testing.T) {
+	ms := NewMatchState()
+	feed := func(name string) []Event {
+		evt := Event{Name: name, Data: []byte(`""`)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	if got := feed("MatchCreated"); len(got) == 0 {
+		t.Fatal("expected emission on first MatchCreated")
+	}
+	if got := feed("MatchCreated"); len(got) != 0 {
+		t.Fatalf("expected no emission on identity transition, got %d", len(got))
+	}
+}

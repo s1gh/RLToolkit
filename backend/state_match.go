@@ -85,7 +85,128 @@ func (m *MatchState) Snapshot() MatchStateSnapshot {
 // based on the event. If the state actually changed, it stages a
 // pending snapshot that the next Process call will return.
 func (m *MatchState) Observe(evt Event) {
-	// Implementation in Task 2.2.
+	// Hot path: UpdateState. Track last-tick time, do replay-edge
+	// detection, opportunistically capture matchGuid on first tick of
+	// a fresh connection.
+	if evt.Name == "UpdateState" {
+		m.lastTickMu.Lock()
+		m.lastTick = time.Now()
+		m.lastTickMu.Unlock()
+
+		wasReplay := m.inReplay.Load()
+		nowReplay := scanBReplay(evt.Raw)
+		if nowReplay != wasReplay {
+			m.inReplay.Store(nowReplay)
+			if nowReplay {
+				m.transitionIf(PhasePhaseReplay, "bReplayEdge", "", func(cur Phase) bool {
+					return cur == PhasePhaseLive || cur == PhasePhaseCountdown || cur == PhasePhasePaused
+				})
+			} else {
+				m.transitionIf(PhasePhaseLive, "bReplayEdge", "", func(cur Phase) bool {
+					return cur == PhasePhaseReplay
+				})
+			}
+		}
+
+		if !m.matchActive.Load() {
+			guid := extractMatchGUID(evt.Raw)
+			m.transitionTo(PhasePhaseLive, "UpdateState", guid, true)
+		}
+		return
+	}
+
+	switch evt.Name {
+	case "MatchCreated":
+		m.transitionTo(PhasePhaseLobby, "MatchCreated", guidFromData(evt.Data), true)
+	case "CountdownBegin":
+		m.transitionTo(PhasePhaseCountdown, "CountdownBegin", "", true)
+	case "RoundStarted":
+		m.transitionTo(PhasePhaseLive, "RoundStarted", "", true)
+	case "MatchPaused":
+		m.transitionTo(PhasePhasePaused, "MatchPaused", "", true)
+	case "MatchUnpaused":
+		m.transitionTo(PhasePhaseLive, "MatchUnpaused", "", true)
+	case "MatchEnded":
+		m.inReplay.Store(false)
+		m.transitionTo(PhasePhaseEnded, "MatchEnded", "", true)
+	case "PodiumStart":
+		m.inReplay.Store(false)
+		m.transitionTo(PhasePhasePodium, "PodiumStart", "", true)
+	case "MatchDestroyed":
+		m.inReplay.Store(false)
+		m.transitionTo(PhasePhaseNone, "MatchDestroyed", "clear", false)
+	case "_ConnectionStatus":
+		var env struct {
+			Status string `json:"Status"`
+		}
+		if err := json.Unmarshal(evt.Raw, &env); err == nil && env.Status != "" && env.Status != string(StatusConnected) {
+			m.inReplay.Store(false)
+			m.transitionTo(PhasePhaseNone, "connectionLost", "clear", false)
+		}
+	}
+}
+
+// transitionTo unconditionally moves to the given phase. If
+// keepActive is true, sets matchActive=true; if false, sets
+// matchActive=false and (when guid=="clear") clears the matchGuid.
+// Stages a pending _MatchState snapshot whenever the snapshot
+// actually changes.
+func (m *MatchState) transitionTo(phase Phase, trigger, guid string, keepActive bool) {
+	m.mu.Lock()
+	prev := m.cur
+	next := prev
+	next.Phase = phase
+	next.MatchActive = keepActive
+	if !keepActive && guid == "clear" {
+		next.MatchGuid = ""
+	} else if guid != "" {
+		next.MatchGuid = guid
+	}
+	if next == prev {
+		m.mu.Unlock()
+		return
+	}
+	now := time.Now()
+	dur := now.Sub(prev.Since).Seconds()
+	next.PreviousPhase = prev.Phase
+	next.PhaseDurationSeconds = dur
+	next.Since = now
+	next.Trigger = trigger
+	m.cur = next
+	m.pending = next
+	m.emit = true
+	m.matchActive.Store(next.MatchActive)
+	m.mu.Unlock()
+}
+
+// transitionIf only transitions when the predicate accepts the current
+// phase. Used for replay-edge transitions that must not clobber a
+// same-tick CountdownBegin or override post-match phases.
+func (m *MatchState) transitionIf(phase Phase, trigger, guid string, allow func(cur Phase) bool) {
+	m.mu.Lock()
+	if !allow(m.cur.Phase) {
+		m.mu.Unlock()
+		return
+	}
+	prev := m.cur
+	next := prev
+	next.Phase = phase
+	if guid != "" {
+		next.MatchGuid = guid
+	}
+	if next == prev {
+		m.mu.Unlock()
+		return
+	}
+	now := time.Now()
+	next.PreviousPhase = prev.Phase
+	next.PhaseDurationSeconds = now.Sub(prev.Since).Seconds()
+	next.Since = now
+	next.Trigger = trigger
+	m.cur = next
+	m.pending = next
+	m.emit = true
+	m.mu.Unlock()
 }
 
 // Process is the EmitProcessor entry point. Returns the staged
