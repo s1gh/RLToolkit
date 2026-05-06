@@ -35,42 +35,26 @@ func newStatusEvent(s RLStatus) []byte {
 	return b
 }
 
-// RLClient connects to Rocket League's Stats API over TCP, decodes the
-// stream of JSON packets, and feeds them into the Bus via a small
-// outbox channel.
+// RLSource connects to Rocket League's Stats API over TCP, decodes the
+// stream of JSON packets, and surfaces them as a channel of Events for
+// Pipeline.Run to consume.
 //
-// The TCP read loop never blocks on the bus: it pushes onto outbox and
-// returns to reading. A separate dispatcher drains outbox into the bus.
-// If outbox fills, the read loop drops the packet — keeping the kernel
-// receive buffer drained matters more than delivering every frame, because
-// a stalled read is what causes RL itself to freeze (its exporter blocks
-// on send() into our full receive buffer).
-type RLClient struct {
+// The TCP read loop never blocks on consumers: it pushes onto out and
+// returns to reading. If out fills, the read loop drops the packet —
+// keeping the kernel receive buffer drained matters more than delivering
+// every frame, because a stalled read is what causes RL itself to freeze
+// (its exporter blocks on send() into our full receive buffer).
+type RLSource struct {
 	addr string
-	bus  *Bus
 
-	// roster, if set, is fed every packet before bus.Broadcast so it can
-	// emit synthetic _RosterChanged events when the player list moves.
-	// Feed runs before Publish so subscribers see the synthetic event
-	// after the raw event that triggered the update.
-	roster *RosterTracker
-
-	// synth, if set, is fed every packet AFTER the trackers have updated
-	// so it can publish _-prefixed enriched events (player references
-	// resolved against the live roster, etc.). Runs in the dispatcher so
-	// the synthetic event lands on the bus inline with the raw event
-	// that triggered it.
-	synth *Synthesizer
-
-	// matchState is the unified gameplay-state machine. Replaces the
-	// legacy LifecycleTracker and PhaseMachine. Removed in Stage 4
-	// when the dispatcher is replaced by Pipeline.Run.
-	matchState *MatchState
+	// out carries decoded events to whoever called Events(). Buffered so
+	// the TCP read loop can stay non-blocking; on full, packets are
+	// dropped (logged via dropLog).
+	out chan Event
 
 	mu     sync.RWMutex
 	status RLStatus
 
-	outbox  chan []byte
 	dropLog rateLimitedLogger
 
 	// idleLog rate-limits the "silent for 30s — reconnecting" line and
@@ -95,136 +79,80 @@ type RLClient struct {
 	selfReconnect bool
 }
 
-func NewRLClient(addr string, bus *Bus) *RLClient {
-	return &RLClient{
+func NewRLSource(addr string) *RLSource {
+	return &RLSource{
 		addr:    addr,
-		bus:     bus,
+		out:     make(chan Event, outboxBufSize),
 		status:  StatusDisconnected,
-		outbox:  make(chan []byte, outboxBufSize),
 		dropLog: rateLimitedLogger{interval: dropLogInterval},
 		idleLog: rateLimitedLogger{interval: idleLogInterval},
 	}
 }
 
-// AttachRosterTracker wires a RosterTracker so it observes every
-// packet for roster-fingerprint changes. Call before Run.
-func (c *RLClient) AttachRosterTracker(t *RosterTracker) { c.roster = t }
+// Events returns the event channel. Run must be invoked separately for
+// events to start flowing. The channel stays open across reconnect
+// cycles — closing it would force every downstream pipeline to handle
+// reopen, but the source keeps trying as long as Run's ctx is alive.
+func (s *RLSource) Events(ctx context.Context) <-chan Event { return s.out }
 
-// AttachSynthesizer wires a Synthesizer so it observes every packet for
-// synthetic event emission. Call before Run.
-func (c *RLClient) AttachSynthesizer(s *Synthesizer) { c.synth = s }
-
-// AttachMatchState wires the unified gameplay-state machine. Replaces
-// the legacy LifecycleTracker and PhaseMachine. Removed in Stage 4
-// when the dispatcher is replaced by Pipeline.Run.
-func (c *RLClient) AttachMatchState(m *MatchState) { c.matchState = m }
-
-func (c *RLClient) Status() RLStatus {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.status
+func (s *RLSource) Status() RLStatus {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.status
 }
 
-// dispatcher drains outbox into the bus serially, so the publish path is
-// naturally serialized and the read loop never has to wait on bus internals.
-func (c *RLClient) dispatcher(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case msg, ok := <-c.outbox:
-			if !ok {
-				return
-			}
-		// Canonicalize bot ids on UpdateState envelopes before anything
-		// downstream sees them. The wire ships every bot under the
-		// "Unknown|0|0" sentinel; without rewriting here, bus subscribers
-		// that read raw UpdateState (notably the SDK's match.build) would
-		// collapse multiple bots into one player. Trackers + synthesizer
-		// also call canonicalizeBotId on their own decoded copies as a
-		// belt-and-braces guard, but doing it once here means raw-bus
-		// readers benefit too. The helper short-circuits when the
-		// sentinel string isn't in the wire bytes.
-		for _, m := range updateStateMarkers {
-			if bytes.Contains(msg, m) {
-				msg = rewriteUpdateStateBotIds(msg)
-				break
-			}
-		}
-		if c.roster != nil {
-			c.roster.Feed(msg)
-		}
-		// MatchState observes every packet. Decode the envelope into
-		// the shared Event shape so the state machine sees the same
-		// data the future Pipeline.Run will hand it.
-		var matchStateEvt Event
-		if c.matchState != nil {
-			name := extractEventName(msg)
-			var env struct {
-				Data      json.RawMessage `json:"Data,omitempty"`
-				DataLower json.RawMessage `json:"data,omitempty"`
-			}
-			_ = json.Unmarshal(msg, &env)
-			data := env.Data
-			if len(data) == 0 {
-				data = env.DataLower
-			}
-			matchStateEvt = Event{Name: name, Data: data, Raw: msg}
-			c.matchState.Observe(matchStateEvt)
-		}
-		c.bus.Broadcast(Event{Raw: msg})
-		// MatchState's Process runs after the raw event lands on the bus
-		// so the legacy ordering (raw event, then synthetic) is preserved
-		// for _MatchState too. Wraps the typed Event into the wire-shaped
-		// envelope before re-publishing.
-		if c.matchState != nil {
-			for _, out := range c.matchState.Process(matchStateEvt) {
-				envelope, err := json.Marshal(struct {
-					Event string          `json:"Event"`
-					Data  json.RawMessage `json:"Data"`
-				}{Event: out.Name, Data: out.Data})
-				if err == nil {
-					c.bus.Broadcast(Event{Name: out.Name, Raw: envelope})
-				}
-			}
-		}
-		// Synthesizers run after the raw event lands on the bus so
-		// subscribers see "raw event, then enriched _-prefixed event"
-		// in that order. Roster-resolution reads the tracker state
-		// the *.Feed calls above just updated.
-		if c.synth != nil {
-			c.synth.Feed(msg)
-		}
+// enqueue is the only path from RL packets into the event channel.
+// Non-blocking by design — drops on full rather than backpressuring the
+// read loop.
+//
+// Canonicalizes bot ids on UpdateState envelopes here so every consumer
+// (raw bus subscribers and pipeline state processors alike) sees the
+// rewritten payload. The wire ships every bot under the "Unknown|0|0"
+// sentinel; without rewriting, downstream code that reads raw
+// UpdateState would collapse multiple bots into one player.
+func (s *RLSource) enqueue(msg []byte) {
+	for _, m := range updateStateMarkers {
+		if bytes.Contains(msg, m) {
+			msg = rewriteUpdateStateBotIds(msg)
+			break
 		}
 	}
-}
-
-// enqueue is the only path from RL packets into the bus. Non-blocking by
-// design — drops on full rather than backpressuring the read loop.
-func (c *RLClient) enqueue(msg []byte) {
+	name := extractEventName(msg)
+	var env struct {
+		Data      json.RawMessage `json:"Data,omitempty"`
+		DataLower json.RawMessage `json:"data,omitempty"`
+	}
+	_ = json.Unmarshal(msg, &env)
+	data := env.Data
+	if len(data) == 0 {
+		data = env.DataLower
+	}
 	select {
-	case c.outbox <- msg:
+	case s.out <- Event{Name: name, Data: data, Raw: msg}:
 	default:
-		c.dropLog.log("[rl-api] outbox full — dropping packets (downstream is too slow)")
+		s.dropLog.log("[rl-api] event channel full — dropping packets (downstream is too slow)")
 	}
 }
 
-func (c *RLClient) setStatus(s RLStatus) {
-	c.mu.Lock()
-	c.status = s
-	c.mu.Unlock()
-	// Status changes are rare and important — block briefly if the bus
-	// is congested but never longer than statusPushTimeout, so a wedged
-	// dispatcher can't pin the reconnect path either.
+func (s *RLSource) setStatus(st RLStatus) {
+	s.mu.Lock()
+	prev := s.status
+	s.status = st
+	s.mu.Unlock()
+	if prev == st {
+		return
+	}
+	// Surface status changes as a synthetic _ConnectionStatus event on
+	// the same channel as RL traffic. Same shape the legacy bus used,
+	// so existing SSE consumers don't notice the difference.
+	body := newStatusEvent(st)
 	select {
-	case c.outbox <- newStatusEvent(s):
+	case s.out <- Event{Name: "_ConnectionStatus", Raw: body}:
 	case <-time.After(statusPushTimeout):
 	}
 }
 
-func (c *RLClient) Run(ctx context.Context) {
-	go c.dispatcher(ctx)
-
+func (s *RLSource) Run(ctx context.Context) {
 	first := true
 	for {
 		select {
@@ -233,35 +161,35 @@ func (c *RLClient) Run(ctx context.Context) {
 		default:
 		}
 
-		c.setStatus(StatusConnecting)
+		s.setStatus(StatusConnecting)
 		// Only announce "connecting to ..." on the first attempt. On
 		// retry loops the user already saw the failure message; another
 		// "connecting" line would just add noise.
 		if first {
-			log.Printf("[rl-api] connecting to %s", c.addr)
+			log.Printf("[rl-api] connecting to %s", s.addr)
 			first = false
 		}
 
 		dialer := net.Dialer{Timeout: dialTimeout}
-		conn, err := dialer.DialContext(ctx, "tcp", c.addr)
+		conn, err := dialer.DialContext(ctx, "tcp", s.addr)
 		if err != nil {
-			c.setStatus(StatusDisconnected)
+			s.setStatus(StatusDisconnected)
 			// User-actionable message for the common case (RL not
 			// running, or PacketSendRate=0 in DefaultStatsAPI.ini)
 			// instead of leaking the raw syscall error. Log only when
 			// the explanation changes — repeating the same "RL isn't
 			// running" line every 5s just clutters the terminal until
 			// the user starts the game.
-			msg := reasonForDialFailure(err, c.addr)
-			if msg != c.lastDialMsg {
+			msg := reasonForDialFailure(err, s.addr)
+			if msg != s.lastDialMsg {
 				log.Println(msg)
-				c.lastDialMsg = msg
+				s.lastDialMsg = msg
 			}
 			// A dial failure is a real change of state — break out of
 			// the silent-idle-cycle pattern so the next successful
 			// connect (and the next idle reconnect) log normally.
-			c.idleLog.reset()
-			c.selfReconnect = false
+			s.idleLog.reset()
+			s.selfReconnect = false
 			if !sleepCtx(ctx, dialTimeout) {
 				return
 			}
@@ -273,27 +201,27 @@ func (c *RLClient) Run(ctx context.Context) {
 			_ = tcp.SetNoDelay(true)
 		}
 
-		c.setStatus(StatusConnected)
+		s.setStatus(StatusConnected)
 		// On a self-induced reconnect (idle-timeout cycle while RL is
 		// in menus/lobby) the connection comes back instantly and the
 		// "connected" line is redundant with the "silent for 30s"
 		// line just above it. Suppress entirely during a self-reconnect
 		// cycle — when real traffic resumes, the cycle ends and the
 		// next genuine reconnect logs normally.
-		if !c.selfReconnect {
-			log.Printf("[rl-api] connected to %s", c.addr)
+		if !s.selfReconnect {
+			log.Printf("[rl-api] connected to %s", s.addr)
 		}
 		// Forget the prior failure message so a future failure logs
 		// again — useful when RL goes down mid-session and we want
 		// users to see the new dial error rather than have it
 		// silenced as a "duplicate."
-		c.lastDialMsg = ""
+		s.lastDialMsg = ""
 		// Reset the drop-log timer so a subsequent disconnect logs
 		// immediately instead of being silenced by the prior failure.
-		c.dropLog.reset()
-		c.readLoop(ctx, conn)
+		s.dropLog.reset()
+		s.readLoop(ctx, conn)
 		_ = conn.Close()
-		c.setStatus(StatusDisconnected)
+		s.setStatus(StatusDisconnected)
 		// Don't log on shutdown — the "[server] shutting down" line
 		// already explains why we disconnected; an extra "disconnected,
 		// reconnecting" right after would be noise.
@@ -303,7 +231,7 @@ func (c *RLClient) Run(ctx context.Context) {
 		// readLoop printed already explains the cycle. Without this
 		// check, every idle cycle prints two lines for the same
 		// event.
-		if ctx.Err() == nil && !c.selfReconnect {
+		if ctx.Err() == nil && !s.selfReconnect {
 			log.Printf("[rl-api] disconnected; reconnecting in %s", reconnectDelay)
 		}
 
@@ -321,7 +249,7 @@ func (c *RLClient) Run(ctx context.Context) {
 // menu idle) while leaving the TCP socket alive — but it always emits to
 // a fresh client. So treat prolonged silence as "stale, reconnect" rather
 // than waiting forever for data that won't come.
-func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
+func (s *RLSource) readLoop(ctx context.Context, conn net.Conn) {
 	dec := json.NewDecoder(conn)
 	gotTraffic := false
 
@@ -338,7 +266,7 @@ func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
 			if errors.Is(err, io.EOF) {
 				// Peer-side disconnect — different signal from our own
 				// idle timeout. Treat it as a real cycle break.
-				c.selfReconnect = false
+				s.selfReconnect = false
 				return
 			}
 			var ne net.Error
@@ -347,16 +275,16 @@ func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
 				// menu stretch logs once, not every 30 seconds. The
 				// successor "connected to ..." line is gated by the
 				// same limiter in Run().
-				c.idleLog.log("[rl-api] silent for " + rlIdleTimeout.String() + " — reconnecting")
-				c.selfReconnect = true
+				s.idleLog.log("[rl-api] silent for " + rlIdleTimeout.String() + " — reconnecting")
+				s.selfReconnect = true
 				return
 			}
 			// Anything else (network error, malformed JSON, ...) is a
 			// real failure mode — break the quiet cycle so the dial /
 			// connect path logs normally on retry.
 			log.Printf("[rl-api] Read error: %v", err)
-			c.idleLog.reset()
-			c.selfReconnect = false
+			s.idleLog.reset()
+			s.selfReconnect = false
 			return
 		}
 		// First real packet on this connection — RL is back to actively
@@ -364,10 +292,10 @@ func (c *RLClient) readLoop(ctx context.Context, conn net.Conn) {
 		// limiter so the next idle stretch logs fresh.
 		if !gotTraffic {
 			gotTraffic = true
-			c.idleLog.reset()
-			c.selfReconnect = false
+			s.idleLog.reset()
+			s.selfReconnect = false
 		}
-		c.enqueue(raw)
+		s.enqueue(raw)
 	}
 }
 

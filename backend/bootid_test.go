@@ -14,8 +14,8 @@ import (
 func newBootIDTestServer(t *testing.T) *Server {
 	t.Helper()
 	bus := NewBus()
-	client := NewRLClient("127.0.0.1:0", bus)
-	return &Server{bus: bus, client: client}
+	source := NewRLSource("127.0.0.1:0")
+	return &Server{bus: bus, source: source}
 }
 
 func TestSSEFirstFrameIncludesBootID(t *testing.T) {

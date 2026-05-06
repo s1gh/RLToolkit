@@ -12,13 +12,13 @@ import (
 )
 
 // Server wires HTTP handlers to the Bus, DataStore, PluginManager,
-// and RLClient. It owns no goroutines of its own; long-lived per-request
+// and RLSource. It owns no goroutines of its own; long-lived per-request
 // goroutines (notably handleSSE) listen on r.Context().
 type Server struct {
 	bus         *Bus
 	store       *DataStore
 	plugins     *PluginManager
-	client      *RLClient
+	source      *RLSource
 	matchState  *MatchState
 	roster      *RosterTracker
 	synth       *Synthesizer
@@ -246,7 +246,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !writeFrame(sseDataPrefix, newStatusEvent(s.client.Status()), sseRecordEnd) {
+	if !writeFrame(sseDataPrefix, newStatusEvent(s.source.Status()), sseRecordEnd) {
 		return
 	}
 	// Initial match-state snapshot so the SDK doesn't have to wait for
@@ -401,7 +401,7 @@ func (s *Server) handleEventCatalog(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]RLStatus{"rl_api": s.client.Status()})
+	writeJSON(w, map[string]RLStatus{"rl_api": s.source.Status()})
 }
 
 // handleMatchState returns the current authoritative MatchState

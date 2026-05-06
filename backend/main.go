@@ -17,6 +17,24 @@ import (
 	"time"
 )
 
+// rosterAdapter bridges the legacy RosterTracker.Feed into the
+// pipeline. Stage 5 replaces this with a native StateProcessor that
+// owns the roster snapshot.
+type rosterAdapter struct{ r *RosterTracker }
+
+func (a rosterAdapter) Observe(evt Event) { a.r.Feed(evt.Raw) }
+
+// synthAdapter bridges the legacy Synthesizer.Feed into the pipeline.
+// The synthesizer publishes directly to the bus during Stage 4; Stage 5
+// progressively replaces it with native EmitProcessors that return
+// their emissions instead of writing to the bus.
+type synthAdapter struct{ s *Synthesizer }
+
+func (a synthAdapter) Process(evt Event) []Event {
+	a.s.Feed(evt.Raw)
+	return nil
+}
+
 func main() {
 	// Subcommand dispatch: anything that isn't `serve` (or empty) is a tool.
 	// `serve` is also the implicit default so a bare `rl-toolkit` keeps
@@ -75,17 +93,26 @@ func runServe() {
 
 	bus := NewBus()
 	pm := NewPluginManager(cfg.PluginDir)
-	client := NewRLClient(cfg.RLAddr, bus)
+	source := NewRLSource(cfg.RLAddr)
 	roster := NewRosterTracker(bus)
-	client.AttachRosterTracker(roster)
 	matchState := NewMatchState()
-	client.AttachMatchState(matchState)
 	matchState.AttachBroadcaster(bus)
 	synth := NewSynthesizer(bus, roster)
 	synth.AttachMatchState(matchState)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
 	synth.AttachDiscoveryStore(discoveries)
-	client.AttachSynthesizer(synth)
+
+	// Stage 4 wiring: events flow RLSource → Pipeline → Bus.
+	//
+	// MatchState observes every event and emits _MatchState transitions
+	// the pipeline broadcasts. Roster + synth still run as adapters that
+	// ride on the existing Feed paths and publish directly to the bus;
+	// Stage 5 dismantles them into native Emit/State processors.
+	pipe := NewPipeline()
+	pipe.AddState(rosterAdapter{roster})
+	pipe.AddState(matchState)
+	pipe.AddEmit(matchState)
+	pipe.AddEmit(synthAdapter{synth})
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
 	if err != nil {
@@ -109,8 +136,9 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, client: client, matchState: matchState, roster: roster, synth: synth, overrides: overrides, discoveries: discoveries, config: cfg}
-	go client.Run(ctx)
+	srv := &Server{bus: bus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, synth: synth, overrides: overrides, discoveries: discoveries, config: cfg}
+	go source.Run(ctx)
+	go pipe.Run(ctx, source, bus)
 	go matchState.Run(ctx)
 	// Periodically flush new Statfeed-name discoveries to disk. The store
 	// itself is debounced (no-op when nothing changed), so a tight tick
