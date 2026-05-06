@@ -1738,7 +1738,7 @@
             // the dashboard, sinceLast is always Infinity, and the
             // local streak caps at 1 — the BEST pill would only show
             // the right value after a refresh hydrated it from disk.
-            const lifecycle = RLT.match?.lifecycle;
+            const lifecycle = RLT.match?.state;
             if (!lifecycle) return;
             // Seed the bank gate from the current phase (matters when
             // the plugin loads mid-match).
@@ -1851,7 +1851,7 @@
           // (which only fires at match start and isn't replayed on a
           // fresh SSE subscriber).
           onLifecycle() {
-            const lcGuid = RLT.match?.lifecycle?.guid || null;
+            const lcGuid = RLT.match?.state?.guid || null;
             if (lcGuid && lcGuid !== currentGuid) {
               currentGuid = lcGuid;
             }
