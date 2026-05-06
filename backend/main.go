@@ -88,6 +88,8 @@ func runServe() {
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
 	synth.AttachDiscoveryStore(discoveries)
 	client.AttachSynthesizer(synth)
+	matchState := NewMatchState()
+	client.AttachMatchState(matchState)
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
 	if err != nil {
@@ -114,6 +116,7 @@ func runServe() {
 	srv := &Server{bus: bus, store: store, plugins: pm, client: client, lifecycle: lifecycle, roster: roster, synth: synth, overrides: overrides, discoveries: discoveries, config: cfg}
 	go client.Run(ctx)
 	go lifecycle.Run(ctx)
+	go matchState.Run(ctx)
 	// Periodically flush new Statfeed-name discoveries to disk. The store
 	// itself is debounced (no-op when nothing changed), so a tight tick
 	// is fine — every 5 seconds is well under any human-noticeable lag.

@@ -70,6 +70,13 @@ type RLClient struct {
 	// that triggered it.
 	synth *Synthesizer
 
+	// matchState is the new unified gameplay-state machine. Runs
+	// alongside lifecycle and phaseMachine during Stage 2 of the
+	// pipeline migration; emits _MatchState in parallel with the legacy
+	// _Lifecycle / _LifecyclePhaseChanged events. Removed in Stage 3
+	// when the dispatcher is replaced by Pipeline.Run.
+	matchState *MatchState
+
 	mu     sync.RWMutex
 	status RLStatus
 
@@ -125,6 +132,12 @@ func (c *RLClient) AttachPhaseMachine(m *PhaseMachine) { c.phaseMachine = m }
 // synthetic event emission. Call before Run.
 func (c *RLClient) AttachSynthesizer(s *Synthesizer) { c.synth = s }
 
+// AttachMatchState wires the new unified state machine. Runs alongside
+// the legacy LifecycleTracker and PhaseMachine for the duration of
+// Stage 2 of the migration. Removed in Stage 3 along with the legacy
+// trackers when the dispatcher is replaced by Pipeline.Run.
+func (c *RLClient) AttachMatchState(m *MatchState) { c.matchState = m }
+
 func (c *RLClient) Status() RLStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -166,7 +179,41 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 		if c.phaseMachine != nil {
 			c.phaseMachine.Feed(msg)
 		}
+		// MatchState observes alongside the legacy trackers during Stage
+		// 2 of the pipeline migration. Decode the envelope into the
+		// shared Event shape so the new state machine sees the same data
+		// the future Pipeline.Run will hand it.
+		var matchStateEvt Event
+		if c.matchState != nil {
+			name := extractEventName(msg)
+			var env struct {
+				Data      json.RawMessage `json:"Data,omitempty"`
+				DataLower json.RawMessage `json:"data,omitempty"`
+			}
+			_ = json.Unmarshal(msg, &env)
+			data := env.Data
+			if len(data) == 0 {
+				data = env.DataLower
+			}
+			matchStateEvt = Event{Name: name, Data: data, Raw: msg}
+			c.matchState.Observe(matchStateEvt)
+		}
 		c.bus.Publish(msg)
+		// MatchState's Process runs after the raw event lands on the bus
+		// so the legacy ordering (raw event, then synthetic) is preserved
+		// for _MatchState too. Wraps the typed Event into the wire-shaped
+		// envelope before re-publishing.
+		if c.matchState != nil {
+			for _, out := range c.matchState.Process(matchStateEvt) {
+				envelope, err := json.Marshal(struct {
+					Event string          `json:"Event"`
+					Data  json.RawMessage `json:"Data"`
+				}{Event: out.Name, Data: out.Data})
+				if err == nil {
+					c.bus.Publish(envelope)
+				}
+			}
+		}
 		// Synthesizers run after the raw event lands on the bus so
 		// subscribers see "raw event, then enriched _-prefixed event"
 		// in that order. Roster-resolution reads the tracker state
