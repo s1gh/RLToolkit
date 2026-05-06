@@ -397,27 +397,75 @@
     return typeof id === 'string' && id.startsWith('Bot|');
   }
 
-  // ─── Identity (shared across all plugins) ──────────────────
+  // ─── Identity (backend is the source of truth) ───────────
+  //
+  // The backend persists "who am I" at data/identity.json and
+  // broadcasts _IdentityChanged on every Set/Clear. The frontend
+  // identity module is a thin cache + write-through wrapper: set/clear
+  // POST to /api/identity, then myId updates from the bus echo
+  // (server.go seeds an _IdentityChanged frame on subscribe so the
+  // initial state is hydrated before ready() fires).
+  //
+  // _isMe(id) stays synchronous against the cache so player-stamping
+  // and per-row UI keeps working during a disconnect.
   const identity = (function () {
     const ev = emitter();
     let myId = '';
     let loaded = false;
+    let nameHint = '';
 
-    async function load() {
-      const cfg = await storeGet('_rlt', 'identity');
-      if (cfg && typeof cfg.my_id === 'string') {
-        myId = cfg.my_id;
-      } else {
-        // One-time migration from legacy dejavu location.
-        const legacy = await storeGet('dejavu', 'config');
-        if (legacy?.my_id) myId = legacy.my_id;
-        await storeSet('_rlt', 'identity', { my_id: myId });
-        if (legacy) await storeDelete('dejavu', 'config');
-      }
+    function applySnapshot(snap) {
+      const next = (snap && typeof snap.primaryId === 'string') ? snap.primaryId : '';
+      const nextName = (snap && typeof snap.name === 'string') ? snap.name : '';
+      if (next === myId && nextName === nameHint && loaded) return;
+      myId = next;
+      nameHint = nextName;
       loaded = true;
       ev.emit('change', myId);
     }
-    load();
+
+    // Hydrate from the seeded _IdentityChanged frame the backend
+    // pushes on subscribe. Until that lands, RLT.me.id reads as ''
+    // and isReady() reports false.
+    bus.on('_IdentityChanged', applySnapshot);
+
+    // One-time legacy storage drain. Pre-2.0 builds kept identity in
+    // browser store at _rlt:identity (and even earlier, dejavu:config).
+    // If anything is there, push it to the backend and wipe both.
+    // Idempotent: a second run finds empty stores.
+    (async function migrateLegacy() {
+      try {
+        let legacyId = '';
+        const cfg = await storeGet('_rlt', 'identity');
+        if (cfg && typeof cfg.my_id === 'string' && cfg.my_id) {
+          legacyId = cfg.my_id;
+        } else {
+          const dejavu = await storeGet('dejavu', 'config');
+          if (dejavu && typeof dejavu.my_id === 'string') legacyId = dejavu.my_id;
+        }
+        if (legacyId) {
+          // Only push to the backend if it hasn't already been claimed
+          // (e.g. via the dashboard on a different machine, or a
+          // previous successful migration).
+          const current = await fetch('/api/identity').then((r) => r.ok ? r.json() : null).catch(() => null);
+          if (!current || !current.primaryId) {
+            await fetch('/api/identity', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ primaryId: legacyId, name: '' }),
+            }).catch(() => {});
+          }
+        }
+        // Drain regardless of push outcome — the backend is now
+        // authoritative either way.
+        await Promise.all([
+          storeDelete('_rlt', 'identity').catch(() => {}),
+          storeDelete('dejavu', 'config').catch(() => {}),
+        ]);
+      } catch {
+        // Migration is best-effort; stale local data is harmless.
+      }
+    })();
 
     return {
       get id() {
@@ -427,12 +475,20 @@
         return loaded;
       },
       async set(id) {
-        myId = (id || '').trim();
-        await storeSet('_rlt', 'identity', { my_id: myId });
-        ev.emit('change', myId);
+        const trimmed = (id || '').trim();
+        if (!trimmed) return this.clear();
+        const r = await fetch('/api/identity', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ primaryId: trimmed, name: nameHint || '' }),
+        });
+        if (!r.ok) throw new Error('set identity: ' + r.status);
+        // The bus echo will update myId + fire change. set() resolves
+        // once the backend has accepted the write.
       },
       async clear() {
-        return this.set('');
+        const r = await fetch('/api/identity', { method: 'DELETE' });
+        if (!r.ok && r.status !== 204) throw new Error('clear identity: ' + r.status);
       },
       onChange(fn) {
         return ev.on('change', fn);
@@ -442,31 +498,6 @@
       },
     };
   })();
-
-  // ─── Backend identity (server-stored "who am I") ──────────
-  // Plugins call RLT.identity.{get,set,clear} to drive the persisted
-  // Identity the backend uses to stamp EnrichedPlayer.IsMe. The
-  // backend broadcasts _IdentityChanged on every Set/Clear; plugins
-  // can subscribe via RLT.onIdentityChange(fn).
-  const backendIdentity = {
-    async get() {
-      const r = await fetch('/api/identity');
-      if (!r.ok) return null;
-      const body = await r.json();
-      return body || null; // null when nothing's set
-    },
-    async set(id) {
-      const r = await fetch('/api/identity', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(id),
-      });
-      if (!r.ok) throw new Error('set identity: ' + r.status);
-    },
-    async clear() {
-      await fetch('/api/identity', { method: 'DELETE' });
-    },
-  };
 
   // ─── Encounter ledger (shared across all plugins) ──────────
   const encounters = (function () {
@@ -2218,7 +2249,9 @@
     onStatusStable: (fn) => statusStableState.onChange(fn),
     match,
     me: identity,
-    identity: backendIdentity,
+    // RLT.identity is an alias for RLT.me — kept for plugins from the
+    // pre-convergence era when the two referred to different stores.
+    identity,
     onIdentityChange: (fn) => bus.on('_IdentityChanged', (snap) => fn(snap)),
     encounters,
     store,
