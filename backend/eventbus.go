@@ -118,12 +118,10 @@ func (b *EventBus) removeLocked(s *subscriber) {
 // events (_StatfeedEvent, _GoalScored, etc.) are filterable like normal
 // events: a plugin only receives them if it subscribed by name.
 var framingSignals = map[string]struct{}{
-	"_ConnectionStatus":      {},
-	"_Lifecycle":             {},
-	"_MatchState":            {},
-	"_RosterChanged":         {},
-	"_LifecyclePhaseChanged": {},
-	"_IdentityChanged":       {},
+	"_ConnectionStatus": {},
+	"_MatchState":       {},
+	"_RosterChanged":    {},
+	"_IdentityChanged":  {},
 }
 
 func isFramingSignal(eventName string) bool {

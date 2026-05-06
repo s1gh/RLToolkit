@@ -49,19 +49,11 @@ type RLClient struct {
 	addr string
 	bus  *EventBus
 
-	// lifecycle, if set, is fed every packet before bus.Publish so it can
-	// drive the gameplay-state machine without re-subscribing.
-	lifecycle *LifecycleTracker
-
 	// roster, if set, is fed every packet before bus.Publish so it can
 	// emit synthetic _RosterChanged events when the player list moves.
-	// Same Feed-before-Publish convention as lifecycle: keeps ordering
-	// consistent and avoids a second goroutine per packet.
+	// Feed runs before Publish so subscribers see the synthetic event
+	// after the raw event that triggered the update.
 	roster *RosterTracker
-
-	// phaseMachine, if set, is fed every packet before bus.Publish so it
-	// can emit _LifecyclePhaseChanged events on gameplay-phase edges.
-	phaseMachine *PhaseMachine
 
 	// synth, if set, is fed every packet AFTER the trackers have updated
 	// so it can publish _-prefixed enriched events (player references
@@ -70,10 +62,8 @@ type RLClient struct {
 	// that triggered it.
 	synth *Synthesizer
 
-	// matchState is the new unified gameplay-state machine. Runs
-	// alongside lifecycle and phaseMachine during Stage 2 of the
-	// pipeline migration; emits _MatchState in parallel with the legacy
-	// _Lifecycle / _LifecyclePhaseChanged events. Removed in Stage 3
+	// matchState is the unified gameplay-state machine. Replaces the
+	// legacy LifecycleTracker and PhaseMachine. Removed in Stage 4
 	// when the dispatcher is replaced by Pipeline.Run.
 	matchState *MatchState
 
@@ -116,26 +106,17 @@ func NewRLClient(addr string, bus *EventBus) *RLClient {
 	}
 }
 
-// AttachLifecycle wires a LifecycleTracker so it observes every packet
-// the dispatcher publishes. Call before Run.
-func (c *RLClient) AttachLifecycle(t *LifecycleTracker) { c.lifecycle = t }
-
 // AttachRosterTracker wires a RosterTracker so it observes every
 // packet for roster-fingerprint changes. Call before Run.
 func (c *RLClient) AttachRosterTracker(t *RosterTracker) { c.roster = t }
-
-// AttachPhaseMachine wires a PhaseMachine so it observes every packet
-// for gameplay-phase transitions. Call before Run.
-func (c *RLClient) AttachPhaseMachine(m *PhaseMachine) { c.phaseMachine = m }
 
 // AttachSynthesizer wires a Synthesizer so it observes every packet for
 // synthetic event emission. Call before Run.
 func (c *RLClient) AttachSynthesizer(s *Synthesizer) { c.synth = s }
 
-// AttachMatchState wires the new unified state machine. Runs alongside
-// the legacy LifecycleTracker and PhaseMachine for the duration of
-// Stage 2 of the migration. Removed in Stage 3 along with the legacy
-// trackers when the dispatcher is replaced by Pipeline.Run.
+// AttachMatchState wires the unified gameplay-state machine. Replaces
+// the legacy LifecycleTracker and PhaseMachine. Removed in Stage 4
+// when the dispatcher is replaced by Pipeline.Run.
 func (c *RLClient) AttachMatchState(m *MatchState) { c.matchState = m }
 
 func (c *RLClient) Status() RLStatus {
@@ -170,19 +151,12 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 				break
 			}
 		}
-		if c.lifecycle != nil {
-			c.lifecycle.Feed(msg)
-		}
 		if c.roster != nil {
 			c.roster.Feed(msg)
 		}
-		if c.phaseMachine != nil {
-			c.phaseMachine.Feed(msg)
-		}
-		// MatchState observes alongside the legacy trackers during Stage
-		// 2 of the pipeline migration. Decode the envelope into the
-		// shared Event shape so the new state machine sees the same data
-		// the future Pipeline.Run will hand it.
+		// MatchState observes every packet. Decode the envelope into
+		// the shared Event shape so the state machine sees the same
+		// data the future Pipeline.Run will hand it.
 		var matchStateEvt Event
 		if c.matchState != nil {
 			name := extractEventName(msg)

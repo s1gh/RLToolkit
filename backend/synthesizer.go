@@ -14,18 +14,13 @@ import (
 type Synthesizer struct {
 	bus    *EventBus
 	roster *RosterTracker
-	// phaseMachine is consulted by emitters that should only fire during
-	// real gameplay (e.g. _OwnGoal — a score-delta during a forfeit or
-	// mercy rule must not flag as an own goal). Optional; nil disables
-	// the gate, which is what the unit tests do.
-	phaseMachine *PhaseMachine
-	// lifecycle exposes the bReplay-edge-driven phase the rest of the
-	// toolkit uses. Used by the per-UpdateState diff emitters to skip
-	// goal replays and post-match screens (RL keeps streaming
-	// UpdateStates with stale flags into both — without this gate
-	// every tracker would mis-attribute that activity as gameplay).
-	// Optional; nil disables the gate (unit tests pass nil).
-	lifecycle *LifecycleTracker
+	// matchState is the unified gameplay-state machine. Consulted by
+	// emitters that should only fire during real gameplay (e.g. _OwnGoal
+	// — a score-delta during a forfeit or mercy rule must not flag as
+	// an own goal) and by diff emitters that need to skip replays /
+	// post-match screens. Optional; nil disables phase gating, which is
+	// what the unit tests do.
+	matchState *MatchState
 
 	// discoveries is the persistent registry of unknown Statfeed names.
 	// Optional — when set, _UnknownStatfeed observations bump the
@@ -215,16 +210,13 @@ func (s *Synthesizer) SetSummaryTimings(endedTimeout, podiumSettle time.Duration
 	s.summaryMu.Unlock()
 }
 
-// AttachPhaseMachine wires the gameplay-phase tracker so emitters that
-// should only fire during real gameplay can gate on it. Call before Run.
-func (s *Synthesizer) AttachPhaseMachine(m *PhaseMachine) { s.phaseMachine = m }
-
-// AttachLifecycle wires the bReplay-edge-driven LifecycleTracker so
-// diff emitters can skip replays and post-match phases (RL keeps
-// streaming UpdateStates with stale boost / possession / score data
-// into both, and we don't want to publish synthetic events for that
-// phantom activity). Call before Run.
-func (s *Synthesizer) AttachLifecycle(l *LifecycleTracker) { s.lifecycle = l }
+// AttachMatchState wires the unified gameplay-state machine so emitters
+// that should only fire during real gameplay can gate on its current
+// phase, and diff emitters can skip replays / post-match phases (RL
+// keeps streaming UpdateStates with stale boost / possession / score
+// data into both, and we don't want to publish synthetic events for
+// that phantom activity). Call before Run.
+func (s *Synthesizer) AttachMatchState(m *MatchState) { s.matchState = m }
 
 // AttachDiscoveryStore wires the persistent unknown-Statfeed registry.
 // Optional — without it, _UnknownStatfeed still publishes but no entry
@@ -604,9 +596,9 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 	// UpdateStates with stale flags. Both would otherwise emit phantom
 	// _BoostPickup / _BallPossessionChanged / _TeamScoreChanged /
 	// _OvertimeStarted events.
-	if s.lifecycle != nil {
-		ph := s.lifecycle.Snapshot().Phase
-		if ph != PhaseLive && ph != PhaseCountdown && ph != PhasePaused {
+	if s.matchState != nil {
+		ph := s.matchState.Snapshot().Phase
+		if ph != PhasePhaseLive && ph != PhasePhaseCountdown && ph != PhasePhasePaused {
 			return
 		}
 	}
@@ -826,13 +818,13 @@ func (s *Synthesizer) emitPlayerLeft(guid string, p *tickPlayer) {
 	}
 }
 
-// currentPhaseString returns the lifecycle phase as a wire-friendly
-// string, or "" when no LifecycleTracker is attached.
+// currentPhaseString returns the current MatchState phase as a
+// wire-friendly string, or "" when no MatchState is attached.
 func (s *Synthesizer) currentPhaseString() string {
-	if s.lifecycle == nil {
+	if s.matchState == nil {
 		return ""
 	}
-	return string(s.lifecycle.Snapshot().Phase)
+	return string(s.matchState.Snapshot().Phase)
 }
 
 // emitPlayerScoreChangedIfDelta compares the seven non-spectator stat
@@ -1025,9 +1017,9 @@ func (s *Synthesizer) detectOwnGoal(prev, curr []teamRef, guid string) {
 		}
 		// Phase gate: only fire during real gameplay. PhaseLive/Replay
 		// covers active play; PhaseLobby/None/Countdown/Podium do not.
-		if s.phaseMachine != nil {
-			ph := s.phaseMachine.Current()
-			if ph != PhaseNameLive && ph != PhaseNameReplay {
+		if s.matchState != nil {
+			ph := s.matchState.Snapshot().Phase
+			if ph != PhasePhaseLive && ph != PhasePhaseReplay {
 				continue
 			}
 		}
@@ -1872,9 +1864,9 @@ func (s *Synthesizer) onBallHit(raw []byte) {
 	// Phase gate: catalog says liveOnly. RL fires BallHit during goal
 	// replays (the cinematic ball bouncing around) and on the
 	// post-match screen. Skip both — they aren't real touches.
-	if s.lifecycle != nil {
-		ph := s.lifecycle.Snapshot().Phase
-		if ph != PhaseLive && ph != PhaseCountdown && ph != PhasePaused {
+	if s.matchState != nil {
+		ph := s.matchState.Snapshot().Phase
+		if ph != PhasePhaseLive && ph != PhasePhaseCountdown && ph != PhasePhasePaused {
 			return
 		}
 	}

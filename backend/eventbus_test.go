@@ -42,29 +42,49 @@ func fixtureReplay(t *testing.T, path string, feeder func([]byte)) {
 
 // captureSynthetic replays a fixture through the given bus and returns
 // every synthetic event whose name matches `eventName`. The fixture is
-// fed to every attached tracker (lifecycle, roster, phaseMachine) as
-// well as the bus itself, preserving the same ordering as the real
+// fed to MatchState (Observe-then-Process) and the roster tracker
+// before being published, preserving the same ordering as the real
 // dispatcher.
 //
 // If eventName is empty, all synthetic events (those starting with "_")
 // are returned.
-func captureSynthetic(t *testing.T, bus *EventBus, lifecycle *LifecycleTracker, roster *RosterTracker, phaseMachine *PhaseMachine, synth *Synthesizer, fixturePath string, eventName string) []map[string]interface{} {
+func captureSynthetic(t *testing.T, bus *EventBus, matchState *MatchState, roster *RosterTracker, synth *Synthesizer, fixturePath string, eventName string) []map[string]interface{} {
 	t.Helper()
 
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
 	feed := func(raw []byte) {
-		if lifecycle != nil {
-			lifecycle.Feed(raw)
-		}
 		if roster != nil {
 			roster.Feed(raw)
 		}
-		if phaseMachine != nil {
-			phaseMachine.Feed(raw)
+		var evt Event
+		if matchState != nil {
+			name := extractEventName(raw)
+			var env struct {
+				Data      json.RawMessage `json:"Data,omitempty"`
+				DataLower json.RawMessage `json:"data,omitempty"`
+			}
+			_ = json.Unmarshal(raw, &env)
+			data := env.Data
+			if len(data) == 0 {
+				data = env.DataLower
+			}
+			evt = Event{Name: name, Data: data, Raw: raw}
+			matchState.Observe(evt)
 		}
 		bus.Publish(raw)
+		if matchState != nil {
+			for _, out := range matchState.Process(evt) {
+				envelope, err := json.Marshal(struct {
+					Event string          `json:"Event"`
+					Data  json.RawMessage `json:"Data"`
+				}{Event: out.Name, Data: out.Data})
+				if err == nil {
+					bus.Publish(envelope)
+				}
+			}
+		}
 		if synth != nil {
 			synth.Feed(raw)
 		}
@@ -110,46 +130,28 @@ func captureSynthetic(t *testing.T, bus *EventBus, lifecycle *LifecycleTracker, 
 // captured in the right order.
 func TestFixtureReplay_BasicMatch(t *testing.T) {
 	bus := NewEventBus()
-	lifecycle := NewLifecycleTracker(bus)
+	matchState := NewMatchState()
 	roster := NewRosterTracker(bus)
-	phaseMachine := NewPhaseMachine(bus)
 
-	got := captureSynthetic(t, bus, lifecycle, roster, phaseMachine, nil, "testdata/fixtures/basic_match.jsonl", "")
+	got := captureSynthetic(t, bus, matchState, roster, nil, "testdata/fixtures/basic_match.jsonl", "")
 
-	// We expect at minimum: _Lifecycle transitions + _RosterChanged.
+	// We expect at minimum: _MatchState transitions + _RosterChanged.
 	// The exact count depends on the fixture, but we can sanity-check
 	// ordering and presence.
-	var lifecycleCount, rosterCount int
+	var matchStateCount, rosterCount int
 	for _, ev := range got {
 		switch ev["Event"] {
-		case "_Lifecycle":
-			lifecycleCount++
+		case "_MatchState":
+			matchStateCount++
 		case "_RosterChanged":
 			rosterCount++
 		}
 	}
 
-	if lifecycleCount == 0 {
-		t.Error("expected at least one _Lifecycle event")
+	if matchStateCount == 0 {
+		t.Error("expected at least one _MatchState event")
 	}
 	if rosterCount == 0 {
 		t.Error("expected at least one _RosterChanged event")
 	}
-
-	// Sanity-check phase transitions follow the fixture order.
-	// The fixture has: MatchCreated → CountdownBegin → RoundStarted → GoalReplayStart → GoalReplayEnd → MatchEnded → PodiumStart → MatchDestroyed
-	var phases []string
-	for _, ev := range got {
-		if ev["Event"] == "_Lifecycle" {
-			if ph, ok := ev["phase"].(string); ok {
-				phases = append(phases, ph)
-			}
-		}
-	}
-
-	// The lifecycle tracker should have visited these phases in order.
-	// Because the fixture doesn't have a GoalReplayStart discrete event
-	// for phase (the tracker uses bReplay), the actual phases are driven
-	// by the lifecycle events + bReplay edges on UpdateState.
-	_ = phases // we just assert non-empty above for this harness test
 }
