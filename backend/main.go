@@ -25,14 +25,30 @@ type rosterAdapter struct{ r *RosterTracker }
 func (a rosterAdapter) Observe(evt Event) { a.r.Feed(evt.Raw) }
 
 // synthAdapter bridges the legacy Synthesizer.Feed into the pipeline.
-// The synthesizer publishes directly to the bus during Stage 4; Stage 5
-// progressively replaces it with native EmitProcessors that return
-// their emissions instead of writing to the bus.
-type synthAdapter struct{ s *Synthesizer }
+// During Stage 5 the synthesizer keeps its current "publish via the
+// Broadcaster I was handed" shape, but the adapter swaps in itself as
+// that Broadcaster for the duration of Process so emissions flow back
+// through the pipeline (where downstream emit processors can consume
+// them) instead of bypassing it via direct bus calls.
+//
+// Pipeline.Run is single-threaded, so a single shared buffer here is
+// safe — Process is never re-entered concurrently.
+type synthAdapter struct {
+	s       *Synthesizer
+	pending []Event
+}
 
-func (a synthAdapter) Process(evt Event) []Event {
+func (a *synthAdapter) Broadcast(evt Event) { a.pending = append(a.pending, evt) }
+
+func (a *synthAdapter) Process(evt Event) []Event {
+	a.pending = a.pending[:0]
 	a.s.Feed(evt.Raw)
-	return nil
+	if len(a.pending) == 0 {
+		return nil
+	}
+	out := make([]Event, len(a.pending))
+	copy(out, a.pending)
+	return out
 }
 
 func main() {
@@ -97,22 +113,25 @@ func runServe() {
 	roster := NewRosterTracker(bus)
 	matchState := NewMatchState()
 	matchState.AttachBroadcaster(bus)
-	synth := NewSynthesizer(bus, roster)
+	synthBridge := &synthAdapter{}
+	synth := NewSynthesizer(synthBridge, roster)
+	synthBridge.s = synth
 	synth.AttachMatchState(matchState)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
 	synth.AttachDiscoveryStore(discoveries)
 
-	// Stage 4 wiring: events flow RLSource → Pipeline → Bus.
-	//
-	// MatchState observes every event and emits _MatchState transitions
-	// the pipeline broadcasts. Roster + synth still run as adapters that
-	// ride on the existing Feed paths and publish directly to the bus;
-	// Stage 5 dismantles them into native Emit/State processors.
+	// Stage 5 wiring: events flow RLSource → Pipeline → Bus, and the
+	// legacy Synthesizer is still in the loop as one big EmitProcessor
+	// (synthAdapter) that captures every emission instead of publishing
+	// directly. Downstream emitters registered after synthAdapter can
+	// therefore consume its synthetic events as inputs — this is what
+	// lets emit_fastest_shot.go see the _BallHit / _GoalScored stream.
 	pipe := NewPipeline()
 	pipe.AddState(rosterAdapter{roster})
 	pipe.AddState(matchState)
 	pipe.AddEmit(matchState)
-	pipe.AddEmit(synthAdapter{synth})
+	pipe.AddEmit(synthBridge)
+	pipe.AddEmit(NewFastestShotEmitter())
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
 	if err != nil {

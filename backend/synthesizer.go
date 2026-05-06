@@ -12,7 +12,7 @@ import (
 // called from the dispatcher after the roster tracker has digested the
 // envelope, so player resolution sees the up-to-date roster.
 type Synthesizer struct {
-	bus    *Bus
+	bus    Broadcaster
 	roster *RosterTracker
 	// matchState is the unified gameplay-state machine. Consulted by
 	// emitters that should only fire during real gameplay (e.g. _OwnGoal
@@ -139,14 +139,7 @@ type Synthesizer struct {
 	demoChainMu   sync.Mutex
 	demoChainByID map[string][]demoChainEntry
 
-	// fastestShotSpeed is the per-match max ball speed observed across
-	// _BallHit.postHitSpeed and _GoalScored.goalSpeed. _FastestShotOfMatch
-	// fires only when surpassed. Negative initial value so any positive
-	// observation triggers the first emit. Reset on match boundaries.
-	fastestShotMu    sync.Mutex
-	fastestShotSpeed float64
-
-	// kickoffMu guards kickoff conversion state. roundStartedAtKickoff
+// kickoffMu guards kickoff conversion state. roundStartedAtKickoff
 	// is set on RoundStarted; cleared once _KickoffConverted has fired
 	// for that round (or when the next RoundStarted resets it).
 	kickoffMu              sync.Mutex
@@ -186,7 +179,7 @@ const matchSummaryEndedTimeout = 10 * time.Second
 // SetSummaryTimings to keep the suite fast.
 const matchSummaryPodiumSettle = 3 * time.Second
 
-func NewSynthesizer(bus *Bus, roster *RosterTracker) *Synthesizer {
+func NewSynthesizer(bus Broadcaster, roster *RosterTracker) *Synthesizer {
 	return &Synthesizer{
 		bus:                 bus,
 		roster:              roster,
@@ -325,11 +318,6 @@ func (s *Synthesizer) resetMatchMilestones() {
 		delete(s.demoChainByID, k)
 	}
 	s.demoChainMu.Unlock()
-	// Reset per-match fastest-shot tracking so the first _BallHit /
-	// _GoalScored of the next match always emits _FastestShotOfMatch.
-	s.fastestShotMu.Lock()
-	s.fastestShotSpeed = 0
-	s.fastestShotMu.Unlock()
 	// Reset kickoff-conversion arming so a goal scored in the previous
 	// match's settle window can't trigger _KickoffConverted in the next.
 	s.kickoffMu.Lock()
@@ -1533,42 +1521,6 @@ func (s *Synthesizer) maybeEmitDemoChain(guid string, attacker, victim *Enriched
 	}
 }
 
-// maybeEmitFastestShot tracks the per-match max ball speed across
-// _BallHit.postHitSpeed and _GoalScored.goalSpeed. Fires
-// _FastestShotOfMatch only when surpassed, with the source event name
-// and the player most credibly responsible (last-known toucher /
-// scorer). Speed pointer nil = no observation, skip silently.
-func (s *Synthesizer) maybeEmitFastestShot(guid string, speed *float64, source string, player *EnrichedPlayer) {
-	if speed == nil || *speed <= 0 {
-		return
-	}
-	s.fastestShotMu.Lock()
-	if *speed <= s.fastestShotSpeed {
-		s.fastestShotMu.Unlock()
-		return
-	}
-	s.fastestShotSpeed = *speed
-	current := *speed
-	s.fastestShotMu.Unlock()
-
-	out := struct {
-		Event     string          `json:"Event"`
-		MatchGUID string          `json:"matchGuid,omitempty"`
-		Speed     float64         `json:"speed"`
-		Source    string          `json:"source"`
-		Player    *EnrichedPlayer `json:"player,omitempty"`
-	}{
-		Event:     "_FastestShotOfMatch",
-		MatchGUID: guid,
-		Speed:     current,
-		Source:    source,
-		Player:    player,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
-}
-
 // DemolishLog returns a snapshot of every _PlayerDemolished envelope
 // published since the current match started. Used by the SSE handler
 // to replay the per-match demo history to a freshly-connected client
@@ -1939,13 +1891,6 @@ func (s *Synthesizer) onBallHit(raw []byte) {
 
 	// _FirstTouch — fires on the first BallHit after each RoundStarted.
 	s.maybeEmitFirstTouch(guid, resolved, out.PostHitSpeed, out.Location)
-
-	// _FastestShotOfMatch — track per-match max post-hit speed.
-	var primary *EnrichedPlayer
-	if len(resolved) > 0 {
-		primary = resolved[0]
-	}
-	s.maybeEmitFastestShot(guid, out.PostHitSpeed, "BallHit", primary)
 }
 
 func (s *Synthesizer) maybeEmitFirstTouch(guid string, players []*EnrichedPlayer, postHitSpeed *float64, loc *vec3) {
@@ -2602,9 +2547,6 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 
 	// _FirstBlood — first goal of the match.
 	s.maybeEmitFirstBlood(guid, scorer, scoringTeam, concedingTeam)
-
-	// _FastestShotOfMatch — goalSpeed surpasses the per-match max.
-	s.maybeEmitFastestShot(guid, out.GoalSpeed, "GoalScored", scorer)
 
 	// _KickoffConverted — first scoring action within the kickoff
 	// window after RoundStarted.
