@@ -526,7 +526,7 @@ Promise.all([
 
 function isEnabled(name) {
   const ov = overrides[name];
-  return !ov || ov.enabled !== false;
+  return ov && ov.enabled === true;
 }
 
 function renderPlugins() {

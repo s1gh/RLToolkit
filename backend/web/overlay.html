@@ -330,11 +330,9 @@
   }
 
   function applyConfig(mergedList) {
-    // Default-true on `enabled`: a plugin without an explicit
-    // override is active.
     const wanted = new Set();
     for (const { plugin, overlay } of mergedList) {
-      const enabled = overlay.enabled !== false;
+      const enabled = overlay.enabled === true;
       if (!enabled) {
         unmount(plugin.name);
         continue;
