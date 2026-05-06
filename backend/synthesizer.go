@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"sync"
 	"time"
 )
 
@@ -34,48 +33,23 @@ type Synthesizer struct {
 	ticks *TickStore
 
 	// statfeed is the bridge to the extracted StatfeedEmitter. The
-	// synth's onGoalScored uses it to consume the per-player
-	// flipReset arm when stamping IsFlipResetGoal. Goes away when
-	// GoalEmitter extracts.
+	// synth's tick-diff path calls ClearFlipResetArm when a player
+	// touches ground.
 	statfeed *StatfeedEmitter
 
-// correlation is the shared sliding window of recent events. Owned
-	// by main; processors share one instance so a producer (e.g.
-	// BallHitEmitter) can record a touch and a consumer (the synth's
-	// _GoalScored fallback, soon emit_own_goal) can look it back up.
-	// Emitters like _GoalScored use it to look back for modifier
-	// Statfeeds (AerialGoal, BackwardsGoal,
-	// …) and _OwnGoal can look back for the GoalScored it belongs to.
-	// Sized in events, not ticks — see CorrelationBuffer.
+	// correlation is the shared sliding window of recent events.
+	// Owned by main; the synth no longer writes to it but a couple
+	// of remaining read sites (currently none, kept for the diff
+	// emitters that may move here in 5.10) still hold the handle.
 	correlation *CorrelationBuffer
-
-// lastGoalMu guards lastGoal. Set when _GoalScored is published,
-	// read when GoalReplayStart arrives so _GoalReplayStarted can ship
-	// the resolved goal payload without depending on the shared
-	// correlation buffer (which can evict the entry under burst load
-	// from intervening BallHit/StatfeedEvent records). Holds the full
-	// enriched envelope so _GoalReplayStarted can mirror every field
-	// _GoalScored carried (assister, ballLastTouch, modifiers, ...).
-	// Cleared on match boundaries via resetMatchMilestones.
-	lastGoalMu sync.Mutex
-	lastGoal   *enrichedGoalScored
-
-	// realGoalsMu guards realGoalsByID. Counts honest (non-own-goal)
-	// goals per player. The synth still owns the counter while
-	// onGoalScored lives here; StatfeedEmitter reads it via the
-	// RealGoals method on this struct for HatTrick suppression. Moves
-	// to OwnGoalEmitter when Goal extracts.
-	realGoalsMu   sync.Mutex
-	realGoalsByID map[string]int
 }
 
 func NewSynthesizer(bus Broadcaster, roster *RosterTracker, correlation *CorrelationBuffer, ticks *TickStore) *Synthesizer {
 	return &Synthesizer{
-		bus:           bus,
-		roster:        roster,
-		correlation:   correlation,
-		ticks:         ticks,
-		realGoalsByID: make(map[string]int),
+		bus:         bus,
+		roster:      roster,
+		correlation: correlation,
+		ticks:       ticks,
 	}
 }
 
@@ -94,23 +68,9 @@ func (s *Synthesizer) SetSummaryTimings(endedTimeout, podiumSettle time.Duration
 // that phantom activity). Call before Run.
 func (s *Synthesizer) AttachMatchState(m *MatchState) { s.matchState = m }
 
-// RealGoals returns the per-match honest-goal count for `playerID`
-// (own goals don't count). Satisfies the realGoalsLookup interface so
-// StatfeedEmitter can suppress _HatTrick when RL's count includes own
-// goals. Will move to OwnGoalEmitter once Goal extracts and the
-// counter ownership shifts per the design spec.
-func (s *Synthesizer) RealGoals(playerID string) int {
-	if playerID == "" {
-		return 0
-	}
-	s.realGoalsMu.Lock()
-	defer s.realGoalsMu.Unlock()
-	return s.realGoalsByID[playerID]
-}
-
-// AttachStatfeedEmitter wires the new StatfeedEmitter so the synth's
-// onGoalScored can clear its flipReset arm via the emitter (which now
-// owns the flag). Removed when GoalEmitter extracts.
+// AttachStatfeedEmitter wires the StatfeedEmitter so the synth's
+// tick-diff path can call ClearFlipResetArm on a player's
+// ground-touch.
 func (s *Synthesizer) AttachStatfeedEmitter(e *StatfeedEmitter) { s.statfeed = e }
 
 // AttachDiscoveryStore wires the persistent unknown-Statfeed registry.
@@ -139,31 +99,9 @@ func (s *Synthesizer) Feed(raw []byte) {
 	switch name {
 	case "UpdateState":
 		s.onUpdateState(raw)
-	case "GoalScored":
-		s.onGoalScored(raw)
-	case "MatchCreated", "MatchDestroyed":
-		s.resetMatchMilestones()
+	case "MatchEnded":
+		s.onMatchEnded(raw)
 	}
-}
-
-// resetMatchMilestones clears every per-match flag. Called on
-// MatchCreated (new match starting) and MatchDestroyed (back to menu).
-// Without this, a back-to-back rematch into the same lobby would
-// silently skip _FirstBlood because firstBloodFired was still true.
-func (s *Synthesizer) resetMatchMilestones() {
-	// Drop the cached goal so the first GoalReplayStart of a new match
-	// can't pick up the previous match's last goal.
-	s.lastGoalMu.Lock()
-	s.lastGoal = nil
-	s.lastGoalMu.Unlock()
-	// Reset per-player real-goal counters. Without this a player who
-	// scored 2 honest goals last match would only need 1 more this
-	// match to false-trigger _HatTrick.
-	s.realGoalsMu.Lock()
-	for k := range s.realGoalsByID {
-		delete(s.realGoalsByID, k)
-	}
-	s.realGoalsMu.Unlock()
 }
 
 // tickSnapshot is the slice of UpdateState we cache for diff emitters.
@@ -264,9 +202,8 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 		return
 	}
 
-	// Replay-edge detection runs regardless — _GoalReplayStarted is
-	// the one event that's *supposed* to fire on entering replay.
-	s.diffReplayEdge(prev, curr)
+	// _GoalReplayStarted has moved to GoalEmitter (which owns the
+	// lastGoal cache); no replay-edge detection here anymore.
 
 	// Roster + per-player score diffs run in any phase. Players can
 	// join/leave or have stats reconciled in lobby, podium, etc.
@@ -288,34 +225,6 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 	s.diffPlayersLive(prev, curr)
 	s.diffTeamScores(prev, curr)
 	s.diffBallPossession(prev, curr)
-}
-
-// diffReplayEdge emits _GoalReplayStarted on a rising bReplay edge.
-// Recent RL builds skip the discrete GoalReplayStart event entirely, so
-// the bReplay flag on the per-tick Game snapshot is the only reliable
-// "goal replay began" signal. We mirror the LifecycleTracker's edge
-// detection here so the synthetic event fires on the same builds the
-// rest of the toolkit already supports.
-func (s *Synthesizer) diffReplayEdge(prev, curr *tickSnapshot) {
-	if prev.bReplay || !curr.bReplay {
-		return
-	}
-	s.lastGoalMu.Lock()
-	cached := s.lastGoal
-	s.lastGoalMu.Unlock()
-	if cached == nil {
-		return
-	}
-	// Mirror every field _GoalScored published, just renamed at the
-	// wire level so subscribers can switch on Event. Copy by value so
-	// downstream mutations of the cached envelope (none today, but
-	// defensive) don't reach back into the source.
-	out := *cached
-	out.Event = "_GoalReplayStarted"
-	out.MatchGUID = curr.matchGUID
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
 }
 
 // diffPlayers walks the previous + current player lists and emits
@@ -863,301 +772,3 @@ func (s *Synthesizer) onMatchEnded(raw []byte) {
 // settle-window machinery — now dead code that the next edit removes.
 
 // goalScoredData mirrors the wire shape of GoalScored.
-type goalScoredData struct {
-	MatchGUID       string         `json:"MatchGuid"`
-	MatchGUIDLow    string         `json:"matchguid"`
-	Scorer          *ShortcutRef   `json:"Scorer"`
-	ScorerLow       *ShortcutRef   `json:"scorer"`
-	Assister        *ShortcutRef   `json:"Assister"`
-	AssisterLow     *ShortcutRef   `json:"assister"`
-	BallLastTouch   *ballLastTouch `json:"BallLastTouch"`
-	BallLastTouchLow *ballLastTouch `json:"balllasttouch"`
-	GoalSpeed       *float64       `json:"GoalSpeed"`
-	GoalSpeedLow    *float64       `json:"goalspeed"`
-	GoalTime        *float64       `json:"GoalTime"`
-	GoalTimeLow     *float64       `json:"goaltime"`
-	ImpactLocation  *vec3          `json:"ImpactLocation"`
-	ImpactLocationLow *vec3        `json:"impactlocation"`
-}
-
-type enrichedGoalScored struct {
-	Event           string                 `json:"Event"`
-	MatchGUID       string                 `json:"matchGuid,omitempty"`
-	Scorer          *EnrichedPlayer        `json:"scorer,omitempty"`
-	Assister        *EnrichedPlayer        `json:"assister,omitempty"`
-	BallLastTouch   *enrichedBallLastTouch `json:"ballLastTouch,omitempty"`
-	GoalSpeed       *float64               `json:"goalSpeed,omitempty"`
-	GoalTime        *float64               `json:"goalTime,omitempty"`
-	ImpactLocation  *vec3                  `json:"impactLocation,omitempty"`
-	ScoringTeam     *int                   `json:"scoringTeam,omitempty"`
-	ConcedingTeam   *int                   `json:"concedingTeam,omitempty"`
-	IsOwnGoal       bool                   `json:"isOwnGoal"`
-	Modifiers       *goalModifiers         `json:"modifiers,omitempty"`
-}
-
-// goalModifiers carries the same-frame statfeed flags RL fires alongside
-// a goal. Only flags that fire are populated; missing fields are absent
-// rather than `false` so consumers can use truthy checks. Modifier
-// detection is best-effort: RL's modifier statfeeds aren't fully
-// documented and game-mode-specific flags (poolShot, hoopsSwishGoal)
-// only exist in their respective modes.
-type goalModifiers struct {
-	IsAerialGoal       bool `json:"isAerialGoal,omitempty"`
-	IsBackwardsGoal    bool `json:"isBackwardsGoal,omitempty"`
-	IsBicycleGoal      bool `json:"isBicycleGoal,omitempty"`
-	IsLongGoal         bool `json:"isLongGoal,omitempty"`
-	IsTurtleGoal       bool `json:"isTurtleGoal,omitempty"`
-	IsOvertimeGoal     bool `json:"isOvertimeGoal,omitempty"`
-	IsPoolShot         bool `json:"isPoolShot,omitempty"`
-	IsHoopsSwishGoal   bool `json:"isHoopsSwishGoal,omitempty"`
-	IsHatTrickGoal     bool `json:"isHatTrickGoal,omitempty"`
-	// IsFlipResetGoal is toolkit-detected, not from a Statfeed: scorer
-	// got a FlipReset and stayed airborne (bOnGround=false) until
-	// scoring. See flipResetArmed bookkeeping in onUpdateState +
-	// emitFlipReset, consumed in onGoalScored.
-	IsFlipResetGoal    bool `json:"isFlipResetGoal,omitempty"`
-}
-
-// modifierStatfeedNames maps the statfeed EventName (as RL ships it) to
-// the goalModifiers boolean field that should be set. Only same-player
-// matches against the scorer count.
-var modifierStatfeedNames = map[string]func(*goalModifiers){
-	"AerialGoal":     func(m *goalModifiers) { m.IsAerialGoal = true },
-	"BackwardsGoal":  func(m *goalModifiers) { m.IsBackwardsGoal = true },
-	"BicycleGoal":    func(m *goalModifiers) { m.IsBicycleGoal = true },
-	"LongGoal":       func(m *goalModifiers) { m.IsLongGoal = true },
-	"TurtleGoal":     func(m *goalModifiers) { m.IsTurtleGoal = true },
-	"OvertimeGoal":   func(m *goalModifiers) { m.IsOvertimeGoal = true },
-	"PoolShot":       func(m *goalModifiers) { m.IsPoolShot = true },
-	"HoopsSwishGoal": func(m *goalModifiers) { m.IsHoopsSwishGoal = true },
-	"HatTrick":       func(m *goalModifiers) { m.IsHatTrickGoal = true },
-}
-
-func (s *Synthesizer) onGoalScored(raw []byte) {
-	inner := unwrapInnerData(raw)
-	if inner == "" {
-		return
-	}
-	var d goalScoredData
-	if err := json.Unmarshal([]byte(inner), &d); err != nil {
-		return
-	}
-
-	scorerRef := d.Scorer
-	if scorerRef == nil {
-		scorerRef = d.ScorerLow
-	}
-	// SDK has a guard: drop GoalScored events where the scorer can't be
-	// identified. RL re-fires GoalScored at round-restart with empty
-	// Scorer.Name; without this drop, a synthetic event with name
-	// "Unknown" overwrites the prior tick's scorer for any plugin that
-	// caches the latest goal. Mirror that guard here.
-	if scorerRef == nil || scorerRef.Name == "" {
-		return
-	}
-	scorer := s.roster.ResolveByShortcut(*scorerRef)
-	if scorer == nil {
-		return
-	}
-
-	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
-	assisterRef := d.Assister
-	if assisterRef == nil {
-		assisterRef = d.AssisterLow
-	}
-	lastTouch := d.BallLastTouch
-	if lastTouch == nil {
-		lastTouch = d.BallLastTouchLow
-	}
-	loc := d.ImpactLocation
-	if loc == nil {
-		loc = d.ImpactLocationLow
-	}
-
-	out := enrichedGoalScored{
-		Event:          "_GoalScored",
-		MatchGUID:      guid,
-		Scorer:         scorer,
-		GoalSpeed:      pickFloat(d.GoalSpeed, d.GoalSpeedLow),
-		GoalTime:       pickFloat(d.GoalTime, d.GoalTimeLow),
-		ImpactLocation: loc,
-	}
-
-	// Scoring team is the scorer's team; conceding is the other.
-	scoringTeam := scorer.Team
-	concedingTeam := 1 - scoringTeam
-	out.ScoringTeam = &scoringTeam
-	out.ConcedingTeam = &concedingTeam
-
-	if assisterRef != nil && assisterRef.Name != "" {
-		out.Assister = s.roster.ResolveByShortcut(*assisterRef)
-	}
-
-	var lastToucher *EnrichedPlayer
-	if lastTouch != nil {
-		ref := lastTouch.Player
-		if ref == nil {
-			ref = lastTouch.PlayerLow
-		}
-		sp := pickFloat(lastTouch.Speed, lastTouch.SpeedLow)
-		if ref != nil {
-			lastToucher = s.roster.ResolveByShortcut(*ref)
-		}
-		if lastToucher != nil || sp != nil {
-			out.BallLastTouch = &enrichedBallLastTouch{
-				Player: lastToucher,
-				Speed:  sp,
-			}
-		}
-	}
-	// Fallback: when RL ships GoalScored without a BallLastTouch block
-	// (observed on some builds, especially for own goals), use the
-	// most recent BallHit from the shared correlation buffer. Same
-	// heuristic, just sourced from the producer that already records it.
-	if lastToucher == nil {
-		for _, p := range s.correlation.Recent("BallHit", 1) {
-			if rec, ok := p.(*ballHitRecord); ok && rec != nil {
-				lastToucher = rec.Player
-			}
-		}
-	}
-	// Own-goal heuristic: if the last-touch player is on the conceding
-	// team, the goal was deflected/own-goaled. The richer _OwnGoal
-	// event ships in Phase 2 with score-delta verification; this flag
-	// is the cheap header.
-	if lastToucher != nil && lastToucher.Team == concedingTeam {
-		out.IsOwnGoal = true
-	}
-
-	// Bump the per-player real-goal counter for non-own-goals so
-	// emitHatTrick can verify RL's HatTrick threshold against actual
-	// scoring (RL's own counter includes own goals, which most
-	// communities don't count toward a hat trick).
-	if !out.IsOwnGoal && scorer.ID != "" {
-		s.realGoalsMu.Lock()
-		s.realGoalsByID[scorer.ID]++
-		s.realGoalsMu.Unlock()
-	}
-
-	// Modifier flags via the correlation buffer. Statfeeds fire on the
-	// same frame as the goal (or one before/after), so a 3-event window
-	// is plenty. Match by Shortcut (RL's spectator-name identifier);
-	// fall back to Name for safety.
-	mods := s.collectGoalModifiers(scorerRef)
-
-	// RL's HatTrick Statfeed counts own goals toward the threshold. If
-	// our real-goal count is below 3 the player hasn't actually scored
-	// a hat trick (e.g. 2 honest goals + 1 own goal = 3 by RL, 2 by us).
-	// Clear the modifier flag so consumers see consistent behavior.
-	if mods != nil && mods.IsHatTrickGoal && scorer.ID != "" {
-		s.realGoalsMu.Lock()
-		real := s.realGoalsByID[scorer.ID]
-		s.realGoalsMu.Unlock()
-		if real < 3 {
-			mods.IsHatTrickGoal = false
-		}
-	}
-
-	// Flip-reset goal: scorer was armed by a prior FlipReset and
-	// hadn't touched ground since. Consume the flag via StatfeedEmitter
-	// (which now owns it).
-	if s.statfeed != nil && s.statfeed.ConsumeFlipResetArm(scorer.ID) {
-		if mods == nil {
-			mods = &goalModifiers{}
-		}
-		mods.IsFlipResetGoal = true
-	}
-	if mods != nil {
-		out.Modifiers = mods
-	}
-
-	// Record the resolved goal into the correlation buffer so _OwnGoal
-	// (Phase 2) can attach it as `correlatedGoal`. The Phase-3 _Assist
-	// emitter will also read this entry.
-	rec := &goalRecord{
-		Scorer:        scorer,
-		ScoringTeam:   scoringTeam,
-		ConcedingTeam: concedingTeam,
-	}
-	s.correlation.Record("_GoalScored", rec)
-
-	// Dedicated cache for _GoalReplayStarted. The correlation buffer is
-	// shared with BallHit/StatfeedEvent and a goal celebration can evict
-	// the _GoalScored entry before GoalReplayStart arrives. Cache the
-	// full enriched envelope so _GoalReplayStarted can mirror every
-	// field (assister, ballLastTouch, modifiers, …).
-	cached := out
-	s.lastGoalMu.Lock()
-	s.lastGoal = &cached
-	s.lastGoalMu.Unlock()
-
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-}
-
-// goalRecord is the slim correlation-buffer entry for _GoalScored —
-// just the bits _OwnGoal / _Assist need to relate themselves to a goal.
-type goalRecord struct {
-	Scorer        *EnrichedPlayer
-	ScoringTeam   int
-	ConcedingTeam int
-}
-
-// collectGoalModifiers walks the correlation buffer for same-player
-// modifier statfeeds. Returns nil when nothing matches so the encoded
-// JSON omits the modifiers field entirely.
-func (s *Synthesizer) collectGoalModifiers(scorer *ShortcutRef) *goalModifiers {
-	if scorer == nil {
-		return nil
-	}
-	var mods *goalModifiers
-
-	apply := func(name string) {
-		setter, ok := modifierStatfeedNames[name]
-		if !ok {
-			return
-		}
-		if mods == nil {
-			mods = &goalModifiers{}
-		}
-		setter(mods)
-	}
-
-	// FindWithin runs the predicate against every StatfeedEvent in the
-	// last 15-event window and returns the first match. We need to
-	// inspect ALL same-player statfeeds, not just one — so use Recent.
-	for _, p := range s.correlation.Recent("StatfeedEvent", 15) {
-		rec, ok := p.(*statfeedRecord)
-		if !ok {
-			continue
-		}
-		if rec.MainRef == nil {
-			continue
-		}
-		if !sameShortcutPlayer(rec.MainRef, scorer) {
-			continue
-		}
-		apply(rec.EventName)
-	}
-
-	return mods
-}
-
-// sameShortcutPlayer compares two shortcut refs for "same player". RL's
-// Shortcut is the per-match slot index (number); Name is the
-// human-readable form. Either match counts; both unset means no match.
-func sameShortcutPlayer(a, b *ShortcutRef) bool {
-	if a == nil || b == nil {
-		return false
-	}
-	if a.Shortcut != 0 && b.Shortcut != 0 && a.Shortcut == b.Shortcut {
-		return true
-	}
-	if a.Name != "" && b.Name != "" && a.Name == b.Name {
-		return true
-	}
-	return false
-}

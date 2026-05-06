@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"sync"
 )
 
 // OwnGoalEmitter detects own goals via the score-delta heuristic and
@@ -13,28 +14,64 @@ import (
 // so a forfeit or mercy-rule score-up doesn't false-positive.
 //
 // Reads tick state from TickStore (prev/latest team scores) and the
-// most recent ball-touch from the shared CorrelationBuffer. Both are
-// owned by their respective producers (TickStore observes
-// UpdateState, BallHitEmitter records to correlation), so this
-// emitter holds no per-match state of its own.
+// most recent ball-touch from the shared CorrelationBuffer.
 //
-// Per the design spec, emit_own_goal will eventually own
-// `realGoalsByID` (incremented on every non-own-goal score) and
-// expose RealGoals(playerID) for emit_statfeed's hat-trick
-// suppression. That coupling lands when emit_goal extracts; until
-// then the legacy synthesizer keeps the counter and OwnGoalEmitter
-// confines itself to score-delta detection.
+// Per the design spec, OwnGoalEmitter also owns the per-player
+// honest-goal counter (realGoalsByID) — bumped by GoalEmitter on
+// every non-own-goal score, read by StatfeedEmitter for HatTrick
+// suppression. The counter lives here (rather than at GoalEmitter)
+// because "is this a real goal?" is the own-goal detector's
+// authoritative question.
 type OwnGoalEmitter struct {
 	matchState  *MatchState
 	ticks       *TickStore
 	correlation *CorrelationBuffer
+
+	realGoalsMu   sync.Mutex
+	realGoalsByID map[string]int
 }
 
 func NewOwnGoalEmitter(ms *MatchState, ticks *TickStore, correlation *CorrelationBuffer) *OwnGoalEmitter {
-	return &OwnGoalEmitter{matchState: ms, ticks: ticks, correlation: correlation}
+	return &OwnGoalEmitter{
+		matchState:    ms,
+		ticks:         ticks,
+		correlation:   correlation,
+		realGoalsByID: make(map[string]int),
+	}
+}
+
+// RealGoals returns the per-match honest-goal count for `playerID`,
+// satisfying the realGoalsLookup interface StatfeedEmitter consumes
+// for HatTrick suppression.
+func (e *OwnGoalEmitter) RealGoals(playerID string) int {
+	if playerID == "" {
+		return 0
+	}
+	e.realGoalsMu.Lock()
+	defer e.realGoalsMu.Unlock()
+	return e.realGoalsByID[playerID]
+}
+
+// BumpRealGoals increments the per-player honest-goal counter. Called
+// by GoalEmitter on every non-own-goal score.
+func (e *OwnGoalEmitter) BumpRealGoals(playerID string) {
+	if playerID == "" {
+		return
+	}
+	e.realGoalsMu.Lock()
+	defer e.realGoalsMu.Unlock()
+	e.realGoalsByID[playerID]++
 }
 
 func (e *OwnGoalEmitter) Process(evt Event) []Event {
+	if evt.Name == "MatchCreated" || evt.Name == "MatchDestroyed" {
+		e.realGoalsMu.Lock()
+		for k := range e.realGoalsByID {
+			delete(e.realGoalsByID, k)
+		}
+		e.realGoalsMu.Unlock()
+		return nil
+	}
 	if evt.Name != "UpdateState" {
 		return nil
 	}

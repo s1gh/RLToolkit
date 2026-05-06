@@ -16,6 +16,14 @@ type ballHitRecord struct {
 	PostHitSpeed *float64
 }
 
+// goalRecord is the slim correlation-buffer entry for _GoalScored —
+// just the bits OwnGoal / Assist need to relate themselves to a goal.
+type goalRecord struct {
+	Scorer        *EnrichedPlayer
+	ScoringTeam   int
+	ConcedingTeam int
+}
+
 // statfeedRecord is what the correlation buffer holds for each
 // StatfeedEvent. Only the fields _GoalScored / Phase-3 emitters look
 // at are kept — small footprint per entry.
