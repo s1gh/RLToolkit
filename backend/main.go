@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -124,6 +125,18 @@ func runServe() {
 	pipe.AddEmit(NewFastestShotEmitter())
 	pipe.AddEmit(NewFirstBloodEmitter())
 
+	identity, err := NewIdentityStore(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("[server] %v", err)
+	}
+	identity.Notify = func(id *Identity) {
+		body, err := json.Marshal(id)
+		if err != nil {
+			return
+		}
+		bus.Broadcast(Event{Name: "_IdentityChanged", Data: body})
+	}
+
 	overrides, err := NewOverridesStore(cfg.DataDir)
 	if err != nil {
 		log.Fatalf("[server] %v", err)
@@ -146,7 +159,7 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, demos: demos, overrides: overrides, discoveries: discoveries, config: cfg}
+	srv := &Server{bus: bus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, demos: demos, overrides: overrides, discoveries: discoveries, identity: identity, config: cfg}
 	go source.Run(ctx)
 	go pipe.Run(ctx, source, bus)
 	go matchState.Run(ctx)

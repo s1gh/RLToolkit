@@ -24,6 +24,7 @@ type Server struct {
 	demos       *DemosEmitter
 	overrides   *OverridesStore
 	discoveries *StatfeedDiscoveryStore
+	identity    *IdentityStore
 	config      Config
 }
 
@@ -39,6 +40,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/statfeed-discoveries", s.handleStatfeedDiscoveries)
 	mux.HandleFunc("/api/metrics", s.handleMetrics)
 	mux.HandleFunc("/api/boot-id", s.handleBootID)
+	mux.HandleFunc("/api/identity", s.handleIdentity)
 	mux.HandleFunc("/api/overlay/overrides", s.handleOverlayOverridesAll)
 	mux.HandleFunc("/api/overlay/overrides/", s.handleOverlayOverridesOne)
 	mux.HandleFunc("/overlay", s.handleOverlay)
@@ -609,4 +611,44 @@ func marshalOverridesChanged(data map[string]OverlayOverride) []byte {
 func (s *Server) handleBootID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"bootId":"` + BootID() + `"}`))
+}
+
+// handleIdentity exposes the persisted "who am I" identity. GET
+// returns the stored Identity (or null), PUT sets it and broadcasts
+// _IdentityChanged via the store's Notify hook, DELETE clears it.
+// Bot picker UIs in the dashboard write to this endpoint; the
+// resolver consults the store to stamp EnrichedPlayer.IsMe.
+func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
+	if s.identity == nil {
+		http.Error(w, "identity store unavailable", http.StatusInternalServerError)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, s.identity.Get())
+	case http.MethodPut:
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
+		if err != nil {
+			httpError(w, "read body", err, http.StatusInternalServerError)
+			return
+		}
+		var id Identity
+		if err := json.Unmarshal(body, &id); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.identity.Set(id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		if err := s.identity.Clear(); err != nil {
+			httpError(w, "clear identity", err, http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
 }
