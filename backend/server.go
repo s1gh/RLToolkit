@@ -268,6 +268,21 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if s.matchState != nil {
+		snap := s.matchState.Snapshot()
+		body, mErr := json.Marshal(snap)
+		if mErr == nil {
+			envelope, eErr := json.Marshal(struct {
+				Event string          `json:"Event"`
+				Data  json.RawMessage `json:"Data"`
+			}{Event: "_MatchState", Data: body})
+			if eErr == nil {
+				if !writeFrame(sseDataPrefix, envelope, sseRecordEnd) {
+					return
+				}
+			}
+		}
+	}
 	// Replay the cached roster so a plugin refreshing mid-match (or
 	// connecting after the most recent roster delta) sees the current
 	// player list immediately, without having to wait for the next
