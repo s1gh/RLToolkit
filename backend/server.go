@@ -269,6 +269,24 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Initial identity snapshot so the SDK doesn't need a separate GET
+	// /api/identity round-trip on boot. The local identity cache hydrates
+	// from this echo, so plugins reading RLT.me.id during ready() see
+	// the persisted value immediately. Same convention as _MatchState.
+	if s.identity != nil {
+		body, err := json.Marshal(s.identity.Get())
+		if err == nil {
+			envelope, err := json.Marshal(struct {
+				Event string          `json:"Event"`
+				Data  json.RawMessage `json:"Data"`
+			}{Event: "_IdentityChanged", Data: body})
+			if err == nil {
+				if !writeFrame(sseDataPrefix, envelope, sseRecordEnd) {
+					return
+				}
+			}
+		}
+	}
 	// Replay the cached roster so a plugin refreshing mid-match (or
 	// connecting after the most recent roster delta) sees the current
 	// player list immediately, without having to wait for the next
