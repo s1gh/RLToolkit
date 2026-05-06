@@ -82,6 +82,83 @@ func TestPipeline_RunsStateBeforeEmit(t *testing.T) {
 	}
 }
 
+// prefixEmit emits a single event named "<prefix>:<input>" for every
+// event whose name doesn't already start with this emitter's prefix —
+// the guard keeps the recursion finite when chained processors would
+// otherwise feed each other forever.
+type prefixEmit struct{ prefix string }
+
+func (p *prefixEmit) Process(evt Event) []Event {
+	if len(evt.Name) >= len(p.prefix) && evt.Name[:len(p.prefix)] == p.prefix {
+		return nil
+	}
+	return []Event{{Name: p.prefix + ":" + evt.Name}}
+}
+
+// TestPipeline_EmissionsFeedDownstreamEmitters verifies that a later
+// emitter sees the events produced by an earlier one. Order matters:
+// `first` emits "_one:<x>", `second` emits "_two:<x>". For source "A"
+// we expect:
+//
+//	A, _one:A, _two:A, _two:_one:A, _two:B, ...
+//
+// — because `first` runs on A, produces _one:A, then `second` runs on
+// both A (sibling) and _one:A (downstream of first's output).
+func TestPipeline_EmissionsFeedDownstreamEmitters(t *testing.T) {
+	src := &staticSource{events: []Event{{Name: "A"}}}
+	dst := &recordingBroadcaster{}
+	first := &prefixEmit{prefix: "_one"}
+	second := &prefixEmit{prefix: "_two"}
+
+	p := NewPipeline()
+	p.AddEmit(first)
+	p.AddEmit(second)
+	p.Run(context.Background(), src, dst)
+
+	got := dst.snapshot()
+	want := []string{"A", "_one:A", "_two:_one:A", "_two:A"}
+	if len(got) != len(want) {
+		t.Fatalf("broadcasts: got %d events (%v), want %d (%v)",
+			len(got), names(got), len(want), want)
+	}
+	for i, n := range want {
+		if got[i].Name != n {
+			t.Fatalf("broadcast[%d]: got %q, want %q (full: %v)",
+				i, got[i].Name, n, names(got))
+		}
+	}
+}
+
+// TestPipeline_EarlierEmittersDoNotSeeLaterEmissions guards the
+// strictly-forward feed rule: `first` must NOT see the event `second`
+// produced. If it did, the prefix-guard recursion would still
+// terminate but `first` would emit a "_one:_two:A".
+func TestPipeline_EarlierEmittersDoNotSeeLaterEmissions(t *testing.T) {
+	src := &staticSource{events: []Event{{Name: "A"}}}
+	dst := &recordingBroadcaster{}
+	first := &prefixEmit{prefix: "_one"}
+	second := &prefixEmit{prefix: "_two"}
+
+	p := NewPipeline()
+	p.AddEmit(first)
+	p.AddEmit(second)
+	p.Run(context.Background(), src, dst)
+
+	for _, evt := range dst.snapshot() {
+		if evt.Name == "_one:_two:A" {
+			t.Fatalf("earlier emitter saw later emission: %v", names(dst.snapshot()))
+		}
+	}
+}
+
+func names(evts []Event) []string {
+	out := make([]string, len(evts))
+	for i, e := range evts {
+		out[i] = e.Name
+	}
+	return out
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

@@ -70,9 +70,21 @@ func (p *Pipeline) AddEmit(ep EmitProcessor) { p.emit = append(p.emit, ep) }
 
 // Run drives the pipeline until the source channel closes or ctx is
 // canceled. Each event from src goes to every StateProcessor in order
-// (first phase), then to every EmitProcessor in order (second phase);
-// the original event followed by all synthetic emissions are broadcast
-// to dst in the order they were produced.
+// (first phase), then to every EmitProcessor in order (second phase).
+// The original event is broadcast first, followed by every synthetic
+// emission in the order it was produced.
+//
+// Emissions feed downstream emit processors. When emit processor N
+// returns an event, every later-registered emit processor (N+1, N+2,
+// …) also sees that event through its own Process call before the next
+// source event is handled. This lets dependent emitters consume
+// upstream emissions — e.g. FastestShotEmitter sees the _GoalScored
+// produced by GoalEmitter, as long as GoalEmitter is registered first.
+//
+// Earlier-registered emitters do NOT see emissions from later ones —
+// the feed is strictly forward, so registration order encodes the
+// dependency graph and there's no risk of cycles or unbounded
+// re-entry.
 func (p *Pipeline) Run(ctx context.Context, src Source, dst Broadcaster) {
 	ch := src.Events(ctx)
 	for {
@@ -87,11 +99,24 @@ func (p *Pipeline) Run(ctx context.Context, src Source, dst Broadcaster) {
 				sp.Observe(evt)
 			}
 			dst.Broadcast(evt)
-			for _, ep := range p.emit {
-				for _, out := range ep.Process(evt) {
-					dst.Broadcast(out)
-				}
-			}
+			p.runEmit(evt, 0, dst)
+		}
+	}
+}
+
+// runEmit feeds evt into every emit processor at index >= start, in
+// order. Each emission produced by processor i is broadcast and then
+// recursively fed into processors i+1..end before the next emission
+// from processor i is processed. This produces a strict pre-order
+// traversal: the source event's emissions show up in the order
+// (producer, producer's children, sibling, sibling's children, …) so
+// dependent emitters always see their inputs before their own turn
+// comes again.
+func (p *Pipeline) runEmit(evt Event, start int, dst Broadcaster) {
+	for i := start; i < len(p.emit); i++ {
+		for _, out := range p.emit[i].Process(evt) {
+			dst.Broadcast(out)
+			p.runEmit(out, i+1, dst)
 		}
 	}
 }
