@@ -145,11 +145,6 @@ func (t *LifecycleTracker) Feed(raw []byte) {
 	t.onEvent(event, status, data)
 }
 
-var updateStateMarkers = [][]byte{
-	[]byte(`"Event":"UpdateState"`),
-	[]byte(`"event":"updatestate"`),
-}
-
 func (t *LifecycleTracker) onUpdateState(raw []byte) {
 	t.lastTickMu.Lock()
 	t.lastTick = time.Now()
@@ -206,30 +201,6 @@ func (t *LifecycleTracker) onUpdateState(raw []byte) {
 			s.Phase = PhaseLive
 		}
 	})
-}
-
-// scanBReplay returns whether the UpdateState payload reports an active
-// goal replay. The bReplay flag lives inside the JSON-encoded Data
-// string, so quotes appear backslash-escaped in the raw envelope bytes
-// (e.g. `\"bReplay\":true`). Casing also varies (PascalCase vs
-// lowercase) by RL build. We check all four combinations; absence of
-// any true-marker is treated as false. This runs on every UpdateState
-// so it must stay allocation-free — four bytes.Contains over a ~1KB
-// payload is still sub-microsecond.
-var bReplayTrueMarkers = [][]byte{
-	[]byte(`\"bReplay\":true`),
-	[]byte(`\"breplay\":true`),
-	[]byte(`"bReplay":true`),
-	[]byte(`"breplay":true`),
-}
-
-func scanBReplay(raw []byte) bool {
-	for _, m := range bReplayTrueMarkers {
-		if bytes.Contains(raw, m) {
-			return true
-		}
-	}
-	return false
 }
 
 // onEvent is the lifecycle state machine for non-UpdateState events.
@@ -378,51 +349,3 @@ func (t *LifecycleTracker) checkTimeout() {
 	})
 }
 
-// extractMatchGUID pulls MatchGuid out of an UpdateState payload
-// without a full Unmarshal. The field lives inside the JSON-encoded
-// Data string, so quotes appear backslash-escaped in the raw envelope
-// bytes. Casing also varies (PascalCase vs lowercase) by RL build. We
-// try each marker in order and slice off whatever quote variant
-// (escaped or plain) ends the value.
-var matchGuidMarkers = [][]byte{
-	[]byte(`\"MatchGuid\":\"`),
-	[]byte(`\"matchguid\":\"`),
-	[]byte(`"MatchGuid":"`),
-	[]byte(`"matchguid":"`),
-}
-
-func extractMatchGUID(raw []byte) string {
-	for _, m := range matchGuidMarkers {
-		i := bytes.Index(raw, m)
-		if i < 0 {
-			continue
-		}
-		rest := raw[i+len(m):]
-		// Value ends at the next quote, which may be escaped (\") if
-		// we're inside a JSON-encoded string. Look for whichever
-		// terminator comes first.
-		end := bytes.IndexByte(rest, '"')
-		if esc := bytes.Index(rest, []byte(`\"`)); esc >= 0 && (end < 0 || esc < end) {
-			end = esc
-		}
-		if end < 0 {
-			return ""
-		}
-		return string(rest[:end])
-	}
-	return ""
-}
-
-// guidFromData reads MatchGuid from a typed event's Data payload. RL
-// ships Data as a JSON-encoded *string* containing JSON, hence the
-// double decode.
-func guidFromData(data json.RawMessage) string {
-	if len(data) == 0 {
-		return ""
-	}
-	var inner string
-	if err := json.Unmarshal(data, &inner); err != nil {
-		return ""
-	}
-	return extractMatchGUID([]byte(inner))
-}
