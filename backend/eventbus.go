@@ -120,8 +120,10 @@ func (b *EventBus) removeLocked(s *subscriber) {
 var framingSignals = map[string]struct{}{
 	"_ConnectionStatus":      {},
 	"_Lifecycle":             {},
+	"_MatchState":            {},
 	"_RosterChanged":         {},
 	"_LifecyclePhaseChanged": {},
+	"_IdentityChanged":       {},
 }
 
 func isFramingSignal(eventName string) bool {
