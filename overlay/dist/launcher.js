@@ -20,6 +20,14 @@ const rlAddrInput = document.getElementById("rl-addr");
 
 let lastConnected = false;
 let suppressReloadUntil = 0;
+let disconnectMisses = 0;
+const DISCONNECT_DEBOUNCE = 2; // consecutive failed polls before showing disconnected
+// The Go RL client cycles its TCP connection every rlIdleTimeout (30s) when
+// RL is idle, so rl_api briefly drops to "connecting"/"disconnected" during
+// the ~0.5–5s reconnect window. Hold the last "connected" verdict across a
+// few polls so the badge doesn't flap on every idle cycle.
+let rlApiMisses = 0;
+const RL_API_DEBOUNCE = 3;
 
 async function refreshStatus() {
   let s;
@@ -28,10 +36,26 @@ async function refreshStatus() {
   } catch (_) {
     return;
   }
+
   if (!s.connected) {
+    disconnectMisses++;
+  } else {
+    disconnectMisses = 0;
+  }
+
+  const displayConnected = s.connected || disconnectMisses < DISCONNECT_DEBOUNCE;
+
+  if (s.rl_api === "connected") {
+    rlApiMisses = 0;
+  } else {
+    rlApiMisses++;
+  }
+  const rlApiConnected = s.rl_api === "connected" || rlApiMisses < RL_API_DEBOUNCE;
+
+  if (!displayConnected) {
     conn.dataset.status = s.starting ? "connecting" : "disconnected";
     conn.textContent = s.starting ? "connecting…" : "disconnected";
-  } else if (s.rl_api === "connected") {
+  } else if (rlApiConnected) {
     conn.dataset.status = "connected";
     conn.textContent = "connected";
   } else {
