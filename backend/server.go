@@ -20,6 +20,7 @@ type Server struct {
 	plugins     *PluginManager
 	client      *RLClient
 	lifecycle   *LifecycleTracker
+	matchState  *MatchState
 	roster      *RosterTracker
 	synth       *Synthesizer
 	overrides   *OverridesStore
@@ -36,6 +37,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/api/events", s.handleEventCatalog)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/lifecycle", s.handleLifecycle)
+	mux.HandleFunc("/api/match-state", s.handleMatchState)
 	mux.HandleFunc("/api/statfeed-discoveries", s.handleStatfeedDiscoveries)
 	mux.HandleFunc("/api/metrics", s.handleMetrics)
 	mux.HandleFunc("/api/boot-id", s.handleBootID)
@@ -413,6 +415,16 @@ func (s *Server) handleLifecycle(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, s.lifecycle.Snapshot())
+}
+
+// handleMatchState returns the current authoritative MatchState
+// snapshot. Replaces /api/lifecycle when Stage 3 finalizes.
+func (s *Server) handleMatchState(w http.ResponseWriter, _ *http.Request) {
+	if s.matchState == nil {
+		writeJSON(w, MatchStateSnapshot{Phase: PhasePhaseNone, PreviousPhase: PhasePhaseNone, Since: time.Now(), Trigger: "initial"})
+		return
+	}
+	writeJSON(w, s.matchState.Snapshot())
 }
 
 // handleStatfeedDiscoveries serves the persistent registry of unknown
