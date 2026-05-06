@@ -25,13 +25,15 @@ type ShortcutRef struct {
 // server-side so every subscriber gets the same enrichment regardless of
 // mode (hosted bus or direct SSE).
 type EnrichedPlayer struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Team      int    `json:"team"`
-	Platform  string `json:"platform,omitempty"`
-	IsBot     bool   `json:"isBot"`
-	IsMe      bool   `json:"isMe,omitempty"`      // populated by SDK; backend leaves false
-	Encounter *any   `json:"encounter,omitempty"` // populated by SDK; backend leaves nil
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Team     int    `json:"team"`
+	Platform string `json:"platform,omitempty"`
+	IsBot    bool   `json:"isBot"`
+	IsMe     bool   `json:"isMe,omitempty"` // backend stamps via IdentityStore; SDK keeps client-side fallback
+	// Encounter (per-user "have I seen this player before?") is the
+	// SDK's concern — it has the persistence layer for the ledger.
+	// The backend doesn't try to populate it.
 }
 
 // RosterSnapshot returns the most recent roster seen by the tracker.
