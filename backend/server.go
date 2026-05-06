@@ -419,9 +419,9 @@ func (s *Server) handleMatchState(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleStatfeedDiscoveries serves the persistent registry of unknown
-// Statfeed event names so the debug plugin / curl users can browse
-// what RL has emitted that isn't in the verified registry yet. Empty
-// list when the synthesizer wasn't started with a discovery store.
+// Statfeed event names so curl users can browse what RL has emitted
+// that isn't in the verified registry yet. Empty list when the
+// synthesizer wasn't started with a discovery store.
 func (s *Server) handleStatfeedDiscoveries(w http.ResponseWriter, _ *http.Request) {
 	if s.discoveries == nil {
 		writeJSON(w, []*StatfeedDiscovery{})
