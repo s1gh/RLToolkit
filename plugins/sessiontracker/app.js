@@ -31,7 +31,13 @@
   // Per-match accumulators (reset on each new match).
   let perMatch = newPerMatch();
   function newPerMatch() {
-    return { highlights: [], liveDurationSec: 0, lastPhaseTs: null };
+    return {
+      highlights: [],
+      liveDurationSec: 0,
+      myStats: { goals: 0, assists: 0, saves: 0, shots: 0, demos: 0, score: 0 },
+      myTeam: null,
+      mvp: false,
+    };
   }
 
   // In-memory cache of the bucket. All writes go through scheduleSave().
@@ -44,6 +50,13 @@
       saveTimer = null;
       RLT.store.set(STORE_KEY, bucket);
     }, 50);
+  }
+
+  function snapshotMyTeam() {
+    const me = RLT.match.current && RLT.match.current.me;
+    if (me && (me.team === 0 || me.team === 1)) {
+      perMatch.myTeam = me.team;
+    }
   }
 
   // Resolve current bootId from SSE frame or HTTP fallback.
@@ -114,14 +127,20 @@
     },
 
     events: {
-      _LifecyclePhaseChanged(p) {
+      _MatchState(p) {
+        // Snapshot myTeam whenever match.current is fresh.
+        snapshotMyTeam();
         // Accumulate live-phase duration for the current match.
-        if (p.from === 'live' && typeof p.phaseDurationSeconds === 'number') {
+        // _MatchState fires on every transition; previousPhase ===
+        // phase only on the connect-time initial snapshot, where
+        // phaseDurationSeconds is 0 and the math is a no-op.
+        if (p.previousPhase === 'live' && typeof p.phaseDurationSeconds === 'number') {
           perMatch.liveDurationSec += p.phaseDurationSeconds;
         }
-        // Reset per-match accumulators when leaving 'podium' or hitting
-        // 'lobby' (start of a fresh match).
-        if (p.to === 'lobby' || p.to === 'none') {
+        // Reset per-match accumulators on the start of a fresh
+        // match (lobby) or when the toolkit drops out of any match
+        // (none — MatchDestroyed / connection lost / watchdog).
+        if (p.phase === 'lobby' || p.phase === 'none') {
           perMatch = newPerMatch();
         }
       },
@@ -179,11 +198,22 @@
         }
       },
 
+      _Statfeed(p) {
+        // MVP rides through statfeed and arrives at podium time —
+        // earlier than the old _MatchSummary settle window. Use it
+        // both for the per-match flag and for the highlight list.
+        if (p.eventName === 'MVP' && p.mainTarget && p.mainTarget.isMe) {
+          perMatch.mvp = true;
+          perMatch.highlights.push('mvp');
+        }
+      },
+
       _PlayerDemolished(p) {
         if (!bucket) return;
         if (p.attacker && p.attacker.isMe) {
           bucket.totals.demosGiven++;
           bucket.totals.demos++;
+          perMatch.myStats.demos++;
         }
         if (p.victim && p.victim.isMe) bucket.totals.demosReceived++;
         scheduleSave();
@@ -198,40 +228,29 @@
 
       _PlayerScoreChanged(p) {
         if (!p.player || !p.player.isMe || !bucket) return;
+        snapshotMyTeam();
         const d = p.delta || {};
         const t = bucket.totals;
-        if (typeof d.goals   === 'number') t.goals   += d.goals;
-        if (typeof d.assists === 'number') t.assists += d.assists;
-        if (typeof d.saves   === 'number') t.saves   += d.saves;
-        if (typeof d.shots   === 'number') t.shots   += d.shots;
+        const ms = perMatch.myStats;
+        if (typeof d.goals   === 'number') { t.goals   += d.goals;   ms.goals   += d.goals; }
+        if (typeof d.assists === 'number') { t.assists += d.assists; ms.assists += d.assists; }
+        if (typeof d.saves   === 'number') { t.saves   += d.saves;   ms.saves   += d.saves; }
+        if (typeof d.shots   === 'number') { t.shots   += d.shots;   ms.shots   += d.shots; }
+        if (typeof d.score   === 'number') { ms.score  += d.score; }
         scheduleSave();
         if (window._sessionTrackerRender) window._sessionTrackerRender();
       },
 
-      _MatchSummary(p) {
+      _MatchEnded(p) {
         if (!bucket) return;
+        snapshotMyTeam();
         const view = RLT.match.current || { arena: '', raw: {} };
-        // Prefer the team carried on _MatchSummary.players[].player — by
-        // the time _MatchSummary fires (post-MatchEnded, settle-window),
-        // RLT.match.current.me may be null because UpdateState stopped.
-        // Fall back to view.me, then to RLT.me.id matched against the
-        // payload's player list.
-        let myTeam = null;
-        const fromSummary = (p.players || []).find((e) => e.player && e.player.isMe);
-        if (fromSummary && (fromSummary.player.team === 0 || fromSummary.player.team === 1)) {
-          myTeam = fromSummary.player.team;
-        } else if (view.me && (view.me.team === 0 || view.me.team === 1)) {
-          myTeam = view.me.team;
-        } else if (RLT.me && RLT.me.id) {
-          const byId = (p.players || []).find((e) => e.player && e.player.id === RLT.me.id);
-          if (byId && (byId.player.team === 0 || byId.player.team === 1)) {
-            myTeam = byId.player.team;
-          }
-        }
         const rec = window.SessionTrackerState.buildMatchRecord({
-          summary: p,
-          matchView: view,
-          myTeam,
+          matchEnded: p,
+          matchView:  view,
+          myTeam:     perMatch.myTeam,
+          myStats:    perMatch.myStats,
+          mvp:        perMatch.mvp,
           accum: {
             durationSec: perMatch.liveDurationSec,
             highlights:  perMatch.highlights,
@@ -239,9 +258,9 @@
           },
         });
         if (!rec) {
-          // Couldn't determine my team from this match's payload (no
-          // claimed identity, or roster cleared before settle). Show a
-          // one-time toast hinting at the most likely cause.
+          // Couldn't determine my team this match (no claimed
+          // identity, or roster never resolved). Show a one-time
+          // toast hinting at the most likely cause.
           if (!window._sessionTrackerNagged) {
             window._sessionTrackerNagged = true;
             if (RLT.ui && RLT.ui.toast) {

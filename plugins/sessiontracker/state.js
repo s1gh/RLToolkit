@@ -64,31 +64,30 @@
     return t;
   }
 
-  function buildMatchRecord({ summary, matchView, myTeam, accum }) {
+  function buildMatchRecord({ matchEnded, matchView, myTeam, myStats, mvp, accum }) {
     if (myTeam !== 0 && myTeam !== 1) return null;
-    const myEntry = (summary.players || []).find((e) => e.player && e.player.isMe);
-    const myStats = myEntry
-      ? {
-          goals:   myEntry.goals   || 0,
-          assists: myEntry.assists || 0,
-          saves:   myEntry.saves   || 0,
-          shots:   myEntry.shots   || 0,
-          demos:   myEntry.demos   || 0,
-          score:   myEntry.score   || 0,
-        }
-      : { goals: 0, assists: 0, saves: 0, shots: 0, demos: 0, score: 0 };
-    const result = summary.winnerTeamNum === myTeam ? 'win' : 'loss';
-    const scoreFor     = myTeam === 0 ? (summary.scoreBlue   || 0) : (summary.scoreOrange || 0);
-    const scoreAgainst = myTeam === 0 ? (summary.scoreOrange || 0) : (summary.scoreBlue   || 0);
+    const winner = (typeof matchEnded.winnerTeamNum === 'number') ? matchEnded.winnerTeamNum : null;
+    const result = winner === myTeam ? 'win' : 'loss';
+    const blue   = matchEnded.scoreBlue   || 0;
+    const orange = matchEnded.scoreOrange || 0;
+    const scoreFor     = myTeam === 0 ? blue   : orange;
+    const scoreAgainst = myTeam === 0 ? orange : blue;
     return {
       endedAt:      accum.endedAt,
       result,
       scoreFor, scoreAgainst,
       durationSec:  accum.durationSec || 0,
-      arena:        matchView.arena || '',
-      playlist:     extractPlaylist(matchView.raw) || null,
-      mvp:          !!(summary.mvp && summary.mvp.isMe),
-      myStats,
+      arena:        (matchView && matchView.arena) || '',
+      playlist:     extractPlaylist(matchView && matchView.raw) || null,
+      mvp:          !!mvp,
+      myStats: {
+        goals:   (myStats && myStats.goals)   || 0,
+        assists: (myStats && myStats.assists) || 0,
+        saves:   (myStats && myStats.saves)   || 0,
+        shots:   (myStats && myStats.shots)   || 0,
+        demos:   (myStats && myStats.demos)   || 0,
+        score:   (myStats && myStats.score)   || 0,
+      },
       highlights:   (accum.highlights || []).slice(),
     };
   }

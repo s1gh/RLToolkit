@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hello World</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <script src="/sdk.js" data-plugin="hello-world"></script>
+    <script>
+      RLT.plugin.register({
+        whilePhase: ["live", "replay", "countdown", "paused"],
+
+        events: {
+          _GoalScored(p) {
+            console.log("goal scored!", p);
+            console.log(p.modifiers);
+          },
+          RoundStarted(d) {
+            console.log("round started!", d);
+          },
+        },
+      });
+    </script>
+  </head>
+  <body>
+    <h1>Hello World</h1>
+  </body>
+</html>

@@ -79,22 +79,19 @@ test('recomputeTotals: 2W 1L with stats sums correctly', () => {
 });
 
 test('buildMatchRecord: win for blue team, with my stats', () => {
-  const summary = {
-    Event: '_MatchSummary',
+  const matchEnded = {
     matchGuid: 'g1',
     winnerTeamNum: 0,
     scoreBlue: 4,
     scoreOrange: 2,
-    mvp: { id: 'me', isMe: true },
-    players: [
-      { player: { id: 'me', isMe: true, team: 0 }, score: 540, goals: 2, assists: 1, saves: 0, shots: 3, demos: 1 },
-      { player: { id: 'x',  isMe: false, team: 0 }, score: 200, goals: 1, assists: 0, saves: 1, shots: 1, demos: 0 },
-    ],
   };
   const matchView = { arena: 'Mannfield', raw: {} };
+  const myStats   = { goals: 2, assists: 1, saves: 0, shots: 3, demos: 1, score: 540 };
   const accum = { durationSec: 300, highlights: ['firstBlood'], endedAt: '2026-05-05T18:12:34Z' };
 
-  const rec = State.buildMatchRecord({ summary, matchView, myTeam: 0, accum });
+  const rec = State.buildMatchRecord({
+    matchEnded, matchView, myTeam: 0, myStats, mvp: true, accum,
+  });
   assert.equal(rec.result, 'win');
   assert.equal(rec.scoreFor, 4);
   assert.equal(rec.scoreAgainst, 2);
@@ -107,13 +104,11 @@ test('buildMatchRecord: win for blue team, with my stats', () => {
 });
 
 test('buildMatchRecord: loss when winner is the other team', () => {
-  const summary = {
-    Event: '_MatchSummary',
-    winnerTeamNum: 1, scoreBlue: 1, scoreOrange: 3, mvp: null,
-    players: [{ player: { id: 'me', isMe: true, team: 0 }, score: 100, goals: 0, assists: 0, saves: 1, shots: 1, demos: 0 }],
-  };
+  const matchEnded = { winnerTeamNum: 1, scoreBlue: 1, scoreOrange: 3 };
+  const myStats    = { goals: 0, assists: 0, saves: 1, shots: 1, demos: 0, score: 100 };
   const rec = State.buildMatchRecord({
-    summary, matchView: { arena: 'DFH', raw: {} }, myTeam: 0,
+    matchEnded, matchView: { arena: 'DFH', raw: {} }, myTeam: 0,
+    myStats, mvp: false,
     accum: { durationSec: 280, highlights: [], endedAt: 't' },
   });
   assert.equal(rec.result, 'loss');
@@ -123,9 +118,10 @@ test('buildMatchRecord: loss when winner is the other team', () => {
 });
 
 test('buildMatchRecord: returns null if myTeam is null', () => {
-  const summary = { winnerTeamNum: 0, scoreBlue: 1, scoreOrange: 0, players: [] };
+  const matchEnded = { winnerTeamNum: 0, scoreBlue: 1, scoreOrange: 0 };
   const rec = State.buildMatchRecord({
-    summary, matchView: { arena: '', raw: {} }, myTeam: null,
+    matchEnded, matchView: { arena: '', raw: {} }, myTeam: null,
+    myStats: {}, mvp: false,
     accum: { durationSec: 0, highlights: [], endedAt: '' },
   });
   assert.equal(rec, null);

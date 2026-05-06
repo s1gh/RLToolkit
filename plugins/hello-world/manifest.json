@@ -1,0 +1,13 @@
+{
+  "name": "hello-world",
+  "title": "Hello World",
+  "version": "0.1.0",
+  "author": "rl-toolkit",
+  "description": "Says hi when someone scores.",
+  "overlay": {
+    "file": "overlay.html",
+    "width": 320,
+    "height": 80,
+    "anchor": "top-right"
+  }
+}
