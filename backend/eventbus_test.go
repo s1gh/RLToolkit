@@ -139,10 +139,16 @@ func TestFixtureReplay_BasicMatch(t *testing.T) {
 	// The exact count depends on the fixture, but we can sanity-check
 	// ordering and presence.
 	var matchStateCount, rosterCount int
+	var phases []string
 	for _, ev := range got {
 		switch ev["Event"] {
 		case "_MatchState":
 			matchStateCount++
+			data, _ := ev["Data"].(map[string]interface{})
+			phase, _ := data["phase"].(string)
+			if len(phases) == 0 || phases[len(phases)-1] != phase {
+				phases = append(phases, phase)
+			}
 		case "_RosterChanged":
 			rosterCount++
 		}
@@ -153,5 +159,19 @@ func TestFixtureReplay_BasicMatch(t *testing.T) {
 	}
 	if rosterCount == 0 {
 		t.Error("expected at least one _RosterChanged event")
+	}
+
+	// Phase progression check: the fixture drives the match through the
+	// canonical lifecycle. Verify the prefix of observed phase
+	// transitions matches the expected sequence so regressions in the
+	// state machine surface here.
+	wantPhases := []string{"lobby", "countdown", "live"}
+	if len(phases) < len(wantPhases) {
+		t.Fatalf("expected at least phases %v, got %v", wantPhases, phases)
+	}
+	for i, want := range wantPhases {
+		if phases[i] != want {
+			t.Errorf("phase[%d] = %q, want %q (full sequence: %v)", i, phases[i], want, phases)
+		}
 	}
 }
