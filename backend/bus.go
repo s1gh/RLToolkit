@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// EventBus fans out raw RL messages to all SSE subscribers.
+// Bus fans out raw RL messages to all SSE subscribers.
 //
-// Critical guarantee: Publish never blocks. If a subscriber can't keep up
+// Critical guarantee: Broadcast never blocks. If a subscriber can't keep up
 // they're immediately evicted (channel closed, removed from bus). Blocking
 // here would back up the upstream readLoop, fill RL's TCP send buffer, and
 // — on Linux/Proton — freeze RL's main game thread inside send(). Drops
@@ -23,36 +23,36 @@ type subscriber struct {
 	// (no plugin would set that, but the distinction matters for
 	// correctness). Synthetic events (those starting with "_") are
 	// always delivered regardless of filter — _ConnectionStatus and
-	// _Lifecycle are framing signals every subscriber needs.
+	// _MatchState are framing signals every subscriber needs.
 	events map[string]struct{}
 }
 
-type EventBus struct {
+type Bus struct {
 	mu      sync.RWMutex
 	subs    map[*subscriber]struct{}
 	metrics *busMetrics
 
-	// publishMu serializes calls to Publish. Cheap (held only for the
+	// publishMu serializes calls to Broadcast. Cheap (held only for the
 	// scratch snapshot, not for per-subscriber sends) and lets HTTP
 	// handlers publish synthetic events alongside the RL dispatcher
 	// goroutine — used by /api/overlay/overrides to push reflow events.
 	publishMu sync.Mutex
 
-	// scratch is reused by Publish to snapshot subscribers without
+	// scratch is reused by Broadcast to snapshot subscribers without
 	// allocating per call. Guarded by publishMu — concurrent publishers
 	// would otherwise race on the slice append.
 	scratch []*subscriber
 }
 
-func NewEventBus() *EventBus {
-	return &EventBus{
+func NewBus() *Bus {
+	return &Bus{
 		subs:    make(map[*subscriber]struct{}),
 		metrics: newBusMetrics(),
 	}
 }
 
 // Subscribers returns the current subscriber count. Cheap; uses the read lock.
-func (b *EventBus) Subscribers() int {
+func (b *Bus) Subscribers() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return len(b.subs)
@@ -60,7 +60,7 @@ func (b *EventBus) Subscribers() int {
 
 // Metrics exposes the bus's instrumentation snapshot. Read-only; safe
 // for concurrent use.
-func (b *EventBus) Metrics() metricsSnapshot {
+func (b *Bus) Metrics() metricsSnapshot {
 	return b.metrics.snapshot(b.Subscribers())
 }
 
@@ -70,9 +70,9 @@ func (b *EventBus) Metrics() metricsSnapshot {
 //
 // events optionally filters which RL events the subscriber wants to
 // receive. nil means "all events". Synthetic events with a "_" prefix
-// (e.g. _ConnectionStatus, _Lifecycle) are always delivered — they're
+// (e.g. _ConnectionStatus, _MatchState) are always delivered — they're
 // framing signals the SDK relies on regardless of plugin opt-in.
-func (b *EventBus) Subscribe(events map[string]struct{}) (<-chan []byte, func()) {
+func (b *Bus) Subscribe(events map[string]struct{}) (<-chan []byte, func()) {
 	s := &subscriber{
 		ch:     make(chan []byte, subscriberBufSize),
 		closed: make(chan struct{}),
@@ -94,8 +94,8 @@ func (b *EventBus) Subscribe(events map[string]struct{}) (<-chan []byte, func())
 
 // removeLocked detaches a subscriber from the bus. Caller must hold b.mu.
 // The existence check makes it safe to call from both Subscribe's cancel
-// and Publish's slow-eviction path without double-closing channels.
-func (b *EventBus) removeLocked(s *subscriber) {
+// and Broadcast's slow-eviction path without double-closing channels.
+func (b *Bus) removeLocked(s *subscriber) {
 	if _, ok := b.subs[s]; !ok {
 		return
 	}
@@ -104,13 +104,6 @@ func (b *EventBus) removeLocked(s *subscriber) {
 	close(s.ch)
 }
 
-// Publish delivers data to every subscriber. Slow subscribers (whose buffer
-// is full) are evicted from the bus — keeping a stuck SSE client around
-// would block the read loop and eventually freeze the upstream connection.
-//
-// Subscribers with an event filter only receive matching events. The
-// event name is extracted once per Publish via substring scan so the
-// 60-120Hz hot path stays JSON-decode-free.
 // framingSignals lists synthetic event names that bypass the per-subscriber
 // filter. Every subscriber needs these regardless of the ?events= filter
 // — they're status/lifecycle signals the SDK uses for its own bookkeeping
@@ -129,18 +122,36 @@ func isFramingSignal(eventName string) bool {
 	return ok
 }
 
-// PublishSynthetic emits a _-prefixed synthetic event with a consistent
-// envelope shape. This is the only path synthetic emitters should use.
-func (b *EventBus) PublishSynthetic(name string, data interface{}) {
-	envelope := map[string]interface{}{"Event": name, "Data": data}
-	raw, err := json.Marshal(envelope)
+// Broadcast delivers an Event to every subscriber. Slow subscribers
+// (whose buffer is full) are evicted from the bus — keeping a stuck SSE
+// client around would block the read loop and eventually freeze the
+// upstream connection.
+//
+// Subscribers with an event filter only receive matching events. The
+// event name is extracted once per Broadcast so the 60-120Hz hot path
+// stays JSON-decode-free.
+//
+// Wire shape: when evt.Raw is non-nil (the event arrived over the RL
+// socket or a processor passed through bytes it already had), we ship
+// Raw verbatim. Otherwise we synthesize an envelope from evt.Name +
+// evt.Data so synthetic emissions from processors don't have to
+// pre-marshal their own framing.
+func (b *Bus) Broadcast(evt Event) {
+	if evt.Raw != nil {
+		b.broadcastRaw(evt.Raw)
+		return
+	}
+	envelope, err := json.Marshal(struct {
+		Event string          `json:"Event"`
+		Data  json.RawMessage `json:"Data"`
+	}{Event: evt.Name, Data: evt.Data})
 	if err != nil {
 		return
 	}
-	b.Publish(raw)
+	b.broadcastRaw(envelope)
 }
 
-func (b *EventBus) Publish(data []byte) {
+func (b *Bus) broadcastRaw(data []byte) {
 	start := time.Now()
 
 	// Extract the event name once, used per subscriber below.
@@ -150,7 +161,7 @@ func (b *EventBus) Publish(data []byte) {
 	// Other synthetic _-prefixed events (_StatfeedEvent, _GoalScored,
 	// _PlayerDemolished, etc.) are filterable like normal events: a
 	// plugin only receives them if it subscribed by name. Keeps wire
-	// traffic proportional to actual interest now that Phase 1-3 events
+	// traffic proportional to actual interest now that high-rate events
 	// are publishing on every tick of activity.
 	bypassFilter := isFramingSignal(eventName)
 
@@ -176,8 +187,8 @@ func (b *EventBus) Publish(data []byte) {
 	delivered, skipped := 0, 0
 	for _, s := range dst {
 		// Filter check — framing synthetics bypass to keep
-		// _ConnectionStatus / _Lifecycle / _RosterChanged /
-		// _LifecyclePhaseChanged reliable as universal signals.
+		// _ConnectionStatus / _MatchState / _RosterChanged /
+		// _IdentityChanged reliable as universal signals.
 		if !bypassFilter && s.events != nil {
 			if _, ok := s.events[eventName]; !ok {
 				skipped++

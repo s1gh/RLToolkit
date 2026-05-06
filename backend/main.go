@@ -17,13 +17,6 @@ import (
 	"time"
 )
 
-// busBroadcaster bridges the legacy *EventBus to the new Broadcaster
-// interface. Stage 4 collapses these by renaming Publish to Broadcast
-// on the bus itself.
-type busBroadcaster struct{ b *EventBus }
-
-func (s *busBroadcaster) Broadcast(evt Event) { s.b.Publish(evt.Raw) }
-
 func main() {
 	// Subcommand dispatch: anything that isn't `serve` (or empty) is a tool.
 	// `serve` is also the implicit default so a bare `rl-toolkit` keeps
@@ -80,14 +73,14 @@ func runServe() {
 		log.Fatalf("[server] %v", err)
 	}
 
-	bus := NewEventBus()
+	bus := NewBus()
 	pm := NewPluginManager(cfg.PluginDir)
 	client := NewRLClient(cfg.RLAddr, bus)
 	roster := NewRosterTracker(bus)
 	client.AttachRosterTracker(roster)
 	matchState := NewMatchState()
 	client.AttachMatchState(matchState)
-	matchState.AttachBroadcaster(&busBroadcaster{b: bus})
+	matchState.AttachBroadcaster(bus)
 	synth := NewSynthesizer(bus, roster)
 	synth.AttachMatchState(matchState)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
@@ -109,7 +102,7 @@ func runServe() {
 		// state, not necessarily the write that fired us. Latest-wins
 		// is the right semantics for live reflow.
 		if env := marshalOverridesChanged(overrides.GetAll()); env != nil {
-			bus.Publish(env)
+			bus.Broadcast(Event{Name: "_OverridesChanged", Raw: env})
 		}
 	}
 

@@ -11,11 +11,11 @@ import (
 	"time"
 )
 
-// Server wires HTTP handlers to the EventBus, DataStore, PluginManager,
+// Server wires HTTP handlers to the Bus, DataStore, PluginManager,
 // and RLClient. It owns no goroutines of its own; long-lived per-request
 // goroutines (notably handleSSE) listen on r.Context().
 type Server struct {
-	bus         *EventBus
+	bus         *Bus
 	store       *DataStore
 	plugins     *PluginManager
 	client      *RLClient

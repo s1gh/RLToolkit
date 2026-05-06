@@ -12,7 +12,7 @@ import (
 // called from the dispatcher after the roster tracker has digested the
 // envelope, so player resolution sees the up-to-date roster.
 type Synthesizer struct {
-	bus    *EventBus
+	bus    *Bus
 	roster *RosterTracker
 	// matchState is the unified gameplay-state machine. Consulted by
 	// emitters that should only fire during real gameplay (e.g. _OwnGoal
@@ -186,7 +186,7 @@ const matchSummaryEndedTimeout = 10 * time.Second
 // SetSummaryTimings to keep the suite fast.
 const matchSummaryPodiumSettle = 3 * time.Second
 
-func NewSynthesizer(bus *EventBus, roster *RosterTracker) *Synthesizer {
+func NewSynthesizer(bus *Bus, roster *RosterTracker) *Synthesizer {
 	return &Synthesizer{
 		bus:                 bus,
 		roster:              roster,
@@ -396,7 +396,7 @@ func (s *Synthesizer) maybeEmitKickoffConverted(guid, source string, player *Enr
 		SecondsAfterRoundStart: elapsed,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -633,7 +633,7 @@ func (s *Synthesizer) diffReplayEdge(prev, curr *tickSnapshot) {
 	out.Event = "_GoalReplayContext"
 	out.MatchGUID = curr.matchGUID
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -680,7 +680,7 @@ func (s *Synthesizer) diffOvertime(prev, curr *tickSnapshot) {
 		MatchDurationSecondsBeforeOT: matchDur,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -787,7 +787,7 @@ func (s *Synthesizer) emitPlayerJoined(guid string, p *tickPlayer) {
 		Phase:     s.currentPhaseString(),
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -814,7 +814,7 @@ func (s *Synthesizer) emitPlayerLeft(guid string, p *tickPlayer) {
 		Phase:     s.currentPhaseString(),
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -876,7 +876,7 @@ func (s *Synthesizer) emitPlayerScoreChangedIfDelta(guid string, prev, curr *tic
 		Delta:     delta,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -920,7 +920,7 @@ func (s *Synthesizer) emitBoostPickupIfRising(guid string, prev, curr *tickPlaye
 		Delta:       *curr.boost - *prev.boost,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -955,7 +955,7 @@ func (s *Synthesizer) diffTeamScores(prev, curr *tickSnapshot) {
 			Delta:     t.Score - old,
 		}
 		if b, err := json.Marshal(out); err == nil {
-			s.bus.Publish(b)
+			s.bus.Broadcast(Event{Raw: b})
 		}
 	}
 }
@@ -991,7 +991,7 @@ func (s *Synthesizer) diffBallPossession(prev, curr *tickSnapshot) {
 		TriggeredBy: s.recentTouch(3),
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -1070,7 +1070,7 @@ func (s *Synthesizer) detectOwnGoal(prev, curr []teamRef, guid string) {
 		if err != nil {
 			continue
 		}
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -1254,7 +1254,7 @@ func (s *Synthesizer) onStatfeedEvent(raw []byte) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 
 	// Phase-3 dedicated events. Each known Statfeed variant gets its
 	// own _-prefixed envelope with variant-specific fields (correlations,
@@ -1304,7 +1304,7 @@ func (s *Synthesizer) onStatfeedEvent(raw []byte) {
 			SecondsAfterMatchEnd: secondsAfter,
 		}
 		if b, err := json.Marshal(mvpOut); err == nil {
-			s.bus.Publish(b)
+			s.bus.Broadcast(Event{Raw: b})
 		}
 	}
 }
@@ -1360,7 +1360,7 @@ func (s *Synthesizer) emitUnknownStatfeed(eventName, guid string, main, secondar
 		SecondaryTarget: secondary,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 	if s.discoveries != nil {
 		s.discoveries.Record(eventName)
@@ -1385,7 +1385,7 @@ func (s *Synthesizer) emitSimple(eventName, guid string, main *EnrichedPlayer) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 }
 
 func (s *Synthesizer) emitFlipReset(guid string, main *EnrichedPlayer) {
@@ -1423,7 +1423,7 @@ func (s *Synthesizer) emitFlipReset(guid string, main *EnrichedPlayer) {
 		FlipResetsThisMatch: count,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -1470,7 +1470,7 @@ func (s *Synthesizer) emitPlayerDemolished(guid string, attacker, victim *Enrich
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 	s.demolishMu.Lock()
 	s.demolishLog = append(s.demolishLog, b)
 	s.demolishMu.Unlock()
@@ -1529,7 +1529,7 @@ func (s *Synthesizer) maybeEmitDemoChain(guid string, attacker, victim *Enriched
 		WindowSeconds: windowSeconds,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -1565,7 +1565,7 @@ func (s *Synthesizer) maybeEmitFastestShot(guid string, speed *float64, source s
 		Player:    player,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -1615,7 +1615,7 @@ func (s *Synthesizer) emitHatTrick(guid string, main *EnrichedPlayer) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 }
 
 // _Save / _EpicSave share their shape; differ only in event name. The
@@ -1659,7 +1659,7 @@ func (s *Synthesizer) emitSave(guid string, main *EnrichedPlayer, eventName stri
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 }
 
 // _Shot. We attempt to attach the same-frame BallHit (the touch that
@@ -1685,7 +1685,7 @@ func (s *Synthesizer) emitShot(guid string, main *EnrichedPlayer) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 }
 
 // _Assist. Look back for a same-frame _GoalScored — assists land on
@@ -1730,7 +1730,7 @@ func (s *Synthesizer) emitAssist(guid string, main *EnrichedPlayer) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 }
 
 // emitTouchVariant covers _Center, _Clear, _BicycleHit — same shape:
@@ -1756,7 +1756,7 @@ func (s *Synthesizer) emitTouchVariant(guid string, main *EnrichedPlayer, eventN
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 }
 
 // statfeedRecord is what the correlation buffer holds for each
@@ -1935,7 +1935,7 @@ func (s *Synthesizer) onBallHit(raw []byte) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 
 	// _FirstTouch — fires on the first BallHit after each RoundStarted.
 	s.maybeEmitFirstTouch(guid, resolved, out.PostHitSpeed, out.Location)
@@ -1979,7 +1979,7 @@ func (s *Synthesizer) maybeEmitFirstTouch(guid string, players []*EnrichedPlayer
 		TimeFromCountdownEndSeconds: elapsed,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -2102,7 +2102,7 @@ func (s *Synthesizer) onCrossbarHit(raw []byte) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 }
 
 func pickStr(a, b string) string {
@@ -2177,7 +2177,7 @@ func (s *Synthesizer) onMatchEnded(raw []byte) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 
 	// Begin the _MatchSummary settle window. We cache the current
 	// state (winner + final UpdateState snapshot) and start a 2s
@@ -2355,7 +2355,7 @@ func (s *Synthesizer) flushMatchSummary(trigger string) {
 		Trigger:       trigger,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 
@@ -2598,7 +2598,7 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(b)
+	s.bus.Broadcast(Event{Raw: b})
 
 	// _FirstBlood — first goal of the match.
 	s.maybeEmitFirstBlood(guid, scorer, scoringTeam, concedingTeam)
@@ -2642,7 +2642,7 @@ func (s *Synthesizer) maybeEmitFirstBlood(guid string, scorer *EnrichedPlayer, s
 		SecondsIntoMatch: secondsIn,
 	}
 	if b, err := json.Marshal(out); err == nil {
-		s.bus.Publish(b)
+		s.bus.Broadcast(Event{Raw: b})
 	}
 }
 

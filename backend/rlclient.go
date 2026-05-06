@@ -36,7 +36,7 @@ func newStatusEvent(s RLStatus) []byte {
 }
 
 // RLClient connects to Rocket League's Stats API over TCP, decodes the
-// stream of JSON packets, and feeds them into the EventBus via a small
+// stream of JSON packets, and feeds them into the Bus via a small
 // outbox channel.
 //
 // The TCP read loop never blocks on the bus: it pushes onto outbox and
@@ -47,9 +47,9 @@ func newStatusEvent(s RLStatus) []byte {
 // on send() into our full receive buffer).
 type RLClient struct {
 	addr string
-	bus  *EventBus
+	bus  *Bus
 
-	// roster, if set, is fed every packet before bus.Publish so it can
+	// roster, if set, is fed every packet before bus.Broadcast so it can
 	// emit synthetic _RosterChanged events when the player list moves.
 	// Feed runs before Publish so subscribers see the synthetic event
 	// after the raw event that triggered the update.
@@ -95,7 +95,7 @@ type RLClient struct {
 	selfReconnect bool
 }
 
-func NewRLClient(addr string, bus *EventBus) *RLClient {
+func NewRLClient(addr string, bus *Bus) *RLClient {
 	return &RLClient{
 		addr:    addr,
 		bus:     bus,
@@ -172,7 +172,7 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 			matchStateEvt = Event{Name: name, Data: data, Raw: msg}
 			c.matchState.Observe(matchStateEvt)
 		}
-		c.bus.Publish(msg)
+		c.bus.Broadcast(Event{Raw: msg})
 		// MatchState's Process runs after the raw event lands on the bus
 		// so the legacy ordering (raw event, then synthetic) is preserved
 		// for _MatchState too. Wraps the typed Event into the wire-shaped
@@ -184,7 +184,7 @@ func (c *RLClient) dispatcher(ctx context.Context) {
 					Data  json.RawMessage `json:"Data"`
 				}{Event: out.Name, Data: out.Data})
 				if err == nil {
-					c.bus.Publish(envelope)
+					c.bus.Broadcast(Event{Name: out.Name, Raw: envelope})
 				}
 			}
 		}

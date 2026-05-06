@@ -49,7 +49,7 @@ func drainRoster(t *testing.T, ch <-chan []byte) []rosterEvent {
 }
 
 func TestRosterTracker_EmitsOnFirstSeen(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -79,7 +79,7 @@ func TestRosterTracker_EmitsOnFirstSeen(t *testing.T) {
 }
 
 func TestRosterTracker_NoEmitOnIdenticalRoster(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -103,7 +103,7 @@ func TestRosterTracker_NoEmitOnIdenticalRoster(t *testing.T) {
 }
 
 func TestRosterTracker_EmitsOnLateJoiner(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -132,7 +132,7 @@ func TestRosterTracker_EmitsOnLateJoiner(t *testing.T) {
 }
 
 func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -160,7 +160,7 @@ func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
 }
 
 func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -187,7 +187,7 @@ func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
 }
 
 func TestRosterTracker_EmitsOnGuidChange(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -208,7 +208,7 @@ func TestRosterTracker_EmitsOnGuidChange(t *testing.T) {
 }
 
 func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -239,7 +239,7 @@ func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
 }
 
 func TestRosterTracker_IgnoresNonUpdateState(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -252,7 +252,7 @@ func TestRosterTracker_IgnoresNonUpdateState(t *testing.T) {
 }
 
 func TestRosterTracker_LowercaseWire(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -289,7 +289,7 @@ func TestRosterTracker_LowercaseWire(t *testing.T) {
 // derived from the Name. Without this, every bot collapses into one
 // roster entry / one ledger row / one synthetic-event subject.
 func TestRosterTracker_RewritesBotIds(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -436,7 +436,7 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 	// A rewritten UpdateState then started with `{"Data":"..."`, and
 	// because Data carries the full per-tick payload (multi-KB), the
 	// "Event" key landed past extractEventName's 96-byte scan window,
-	// returning "" — so EventBus.Publish dropped the packet for every
+	// returning "" — so Bus.Broadcast dropped the packet for every
 	// filtered subscriber. That manifested as widgets showing briefly
 	// then vanishing the moment a bot match started.
 	t.Run("preserves outer envelope so extractEventName still works", func(t *testing.T) {
@@ -500,9 +500,9 @@ func TestCanonicalizeBotId(t *testing.T) {
 func TestRosterTracker_DoesntStallOnBus(t *testing.T) {
 	// Sanity check — feeding many packets should never block. The
 	// underlying bus drops slow subscribers rather than backpressure.
-	bus := NewEventBus()
+	bus := NewBus()
 	tracker := NewRosterTracker(bus)
-	// No subscriber attached — Publish should just no-op for missing
+	// No subscriber attached — Broadcast should just no-op for missing
 	// receivers.
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()

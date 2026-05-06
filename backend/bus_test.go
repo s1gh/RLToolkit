@@ -48,7 +48,7 @@ func fixtureReplay(t *testing.T, path string, feeder func([]byte)) {
 //
 // If eventName is empty, all synthetic events (those starting with "_")
 // are returned.
-func captureSynthetic(t *testing.T, bus *EventBus, matchState *MatchState, roster *RosterTracker, synth *Synthesizer, fixturePath string, eventName string) []map[string]interface{} {
+func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *RosterTracker, synth *Synthesizer, fixturePath string, eventName string) []map[string]interface{} {
 	t.Helper()
 
 	ch, cancel := bus.Subscribe(nil)
@@ -73,16 +73,10 @@ func captureSynthetic(t *testing.T, bus *EventBus, matchState *MatchState, roste
 			evt = Event{Name: name, Data: data, Raw: raw}
 			matchState.Observe(evt)
 		}
-		bus.Publish(raw)
+		bus.Broadcast(Event{Raw: raw})
 		if matchState != nil {
 			for _, out := range matchState.Process(evt) {
-				envelope, err := json.Marshal(struct {
-					Event string          `json:"Event"`
-					Data  json.RawMessage `json:"Data"`
-				}{Event: out.Name, Data: out.Data})
-				if err == nil {
-					bus.Publish(envelope)
-				}
+				bus.Broadcast(out)
 			}
 		}
 		if synth != nil {
@@ -129,7 +123,7 @@ func captureSynthetic(t *testing.T, bus *EventBus, matchState *MatchState, roste
 // basic_match fixture and assert that the expected synthetic events are
 // captured in the right order.
 func TestFixtureReplay_BasicMatch(t *testing.T) {
-	bus := NewEventBus()
+	bus := NewBus()
 	matchState := NewMatchState()
 	roster := NewRosterTracker(bus)
 

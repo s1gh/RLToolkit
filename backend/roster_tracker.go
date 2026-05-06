@@ -26,7 +26,7 @@ import (
 // platform per player) is shipped in the payload so consumers don't
 // need to call match.build() themselves.
 type RosterTracker struct {
-	bus *EventBus
+	bus *Bus
 
 	mu        sync.Mutex
 	lastFp    string
@@ -38,7 +38,7 @@ type RosterTracker struct {
 // goroutine — Feed runs synchronously from the RL client's dispatcher
 // (same call site as LifecycleTracker.Feed), so changes publish
 // inline with the UpdateState that triggered them.
-func NewRosterTracker(bus *EventBus) *RosterTracker {
+func NewRosterTracker(bus *Bus) *RosterTracker {
 	return &RosterTracker{bus: bus}
 }
 
@@ -276,7 +276,7 @@ func (t *RosterTracker) publish(guid string, players []updateStatePlayer) {
 	if err != nil {
 		return
 	}
-	t.bus.Publish(b)
+	t.bus.Broadcast(Event{Name: "_RosterChanged", Raw: b})
 }
 
 // platformFromID extracts the leading "Steam" / "Epic" / etc segment

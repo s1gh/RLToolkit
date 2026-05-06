@@ -183,7 +183,7 @@ func canonicalizeBotId(primaryID, name string) string {
 // alphabetically (Data before Event); extractEventName scans only the
 // first 96 bytes of the wire, so a reordered envelope with a multi-KB
 // Data string buried before the Event key would parse as eventName="",
-// and EventBus.Publish would drop the packet for every filtered
+// and Bus.Broadcast would drop the packet for every filtered
 // subscriber. Splicing avoids the reorder entirely.
 //
 // Failure mode: if any decode step fails (malformed envelope,
