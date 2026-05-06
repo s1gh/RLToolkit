@@ -401,13 +401,21 @@
   //
   // The backend persists "who am I" at data/identity.json and
   // broadcasts _IdentityChanged on every Set/Clear. The frontend
-  // identity module is a thin cache + write-through wrapper: set/clear
-  // POST to /api/identity, then myId updates from the bus echo
-  // (server.go seeds an _IdentityChanged frame on subscribe so the
-  // initial state is hydrated before ready() fires).
+  // identity module is a thin cache + write-through wrapper:
+  //   - boot:         GET /api/identity → seed myId
+  //   - set/clear:    PUT/DELETE /api/identity, await response, apply
+  //   - live updates: bus echo (_IdentityChanged from a different tab,
+  //                   or from the dashboard claim button)
+  //
+  // Why HTTP-on-boot instead of relying on the SSE seeded frame?
+  // The SSE connection opens lazily (only after the first addEvent /
+  // plugin register), and the seeded-frame path has been brittle
+  // across the various `?events=__none__` / hosted-bus / iframe-mode
+  // combinations. A direct fetch on construction sidesteps all of
+  // that — one round-trip, deterministic.
   //
   // _isMe(id) stays synchronous against the cache so player-stamping
-  // and per-row UI keeps working during a disconnect.
+  // keeps working during a disconnect.
   const identity = (function () {
     const ev = emitter();
     let myId = '';
@@ -424,16 +432,31 @@
       ev.emit('change', myId);
     }
 
-    // Hydrate from the seeded _IdentityChanged frame the backend
-    // pushes on subscribe. Until that lands, RLT.me.id reads as ''
-    // and isReady() reports false.
+    // Live updates: bus echo for cross-tab / dashboard-claim changes.
     bus.on('_IdentityChanged', applySnapshot);
 
-    // One-time legacy storage drain. Pre-2.0 builds kept identity in
-    // browser store at _rlt:identity (and even earlier, dejavu:config).
-    // If anything is there, push it to the backend and wipe both.
-    // Idempotent: a second run finds empty stores.
-    (async function migrateLegacy() {
+    // Boot hydration: deterministic HTTP fetch. Resolves before any
+    // plugin's ready() fires because the SDK's plugin.register defers
+    // to ready waiters that gate on identity.isReady() (see fireReady
+    // wiring further down).
+    (async function bootHydrate() {
+      try {
+        const r = await fetch('/api/identity');
+        if (r.ok) {
+          const body = await r.json().catch(() => null);
+          applySnapshot(body);
+        } else {
+          // Backend up but identity unavailable: still mark loaded so
+          // plugins don't hang forever waiting on identity.isReady().
+          applySnapshot(null);
+        }
+      } catch {
+        applySnapshot(null);
+      }
+      // Legacy storage drain. Pre-2.0 builds kept identity in browser
+      // store at _rlt:identity (and even earlier, dejavu:config). If
+      // we hydrated empty AND there's a legacy id, push it up.
+      // Idempotent: subsequent runs find empty stores.
       try {
         let legacyId = '';
         const cfg = await storeGet('_rlt', 'identity');
@@ -443,21 +466,18 @@
           const dejavu = await storeGet('dejavu', 'config');
           if (dejavu && typeof dejavu.my_id === 'string') legacyId = dejavu.my_id;
         }
-        if (legacyId) {
-          // Only push to the backend if it hasn't already been claimed
-          // (e.g. via the dashboard on a different machine, or a
-          // previous successful migration).
-          const current = await fetch('/api/identity').then((r) => r.ok ? r.json() : null).catch(() => null);
-          if (!current || !current.primaryId) {
-            await fetch('/api/identity', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ primaryId: legacyId, name: '' }),
-            }).catch(() => {});
-          }
+        if (legacyId && !myId) {
+          await fetch('/api/identity', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ primaryId: legacyId, name: '' }),
+          }).catch(() => {});
+          // Re-fetch so myId reflects the just-pushed value.
+          try {
+            const r = await fetch('/api/identity');
+            if (r.ok) applySnapshot(await r.json().catch(() => null));
+          } catch { /* noop */ }
         }
-        // Drain regardless of push outcome — the backend is now
-        // authoritative either way.
         await Promise.all([
           storeDelete('_rlt', 'identity').catch(() => {}),
           storeDelete('dejavu', 'config').catch(() => {}),
@@ -483,12 +503,16 @@
           body: JSON.stringify({ primaryId: trimmed, name: nameHint || '' }),
         });
         if (!r.ok) throw new Error('set identity: ' + r.status);
-        // The bus echo will update myId + fire change. set() resolves
-        // once the backend has accepted the write.
+        // Apply locally without waiting for the bus echo so the next
+        // synchronous read of RLT.me.id sees the new value. The echo
+        // will arrive moments later and be a no-op (applySnapshot
+        // dedupes on identical state).
+        applySnapshot({ primaryId: trimmed, name: nameHint || '' });
       },
       async clear() {
         const r = await fetch('/api/identity', { method: 'DELETE' });
         if (!r.ok && r.status !== 204) throw new Error('clear identity: ' + r.status);
+        applySnapshot(null);
       },
       onChange(fn) {
         return ev.on('change', fn);
