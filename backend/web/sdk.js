@@ -238,27 +238,24 @@
   function dispatchEnvelope(msg) {
     if (!msg) return;
     const event = msg.Event ?? msg.event;
-    const eventStatus = msg.Status ?? msg.status;
     if (event === '_ConnectionStatus') {
-      status = eventStatus;
+      // _ConnectionStatus is a special framing signal — Status sits
+      // at the top level of the envelope (no Data nesting).
+      status = msg.Status ?? msg.status;
       bus.emit('_status', status);
       return;
     }
-    if (event === '_Lifecycle') {
-      bus.emit('_Lifecycle', msg);
-      return;
-    }
-    if (event === '_RosterChanged') {
-      stampClientSideFields(msg);
-      bus.emit('_RosterChanged', msg);
-      return;
-    }
-    // Other synthetic _-prefixed events ship pre-enriched at top level.
+    // Synthetic _-prefixed events ship in the typed envelope shape:
+    //   {Event: "_Foo", Data: {...}}
+    // Stamp client-side fields onto the inner payload (isMe fallback,
+    // encounter ledger), then emit the inner data as the event arg.
     if (typeof event === 'string' && event.length > 0 && event[0] === '_') {
-      stampClientSideFields(msg);
-      bus.emit(event, msg);
+      const data = msg.Data ?? msg.data ?? {};
+      stampClientSideFields(data);
+      bus.emit(event, data);
       return;
     }
+    // Raw RL events: Data is a JSON-encoded string we parse here.
     if (hostedBus && event && !subscribedEvents.has(event)) return;
     let data = msg.Data ?? msg.data;
     if (typeof data === 'string') {
@@ -445,6 +442,31 @@
       },
     };
   })();
+
+  // ─── Backend identity (server-stored "who am I") ──────────
+  // Plugins call RLT.identity.{get,set,clear} to drive the persisted
+  // Identity the backend uses to stamp EnrichedPlayer.IsMe. The
+  // backend broadcasts _IdentityChanged on every Set/Clear; plugins
+  // can subscribe via RLT.onIdentityChange(fn).
+  const backendIdentity = {
+    async get() {
+      const r = await fetch('/api/identity');
+      if (!r.ok) return null;
+      const body = await r.json();
+      return body || null; // null when nothing's set
+    },
+    async set(id) {
+      const r = await fetch('/api/identity', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(id),
+      });
+      if (!r.ok) throw new Error('set identity: ' + r.status);
+    },
+    async clear() {
+      await fetch('/api/identity', { method: 'DELETE' });
+    },
+  };
 
   // ─── Encounter ledger (shared across all plugins) ──────────
   const encounters = (function () {
@@ -751,7 +773,7 @@
       const list = Array.isArray(env.players) ? env.players : [];
       cur = buildFromRoster(guid, list);
 
-      if (RECORDING_PHASES.has(lifecycle.phase) && cur.players.length > 0) {
+      if (RECORDING_PHASES.has(state.phase) && cur.players.length > 0) {
         if (recordRoster()) {
           cur = buildFromRoster(guid, list);
           lastFingerprint = '';
@@ -771,7 +793,7 @@
       cur = build(d);
       ev.emit('tick', cur);
 
-      if (RECORDING_PHASES.has(lifecycle.phase) && cur.players.length > 0) {
+      if (RECORDING_PHASES.has(state.phase) && cur.players.length > 0) {
         if (recordRoster()) {
           cur = build(cur.raw);
           lastFingerprint = '';
@@ -833,15 +855,15 @@
 
     // Catch-up recording: RL sends the first UpdateState (which
     // triggers _RosterChanged) before CountdownBegin, so the roster
-    // often lands while lifecycle.phase is still "created" — outside
+    // often lands while state.phase is still "lobby" — outside
     // RECORDING_PHASES. When the phase later transitions into a
     // recording phase, re-run recordRoster so the encounter ledger
     // reflects the match. The encounters.onChange handler above
     // re-stamps cur.players when the ledger changes, so we don't
     // need to rebuild cur here. Read the phase from the raw
-    // _Lifecycle envelope because the lifecycle module processes the
-    // same event and may not have updated lifecycle.phase yet.
-    bus.on('_Lifecycle', (snap) => {
+    // _MatchState envelope because the state module processes the
+    // same event and may not have updated state.phase yet.
+    bus.on('_MatchState', (snap) => {
       if (!snap) return;
       const p = String(snap.phase || 'none');
       if (!RECORDING_PHASES.has(p)) return;
@@ -991,7 +1013,7 @@
       const m = match.current;
       if (!m) return 'idle';
       if (!m.players || m.players.length === 0) return 'lobby';
-      return match.lifecycle?.phase || 'live';
+      return match.state?.phase || 'live';
     },
     bindStatusPill(elementId, onChange) {
       const paint = (s) => {
@@ -1118,10 +1140,9 @@
     '_FirstTouch',
     '_FirstBlood',
     '_OvertimeStarted',
-    '_GoalReplayContext',
-    '_MatchSummary',
-    '_MatchMVP',
-    '_LifecyclePhaseChanged',
+    '_GoalReplayStarted',
+    '_MatchEnded',
+    '_IdentityChanged',
     // UpdateState-diff synthetics — same bridge contract as the rest:
     // raw bus delivers them, register({ events }) handlers listen on
     // eventsBus, so they need a forward here or they silently no-op.
@@ -1133,7 +1154,6 @@
     '_TeamScoreChanged',
     '_DemoChain',
     '_FastestShotOfMatch',
-    '_KickoffConverted',
   ].forEach((name) => {
     bus.on(name, (payload) => emitTyped(name, payload));
   });
@@ -1200,16 +1220,14 @@
     onOvertimeStarted: makeOn('_OvertimeStarted'),
     onDemoChain: makeOn('_DemoChain'),
     onFastestShotOfMatch: makeOn('_FastestShotOfMatch'),
-    onKickoffConverted: makeOn('_KickoffConverted'),
-    onLifecyclePhaseChanged: makeOn('_LifecyclePhaseChanged'),
-    onGoalReplayContext: makeOn('_GoalReplayContext'),
-    onMatchSummary: makeOn('_MatchSummary'),
+    onGoalReplayStarted: makeOn('_GoalReplayStarted'),
+    onMatchEnded: makeOn('_MatchEnded'),
     onUnknownStatfeed: makeOn('_UnknownStatfeed'),
   };
 
-  // ─── Lifecycle ─────────────────────────────────────────────
-  // Phases: none | created | countdown | live | paused | replay | ended | podium
-  const lifecycle = (function () {
+  // ─── Match state ───────────────────────────────────────────
+  // Phases: none | lobby | countdown | live | paused | replay | ended | podium
+  const state = (function () {
     const ev = emitter();
     const matchActiveEv = emitter();
 
@@ -1221,8 +1239,8 @@
 
     function applySnapshot(snap) {
       const newPhase = String(snap.phase || 'none');
-      const newActive = !!snap.match_active;
-      const newGUID = String(snap.match_guid || '');
+      const newActive = !!snap.matchActive;
+      const newGUID = String(snap.matchGuid || '');
       const phaseChanged = newPhase !== phase;
       const activeChanged = newActive !== matchActive;
 
@@ -1238,13 +1256,13 @@
       if (activeChanged) matchActiveEv.emit('change', matchActive);
     }
 
-    bus.on('_Lifecycle', (snap) => {
+    bus.on('_MatchState', (snap) => {
       if (snap) applySnapshot(snap);
     });
 
     bus.on('_status', (s) => {
       if (s !== 'disconnected') return;
-      applySnapshot({ phase: 'none', match_active: false, match_guid: '', since: null });
+      applySnapshot({ phase: 'none', matchActive: false, matchGuid: '', since: null });
     });
 
     return {
@@ -1272,9 +1290,11 @@
     };
   })();
 
-  // Expose lifecycle on the existing match object for discoverability.
-  match.lifecycle = lifecycle;
-  match.onLifecycle = (fn) => lifecycle.onChange(fn);
+  // Expose state on the existing match object for discoverability.
+  // (Previously called match.lifecycle; renamed to match the
+  // server-side _MatchState event name.)
+  match.state = state;
+  match.onState = (fn) => state.onChange(fn);
 
   // ─── Event catalog ─────────────────────────────────────────
   // Compact table: [name, category, shape, livePhases, stability, since, desc, subscriptionGroup?]
@@ -1639,49 +1659,31 @@
       'Per-match max ball speed surpassed.',
     ],
     [
-      '_KickoffConverted',
-      'scoring',
-      'kickoff-converted',
-      ['live'],
-      'provisional',
-      '1.2',
-      'First _Shot or _GoalScored within ~10s of RoundStarted.',
-    ],
-    [
-      '_LifecyclePhaseChanged',
-      'lifecycle',
-      'phase-transition',
-      '*',
-      'stable',
-      '1.1',
-      'Phase machine edge: from/to/duration/trigger.',
-    ],
-    [
-      '_GoalReplayContext',
+      '_GoalReplayStarted',
       'replay',
-      'goal-replay-context',
+      'goal-replay-started',
       '*',
       'provisional',
-      '1.1',
+      '2.0',
       'Full _GoalScored payload on the bReplay rising edge.',
     ],
     [
-      '_MatchSummary',
+      '_MatchState',
       'lifecycle',
-      'match-summary',
+      'match-state',
       '*',
-      'provisional',
-      '1.1',
-      'Final scores, winner, MVP, full per-player stats after MatchEnded.',
+      'stable',
+      '2.0',
+      'Authoritative gameplay state on every transition.',
     ],
     [
-      '_MatchMVP',
+      '_IdentityChanged',
       'lifecycle',
-      'match-mvp',
+      'identity',
       '*',
       'provisional',
-      '1.1',
-      'MVP Statfeed, independent of _MatchSummary timing.',
+      '2.0',
+      'Backend-stored Identity (PrimaryID + Name) was Set or Cleared.',
     ],
     [
       '_UnknownStatfeed',
@@ -1727,7 +1729,7 @@
       if (!spec.whilePhase) return true;
       if (spec.whilePhase === '*') return true;
       const allow = Array.isArray(spec.whilePhase) ? spec.whilePhase : [spec.whilePhase];
-      const cur = lifecycle.phase;
+      const cur = state.phase;
       if (allow.indexOf(cur) !== -1) return true;
       // 'idle' is a back-compat alias for 'none'.
       if (cur === 'none' && allow.indexOf('idle') !== -1) return true;
@@ -1768,7 +1770,9 @@
         }
       }
 
-      // onLifecycle/onMatchActive/onFocusChange bypass whilePhase gating.
+      // onState/onMatchActive/onFocusChange bypass whilePhase gating.
+      // onLifecycle is an alias for onState — kept so plugins from the
+      // pre-rename era keep working; new plugins should use onState.
       if (typeof spec.onMatch === 'function') unsubs.push(match.onChange(gate(spec, spec.onMatch)));
       if (typeof spec.onTick === 'function') unsubs.push(match.onTick(gate(spec, spec.onTick)));
       if (typeof spec.onRoster === 'function')
@@ -1777,10 +1781,11 @@
         unsubs.push(identity.onChange(gate(spec, spec.onIdentity)));
       if (typeof spec.onEncounters === 'function')
         unsubs.push(encounters.onChange(gate(spec, spec.onEncounters)));
-      if (typeof spec.onLifecycle === 'function')
-        unsubs.push(lifecycle.onChange(isolate(spec, spec.onLifecycle)));
+      const onStateFn = spec.onState || spec.onLifecycle;
+      if (typeof onStateFn === 'function')
+        unsubs.push(state.onChange(isolate(spec, onStateFn)));
       if (typeof spec.onMatchActive === 'function')
-        unsubs.push(lifecycle.onMatchActive(isolate(spec, spec.onMatchActive)));
+        unsubs.push(state.onMatchActive(isolate(spec, spec.onMatchActive)));
       if (typeof spec.onFocusChange === 'function')
         unsubs.push(focus.onChange(isolate(spec, spec.onFocusChange)));
 
@@ -2085,7 +2090,7 @@
   if (overlayHideWhenUnfocused || overlayPhaseGate !== null) {
     let focusOK = !overlayHideWhenUnfocused; // not gating? always pass
     const phasePass = (p) => !overlayPhaseGate || overlayPhaseGate.has(p);
-    let phaseOK = phasePass(lifecycle.phase);
+    let phaseOK = phasePass(state.phase);
 
     const repaint = () => {
       const body = document.body;
@@ -2100,7 +2105,7 @@
       });
     }
     if (overlayPhaseGate !== null) {
-      lifecycle.onChange((newPhase) => {
+      state.onChange((newPhase) => {
         phaseOK = phasePass(newPhase);
         repaint();
       });
@@ -2212,6 +2217,8 @@
     onStatusStable: (fn) => statusStableState.onChange(fn),
     match,
     me: identity,
+    identity: backendIdentity,
+    onIdentityChange: (fn) => bus.on('_IdentityChanged', (snap) => fn(snap)),
     encounters,
     store,
     ui,
