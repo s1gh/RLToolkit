@@ -43,13 +43,7 @@ type Synthesizer struct {
 	// Sized in events, not ticks — see CorrelationBuffer.
 	correlation *CorrelationBuffer
 
-// crossbarMu guards lastCrossbarHit. RL fires a burst of CrossbarHit
-	// events when the ball rolls along the goal frame (we've seen 5 in
-	// a row). Debounce so consumers see one event per real impact.
-	crossbarMu      sync.Mutex
-	lastCrossbarHit time.Time
-
-	// lastGoalMu guards lastGoal. Set when _GoalScored is published,
+// lastGoalMu guards lastGoal. Set when _GoalScored is published,
 	// read when GoalReplayStart arrives so _GoalReplayContext can ship
 	// the resolved goal payload without depending on the shared
 	// correlation buffer (which can evict the entry under burst load
@@ -224,8 +218,6 @@ func (s *Synthesizer) Feed(raw []byte) {
 		s.onUpdateState(raw)
 	case "StatfeedEvent":
 		s.onStatfeedEvent(raw)
-	case "CrossbarHit":
-		s.onCrossbarHit(raw)
 	case "MatchEnded":
 		s.onMatchEnded(raw)
 	case "GoalScored":
@@ -1649,98 +1641,6 @@ type ballLastTouch struct {
 type enrichedBallLastTouch struct {
 	Player *EnrichedPlayer `json:"player,omitempty"`
 	Speed  *float64        `json:"speed,omitempty"`
-}
-
-type enrichedCrossbarHit struct {
-	Event         string                 `json:"Event"`
-	MatchGUID     string                 `json:"matchGuid,omitempty"`
-	BallSpeed     *float64               `json:"ballSpeed,omitempty"`
-	ImpactForce   *float64               `json:"impactForce,omitempty"`
-	BallLocation  *vec3                  `json:"ballLocation,omitempty"`
-	BallLastTouch *enrichedBallLastTouch `json:"ballLastTouch,omitempty"`
-}
-
-// crossbarDebounceWindow suppresses repeat _CrossbarHit emissions
-// when RL fires a burst (ball rolling along the goal frame). 500ms is
-// long enough to absorb the burst, short enough that two genuinely
-// distinct hits in a single play still both fire.
-const crossbarDebounceWindow = 500 * time.Millisecond
-
-func (s *Synthesizer) onCrossbarHit(raw []byte) {
-	// Phase gate: catalog says liveOnly but the dispatch wasn't
-	// enforcing it. RL still fires CrossbarHit during goal replays
-	// and the cinematic camera bouncing the ball off the frame
-	// shouldn't count. bReplay on the cached UpdateState is the
-	// canonical replay signal on this build (discrete
-	// GoalReplayStart/End events are unreliable).
-	inReplay := s.ticks.InReplay()
-	if inReplay {
-		return
-	}
-
-	// Debounce: drop repeats within the window. Updates the timestamp
-	// even on drops so a long roll keeps suppressing.
-	now := time.Now()
-	s.crossbarMu.Lock()
-	if !s.lastCrossbarHit.IsZero() && now.Sub(s.lastCrossbarHit) < crossbarDebounceWindow {
-		s.lastCrossbarHit = now
-		s.crossbarMu.Unlock()
-		return
-	}
-	s.lastCrossbarHit = now
-	s.crossbarMu.Unlock()
-
-	inner := unwrapInnerData(raw)
-	if inner == "" {
-		return
-	}
-	var d crossbarHitData
-	if err := json.Unmarshal([]byte(inner), &d); err != nil {
-		return
-	}
-
-	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
-	speed := pickFloat(d.BallSpeed, d.BallSpeedLow)
-	force := pickFloat(d.ImpactForce, d.ImpactForceLow)
-	loc := d.BallLocation
-	if loc == nil {
-		loc = d.BallLocationLow
-	}
-	lastTouch := d.BallLastTouch
-	if lastTouch == nil {
-		lastTouch = d.BallLastTouchLow
-	}
-
-	out := enrichedCrossbarHit{
-		Event:        "_CrossbarHit",
-		MatchGUID:    guid,
-		BallSpeed:    speed,
-		ImpactForce:  force,
-		BallLocation: loc,
-	}
-	if lastTouch != nil {
-		ref := lastTouch.Player
-		if ref == nil {
-			ref = lastTouch.PlayerLow
-		}
-		sp := pickFloat(lastTouch.Speed, lastTouch.SpeedLow)
-		var enrichedRef *EnrichedPlayer
-		if ref != nil {
-			enrichedRef = s.roster.ResolveByShortcut(*ref)
-		}
-		if enrichedRef != nil || sp != nil {
-			out.BallLastTouch = &enrichedBallLastTouch{
-				Player: enrichedRef,
-				Speed:  sp,
-			}
-		}
-	}
-
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
 }
 
 func pickStr(a, b string) string {
