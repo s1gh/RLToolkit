@@ -598,7 +598,7 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 	// _OvertimeStarted events.
 	if s.matchState != nil {
 		ph := s.matchState.Snapshot().Phase
-		if ph != PhasePhaseLive && ph != PhasePhaseCountdown && ph != PhasePhasePaused {
+		if ph != PhaseLive && ph != PhaseCountdown && ph != PhasePaused {
 			return
 		}
 	}
@@ -1019,7 +1019,7 @@ func (s *Synthesizer) detectOwnGoal(prev, curr []teamRef, guid string) {
 		// covers active play; PhaseLobby/None/Countdown/Podium do not.
 		if s.matchState != nil {
 			ph := s.matchState.Snapshot().Phase
-			if ph != PhasePhaseLive && ph != PhasePhaseReplay {
+			if ph != PhaseLive && ph != PhaseReplay {
 				continue
 			}
 		}
@@ -1866,7 +1866,7 @@ func (s *Synthesizer) onBallHit(raw []byte) {
 	// post-match screen. Skip both — they aren't real touches.
 	if s.matchState != nil {
 		ph := s.matchState.Snapshot().Phase
-		if ph != PhasePhaseLive && ph != PhasePhaseCountdown && ph != PhasePhasePaused {
+		if ph != PhaseLive && ph != PhaseCountdown && ph != PhasePaused {
 			return
 		}
 	}

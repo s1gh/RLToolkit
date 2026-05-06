@@ -410,7 +410,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 // etc.
 func (s *Server) handleMatchState(w http.ResponseWriter, _ *http.Request) {
 	if s.matchState == nil {
-		writeJSON(w, MatchStateSnapshot{Phase: PhasePhaseNone, PreviousPhase: PhasePhaseNone, Since: time.Now(), Trigger: "initial"})
+		writeJSON(w, MatchStateSnapshot{Phase: PhaseNone, PreviousPhase: PhaseNone, Since: time.Now(), Trigger: "initial"})
 		return
 	}
 	writeJSON(w, s.matchState.Snapshot())

@@ -14,14 +14,14 @@ import (
 type Phase string
 
 const (
-	PhasePhaseNone      Phase = "none"
-	PhasePhaseLobby     Phase = "lobby"
-	PhasePhaseCountdown Phase = "countdown"
-	PhasePhaseLive      Phase = "live"
-	PhasePhasePaused    Phase = "paused"
-	PhasePhaseReplay    Phase = "replay"
-	PhasePhaseEnded     Phase = "ended"
-	PhasePhasePodium    Phase = "podium"
+	PhaseNone      Phase = "none"
+	PhaseLobby     Phase = "lobby"
+	PhaseCountdown Phase = "countdown"
+	PhaseLive      Phase = "live"
+	PhasePaused    Phase = "paused"
+	PhaseReplay    Phase = "replay"
+	PhaseEnded     Phase = "ended"
+	PhasePodium    Phase = "podium"
 )
 
 // MatchStateSnapshot is the wire-shaped payload published as
@@ -70,8 +70,8 @@ func NewMatchState() *MatchState {
 	return &MatchState{
 		cur: MatchStateSnapshot{
 			MatchActive:   false,
-			Phase:         PhasePhaseNone,
-			PreviousPhase: PhasePhaseNone,
+			Phase:         PhaseNone,
+			PreviousPhase: PhaseNone,
 			Since:         now,
 			Trigger:       "initial",
 		},
@@ -102,50 +102,50 @@ func (m *MatchState) Observe(evt Event) {
 		if nowReplay != wasReplay {
 			m.inReplay.Store(nowReplay)
 			if nowReplay {
-				m.transitionIf(PhasePhaseReplay, "bReplayEdge", "", func(cur Phase) bool {
-					return cur == PhasePhaseLive || cur == PhasePhaseCountdown || cur == PhasePhasePaused
+				m.transitionIf(PhaseReplay, "bReplayEdge", "", func(cur Phase) bool {
+					return cur == PhaseLive || cur == PhaseCountdown || cur == PhasePaused
 				})
 			} else {
-				m.transitionIf(PhasePhaseLive, "bReplayEdge", "", func(cur Phase) bool {
-					return cur == PhasePhaseReplay
+				m.transitionIf(PhaseLive, "bReplayEdge", "", func(cur Phase) bool {
+					return cur == PhaseReplay
 				})
 			}
 		}
 
 		if !m.matchActive.Load() {
 			guid := extractMatchGUID(evt.Raw)
-			m.transitionTo(PhasePhaseLive, "UpdateState", guid, true)
+			m.transitionTo(PhaseLive, "UpdateState", guid, true)
 		}
 		return
 	}
 
 	switch evt.Name {
 	case "MatchCreated":
-		m.transitionTo(PhasePhaseLobby, "MatchCreated", guidFromData(evt.Data), true)
+		m.transitionTo(PhaseLobby, "MatchCreated", guidFromData(evt.Data), true)
 	case "CountdownBegin":
-		m.transitionTo(PhasePhaseCountdown, "CountdownBegin", "", true)
+		m.transitionTo(PhaseCountdown, "CountdownBegin", "", true)
 	case "RoundStarted":
-		m.transitionTo(PhasePhaseLive, "RoundStarted", "", true)
+		m.transitionTo(PhaseLive, "RoundStarted", "", true)
 	case "MatchPaused":
-		m.transitionTo(PhasePhasePaused, "MatchPaused", "", true)
+		m.transitionTo(PhasePaused, "MatchPaused", "", true)
 	case "MatchUnpaused":
-		m.transitionTo(PhasePhaseLive, "MatchUnpaused", "", true)
+		m.transitionTo(PhaseLive, "MatchUnpaused", "", true)
 	case "MatchEnded":
 		m.inReplay.Store(false)
-		m.transitionTo(PhasePhaseEnded, "MatchEnded", "", true)
+		m.transitionTo(PhaseEnded, "MatchEnded", "", true)
 	case "PodiumStart":
 		m.inReplay.Store(false)
-		m.transitionTo(PhasePhasePodium, "PodiumStart", "", true)
+		m.transitionTo(PhasePodium, "PodiumStart", "", true)
 	case "MatchDestroyed":
 		m.inReplay.Store(false)
-		m.transitionTo(PhasePhaseNone, "MatchDestroyed", "clear", false)
+		m.transitionTo(PhaseNone, "MatchDestroyed", "clear", false)
 	case "_ConnectionStatus":
 		var env struct {
 			Status string `json:"Status"`
 		}
 		if err := json.Unmarshal(evt.Raw, &env); err == nil && env.Status != "" && env.Status != string(StatusConnected) {
 			m.inReplay.Store(false)
-			m.transitionTo(PhasePhaseNone, "connectionLost", "clear", false)
+			m.transitionTo(PhaseNone, "connectionLost", "clear", false)
 		}
 	}
 }
@@ -260,7 +260,7 @@ func (m *MatchState) checkTimeout() {
 	if last.IsZero() || time.Since(last) < m.timeout {
 		return
 	}
-	m.transitionTo(PhasePhaseNone, "watchdogTimeout", "clear", false)
+	m.transitionTo(PhaseNone, "watchdogTimeout", "clear", false)
 
 	// Publish directly so subscribers learn about the timeout even
 	// when no events are flowing through the dispatcher.

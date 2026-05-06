@@ -11,10 +11,10 @@ func TestMatchState_InitialSnapshot(t *testing.T) {
 	if snap.MatchActive {
 		t.Error("expected matchActive=false at init")
 	}
-	if snap.Phase != PhasePhaseNone {
+	if snap.Phase != PhaseNone {
 		t.Errorf("expected phase=none at init, got %q", snap.Phase)
 	}
-	if snap.PreviousPhase != PhasePhaseNone {
+	if snap.PreviousPhase != PhaseNone {
 		t.Errorf("expected previousPhase=none at init, got %q", snap.PreviousPhase)
 	}
 	if snap.Trigger != "initial" {
@@ -44,14 +44,14 @@ func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
 		emit    bool
 		trigger string
 	}{
-		{"MatchCreated", `"{\"MatchGuid\":\"abc\"}"`, PhasePhaseLobby, true, "MatchCreated"},
-		{"CountdownBegin", `""`, PhasePhaseCountdown, true, "CountdownBegin"},
-		{"RoundStarted", `""`, PhasePhaseLive, true, "RoundStarted"},
-		{"MatchPaused", `""`, PhasePhasePaused, true, "MatchPaused"},
-		{"MatchUnpaused", `""`, PhasePhaseLive, true, "MatchUnpaused"},
-		{"MatchEnded", `""`, PhasePhaseEnded, true, "MatchEnded"},
-		{"PodiumStart", `""`, PhasePhasePodium, true, "PodiumStart"},
-		{"MatchDestroyed", `""`, PhasePhaseNone, true, "MatchDestroyed"},
+		{"MatchCreated", `"{\"MatchGuid\":\"abc\"}"`, PhaseLobby, true, "MatchCreated"},
+		{"CountdownBegin", `""`, PhaseCountdown, true, "CountdownBegin"},
+		{"RoundStarted", `""`, PhaseLive, true, "RoundStarted"},
+		{"MatchPaused", `""`, PhasePaused, true, "MatchPaused"},
+		{"MatchUnpaused", `""`, PhaseLive, true, "MatchUnpaused"},
+		{"MatchEnded", `""`, PhaseEnded, true, "MatchEnded"},
+		{"PodiumStart", `""`, PhasePodium, true, "PodiumStart"},
+		{"MatchDestroyed", `""`, PhaseNone, true, "MatchDestroyed"},
 	}
 
 	for _, c := range cases {
@@ -110,7 +110,7 @@ func TestMatchState_WatchdogFlipsInactive(t *testing.T) {
 	if snap.MatchActive {
 		t.Error("expected matchActive=false after watchdog")
 	}
-	if snap.Phase != PhasePhaseNone {
+	if snap.Phase != PhaseNone {
 		t.Errorf("expected phase=none after watchdog, got %q", snap.Phase)
 	}
 	if snap.Trigger != "watchdogTimeout" {
