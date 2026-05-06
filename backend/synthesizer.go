@@ -33,6 +33,12 @@ type Synthesizer struct {
 	// caching their own copy.
 	ticks *TickStore
 
+	// statfeed is the bridge to the extracted StatfeedEmitter. The
+	// synth's onGoalScored uses it to consume the per-player
+	// flipReset arm when stamping IsFlipResetGoal. Goes away when
+	// GoalEmitter extracts.
+	statfeed *StatfeedEmitter
+
 // correlation is the shared sliding window of recent events. Owned
 	// by main; processors share one instance so a producer (e.g.
 	// BallHitEmitter) can record a touch and a consumer (the synth's
@@ -54,71 +60,22 @@ type Synthesizer struct {
 	lastGoalMu sync.Mutex
 	lastGoal   *enrichedGoalScored
 
-	// flipResetArmedMu guards flipResetArmed. Tracks "this player got a
-	// FlipReset and hasn't touched the ground since" — keyed by the
-	// canonical player id. Set on FlipReset statfeed, cleared the
-	// instant their bOnGround flips back to true (UpdateState diff) or
-	// when they consume it by scoring. A goal scored while still in
-	// this state is tagged Modifiers.IsFlipResetGoal.
-	flipResetArmedMu sync.Mutex
-	flipResetArmed   map[string]bool
-
-	// realGoalsMu guards realGoalsByID. Counts goals where the scorer
-	// actually scored on the opposing net (i.e. not an own goal),
-	// keyed by canonical player id. Used to suppress RL's HatTrick
-	// Statfeed when the threshold was reached only because RL counts
-	// own goals — we don't. Cleared on match boundaries.
+	// realGoalsMu guards realGoalsByID. Counts honest (non-own-goal)
+	// goals per player. The synth still owns the counter while
+	// onGoalScored lives here; StatfeedEmitter reads it via the
+	// RealGoals method on this struct for HatTrick suppression. Moves
+	// to OwnGoalEmitter when Goal extracts.
 	realGoalsMu   sync.Mutex
 	realGoalsByID map[string]int
-
-	// flipResetCountMu guards flipResetCountByID. Per-player count of
-	// FlipReset Statfeeds observed in the current match, keyed by
-	// canonical player id. Stamped on _FlipReset.flipResetsThisMatch
-	// for parity with _HatTrick.goalsThisMatch. Cleared on match
-	// boundaries.
-	flipResetCountMu   sync.Mutex
-	flipResetCountByID map[string]int
-
-// Per-match log of _PlayerDemolished envelopes (raw bytes, ready to
-	// rewrite to a fresh SSE subscriber). Reset on MatchCreated / first
-	// MatchInitialized of a new guid and on MatchDestroyed. Plugins
-	// reloading mid-match (e.g. dashboard refresh, OBS source reload)
-	// get the full demo history replayed on subscribe so per-match
-	// counters in the demos plugin survive page reloads without each
-	// plugin needing its own persistence layer.
-	demolishMu  sync.Mutex
-	demolishLog [][]byte
-
-	// demoChainMu guards demoChainByID. Per-attacker rolling list of
-	// recent demo timestamps for _DemoChain detection. Trimmed to the
-	// window each time we observe a demo. Cleared on match boundaries.
-	demoChainMu   sync.Mutex
-	demoChainByID map[string][]demoChainEntry
 }
-
-// demoChainEntry pairs a demo timestamp with the resolved victim, so
-// _DemoChain can report `victims[]` for the chain so far.
-type demoChainEntry struct {
-	at     time.Time
-	victim *EnrichedPlayer
-}
-
-// demoChainWindow is the sliding window within which back-to-back demos
-// by the same attacker count as a chain. 5s is wide enough to cover a
-// player chasing across the field, narrow enough that the next match's
-// first demo doesn't extend a stale chain.
-const demoChainWindow = 5 * time.Second
 
 func NewSynthesizer(bus Broadcaster, roster *RosterTracker, correlation *CorrelationBuffer, ticks *TickStore) *Synthesizer {
 	return &Synthesizer{
-		bus:                bus,
-		roster:             roster,
-		correlation:        correlation,
-		ticks:              ticks,
-		flipResetArmed:     make(map[string]bool),
-		realGoalsByID:      make(map[string]int),
-		flipResetCountByID: make(map[string]int),
-		demoChainByID:      make(map[string][]demoChainEntry),
+		bus:           bus,
+		roster:        roster,
+		correlation:   correlation,
+		ticks:         ticks,
+		realGoalsByID: make(map[string]int),
 	}
 }
 
@@ -136,6 +93,25 @@ func (s *Synthesizer) SetSummaryTimings(endedTimeout, podiumSettle time.Duration
 // data into both, and we don't want to publish synthetic events for
 // that phantom activity). Call before Run.
 func (s *Synthesizer) AttachMatchState(m *MatchState) { s.matchState = m }
+
+// RealGoals returns the per-match honest-goal count for `playerID`
+// (own goals don't count). Satisfies the realGoalsLookup interface so
+// StatfeedEmitter can suppress _HatTrick when RL's count includes own
+// goals. Will move to OwnGoalEmitter once Goal extracts and the
+// counter ownership shifts per the design spec.
+func (s *Synthesizer) RealGoals(playerID string) int {
+	if playerID == "" {
+		return 0
+	}
+	s.realGoalsMu.Lock()
+	defer s.realGoalsMu.Unlock()
+	return s.realGoalsByID[playerID]
+}
+
+// AttachStatfeedEmitter wires the new StatfeedEmitter so the synth's
+// onGoalScored can clear its flipReset arm via the emitter (which now
+// owns the flag). Removed when GoalEmitter extracts.
+func (s *Synthesizer) AttachStatfeedEmitter(e *StatfeedEmitter) { s.statfeed = e }
 
 // AttachDiscoveryStore wires the persistent unknown-Statfeed registry.
 // Optional — without it, _UnknownStatfeed still publishes but no entry
@@ -163,8 +139,6 @@ func (s *Synthesizer) Feed(raw []byte) {
 	switch name {
 	case "UpdateState":
 		s.onUpdateState(raw)
-	case "StatfeedEvent":
-		s.onStatfeedEvent(raw)
 	case "GoalScored":
 		s.onGoalScored(raw)
 	case "MatchCreated", "MatchDestroyed":
@@ -177,23 +151,11 @@ func (s *Synthesizer) Feed(raw []byte) {
 // Without this, a back-to-back rematch into the same lobby would
 // silently skip _FirstBlood because firstBloodFired was still true.
 func (s *Synthesizer) resetMatchMilestones() {
-	// Per-match demo log clears with the milestone state so a back-to-
-	// back rematch into the same lobby starts with an empty replay set.
-	s.demolishMu.Lock()
-	s.demolishLog = nil
-	s.demolishMu.Unlock()
 	// Drop the cached goal so the first GoalReplayStart of a new match
 	// can't pick up the previous match's last goal.
 	s.lastGoalMu.Lock()
 	s.lastGoal = nil
 	s.lastGoalMu.Unlock()
-	// Drop any flip-reset arming so a stale flag from the previous
-	// match can't tag the first goal of the next one.
-	s.flipResetArmedMu.Lock()
-	for k := range s.flipResetArmed {
-		delete(s.flipResetArmed, k)
-	}
-	s.flipResetArmedMu.Unlock()
 	// Reset per-player real-goal counters. Without this a player who
 	// scored 2 honest goals last match would only need 1 more this
 	// match to false-trigger _HatTrick.
@@ -202,20 +164,6 @@ func (s *Synthesizer) resetMatchMilestones() {
 		delete(s.realGoalsByID, k)
 	}
 	s.realGoalsMu.Unlock()
-	// Reset per-player flip-reset counters so the next match starts
-	// from 0 instead of carrying the previous match's count.
-	s.flipResetCountMu.Lock()
-	for k := range s.flipResetCountByID {
-		delete(s.flipResetCountByID, k)
-	}
-	s.flipResetCountMu.Unlock()
-	// Reset demo-chain history so a stale demo from the previous match
-	// can't extend the next match's first demo into a phantom chain.
-	s.demoChainMu.Lock()
-	for k := range s.demoChainByID {
-		delete(s.demoChainByID, k)
-	}
-	s.demoChainMu.Unlock()
 }
 
 // tickSnapshot is the slice of UpdateState we cache for diff emitters.
@@ -438,10 +386,11 @@ func (s *Synthesizer) diffPlayersLive(prev, curr *tickSnapshot) {
 		}
 		s.emitPlayerScoreChangedIfDelta(curr.matchGUID, p, c)
 		s.emitBoostPickupIfRising(curr.matchGUID, p, c)
-		if !p.onGround && c.onGround {
-			s.flipResetArmedMu.Lock()
-			delete(s.flipResetArmed, c.id)
-			s.flipResetArmedMu.Unlock()
+		if !p.onGround && c.onGround && s.statfeed != nil {
+			// Touched ground — clear any flip-reset arm so the next
+			// goal from this player isn't tagged unless they earn
+			// another reset run.
+			s.statfeed.ClearFlipResetArm(c.id)
 		}
 	}
 }
@@ -674,7 +623,7 @@ func (s *Synthesizer) diffBallPossession(prev, curr *tickSnapshot) {
 		MatchGUID:   curr.matchGUID,
 		Before:      toNullable(prev.ballTeam),
 		After:       toNullable(curr.ballTeam),
-		TriggeredBy: s.recentTouch(3),
+		TriggeredBy: recentTouch(s.correlation, 3),
 	}
 	if b, err := json.Marshal(out); err == nil {
 		s.bus.Broadcast(Event{Raw: b})
@@ -750,550 +699,6 @@ type statfeedData struct {
 	SecondTargetLow *ShortcutRef `json:"secondarytarget"`
 }
 
-// enrichedStatfeed is the payload shape of _StatfeedEvent. Field names
-// mirror the JS-side typed event so SDK consumers can switch without
-// reshaping the data.
-type enrichedStatfeed struct {
-	Event           string          `json:"Event"`
-	MatchGUID       string          `json:"matchGuid,omitempty"`
-	EventName       string          `json:"eventName"`
-	Type            string          `json:"type,omitempty"`
-	MainTarget      *EnrichedPlayer `json:"mainTarget,omitempty"`
-	SecondaryTarget *EnrichedPlayer `json:"secondaryTarget,omitempty"`
-}
-
-func (s *Synthesizer) onStatfeedEvent(raw []byte) {
-	var env statfeedEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return
-	}
-	inner := env.Data
-	if inner == "" {
-		inner = env.DataLow
-	}
-	if inner == "" {
-		return
-	}
-	var d statfeedData
-	if err := json.Unmarshal([]byte(inner), &d); err != nil {
-		return
-	}
-
-	guid := d.MatchGUID
-	if guid == "" {
-		guid = d.MatchGUIDLow
-	}
-	eventName := d.EventName
-	if eventName == "" {
-		eventName = d.EventNameLow
-	}
-	typeStr := d.Type
-	if typeStr == "" {
-		typeStr = d.TypeLow
-	}
-	main := d.MainTarget
-	if main == nil {
-		main = d.MainTargetLow
-	}
-	secondary := d.SecondaryTarget
-	if secondary == nil {
-		secondary = d.SecondTargetLow
-	}
-
-	out := enrichedStatfeed{
-		Event:     "_StatfeedEvent",
-		MatchGUID: guid,
-		EventName: eventName,
-		Type:      typeStr,
-	}
-	if main != nil {
-		out.MainTarget = s.roster.ResolveByShortcut(*main)
-	}
-	if secondary != nil {
-		out.SecondaryTarget = s.roster.ResolveByShortcut(*secondary)
-	}
-
-	// Record into the correlation buffer so _GoalScored / Phase-3 events
-	// can look back for same-frame modifiers. Stash the wire ref for
-	// shortcut-matching plus the resolved enrichment for forward use.
-	s.correlation.Record("StatfeedEvent", &statfeedRecord{
-		EventName: eventName,
-		MainRef:   main,
-		Resolved:  out.MainTarget,
-	})
-
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-
-	// Phase-3 dedicated events. Each known Statfeed variant gets its
-	// own _-prefixed envelope with variant-specific fields (correlations,
-	// counts) on top of the resolved targets. The generic _StatfeedEvent
-	// above keeps firing as the catch-all.
-	s.emitStatfeedVariant(eventName, guid, out.MainTarget, out.SecondaryTarget)
-}
-
-// emitStatfeedVariant fans the Statfeed variant out to its dedicated
-// _-prefixed event. Untracked variants (Goal, Win, MVP, Playmaker,
-// Savior, LowFive, HighFive — see the plan's Phase 3.3) are silently
-// skipped; the generic _StatfeedEvent already covered them. Names not
-// in the verified registry produce _UnknownStatfeed for discoverability.
-func (s *Synthesizer) emitStatfeedVariant(eventName, guid string, main, secondary *EnrichedPlayer) {
-	if _, known := verifiedStatfeedNames[eventName]; !known {
-		s.emitUnknownStatfeed(eventName, guid, main, secondary)
-	}
-	switch eventName {
-	case "Demolish":
-		s.emitPlayerDemolished(guid, main, secondary)
-	case "FlipReset":
-		s.emitFlipReset(guid, main)
-	case "HatTrick":
-		s.emitHatTrick(guid, main)
-	case "Save":
-		s.emitSave(guid, main, "_Save")
-	case "EpicSave":
-		s.emitSave(guid, main, "_EpicSave")
-	case "Shot":
-		s.emitShot(guid, main)
-	case "Assist":
-		s.emitAssist(guid, main)
-	case "Center":
-		s.emitTouchVariant(guid, main, "_Center")
-	case "Clear":
-		s.emitTouchVariant(guid, main, "_Clear")
-	case "BicycleHit":
-		s.emitTouchVariant(guid, main, "_BicycleHit")
-	}
-}
-
-// emitUnknownStatfeed publishes _UnknownStatfeed and bumps the
-// persistent discoveries store (if attached). The "first observation"
-// case logs once per name so a maintainer notices.
-func (s *Synthesizer) emitUnknownStatfeed(eventName, guid string, main, secondary *EnrichedPlayer) {
-	out := struct {
-		Event           string          `json:"Event"`
-		MatchGUID       string          `json:"matchGuid,omitempty"`
-		EventName       string          `json:"eventName"`
-		MainTarget      *EnrichedPlayer `json:"mainTarget,omitempty"`
-		SecondaryTarget *EnrichedPlayer `json:"secondaryTarget,omitempty"`
-	}{
-		Event:           "_UnknownStatfeed",
-		MatchGUID:       guid,
-		EventName:       eventName,
-		MainTarget:      main,
-		SecondaryTarget: secondary,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
-	if s.discoveries != nil {
-		s.discoveries.Record(eventName)
-	}
-}
-
-// emitSimple publishes a minimal envelope with just the resolved
-// MainTarget. Used by stat events with no correlation logic.
-func (s *Synthesizer) emitSimple(eventName, guid string, main *EnrichedPlayer) {
-	if main == nil {
-		return
-	}
-	b, err := json.Marshal(struct {
-		Event      string          `json:"Event"`
-		MatchGUID  string          `json:"matchGuid,omitempty"`
-		MainTarget *EnrichedPlayer `json:"mainTarget"`
-	}{
-		Event:      eventName,
-		MatchGUID:  guid,
-		MainTarget: main,
-	})
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-}
-
-func (s *Synthesizer) emitFlipReset(guid string, main *EnrichedPlayer) {
-	if main == nil {
-		return
-	}
-	// Arm the flip-reset-goal modifier for this player. Cleared when
-	// they next touch ground (in diffPlayers) or score (consumed in
-	// onGoalScored). Multiple resets in the same airborne run all map
-	// to the same armed state; we don't count them.
-	if main.ID != "" {
-		s.flipResetArmedMu.Lock()
-		s.flipResetArmed[main.ID] = true
-		s.flipResetArmedMu.Unlock()
-	}
-	// Per-match counter — bump on every reset (no de-dup; consecutive
-	// resets in one airborne run all increment). Stamped on the wire
-	// so consumers don't keep their own state.
-	count := 0
-	if main.ID != "" {
-		s.flipResetCountMu.Lock()
-		s.flipResetCountByID[main.ID]++
-		count = s.flipResetCountByID[main.ID]
-		s.flipResetCountMu.Unlock()
-	}
-	out := struct {
-		Event                 string          `json:"Event"`
-		MatchGUID             string          `json:"matchGuid,omitempty"`
-		MainTarget            *EnrichedPlayer `json:"mainTarget"`
-		FlipResetsThisMatch   int             `json:"flipResetsThisMatch"`
-	}{
-		Event:               "_FlipReset",
-		MatchGUID:           guid,
-		MainTarget:          main,
-		FlipResetsThisMatch: count,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
-}
-
-// _PlayerDemolished carries both attacker (MainTarget) and victim
-// (SecondaryTarget). isSelfDemo / isTeamDemo derived from team comparison.
-// attackerSpeed and attackerWasSupersonic are pulled from the most
-// recent UpdateState's per-player slice when available (SPECTATOR-only,
-// so non-spectator clients see them omitted).
-func (s *Synthesizer) emitPlayerDemolished(guid string, attacker, victim *EnrichedPlayer) {
-	if attacker == nil || victim == nil {
-		// Without one of the two targets the event is meaningless;
-		// the catch-all _StatfeedEvent already covered it.
-		return
-	}
-	attackerSpeed, attackerSupersonic := s.lookupTickScalars(attacker.ID)
-	out := struct {
-		Event                 string          `json:"Event"`
-		MatchGUID             string          `json:"matchGuid,omitempty"`
-		Attacker              *EnrichedPlayer `json:"attacker"`
-		Victim                *EnrichedPlayer `json:"victim"`
-		IsSelfDemo            bool            `json:"isSelfDemo,omitempty"`
-		IsTeamDemo            bool            `json:"isTeamDemo,omitempty"`
-		AttackerSpeed         *float64        `json:"attackerSpeed,omitempty"`
-		AttackerWasSupersonic *bool           `json:"attackerWasSupersonic,omitempty"`
-	}{
-		Event:         "_PlayerDemolished",
-		MatchGUID:     guid,
-		Attacker:      attacker,
-		Victim:        victim,
-		AttackerSpeed: attackerSpeed,
-	}
-	if attackerSpeed != nil {
-		// Only stamp the supersonic flag when we have a tick row for the
-		// attacker — otherwise we'd be claiming `false` from missing data.
-		ss := attackerSupersonic
-		out.AttackerWasSupersonic = &ss
-	}
-	if attacker.ID != "" && attacker.ID == victim.ID {
-		out.IsSelfDemo = true
-	} else if attacker.Team == victim.Team {
-		out.IsTeamDemo = true
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-	s.demolishMu.Lock()
-	s.demolishLog = append(s.demolishLog, b)
-	s.demolishMu.Unlock()
-	// Demo-chain detection: ≥2 demos by the same attacker within the
-	// rolling window. Self-demos and team-demos still count as actions
-	// but skip chain reporting (a chain over your own teammate isn't a
-	// hype moment); we keep them out of the per-attacker history too so
-	// they don't extend chains over real demos.
-	if !out.IsSelfDemo && !out.IsTeamDemo && attacker.ID != "" {
-		s.maybeEmitDemoChain(guid, attacker, victim)
-	}
-}
-
-// maybeEmitDemoChain trims the attacker's history to the chain window
-// and fires _DemoChain when count ≥ 2. Each subsequent demo inside the
-// window re-fires with the updated count and victim list.
-func (s *Synthesizer) maybeEmitDemoChain(guid string, attacker, victim *EnrichedPlayer) {
-	now := time.Now()
-	cutoff := now.Add(-demoChainWindow)
-	s.demoChainMu.Lock()
-	hist := s.demoChainByID[attacker.ID]
-	// Drop entries outside the window.
-	trimmed := hist[:0]
-	for _, e := range hist {
-		if e.at.After(cutoff) {
-			trimmed = append(trimmed, e)
-		}
-	}
-	trimmed = append(trimmed, demoChainEntry{at: now, victim: victim})
-	s.demoChainByID[attacker.ID] = trimmed
-	count := len(trimmed)
-	victims := make([]*EnrichedPlayer, 0, count)
-	for _, e := range trimmed {
-		victims = append(victims, e.victim)
-	}
-	windowStart := trimmed[0].at
-	s.demoChainMu.Unlock()
-
-	if count < 2 {
-		return
-	}
-	windowSeconds := now.Sub(windowStart).Seconds()
-	out := struct {
-		Event         string            `json:"Event"`
-		MatchGUID     string            `json:"matchGuid,omitempty"`
-		Attacker      *EnrichedPlayer   `json:"attacker"`
-		Victims       []*EnrichedPlayer `json:"victims"`
-		Count         int               `json:"count"`
-		WindowSeconds float64           `json:"windowSeconds"`
-	}{
-		Event:         "_DemoChain",
-		MatchGUID:     guid,
-		Attacker:      attacker,
-		Victims:       victims,
-		Count:         count,
-		WindowSeconds: windowSeconds,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
-}
-
-// DemolishLog returns a snapshot of every _PlayerDemolished envelope
-// published since the current match started. Used by the SSE handler
-// to replay the per-match demo history to a freshly-connected client
-// so per-match counters survive page refreshes without each plugin
-// implementing its own persistence. Returns nil when no demos have
-// been logged yet.
-func (s *Synthesizer) DemolishLog() [][]byte {
-	s.demolishMu.Lock()
-	defer s.demolishMu.Unlock()
-	if len(s.demolishLog) == 0 {
-		return nil
-	}
-	out := make([][]byte, len(s.demolishLog))
-	copy(out, s.demolishLog)
-	return out
-}
-
-// _HatTrick fires when the scorer's Goals count hits 3. RL's HatTrick
-// Statfeed counts own goals toward the threshold; we don't, so we
-// suppress the event when the player's tracked real-goal count is
-// below 3. Goal count comes from the per-match real-goal counter.
-func (s *Synthesizer) emitHatTrick(guid string, main *EnrichedPlayer) {
-	if main == nil {
-		return
-	}
-	s.realGoalsMu.Lock()
-	real := s.realGoalsByID[main.ID]
-	s.realGoalsMu.Unlock()
-	if real < 3 {
-		return
-	}
-	out := struct {
-		Event           string          `json:"Event"`
-		MatchGUID       string          `json:"matchGuid,omitempty"`
-		MainTarget      *EnrichedPlayer `json:"mainTarget"`
-		GoalsThisMatch  int             `json:"goalsThisMatch"`
-	}{
-		Event:          "_HatTrick",
-		MatchGUID:      guid,
-		MainTarget:     main,
-		GoalsThisMatch: real,
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-}
-
-// _Save / _EpicSave share their shape; differ only in event name. The
-// plan's correlatedShot lookup ships in a follow-up — for now we expose
-// the resolved saver and let consumers correlate on their own.
-func (s *Synthesizer) emitSave(guid string, main *EnrichedPlayer, eventName string) {
-	if main == nil {
-		return
-	}
-	// Look back for a recent Shot statfeed by an opposing-team player.
-	// Saves can land several events after the shot (intervening BallHit /
-	// other StatfeedEvents), so use the full buffer window.
-	var correlatedShot *EnrichedPlayer
-	for _, p := range s.correlation.Recent("StatfeedEvent", 15) {
-		rec, ok := p.(*statfeedRecord)
-		if !ok {
-			continue
-		}
-		if rec.EventName != "Shot" {
-			continue
-		}
-		if rec.Resolved == nil || rec.Resolved.Team == main.Team {
-			continue
-		}
-		correlatedShot = rec.Resolved
-		break
-	}
-
-	out := struct {
-		Event          string          `json:"Event"`
-		MatchGUID      string          `json:"matchGuid,omitempty"`
-		MainTarget     *EnrichedPlayer `json:"mainTarget"`
-		CorrelatedShot *EnrichedPlayer `json:"correlatedShot,omitempty"`
-	}{
-		Event:          eventName,
-		MatchGUID:      guid,
-		MainTarget:     main,
-		CorrelatedShot: correlatedShot,
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-}
-
-// _Shot. We attempt to attach the same-frame BallHit (the touch that
-// produced the shot) when one is in the buffer.
-func (s *Synthesizer) emitShot(guid string, main *EnrichedPlayer) {
-	if main == nil {
-		return
-	}
-	correlatedTouch := s.recentTouch(3)
-	out := struct {
-		Event           string                   `json:"Event"`
-		MatchGUID       string                   `json:"matchGuid,omitempty"`
-		MainTarget      *EnrichedPlayer          `json:"mainTarget"`
-		CorrelatedTouch *enrichedCorrelatedTouch `json:"correlatedTouch,omitempty"`
-	}{
-		Event:           "_Shot",
-		MatchGUID:       guid,
-		MainTarget:      main,
-		CorrelatedTouch: correlatedTouch,
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-}
-
-// _Assist. Look back for a same-frame _GoalScored — assists land on
-// the same tick as the goal in most builds, but the plan calls this
-// provisional because the window may need adjustment. We use 5 events.
-func (s *Synthesizer) emitAssist(guid string, main *EnrichedPlayer) {
-	if main == nil {
-		return
-	}
-	var correlatedGoal *goalRecord
-	for _, p := range s.correlation.Recent("_GoalScored", 5) {
-		if g, ok := p.(*goalRecord); ok {
-			correlatedGoal = g
-			break
-		}
-	}
-	type goalRef struct {
-		Scorer        *EnrichedPlayer `json:"scorer,omitempty"`
-		ScoringTeam   int             `json:"scoringTeam"`
-		ConcedingTeam int             `json:"concedingTeam"`
-	}
-	var goalSummary *goalRef
-	if correlatedGoal != nil {
-		goalSummary = &goalRef{
-			Scorer:        correlatedGoal.Scorer,
-			ScoringTeam:   correlatedGoal.ScoringTeam,
-			ConcedingTeam: correlatedGoal.ConcedingTeam,
-		}
-	}
-	out := struct {
-		Event          string          `json:"Event"`
-		MatchGUID      string          `json:"matchGuid,omitempty"`
-		MainTarget     *EnrichedPlayer `json:"mainTarget"`
-		CorrelatedGoal *goalRef        `json:"correlatedGoal,omitempty"`
-	}{
-		Event:          "_Assist",
-		MatchGUID:      guid,
-		MainTarget:     main,
-		CorrelatedGoal: goalSummary,
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-}
-
-// emitTouchVariant covers _Center, _Clear, _BicycleHit — same shape:
-// resolved MainTarget + a correlatedTouch pulled from the BallHit
-// buffer (with pre/post hit speeds when present).
-func (s *Synthesizer) emitTouchVariant(guid string, main *EnrichedPlayer, eventName string) {
-	if main == nil {
-		return
-	}
-	correlatedTouch := s.recentTouch(3)
-	out := struct {
-		Event           string                   `json:"Event"`
-		MatchGUID       string                   `json:"matchGuid,omitempty"`
-		MainTarget      *EnrichedPlayer          `json:"mainTarget"`
-		CorrelatedTouch *enrichedCorrelatedTouch `json:"correlatedTouch,omitempty"`
-	}{
-		Event:           eventName,
-		MatchGUID:       guid,
-		MainTarget:      main,
-		CorrelatedTouch: correlatedTouch,
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
-}
-
-// statfeedRecord is what the correlation buffer holds for each
-// StatfeedEvent. Only the fields _GoalScored / Phase-3 emitters look at
-// are kept — small footprint per entry.
-type statfeedRecord struct {
-	EventName string
-	MainRef   *ShortcutRef
-	Resolved  *EnrichedPlayer
-}
-
-// ballHitRecord is the correlation-buffer entry for a BallHit. Carries
-// the resolved primary toucher plus the scalar speed fields from the
-// envelope so downstream emitters (_Shot / _Center / _Clear / _BicycleHit /
-// _BallPossessionChanged) can attach them without re-parsing.
-type ballHitRecord struct {
-	Player       *EnrichedPlayer
-	PreHitSpeed  *float64
-	PostHitSpeed *float64
-}
-
-// enrichedCorrelatedTouch is the wire shape for `correlatedTouch` on
-// touch-variant events (_Shot / _Center / _Clear / _BicycleHit) and on
-// _BallPossessionChanged.triggeredBy. Speeds are nullable since RL omits
-// them on some BallHit envelopes.
-type enrichedCorrelatedTouch struct {
-	Player       *EnrichedPlayer `json:"player,omitempty"`
-	PreHitSpeed  *float64        `json:"preHitSpeed,omitempty"`
-	PostHitSpeed *float64        `json:"postHitSpeed,omitempty"`
-}
-
-// recentTouch returns the most recent BallHit from the correlation
-// buffer as a wire-ready correlatedTouch envelope. Returns nil when no
-// matching record exists or the player wasn't resolved.
-func (s *Synthesizer) recentTouch(window int) *enrichedCorrelatedTouch {
-	for _, p := range s.correlation.Recent("BallHit", window) {
-		rec, ok := p.(*ballHitRecord)
-		if !ok || rec == nil || rec.Player == nil {
-			continue
-		}
-		return &enrichedCorrelatedTouch{
-			Player:       rec.Player,
-			PreHitSpeed:  rec.PreHitSpeed,
-			PostHitSpeed: rec.PostHitSpeed,
-		}
-	}
-	return nil
-}
 
 // unwrapInnerData pulls the inner Data string out of an envelope, accepting
 // both PascalCase and lowercase top-level keys. Returns "" on missing or
@@ -1654,21 +1059,13 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	}
 
 	// Flip-reset goal: scorer was armed by a prior FlipReset and
-	// hadn't touched ground since. Consume the flag so the next goal
-	// from this player isn't tagged unless they earn another reset run.
-	if scorer.ID != "" {
-		s.flipResetArmedMu.Lock()
-		armed := s.flipResetArmed[scorer.ID]
-		if armed {
-			delete(s.flipResetArmed, scorer.ID)
+	// hadn't touched ground since. Consume the flag via StatfeedEmitter
+	// (which now owns it).
+	if s.statfeed != nil && s.statfeed.ConsumeFlipResetArm(scorer.ID) {
+		if mods == nil {
+			mods = &goalModifiers{}
 		}
-		s.flipResetArmedMu.Unlock()
-		if armed {
-			if mods == nil {
-				mods = &goalModifiers{}
-			}
-			mods.IsFlipResetGoal = true
-		}
+		mods.IsFlipResetGoal = true
 	}
 	if mods != nil {
 		out.Modifiers = mods

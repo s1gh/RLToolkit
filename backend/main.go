@@ -120,7 +120,8 @@ func runServe() {
 	synthBridge.s = synth
 	synth.AttachMatchState(matchState)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
-	synth.AttachDiscoveryStore(discoveries)
+	statfeed := NewStatfeedEmitter(roster, correlation, tickStore, discoveries, synth)
+	synth.AttachStatfeedEmitter(statfeed)
 
 	// Stage 5 wiring: events flow RLSource → Pipeline → Bus, and the
 	// legacy Synthesizer is still in the loop as one big EmitProcessor
@@ -136,6 +137,7 @@ func runServe() {
 	pipe.AddEmit(NewBallHitEmitter(roster, matchState, correlation))
 	pipe.AddEmit(NewCrossbarEmitter(roster, tickStore))
 	pipe.AddEmit(NewOwnGoalEmitter(matchState, tickStore, correlation))
+	pipe.AddEmit(statfeed)
 	pipe.AddEmit(synthBridge)
 	pipe.AddEmit(NewFastestShotEmitter())
 	pipe.AddEmit(NewFirstBloodEmitter())
@@ -162,7 +164,7 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, synth: synth, overrides: overrides, discoveries: discoveries, config: cfg}
+	srv := &Server{bus: bus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, statfeed: statfeed, overrides: overrides, discoveries: discoveries, config: cfg}
 	go source.Run(ctx)
 	go pipe.Run(ctx, source, bus)
 	go matchState.Run(ctx)
