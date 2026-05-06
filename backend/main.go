@@ -135,6 +135,10 @@ func runServe() {
 	pipe.AddState(roster)
 	pipe.AddState(matchState)
 	pipe.AddState(tickStore)
+	// Roster is registered as both a state processor (so other
+	// emit processors that resolve players see fresh state) and an
+	// emit processor (so _RosterChanged flows through the pipeline).
+	pipe.AddEmit(roster)
 	pipe.AddEmit(matchState)
 	pipe.AddEmit(NewBallHitEmitter(roster, matchState, correlation))
 	pipe.AddEmit(NewCrossbarEmitter(roster, tickStore))

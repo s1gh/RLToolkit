@@ -78,6 +78,11 @@ func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *Ro
 				bus.Broadcast(out)
 			}
 		}
+		if roster != nil {
+			for _, out := range roster.Process(evt) {
+				bus.Broadcast(out)
+			}
+		}
 		if synth != nil {
 			synth.Feed(raw)
 		}

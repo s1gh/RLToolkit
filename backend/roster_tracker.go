@@ -9,7 +9,7 @@ import (
 )
 
 // RosterTracker watches UpdateState envelopes and emits a synthetic
-// "_RosterChanged" event whenever the roster identity changes (player
+// _RosterChanged event whenever the roster identity changes (player
 // join, leave, team switch, or guid flip — a fresh match). Plugins
 // that only care about who's on the field (dejavu, anything similar)
 // can subscribe to _RosterChanged and skip UpdateState entirely,
@@ -24,28 +24,38 @@ import (
 // the event needlessly. The full normalized roster (id/team/name/
 // platform per player) is shipped in the payload so consumers don't
 // need to call match.build() themselves.
+//
+// Implements both StateProcessor (Observe — keeps the lastRoster
+// snapshot fresh so ResolveByShortcut callers from other emitters
+// get current data) and EmitProcessor (Process — returns
+// _RosterChanged when the roster identity moved). Registration order
+// matters: state processors run before emit processors, so the
+// snapshot is current by the time anyone calls ResolveByShortcut
+// inside Process.
 type RosterTracker struct {
-	bus *Bus
-
-	mu        sync.Mutex
-	lastFp    string
-	lastGUID  string
+	mu         sync.Mutex
+	lastFp     string
+	lastGUID   string
 	lastRoster []rosterPlayer
+
+	// pending holds the next _RosterChanged payload to emit. Set by
+	// Observe when the fingerprint moved; consumed by Process. Nil
+	// when there's nothing new.
+	pendingMu      sync.Mutex
+	pendingPayload *rosterEvent
 }
 
-// NewRosterTracker creates a tracker tied to a bus. No background
-// goroutine — Feed runs synchronously from the RL client's dispatcher
-// (same call site as LifecycleTracker.Feed), so changes publish
-// inline with the UpdateState that triggered them.
-func NewRosterTracker(bus *Bus) *RosterTracker {
-	return &RosterTracker{bus: bus}
+// NewRosterTracker creates a tracker. The bus arg is kept so existing
+// call sites keep compiling, but the tracker no longer needs it —
+// the pipeline broadcasts via the EmitProcessor return value.
+func NewRosterTracker(_ *Bus) *RosterTracker {
+	return &RosterTracker{}
 }
 
-// Observe inspects every event from the pipeline. Routes UpdateState
-// to the fingerprint-comparison path; MatchDestroyed and a lost
-// connection clear the tracker so a back-to-back rejoin into the same
-// lobby (same guid, same roster) still emits _RosterChanged for a
-// late-mounted plugin.
+// Observe updates the roster snapshot from UpdateState. Clears the
+// snapshot on MatchDestroyed and connection-loss so a fresh
+// rejoin into the same lobby publishes _RosterChanged for late
+// subscribers.
 func (t *RosterTracker) Observe(evt Event) {
 	switch evt.Name {
 	case "UpdateState":
@@ -56,10 +66,42 @@ func (t *RosterTracker) Observe(evt Event) {
 		t.lastGUID = ""
 		t.lastRoster = nil
 		t.mu.Unlock()
-		// Emit an empty roster so plugins listening to _RosterChanged
-		// (e.g., dejavu) clear their match view when the match ends.
-		t.publish("", nil)
+		t.queueEmission("", nil)
 	}
+}
+
+// Process returns _RosterChanged when Observe staged one. Pipeline
+// registration order should put RosterTracker before any consumer
+// that reads ResolveByShortcut/RosterSnapshot inside its own Process.
+func (t *RosterTracker) Process(evt Event) []Event {
+	t.pendingMu.Lock()
+	pending := t.pendingPayload
+	t.pendingPayload = nil
+	t.pendingMu.Unlock()
+	if pending == nil {
+		return nil
+	}
+	body, err := json.Marshal(struct {
+		MatchGUID string         `json:"matchGuid,omitempty"`
+		Players   []rosterPlayer `json:"players"`
+	}{
+		MatchGUID: pending.MatchGUID,
+		Players:   pending.Players,
+	})
+	if err != nil {
+		return nil
+	}
+	return []Event{{Name: "_RosterChanged", Data: body}}
+}
+
+func (t *RosterTracker) queueEmission(guid string, players []rosterPlayer) {
+	t.pendingMu.Lock()
+	t.pendingPayload = &rosterEvent{
+		Event:     "_RosterChanged",
+		MatchGUID: guid,
+		Players:   append([]rosterPlayer(nil), players...),
+	}
+	t.pendingMu.Unlock()
 }
 
 // rosterPlayer is the per-player payload shipped on _RosterChanged.
@@ -95,9 +137,7 @@ type updateStatePlayer struct {
 }
 
 // Lowercase wire variant — RL has shipped both casings across builds.
-// Same fields, JSON tags pointing at the lowercase keys. The
-// LifecycleTracker has the same back-compat dance for its top-level
-// envelope; we mirror it for the inner Data shape.
+// Same fields, JSON tags pointing at the lowercase keys.
 type updateStatePlayerLower struct {
 	PrimaryID string `json:"primaryid"`
 	Name      string `json:"name"`
@@ -113,7 +153,7 @@ type updateStateData struct {
 
 // envelopeData pulls the inner Data string out of an UpdateState
 // envelope. RL ships Data as a JSON-encoded string containing JSON,
-// so this is a double-decode boundary. Returns nil on parse failure
+// so this is a double-decode boundary. Returns "" on parse failure
 // — the caller treats that as "no roster change", which is the safe
 // no-op default.
 type updateStateEnvelope struct {
@@ -141,8 +181,6 @@ func (t *RosterTracker) onUpdateState(raw []byte) {
 	if guid == "" {
 		guid = d.MatchGUIDLow
 	}
-	// Normalize the player list to the canonical PascalCase shape so
-	// downstream code sees one source of truth.
 	players := d.Players
 	if len(players) == 0 && len(d.PlayersLow) > 0 {
 		players = make([]updateStatePlayer, len(d.PlayersLow))
@@ -150,19 +188,9 @@ func (t *RosterTracker) onUpdateState(raw []byte) {
 			players[i] = updateStatePlayer{PrimaryID: p.PrimaryID, Name: p.Name, TeamNum: p.TeamNum}
 		}
 	}
-
-	// Mint per-bot ids before anything downstream uses PrimaryID.
-	// Without this, RL's "every bot is Unknown|0|0" wire shape would
-	// collapse multiple bots into one fingerprint entry, one ledger
-	// row, one synthetic-event subject — see canonicalizeBotId.
 	for i := range players {
 		players[i].PrimaryID = canonicalizeBotId(players[i].PrimaryID, players[i].Name)
 	}
-
-	// Build the fingerprint: guid + sorted (id, team) pairs. Sorting
-	// makes the comparison order-independent — RL doesn't guarantee
-	// stable ordering across ticks, and a reorder shouldn't trigger
-	// a synthetic event.
 	fp := fingerprint(guid, players)
 
 	t.mu.Lock()
@@ -182,9 +210,10 @@ func (t *RosterTracker) onUpdateState(raw []byte) {
 			IsBot:    isBotId(p.PrimaryID),
 		})
 	}
+	snapshot := append([]rosterPlayer(nil), t.lastRoster...)
 	t.mu.Unlock()
 
-	t.publish(guid, players)
+	t.queueEmission(guid, snapshot)
 }
 
 func fingerprint(guid string, players []updateStatePlayer) string {
@@ -215,11 +244,9 @@ func fingerprint(guid string, players []updateStatePlayer) string {
 }
 
 // Snapshot returns the most recently published _RosterChanged envelope
-// as raw JSON, or nil if the tracker hasn't seen a roster yet (or just
-// cleared it on MatchDestroyed). Used by the SSE handler to replay the
-// current roster to a fresh subscriber — without it, a plugin refreshing
-// mid-match has to wait for the next roster delta (which may never come
-// during stable play) to repopulate match.current.
+// as raw JSON in the new wire shape ({Event, Data}), or nil if the
+// tracker hasn't seen a roster yet. Used by the SSE handler to replay
+// the current roster to a freshly-connected subscriber.
 func (t *RosterTracker) Snapshot() []byte {
 	t.mu.Lock()
 	if len(t.lastRoster) == 0 {
@@ -231,37 +258,24 @@ func (t *RosterTracker) Snapshot() []byte {
 	copy(out, t.lastRoster)
 	t.mu.Unlock()
 
-	b, err := json.Marshal(rosterEvent{
-		Event:     "_RosterChanged",
+	body, err := json.Marshal(struct {
+		MatchGUID string         `json:"matchGuid,omitempty"`
+		Players   []rosterPlayer `json:"players"`
+	}{
 		MatchGUID: guid,
 		Players:   out,
 	})
 	if err != nil {
 		return nil
 	}
-	return b
-}
-
-func (t *RosterTracker) publish(guid string, players []updateStatePlayer) {
-	out := make([]rosterPlayer, 0, len(players))
-	for _, p := range players {
-		out = append(out, rosterPlayer{
-			ID:       p.PrimaryID,
-			Name:     p.Name,
-			Team:     p.TeamNum,
-			Platform: platformFromID(p.PrimaryID),
-			IsBot:    isBotId(p.PrimaryID),
-		})
-	}
-	b, err := json.Marshal(rosterEvent{
-		Event:     "_RosterChanged",
-		MatchGUID: guid,
-		Players:   out,
-	})
+	envelope, err := json.Marshal(struct {
+		Event string          `json:"Event"`
+		Data  json.RawMessage `json:"Data"`
+	}{Event: "_RosterChanged", Data: body})
 	if err != nil {
-		return
+		return nil
 	}
-	t.bus.Broadcast(Event{Name: "_RosterChanged", Raw: b})
+	return envelope
 }
 
 // platformFromID extracts the leading "Steam" / "Epic" / etc segment
