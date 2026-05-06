@@ -18,11 +18,15 @@ import (
 )
 
 // synthAdapter bridges the legacy Synthesizer.Feed into the pipeline.
-// During Stage 5 the synthesizer keeps its current "publish via the
-// Broadcaster I was handed" shape, but the adapter swaps in itself as
-// that Broadcaster for the duration of Process so emissions flow back
-// through the pipeline (where downstream emit processors can consume
-// them) instead of bypassing it via direct bus calls.
+// Acts as the synth's Broadcaster too — emissions land in `pending`
+// instead of going straight to the bus, so they flow back through the
+// pipeline where downstream emit processors can consume them.
+//
+// The synth only handles raw RL events, so we skip everything that
+// starts with "_" (the synthetic events emitted by other processors).
+// Without that guard, synth.Feed would fire its name-extract +
+// dispatch on every chained emission only to fall through. Cheap but
+// pointless.
 //
 // Pipeline.Run is single-threaded, so a single shared buffer here is
 // safe — Process is never re-entered concurrently.
@@ -34,6 +38,9 @@ type synthAdapter struct {
 func (a *synthAdapter) Broadcast(evt Event) { a.pending = append(a.pending, evt) }
 
 func (a *synthAdapter) Process(evt Event) []Event {
+	if len(evt.Name) > 0 && evt.Name[0] == '_' {
+		return nil
+	}
 	a.pending = a.pending[:0]
 	a.s.Feed(evt.Raw)
 	if len(a.pending) == 0 {
@@ -106,8 +113,9 @@ func runServe() {
 	roster := NewRosterTracker(bus)
 	matchState := NewMatchState()
 	matchState.AttachBroadcaster(bus)
+	correlation := NewCorrelationBuffer(32)
 	synthBridge := &synthAdapter{}
-	synth := NewSynthesizer(synthBridge, roster)
+	synth := NewSynthesizer(synthBridge, roster, correlation)
 	synthBridge.s = synth
 	synth.AttachMatchState(matchState)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
@@ -123,7 +131,7 @@ func runServe() {
 	pipe.AddState(roster)
 	pipe.AddState(matchState)
 	pipe.AddEmit(matchState)
-	pipe.AddEmit(NewBallHitEmitter(roster, matchState))
+	pipe.AddEmit(NewBallHitEmitter(roster, matchState, correlation))
 	pipe.AddEmit(synthBridge)
 	pipe.AddEmit(NewFastestShotEmitter())
 	pipe.AddEmit(NewFirstBloodEmitter())

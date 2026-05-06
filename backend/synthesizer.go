@@ -35,20 +35,17 @@ type Synthesizer struct {
 	lastTeams []teamRef
 	lastTick  *tickSnapshot
 
-	// correlation buffers recent events so emitters like _GoalScored
-	// can look back for modifier Statfeeds (AerialGoal, BackwardsGoal,
+	// correlation is the shared sliding window of recent events. Owned
+	// by main; processors share one instance so a producer (e.g.
+	// BallHitEmitter) can record a touch and a consumer (the synth's
+	// _GoalScored fallback, soon emit_own_goal) can look it back up.
+	// Emitters like _GoalScored use it to look back for modifier
+	// Statfeeds (AerialGoal, BackwardsGoal,
 	// …) and _OwnGoal can look back for the GoalScored it belongs to.
 	// Sized in events, not ticks — see CorrelationBuffer.
 	correlation *CorrelationBuffer
 
-	// lastBallTouchMu guards lastBallTouchPlayer/Team. Updated from each
-	// BallHit envelope so _OwnGoal can identify the player who deflected
-	// the ball into their own net (the "deflector"). The plan requires
-	// this for Phase 2's score-delta own-goal detection.
-	lastBallTouchMu     sync.Mutex
-	lastBallTouchPlayer *EnrichedPlayer
-
-	// crossbarMu guards lastCrossbarHit. RL fires a burst of CrossbarHit
+// crossbarMu guards lastCrossbarHit. RL fires a burst of CrossbarHit
 	// events when the ball rolls along the goal frame (we've seen 5 in
 	// a row). Debounce so consumers see one event per real impact.
 	crossbarMu      sync.Mutex
@@ -168,11 +165,11 @@ const matchSummaryEndedTimeout = 10 * time.Second
 // SetSummaryTimings to keep the suite fast.
 const matchSummaryPodiumSettle = 3 * time.Second
 
-func NewSynthesizer(bus Broadcaster, roster *RosterTracker) *Synthesizer {
+func NewSynthesizer(bus Broadcaster, roster *RosterTracker, correlation *CorrelationBuffer) *Synthesizer {
 	return &Synthesizer{
 		bus:                 bus,
 		roster:              roster,
-		correlation:         NewCorrelationBuffer(32),
+		correlation:         correlation,
 		flipResetArmed:      make(map[string]bool),
 		realGoalsByID:       make(map[string]int),
 		flipResetCountByID:  make(map[string]int),
@@ -228,8 +225,6 @@ func (s *Synthesizer) Feed(raw []byte) {
 		s.onUpdateState(raw)
 	case "StatfeedEvent":
 		s.onStatfeedEvent(raw)
-	case "BallHit":
-		s.onBallHit(raw)
 	case "CrossbarHit":
 		s.onCrossbarHit(raw)
 	case "MatchEnded":
@@ -1734,54 +1729,6 @@ type enrichedBallHit struct {
 	Location     *vec3             `json:"location,omitempty"`
 }
 
-// onBallHit only updates the side-effect state (lastBallTouchPlayer
-// and the correlation buffer) that downstream synth-owned emitters
-// like _OwnGoal still need. The wire-facing _BallHit event is now
-// published by BallHitEmitter (emit_ball_hit.go); when the remaining
-// downstream consumers are extracted (Tasks 5.6 and 5.8), this whole
-// method goes away.
-func (s *Synthesizer) onBallHit(raw []byte) {
-	if s.matchState != nil {
-		ph := s.matchState.Snapshot().Phase
-		if ph != PhaseLive && ph != PhaseCountdown && ph != PhasePaused {
-			return
-		}
-	}
-	inner := unwrapInnerData(raw)
-	if inner == "" {
-		return
-	}
-	var d ballHitData
-	if err := json.Unmarshal([]byte(inner), &d); err != nil {
-		return
-	}
-	players := d.Players
-	if len(players) == 0 {
-		players = d.PlayersLow
-	}
-	if len(players) == 0 {
-		return
-	}
-	first := s.roster.ResolveByShortcut(players[0])
-	if first == nil {
-		return
-	}
-	ball := d.Ball
-	if ball == nil {
-		ball = d.BallLow
-	}
-	s.lastBallTouchMu.Lock()
-	s.lastBallTouchPlayer = first
-	s.lastBallTouchMu.Unlock()
-
-	rec := &ballHitRecord{Player: first}
-	if ball != nil {
-		rec.PreHitSpeed = ball.PreHitSpeed
-		rec.PostHitSpeed = ball.PostHitSpeed
-	}
-	s.correlation.Record("BallHit", rec)
-}
-
 // crossbarHitData mirrors the wire shape of a CrossbarHit envelope.
 // BallLastTouch is the player who last touched the ball before it hit
 // the crossbar — typically the shooter.
@@ -2308,12 +2255,14 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	}
 	// Fallback: when RL ships GoalScored without a BallLastTouch block
 	// (observed on some builds, especially for own goals), use the
-	// most recent BallHit player the synthesizer cached. Same heuristic,
-	// different source.
+	// most recent BallHit from the shared correlation buffer. Same
+	// heuristic, just sourced from the producer that already records it.
 	if lastToucher == nil {
-		s.lastBallTouchMu.Lock()
-		lastToucher = s.lastBallTouchPlayer
-		s.lastBallTouchMu.Unlock()
+		for _, p := range s.correlation.Recent("BallHit", 1) {
+			if rec, ok := p.(*ballHitRecord); ok && rec != nil {
+				lastToucher = rec.Player
+			}
+		}
 	}
 	// Own-goal heuristic: if the last-touch player is on the conceding
 	// team, the goal was deflected/own-goaled. The richer _OwnGoal

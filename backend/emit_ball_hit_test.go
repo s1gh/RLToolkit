@@ -10,7 +10,7 @@ func TestBallHitEmitter_RepublishesWithEnrichedPlayers(t *testing.T) {
 	// Seed a UpdateState so ResolveByShortcut can find a name match.
 	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 1}})})
 
-	e := NewBallHitEmitter(roster, nil)
+	e := NewBallHitEmitter(roster, nil, NewCorrelationBuffer(8))
 	evt := makeBallHit(t, "G", "Ada", 65, 110)
 	out := e.Process(evt)
 	if len(out) != 1 || out[0].Name != "_BallHit" {
@@ -40,14 +40,14 @@ func TestBallHitEmitter_PhaseGated(t *testing.T) {
 	roster := NewRosterTracker(nil)
 	ms := NewMatchState()
 	// MatchState defaults to PhaseNone; emitter must skip.
-	e := NewBallHitEmitter(roster, ms)
+	e := NewBallHitEmitter(roster, ms, NewCorrelationBuffer(8))
 	if got := e.Process(makeBallHit(t, "G", "Ada", 1, 2)); len(got) != 0 {
 		t.Fatalf("PhaseNone should skip, got %v", got)
 	}
 }
 
 func TestBallHitEmitter_IgnoresNonBallHit(t *testing.T) {
-	e := NewBallHitEmitter(NewRosterTracker(nil), nil)
+	e := NewBallHitEmitter(NewRosterTracker(nil), nil, NewCorrelationBuffer(8))
 	if got := e.Process(Event{Name: "Other", Raw: []byte(`{}`)}); len(got) != 0 {
 		t.Fatalf("non-BallHit should be ignored, got %v", got)
 	}

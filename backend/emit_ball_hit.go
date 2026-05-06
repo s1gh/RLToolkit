@@ -9,15 +9,24 @@ import (
 // wire-spec gaps: the raw BallHit ships only ShortcutRefs, which forces
 // every consumer to repeat the roster-join lookup themselves.
 //
+// As a side effect, every BallHit also lands in the shared
+// CorrelationBuffer under the "BallHit" key — the entry carries the
+// resolved primary toucher plus the pre/post speeds. Downstream
+// emitters that need "who hit the ball most recently" (own-goal
+// detection, touch-variant statfeeds) read it back via
+// CorrelationBuffer.Recent("BallHit", N) instead of decoding _BallHit
+// off the bus a second time.
+//
 // Phase gate: liveOnly (RL fires BallHit during goal-replay cinematics
 // and on the post-match screen — those aren't real touches).
 type BallHitEmitter struct {
-	roster     *RosterTracker
-	matchState *MatchState
+	roster      *RosterTracker
+	matchState  *MatchState
+	correlation *CorrelationBuffer
 }
 
-func NewBallHitEmitter(roster *RosterTracker, ms *MatchState) *BallHitEmitter {
-	return &BallHitEmitter{roster: roster, matchState: ms}
+func NewBallHitEmitter(roster *RosterTracker, ms *MatchState, correlation *CorrelationBuffer) *BallHitEmitter {
+	return &BallHitEmitter{roster: roster, matchState: ms, correlation: correlation}
 }
 
 func (e *BallHitEmitter) Process(evt Event) []Event {
@@ -72,6 +81,17 @@ func (e *BallHitEmitter) Process(evt Event) []Event {
 		out.PostHitSpeed = ball.PostHitSpeed
 		out.Location = ball.Location
 	}
+
+	// Record the touch for downstream consumers BEFORE marshaling, so
+	// a marshal failure doesn't leave them looking at stale data.
+	if e.correlation != nil && len(resolved) > 0 && resolved[0] != nil {
+		e.correlation.Record("BallHit", &ballHitRecord{
+			Player:       resolved[0],
+			PreHitSpeed:  out.PreHitSpeed,
+			PostHitSpeed: out.PostHitSpeed,
+		})
+	}
+
 	body, err := json.Marshal(out)
 	if err != nil {
 		return nil
