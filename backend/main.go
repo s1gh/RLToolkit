@@ -132,6 +132,7 @@ func runServe() {
 	pipe.AddEmit(matchState)
 	pipe.AddEmit(synthBridge)
 	pipe.AddEmit(NewFastestShotEmitter())
+	pipe.AddEmit(NewFirstBloodEmitter())
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
 	if err != nil {

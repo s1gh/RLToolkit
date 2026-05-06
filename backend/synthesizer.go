@@ -90,18 +90,7 @@ type Synthesizer struct {
 	flipResetCountMu   sync.Mutex
 	flipResetCountByID map[string]int
 
-	// matchMu guards per-match milestone state. Reset on MatchCreated
-	// / MatchDestroyed so a back-to-back match doesn't carry stale
-	// flags. _OvertimeStarted / _FirstTouch / _FirstBlood each fire
-	// at most once per match.
-	matchMu              sync.Mutex
-	awaitingFirstTouch   bool // true after RoundStarted, until the first BallHit
-	firstBloodFired      bool
-	overtimeStartedFired bool
-	matchInitializedAt   time.Time // for _FirstBlood.secondsIntoMatch
-	roundStartedAt       time.Time // for _FirstTouch.timeFromCountdownEndSeconds
-
-	// Match summary settle-window state. Set on MatchEnded; cleared
+// Match summary settle-window state. Set on MatchEnded; cleared
 	// when _MatchSummary publishes (settle timeout, PodiumStart, or
 	// MatchDestroyed — whichever first).
 	summaryMu        sync.Mutex
@@ -255,10 +244,8 @@ func (s *Synthesizer) Feed(raw []byte) {
 		// fields were collected). Also reset the per-match flags.
 		s.flushMatchSummary("MatchDestroyed")
 		s.resetMatchMilestones()
-	case "MatchInitialized":
-		s.onMatchInitialized()
 	case "RoundStarted":
-		s.armFirstTouch()
+		s.armKickoffWindow()
 	case "PodiumStart":
 		// MVP is part of the podium scene itself, so the MVP Statfeed
 		// arrives at or after PodiumStart — never before. Restart the
@@ -273,12 +260,6 @@ func (s *Synthesizer) Feed(raw []byte) {
 // Without this, a back-to-back rematch into the same lobby would
 // silently skip _FirstBlood because firstBloodFired was still true.
 func (s *Synthesizer) resetMatchMilestones() {
-	s.matchMu.Lock()
-	s.awaitingFirstTouch = false
-	s.firstBloodFired = false
-	s.overtimeStartedFired = false
-	s.matchInitializedAt = time.Time{}
-	s.matchMu.Unlock()
 	// Per-match demo log clears with the milestone state so a back-to-
 	// back rematch into the same lobby starts with an empty replay set.
 	s.demolishMu.Lock()
@@ -326,22 +307,11 @@ func (s *Synthesizer) resetMatchMilestones() {
 	s.kickoffMu.Unlock()
 }
 
-func (s *Synthesizer) onMatchInitialized() {
-	s.matchMu.Lock()
-	s.matchInitializedAt = time.Now()
-	s.matchMu.Unlock()
-}
-
-func (s *Synthesizer) armFirstTouch() {
-	// _FirstTouch fires once per kickoff (every RoundStarted), not once
-	// per match. Each goal ends with a kickoff, so this re-arms naturally.
-	s.matchMu.Lock()
-	s.awaitingFirstTouch = true
-	s.roundStartedAt = time.Now()
-	s.matchMu.Unlock()
-	// _KickoffConverted: arm the per-round window. First _Shot or
-	// _GoalScored inside it fires the event once. Subsequent rounds
-	// re-arm by overwriting the deadline.
+// armKickoffWindow arms the per-round kickoff-conversion window on
+// every RoundStarted. First _Shot or _GoalScored inside it fires
+// _KickoffConverted; subsequent rounds re-arm by overwriting the
+// deadline.
+func (s *Synthesizer) armKickoffWindow() {
 	s.kickoffMu.Lock()
 	s.kickoffWindowDeadline = time.Now().Add(kickoffWindow)
 	s.kickoffConvertedFired = false
@@ -594,7 +564,6 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 	s.diffPlayersLive(prev, curr)
 	s.diffTeamScores(prev, curr)
 	s.diffBallPossession(prev, curr)
-	s.diffOvertime(prev, curr)
 }
 
 // diffReplayEdge emits _GoalReplayContext on a rising bReplay edge.
@@ -620,53 +589,6 @@ func (s *Synthesizer) diffReplayEdge(prev, curr *tickSnapshot) {
 	out := *cached
 	out.Event = "_GoalReplayContext"
 	out.MatchGUID = curr.matchGUID
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
-}
-
-// diffOvertime fires _OvertimeStarted on a rising bOvertime edge.
-// Once-per-match: subsequent OT ticks don't re-fire.
-func (s *Synthesizer) diffOvertime(prev, curr *tickSnapshot) {
-	if prev.overtime || !curr.overtime {
-		return
-	}
-	s.matchMu.Lock()
-	if s.overtimeStartedFired {
-		s.matchMu.Unlock()
-		return
-	}
-	s.overtimeStartedFired = true
-	matchStart := s.matchInitializedAt
-	s.matchMu.Unlock()
-
-	var matchDur *float64
-	if !matchStart.IsZero() {
-		dur := time.Since(matchStart).Seconds()
-		matchDur = &dur
-	}
-	scoreBlue := teamScore(curr.teams, 0)
-	scoreOrange := teamScore(curr.teams, 1)
-	// OT only fires when the score is tied; emit the value directly so
-	// consumers don't have to check equality + read either side. When
-	// the cached scores somehow disagree (shouldn't happen — RL gates OT
-	// on a tie) we still ship the blue side as the canonical view.
-	tiedAt := scoreBlue
-	out := struct {
-		Event                          string   `json:"Event"`
-		MatchGUID                      string   `json:"matchGuid,omitempty"`
-		ScoreBlue                      int      `json:"scoreBlue"`
-		ScoreOrange                    int      `json:"scoreOrange"`
-		TiedAt                         int      `json:"tiedAt"`
-		MatchDurationSecondsBeforeOT   *float64 `json:"matchDurationSecondsBeforeOT,omitempty"`
-	}{
-		Event:                        "_OvertimeStarted",
-		MatchGUID:                    curr.matchGUID,
-		ScoreBlue:                    scoreBlue,
-		ScoreOrange:                  scoreOrange,
-		TiedAt:                       tiedAt,
-		MatchDurationSecondsBeforeOT: matchDur,
-	}
 	if b, err := json.Marshal(out); err == nil {
 		s.bus.Broadcast(Event{Raw: b})
 	}
@@ -1888,44 +1810,6 @@ func (s *Synthesizer) onBallHit(raw []byte) {
 		return
 	}
 	s.bus.Broadcast(Event{Raw: b})
-
-	// _FirstTouch — fires on the first BallHit after each RoundStarted.
-	s.maybeEmitFirstTouch(guid, resolved, out.PostHitSpeed, out.Location)
-}
-
-func (s *Synthesizer) maybeEmitFirstTouch(guid string, players []*EnrichedPlayer, postHitSpeed *float64, loc *vec3) {
-	s.matchMu.Lock()
-	if !s.awaitingFirstTouch {
-		s.matchMu.Unlock()
-		return
-	}
-	s.awaitingFirstTouch = false
-	roundStart := s.roundStartedAt
-	s.matchMu.Unlock()
-
-	var elapsed *float64
-	if !roundStart.IsZero() {
-		dur := time.Since(roundStart).Seconds()
-		elapsed = &dur
-	}
-	out := struct {
-		Event                       string            `json:"Event"`
-		MatchGUID                   string            `json:"matchGuid,omitempty"`
-		Players                     []*EnrichedPlayer `json:"players"`
-		PostHitSpeed                *float64          `json:"postHitSpeed,omitempty"`
-		Location                    *vec3             `json:"location,omitempty"`
-		TimeFromCountdownEndSeconds *float64          `json:"timeFromCountdownEndSeconds,omitempty"`
-	}{
-		Event:                       "_FirstTouch",
-		MatchGUID:                   guid,
-		Players:                     players,
-		PostHitSpeed:                postHitSpeed,
-		Location:                    loc,
-		TimeFromCountdownEndSeconds: elapsed,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
 }
 
 // crossbarHitData mirrors the wire shape of a CrossbarHit envelope.
@@ -2545,47 +2429,9 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	}
 	s.bus.Broadcast(Event{Raw: b})
 
-	// _FirstBlood — first goal of the match.
-	s.maybeEmitFirstBlood(guid, scorer, scoringTeam, concedingTeam)
-
 	// _KickoffConverted — first scoring action within the kickoff
 	// window after RoundStarted.
 	s.maybeEmitKickoffConverted(guid, "GoalScored", scorer, scoringTeam)
-}
-
-func (s *Synthesizer) maybeEmitFirstBlood(guid string, scorer *EnrichedPlayer, scoringTeam, concedingTeam int) {
-	s.matchMu.Lock()
-	if s.firstBloodFired {
-		s.matchMu.Unlock()
-		return
-	}
-	s.firstBloodFired = true
-	matchStart := s.matchInitializedAt
-	s.matchMu.Unlock()
-
-	var secondsIn *float64
-	if !matchStart.IsZero() {
-		dur := time.Since(matchStart).Seconds()
-		secondsIn = &dur
-	}
-	out := struct {
-		Event             string          `json:"Event"`
-		MatchGUID         string          `json:"matchGuid,omitempty"`
-		Scorer            *EnrichedPlayer `json:"scorer"`
-		ScoringTeam       int             `json:"scoringTeam"`
-		ConcedingTeam     int             `json:"concedingTeam"`
-		SecondsIntoMatch  *float64        `json:"secondsIntoMatch,omitempty"`
-	}{
-		Event:            "_FirstBlood",
-		MatchGUID:        guid,
-		Scorer:           scorer,
-		ScoringTeam:      scoringTeam,
-		ConcedingTeam:    concedingTeam,
-		SecondsIntoMatch: secondsIn,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
 }
 
 // goalRecord is the slim correlation-buffer entry for _GoalScored —
