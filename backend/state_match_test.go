@@ -84,3 +84,36 @@ func TestMatchState_NoEmissionOnIdentityTransition(t *testing.T) {
 		t.Fatalf("expected no emission on identity transition, got %d", len(got))
 	}
 }
+
+func TestMatchState_WatchdogFlipsInactive(t *testing.T) {
+	ms := NewMatchState()
+	ms.timeout = 50 * time.Millisecond
+
+	// Drive into a live state via UpdateState.
+	evt := Event{Name: "UpdateState", Raw: []byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"abc\"}"}`)}
+	ms.Observe(evt)
+	_ = ms.Process(evt)
+
+	if !ms.Snapshot().MatchActive {
+		t.Fatal("expected matchActive=true after UpdateState")
+	}
+
+	// Wait past the timeout, then check.
+	time.Sleep(120 * time.Millisecond)
+	ms.checkTimeout()
+
+	emitted := ms.Process(Event{Name: "tick"})
+	if len(emitted) != 1 {
+		t.Fatalf("expected 1 _MatchState emission from watchdog, got %d", len(emitted))
+	}
+	snap := ms.Snapshot()
+	if snap.MatchActive {
+		t.Error("expected matchActive=false after watchdog")
+	}
+	if snap.Phase != PhasePhaseNone {
+		t.Errorf("expected phase=none after watchdog, got %q", snap.Phase)
+	}
+	if snap.Trigger != "watchdogTimeout" {
+		t.Errorf("expected trigger=watchdogTimeout, got %q", snap.Trigger)
+	}
+}

@@ -247,5 +247,14 @@ func (m *MatchState) Run(ctx context.Context) {
 }
 
 func (m *MatchState) checkTimeout() {
-	// Implementation in Task 2.3.
+	if !m.matchActive.Load() {
+		return
+	}
+	m.lastTickMu.Lock()
+	last := m.lastTick
+	m.lastTickMu.Unlock()
+	if last.IsZero() || time.Since(last) < m.timeout {
+		return
+	}
+	m.transitionTo(PhasePhaseNone, "watchdogTimeout", "clear", false)
 }
