@@ -48,7 +48,7 @@ func fixtureReplay(t *testing.T, path string, feeder func([]byte)) {
 //
 // If eventName is empty, all synthetic events (those starting with "_")
 // are returned.
-func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *RosterTracker, synth *Synthesizer, fixturePath string, eventName string) []map[string]interface{} {
+func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *RosterTracker, fixturePath string, eventName string) []map[string]interface{} {
 	t.Helper()
 
 	ch, cancel := bus.Subscribe(nil)
@@ -82,9 +82,6 @@ func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *Ro
 			for _, out := range roster.Process(evt) {
 				bus.Broadcast(out)
 			}
-		}
-		if synth != nil {
-			synth.Feed(raw)
 		}
 	}
 
@@ -131,7 +128,7 @@ func TestFixtureReplay_BasicMatch(t *testing.T) {
 	matchState := NewMatchState()
 	roster := NewRosterTracker(bus)
 
-	got := captureSynthetic(t, bus, matchState, roster, nil, "testdata/fixtures/basic_match.jsonl", "")
+	got := captureSynthetic(t, bus, matchState, roster, "testdata/fixtures/basic_match.jsonl", "")
 
 	// We expect at minimum: _MatchState transitions + _RosterChanged.
 	// The exact count depends on the fixture, but we can sanity-check

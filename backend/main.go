@@ -17,40 +17,6 @@ import (
 	"time"
 )
 
-// synthAdapter bridges the legacy Synthesizer.Feed into the pipeline.
-// Acts as the synth's Broadcaster too — emissions land in `pending`
-// instead of going straight to the bus, so they flow back through the
-// pipeline where downstream emit processors can consume them.
-//
-// The synth only handles raw RL events, so we skip everything that
-// starts with "_" (the synthetic events emitted by other processors).
-// Without that guard, synth.Feed would fire its name-extract +
-// dispatch on every chained emission only to fall through. Cheap but
-// pointless.
-//
-// Pipeline.Run is single-threaded, so a single shared buffer here is
-// safe — Process is never re-entered concurrently.
-type synthAdapter struct {
-	s       *Synthesizer
-	pending []Event
-}
-
-func (a *synthAdapter) Broadcast(evt Event) { a.pending = append(a.pending, evt) }
-
-func (a *synthAdapter) Process(evt Event) []Event {
-	if len(evt.Name) > 0 && evt.Name[0] == '_' {
-		return nil
-	}
-	a.pending = a.pending[:0]
-	a.s.Feed(evt.Raw)
-	if len(a.pending) == 0 {
-		return nil
-	}
-	out := make([]Event, len(a.pending))
-	copy(out, a.pending)
-	return out
-}
-
 func main() {
 	// Subcommand dispatch: anything that isn't `serve` (or empty) is a tool.
 	// `serve` is also the implicit default so a bare `rl-toolkit` keeps
@@ -115,38 +81,46 @@ func runServe() {
 	matchState.AttachBroadcaster(bus)
 	correlation := NewCorrelationBuffer(32)
 	tickStore := NewTickStore()
-	synthBridge := &synthAdapter{}
-	synth := NewSynthesizer(synthBridge, roster, correlation, tickStore)
-	synthBridge.s = synth
-	synth.AttachMatchState(matchState)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
 	ownGoal := NewOwnGoalEmitter(matchState, tickStore, correlation)
 	statfeed := NewStatfeedEmitter(roster, correlation, discoveries, ownGoal)
 	demos := NewDemosEmitter(tickStore)
 	goalEmit := NewGoalEmitter(roster, correlation, tickStore, statfeed, ownGoal)
+	tickDiff := NewTickDiffEmitter(matchState, tickStore, correlation, statfeed)
+	matchEnded := NewMatchEndedEmitter(tickStore)
 
-	// Stage 5 wiring: events flow RLSource → Pipeline → Bus, and the
-	// legacy Synthesizer is still in the loop as one big EmitProcessor
-	// (synthAdapter) that captures every emission instead of publishing
-	// directly. Downstream emitters registered after synthAdapter can
-	// therefore consume its synthetic events as inputs — this is what
-	// lets emit_fastest_shot.go see the _BallHit / _GoalScored stream.
+	// Pipeline wiring: events flow RLSource → Pipeline → Bus.
+	//
+	// State processors update shared snapshots (roster, matchState,
+	// tickStore) before any emit processor runs. Emit processors are
+	// registered in dependency order so producers fire before
+	// consumers — see Pipeline.runEmit for the strictly-forward
+	// chaining rule.
 	pipe := NewPipeline()
 	pipe.AddState(roster)
 	pipe.AddState(matchState)
 	pipe.AddState(tickStore)
-	// Roster is registered as both a state processor (so other
-	// emit processors that resolve players see fresh state) and an
-	// emit processor (so _RosterChanged flows through the pipeline).
+
+	// Roster + MatchState are also emit processors for the synthetic
+	// events they own (_RosterChanged / _MatchState).
 	pipe.AddEmit(roster)
 	pipe.AddEmit(matchState)
+
+	// Wire-spec republishers: enrich raw RL events with resolved
+	// players and pre-decoded fields.
 	pipe.AddEmit(NewBallHitEmitter(roster, matchState, correlation))
 	pipe.AddEmit(NewCrossbarEmitter(roster, tickStore))
 	pipe.AddEmit(goalEmit)
+	pipe.AddEmit(matchEnded)
+
+	// State-derived events that depend on the producers above.
 	pipe.AddEmit(ownGoal)
 	pipe.AddEmit(statfeed)
 	pipe.AddEmit(demos)
-	pipe.AddEmit(synthBridge)
+	pipe.AddEmit(tickDiff)
+
+	// Per-match milestones consume upstream emissions (_BallHit /
+	// _GoalScored).
 	pipe.AddEmit(NewFastestShotEmitter())
 	pipe.AddEmit(NewFirstBloodEmitter())
 
