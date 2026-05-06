@@ -79,29 +79,7 @@ type Synthesizer struct {
 	flipResetCountMu   sync.Mutex
 	flipResetCountByID map[string]int
 
-// Match summary settle-window state. Set on MatchEnded; cleared
-	// when _MatchSummary publishes (settle timeout, PodiumStart, or
-	// MatchDestroyed — whichever first).
-	summaryMu        sync.Mutex
-	summaryPending   bool
-	summaryGUID      string
-	summaryWinner    *int
-	summaryFinalSnap *tickSnapshot
-	summaryMVP       *EnrichedPlayer
-	summaryCancel    chan struct{}
-	// summaryFlushed lets _MatchMVP report whether the late MVP
-	// statfeed arrived before or after _MatchSummary published. Reset
-	// on MatchEnded (beginMatchSummary).
-	summaryFlushed bool
-	// summaryMatchEndedAt timestamps the most recent MatchEnded so
-	// _MatchMVP.secondsAfterMatchEnd is computable.
-	summaryMatchEndedAt time.Time
-	// Tunable timeouts; defaults to the production constants. Tests
-	// override to 0 (or near-zero) so the suite doesn't wait seconds.
-	summaryEndedTimeout  time.Duration
-	summaryPodiumSettle  time.Duration
-
-	// Per-match log of _PlayerDemolished envelopes (raw bytes, ready to
+// Per-match log of _PlayerDemolished envelopes (raw bytes, ready to
 	// rewrite to a fresh SSE subscriber). Reset on MatchCreated / first
 	// MatchInitialized of a new guid and on MatchDestroyed. Plugins
 	// reloading mid-match (e.g. dashboard refresh, OBS source reload)
@@ -131,42 +109,24 @@ type demoChainEntry struct {
 // first demo doesn't extend a stale chain.
 const demoChainWindow = 5 * time.Second
 
-// matchSummaryEndedTimeout is the outer fallback: if PodiumStart never
-// arrives (back-to-menu, network drop), flush the summary anyway after
-// this long so subscribers don't wait forever. MatchDestroyed still
-// short-circuits.
-const matchSummaryEndedTimeout = 10 * time.Second
-
-// matchSummaryPodiumSettle is the inner window we wait at PodiumStart
-// for the late MVP Statfeed. MVP is part of the podium scene, so it
-// arrives at or after PodiumStart — never before. 3s is generous
-// enough for the slowest MVP statfeed observed. Tests override via
-// SetSummaryTimings to keep the suite fast.
-const matchSummaryPodiumSettle = 3 * time.Second
-
 func NewSynthesizer(bus Broadcaster, roster *RosterTracker, correlation *CorrelationBuffer, ticks *TickStore) *Synthesizer {
 	return &Synthesizer{
-		bus:                 bus,
-		roster:              roster,
-		correlation:         correlation,
-		ticks:               ticks,
-		flipResetArmed:      make(map[string]bool),
-		realGoalsByID:       make(map[string]int),
-		flipResetCountByID:  make(map[string]int),
-		demoChainByID:       make(map[string][]demoChainEntry),
-		summaryEndedTimeout: matchSummaryEndedTimeout,
-		summaryPodiumSettle: matchSummaryPodiumSettle,
+		bus:                bus,
+		roster:             roster,
+		correlation:        correlation,
+		ticks:              ticks,
+		flipResetArmed:     make(map[string]bool),
+		realGoalsByID:      make(map[string]int),
+		flipResetCountByID: make(map[string]int),
+		demoChainByID:      make(map[string][]demoChainEntry),
 	}
 }
 
-// SetSummaryTimings overrides the match-summary fallback / settle
-// windows. Production callers leave defaults; tests pass tiny durations
-// to avoid waiting seconds for timers to fire.
+// SetSummaryTimings is a no-op kept for test compatibility while we
+// finish removing the remaining _MatchSummary call sites.
 func (s *Synthesizer) SetSummaryTimings(endedTimeout, podiumSettle time.Duration) {
-	s.summaryMu.Lock()
-	s.summaryEndedTimeout = endedTimeout
-	s.summaryPodiumSettle = podiumSettle
-	s.summaryMu.Unlock()
+	_ = endedTimeout
+	_ = podiumSettle
 }
 
 // AttachMatchState wires the unified gameplay-state machine so emitters
@@ -205,24 +165,10 @@ func (s *Synthesizer) Feed(raw []byte) {
 		s.onUpdateState(raw)
 	case "StatfeedEvent":
 		s.onStatfeedEvent(raw)
-	case "MatchEnded":
-		s.onMatchEnded(raw)
 	case "GoalScored":
 		s.onGoalScored(raw)
-	case "MatchCreated":
+	case "MatchCreated", "MatchDestroyed":
 		s.resetMatchMilestones()
-	case "MatchDestroyed":
-		// MatchDestroyed short-circuits the summary settle window so a
-		// fast-quitting user still gets a _MatchSummary (with whatever
-		// fields were collected). Also reset the per-match flags.
-		s.flushMatchSummary("MatchDestroyed")
-		s.resetMatchMilestones()
-	case "PodiumStart":
-		// MVP is part of the podium scene itself, so the MVP Statfeed
-		// arrives at or after PodiumStart — never before. Restart the
-		// settle window here so we wait for it instead of flushing the
-		// summary immediately. MatchDestroyed still short-circuits.
-		s.armPodiumSettle("PodiumStart")
 	}
 }
 
@@ -887,52 +833,6 @@ func (s *Synthesizer) onStatfeedEvent(raw []byte) {
 	// counts) on top of the resolved targets. The generic _StatfeedEvent
 	// above keeps firing as the catch-all.
 	s.emitStatfeedVariant(eventName, guid, out.MainTarget, out.SecondaryTarget)
-
-	// MVP arrives at or after PodiumStart. If _MatchSummary's settle
-	// window is still open we attach it there (best-effort, gives a
-	// single combined payload for plugins that only care about
-	// summaries). Either way we also publish a dedicated _MatchMVP
-	// event so MVP gets delivered even when RL ships it well after
-	// _MatchSummary has flushed (observed: several seconds late).
-	if eventName == "MVP" && out.MainTarget != nil {
-		s.summaryMu.Lock()
-		summaryGUID := s.summaryGUID
-		winner := s.summaryWinner
-		flushed := s.summaryFlushed
-		matchEndedAt := s.summaryMatchEndedAt
-		if s.summaryPending {
-			s.summaryMVP = out.MainTarget
-		}
-		s.summaryMu.Unlock()
-
-		mvpGUID := summaryGUID
-		if mvpGUID == "" {
-			mvpGUID = guid
-		}
-		var secondsAfter *float64
-		if !matchEndedAt.IsZero() {
-			d := time.Since(matchEndedAt).Seconds()
-			secondsAfter = &d
-		}
-		mvpOut := struct {
-			Event                string          `json:"Event"`
-			MatchGUID            string          `json:"matchGuid,omitempty"`
-			MVP                  *EnrichedPlayer `json:"mvp"`
-			WinnerTeamNum        *int            `json:"winnerTeamNum,omitempty"`
-			ArrivedAfterSummary  bool            `json:"arrivedAfterSummary"`
-			SecondsAfterMatchEnd *float64        `json:"secondsAfterMatchEnd,omitempty"`
-		}{
-			Event:                "_MatchMVP",
-			MatchGUID:            mvpGUID,
-			MVP:                  out.MainTarget,
-			WinnerTeamNum:        winner,
-			ArrivedAfterSummary:  flushed,
-			SecondsAfterMatchEnd: secondsAfter,
-		}
-		if b, err := json.Marshal(mvpOut); err == nil {
-			s.bus.Broadcast(Event{Raw: b})
-		}
-	}
 }
 
 // emitStatfeedVariant fans the Statfeed variant out to its dedicated
@@ -1550,182 +1450,12 @@ func (s *Synthesizer) onMatchEnded(raw []byte) {
 		return
 	}
 	s.bus.Broadcast(Event{Raw: b})
-
-	// Begin the _MatchSummary settle window. We cache the current
-	// state (winner + final UpdateState snapshot) and start a 2s
-	// timer that publishes the summary unless PodiumStart /
-	// MatchDestroyed flushes earlier.
-	s.beginMatchSummary(guid, winner)
 }
 
-// beginMatchSummary captures the final-tick state and arms an outer
-// fallback timer in case PodiumStart never fires (back-to-menu, network
-// drop). The real flush happens from armPodiumSettle (inner window for
-// the late MVP Statfeed) or MatchDestroyed (immediate).
-//
-// If a summary is already pending (back-to-back MatchEnded —
-// shouldn't happen in practice, but defensive), the existing one is
-// cancelled and the new one takes over.
-func (s *Synthesizer) beginMatchSummary(guid string, winner *int) {
-	finalSnap := s.ticks.Latest()
-
-	s.summaryMu.Lock()
-	if s.summaryPending && s.summaryCancel != nil {
-		close(s.summaryCancel)
-	}
-	s.summaryPending = true
-	s.summaryFlushed = false
-	s.summaryMatchEndedAt = time.Now()
-	s.summaryGUID = guid
-	s.summaryWinner = winner
-	s.summaryFinalSnap = finalSnap
-	s.summaryMVP = nil
-	cancel := make(chan struct{})
-	s.summaryCancel = cancel
-	s.summaryMu.Unlock()
-
-	endedTimeout := s.summaryEndedTimeout
-	go func() {
-		select {
-		case <-cancel:
-			// PodiumStart rearmed the timer, or MatchDestroyed
-			// flushed early — either way we're done here.
-		case <-time.After(endedTimeout):
-			s.flushMatchSummary("endedTimeout")
-		}
-	}()
-}
-
-// armPodiumSettle restarts the settle window with a shorter post-podium
-// timer that gives RL time to ship the MVP Statfeed (which arrives only
-// at/after PodiumStart). On timeout, the summary flushes — with MVP if
-// the statfeed arrived during the window, without if it didn't.
-func (s *Synthesizer) armPodiumSettle(trigger string) {
-	s.summaryMu.Lock()
-	if !s.summaryPending {
-		s.summaryMu.Unlock()
-		return
-	}
-	if s.summaryCancel != nil {
-		close(s.summaryCancel)
-	}
-	cancel := make(chan struct{})
-	s.summaryCancel = cancel
-	settle := s.summaryPodiumSettle
-	s.summaryMu.Unlock()
-
-	go func() {
-		select {
-		case <-cancel:
-			// MatchDestroyed flushed early.
-		case <-time.After(settle):
-			s.flushMatchSummary(trigger)
-		}
-	}()
-}
-
-// flushMatchSummary publishes _MatchSummary using the captured state.
-// Idempotent — if no summary is pending, it's a no-op. The trigger
-// string lands on the envelope so subscribers can tell which path
-// fired the summary.
-func (s *Synthesizer) flushMatchSummary(trigger string) {
-	s.summaryMu.Lock()
-	if !s.summaryPending {
-		s.summaryMu.Unlock()
-		return
-	}
-	s.summaryPending = false
-	s.summaryFlushed = true
-	guid := s.summaryGUID
-	winner := s.summaryWinner
-	finalSnap := s.summaryFinalSnap
-	mvp := s.summaryMVP
-	cancel := s.summaryCancel
-	s.summaryCancel = nil
-	s.summaryMu.Unlock()
-
-	if cancel != nil {
-		// Wake the goroutine so it doesn't sit on the timer pointlessly.
-		// A double-close would panic; cancel is set to nil under the
-		// lock above, so subsequent calls can't reach this branch.
-		select {
-		case <-cancel:
-			// already closed (settleTimeout path)
-		default:
-			close(cancel)
-		}
-	}
-
-	// Build the summary payload. Winner name + scores from the
-	// captured snapshot; players list with full per-player stats so
-	// post-game UI can render leaderboards without UpdateState.
-	type playerStat struct {
-		Player  *EnrichedPlayer `json:"player"`
-		Score   int             `json:"score"`
-		Goals   int             `json:"goals"`
-		Assists int             `json:"assists"`
-		Saves   int             `json:"saves"`
-		Shots   int             `json:"shots"`
-		Demos   int             `json:"demos"`
-	}
-	var players []playerStat
-	scoreBlue, scoreOrange := 0, 0
-	winnerName := ""
-	if finalSnap != nil {
-		scoreBlue = teamScore(finalSnap.teams, 0)
-		scoreOrange = teamScore(finalSnap.teams, 1)
-		if winner != nil {
-			for _, t := range finalSnap.teams {
-				if t.TeamNum == *winner {
-					winnerName = t.Name
-					break
-				}
-			}
-		}
-		for _, p := range finalSnap.players {
-			players = append(players, playerStat{
-				Player: &EnrichedPlayer{
-					ID:       p.id,
-					Name:     p.name,
-					Team:     p.team,
-					Platform: platformFromID(p.id),
-					IsBot:    isBotId(p.id),
-				},
-				Score:   p.score,
-				Goals:   p.goals,
-				Assists: p.assists,
-				Saves:   p.saves,
-				Shots:   p.shots,
-				Demos:   p.demos,
-			})
-		}
-	}
-
-	out := struct {
-		Event         string          `json:"Event"`
-		MatchGUID     string          `json:"matchGuid,omitempty"`
-		WinnerTeamNum *int            `json:"winnerTeamNum,omitempty"`
-		WinnerName    string          `json:"winnerName,omitempty"`
-		ScoreBlue     int             `json:"scoreBlue"`
-		ScoreOrange   int             `json:"scoreOrange"`
-		MVP           *EnrichedPlayer `json:"mvp"`
-		Players       []playerStat    `json:"players,omitempty"`
-		Trigger       string          `json:"trigger"`
-	}{
-		Event:         "_MatchSummary",
-		MatchGUID:     guid,
-		WinnerTeamNum: winner,
-		WinnerName:    winnerName,
-		ScoreBlue:     scoreBlue,
-		ScoreOrange:   scoreOrange,
-		MVP:           mvp,
-		Players:       players,
-		Trigger:       trigger,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
-}
+// removed: beginMatchSummary, armPodiumSettle, flushMatchSummary, MVP
+// stitching in onStatfeedEvent. _MatchSummary and _MatchMVP are deleted
+// in the new wire spec. Whatever stub follows below was the former
+// settle-window machinery — now dead code that the next edit removes.
 
 // goalScoredData mirrors the wire shape of GoalScored.
 type goalScoredData struct {
