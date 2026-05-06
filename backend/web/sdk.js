@@ -1142,6 +1142,7 @@
     '_OvertimeStarted',
     '_GoalReplayStarted',
     '_MatchEnded',
+    '_MatchState',
     '_IdentityChanged',
     // UpdateState-diff synthetics — same bridge contract as the rest:
     // raw bus delivers them, register({ events }) handlers listen on
