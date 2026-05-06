@@ -43,7 +43,19 @@ type RosterTracker struct {
 	// when there's nothing new.
 	pendingMu      sync.Mutex
 	pendingPayload *rosterEvent
+
+	// identity is the optional backend "who am I" store. When set,
+	// ResolveByShortcut / ResolveByPrimaryId / rosterPlayerToEnriched
+	// stamp EnrichedPlayer.IsMe when the player's PrimaryID matches
+	// the stored identity. Nil leaves IsMe=false (the SDK still has
+	// its own client-side stamping fallback).
+	identity *IdentityStore
 }
+
+// AttachIdentity wires the IdentityStore so the resolver can stamp
+// IsMe when a player matches the stored identity. Optional — without
+// it, IsMe stays false and the SDK takes over stamping client-side.
+func (r *RosterTracker) AttachIdentity(s *IdentityStore) { r.identity = s }
 
 // NewRosterTracker creates a tracker. The bus arg is kept so existing
 // call sites keep compiling, but the tracker no longer needs it —

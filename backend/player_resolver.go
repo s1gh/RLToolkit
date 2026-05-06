@@ -62,12 +62,15 @@ func (r *RosterTracker) ResolveByShortcut(ref ShortcutRef) *EnrichedPlayer {
 
 	for _, p := range roster {
 		if p.Name == ref.Name {
-			return rosterPlayerToEnriched(p)
+			return r.rosterPlayerToEnriched(p)
 		}
 	}
 
 	// Fallback: build from the ref itself.
-	return stubToEnriched(ref)
+	return &EnrichedPlayer{
+		Name: ref.Name,
+		Team: ref.TeamNum,
+	}
 }
 
 // ResolveByPrimaryId looks up a player by their PrimaryId in the current
@@ -83,33 +86,41 @@ func (r *RosterTracker) ResolveByPrimaryId(id string) *EnrichedPlayer {
 
 	for _, p := range roster {
 		if p.ID == id {
-			return rosterPlayerToEnriched(p)
+			return r.rosterPlayerToEnriched(p)
 		}
 	}
-	return &EnrichedPlayer{
+	out := &EnrichedPlayer{
 		ID:       id,
 		Platform: platformFromID(id),
 		IsBot:    isBotId(id),
 	}
+	r.stampIsMe(out)
+	return out
 }
 
-// rosterPlayerToEnriched converts a rosterPlayer to an EnrichedPlayer.
-func rosterPlayerToEnriched(p rosterPlayer) *EnrichedPlayer {
-	return &EnrichedPlayer{
+// rosterPlayerToEnriched converts a rosterPlayer to an EnrichedPlayer
+// and stamps IsMe via the attached IdentityStore (if any).
+func (r *RosterTracker) rosterPlayerToEnriched(p rosterPlayer) *EnrichedPlayer {
+	out := &EnrichedPlayer{
 		ID:       p.ID,
 		Name:     p.Name,
 		Team:     p.Team,
 		Platform: p.Platform,
 		IsBot:    isBotId(p.ID),
 	}
+	r.stampIsMe(out)
+	return out
 }
 
-// stubToEnriched builds a minimal EnrichedPlayer from a ShortcutRef when
-// the player is not found in the live roster.
-func stubToEnriched(ref ShortcutRef) *EnrichedPlayer {
-	return &EnrichedPlayer{
-		Name: ref.Name,
-		Team: ref.TeamNum,
+// stampIsMe sets IsMe when the attached IdentityStore's PrimaryID
+// matches the player's id. No-op when no store is attached or the
+// identity is unset.
+func (r *RosterTracker) stampIsMe(p *EnrichedPlayer) {
+	if r.identity == nil || p == nil || p.ID == "" {
+		return
+	}
+	if id := r.identity.Get(); id != nil && id.PrimaryID == p.ID {
+		p.IsMe = true
 	}
 }
 
