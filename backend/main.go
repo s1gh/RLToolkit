@@ -135,6 +135,7 @@ func runServe() {
 	pipe.AddEmit(matchState)
 	pipe.AddEmit(NewBallHitEmitter(roster, matchState, correlation))
 	pipe.AddEmit(NewCrossbarEmitter(roster, tickStore))
+	pipe.AddEmit(NewOwnGoalEmitter(matchState, tickStore, correlation))
 	pipe.AddEmit(synthBridge)
 	pipe.AddEmit(NewFastestShotEmitter())
 	pipe.AddEmit(NewFirstBloodEmitter())

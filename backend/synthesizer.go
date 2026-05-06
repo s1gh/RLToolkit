@@ -430,13 +430,6 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 		return
 	}
 
-	// _OwnGoal predates Phase 4 but is also a per-team-score-delta
-	// emitter, so we keep it here. Skip the compare on the first tick
-	// (no baseline).
-	if prev != nil {
-		s.detectOwnGoal(prev.teams, curr.teams, curr.matchGUID)
-	}
-
 	if prev == nil {
 		// First tick: no diffs to compute.
 		return
@@ -814,95 +807,9 @@ func (s *Synthesizer) diffBallPossession(prev, curr *tickSnapshot) {
 	}
 }
 
-// detectOwnGoal compares two Teams[] snapshots and emits _OwnGoal when
-// a team's score went up by 1 and the most recent ball touch was by an
-// opposing-team player. Gated on the phase machine when attached so a
-// forfeit/mercy-rule score-up doesn't false-positive.
-func (s *Synthesizer) detectOwnGoal(prev, curr []teamRef, guid string) {
-	// Build a quick lookup from TeamNum → previous score.
-	prevByNum := make(map[int]int, len(prev))
-	for _, p := range prev {
-		prevByNum[p.TeamNum] = p.Score
-	}
-
-	for _, t := range curr {
-		oldScore, ok := prevByNum[t.TeamNum]
-		if !ok {
-			continue
-		}
-		delta := t.Score - oldScore
-		if delta != 1 {
-			continue
-		}
-		// Phase gate: only fire during real gameplay. PhaseLive/Replay
-		// covers active play; PhaseLobby/None/Countdown/Podium do not.
-		if s.matchState != nil {
-			ph := s.matchState.Snapshot().Phase
-			if ph != PhaseLive && ph != PhaseReplay {
-				continue
-			}
-		}
-
-		// Find the most recent ball touch (within 5 events, ~1 tick).
-		var touchPlayer *EnrichedPlayer
-		for _, p := range s.correlation.Recent("BallHit", 5) {
-			if rec, ok := p.(*ballHitRecord); ok && rec != nil && rec.Player != nil {
-				touchPlayer = rec.Player
-				break
-			}
-		}
-		if touchPlayer == nil {
-			continue
-		}
-		// Own-goal signature: deflector's team is NOT the team that
-		// scored.
-		if touchPlayer.Team == t.TeamNum {
-			continue
-		}
-
-		// Optional: attach a recently-emitted _GoalScored if one fired
-		// in the same window — gives subscribers the full goal payload
-		// alongside the detection.
-		var correlatedGoal *goalRecord
-		for _, p := range s.correlation.Recent("_GoalScored", 5) {
-			if g, ok := p.(*goalRecord); ok {
-				correlatedGoal = g
-				break
-			}
-		}
-
-		out := enrichedOwnGoal{
-			Event:         "_OwnGoal",
-			MatchGUID:     guid,
-			Deflector:     touchPlayer,
-			ScoringTeam:   t.TeamNum,
-			ConcedingTeam: touchPlayer.Team,
-			ScoreAfter: ownGoalScoreAfter{
-				Blue:   teamScore(curr, 0),
-				Orange: teamScore(curr, 1),
-			},
-		}
-		if correlatedGoal != nil && correlatedGoal.Scorer != nil {
-			out.CorrelatedGoalScorer = correlatedGoal.Scorer
-		}
-		b, err := json.Marshal(out)
-		if err != nil {
-			continue
-		}
-		s.bus.Broadcast(Event{Raw: b})
-	}
-}
-
-type enrichedOwnGoal struct {
-	Event                string            `json:"Event"`
-	MatchGUID            string            `json:"matchGuid,omitempty"`
-	Deflector            *EnrichedPlayer   `json:"deflector,omitempty"`
-	ScoringTeam          int               `json:"scoringTeam"`
-	ConcedingTeam        int               `json:"concedingTeam"`
-	ScoreAfter           ownGoalScoreAfter `json:"scoreAfter"`
-	CorrelatedGoalScorer *EnrichedPlayer   `json:"correlatedGoalScorer,omitempty"`
-}
-
+// ownGoalScoreAfter is part of _OwnGoal's wire shape; defined here so
+// emit_own_goal.go can reuse the type alongside the synthesizer (the
+// summary writer also reads scoreAfter values via teamScore below).
 type ownGoalScoreAfter struct {
 	Blue   int `json:"blue"`
 	Orange int `json:"orange"`
