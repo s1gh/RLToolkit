@@ -251,12 +251,31 @@ func (e *GoalEmitter) processGoal(evt Event) *Event {
 			}
 		}
 	}
-	// Own-goal heuristic: if the last-touch player is on the
-	// conceding team, the goal was deflected/own-goaled. The richer
-	// _OwnGoal event ships via emit_own_goal.go with score-delta
-	// verification; this flag is the cheap header.
-	if lastToucher != nil && lastToucher.Team == concedingTeam {
-		out.IsOwnGoal = true
+	// Own-goal heuristic. Two shapes RL uses:
+	//
+	//  (A) Multi-player: RL credits an opposing-team player as Scorer
+	//      and the deflector is in BallLastTouch. lastToucher.Team ==
+	//      concedingTeam (i.e., the deflector's team is the one that
+	//      conceded), so flag it.
+	//
+	//  (B) Solo / no opposing players: RL credits the deflector
+	//      themselves as Scorer (no one else to credit). scorer.Team
+	//      == lastToucher.Team and scoringTeam came out wrong (it
+	//      should be the *opposing* team that gained the +1). Flip
+	//      scoringTeam/concedingTeam to reflect the actual score
+	//      change and flag the goal.
+	//
+	// The richer _OwnGoal event ships via emit_own_goal.go with
+	// score-delta verification; this flag is the cheap header.
+	if lastToucher != nil {
+		if lastToucher.Team == concedingTeam {
+			out.IsOwnGoal = true
+		} else if lastToucher.Team == scoringTeam && lastToucher.ID == scorer.ID {
+			out.IsOwnGoal = true
+			scoringTeam, concedingTeam = concedingTeam, scoringTeam
+			out.ScoringTeam = &scoringTeam
+			out.ConcedingTeam = &concedingTeam
+		}
 	}
 
 	// Bump the per-player real-goal counter for non-own-goals so
