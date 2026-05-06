@@ -1734,17 +1734,19 @@ type enrichedBallHit struct {
 	Location     *vec3             `json:"location,omitempty"`
 }
 
+// onBallHit only updates the side-effect state (lastBallTouchPlayer
+// and the correlation buffer) that downstream synth-owned emitters
+// like _OwnGoal still need. The wire-facing _BallHit event is now
+// published by BallHitEmitter (emit_ball_hit.go); when the remaining
+// downstream consumers are extracted (Tasks 5.6 and 5.8), this whole
+// method goes away.
 func (s *Synthesizer) onBallHit(raw []byte) {
-	// Phase gate: catalog says liveOnly. RL fires BallHit during goal
-	// replays (the cinematic ball bouncing around) and on the
-	// post-match screen. Skip both — they aren't real touches.
 	if s.matchState != nil {
 		ph := s.matchState.Snapshot().Phase
 		if ph != PhaseLive && ph != PhaseCountdown && ph != PhasePaused {
 			return
 		}
 	}
-
 	inner := unwrapInnerData(raw)
 	if inner == "" {
 		return
@@ -1753,63 +1755,31 @@ func (s *Synthesizer) onBallHit(raw []byte) {
 	if err := json.Unmarshal([]byte(inner), &d); err != nil {
 		return
 	}
-
-	guid := d.MatchGUID
-	if guid == "" {
-		guid = d.MatchGUIDLow
-	}
 	players := d.Players
 	if len(players) == 0 {
 		players = d.PlayersLow
+	}
+	if len(players) == 0 {
+		return
+	}
+	first := s.roster.ResolveByShortcut(players[0])
+	if first == nil {
+		return
 	}
 	ball := d.Ball
 	if ball == nil {
 		ball = d.BallLow
 	}
+	s.lastBallTouchMu.Lock()
+	s.lastBallTouchPlayer = first
+	s.lastBallTouchMu.Unlock()
 
-	resolved := make([]*EnrichedPlayer, 0, len(players))
-	for _, p := range players {
-		resolved = append(resolved, s.roster.ResolveByShortcut(p))
-	}
-
-	out := enrichedBallHit{
-		Event:     "_BallHit",
-		MatchGUID: guid,
-		Players:   resolved,
-	}
+	rec := &ballHitRecord{Player: first}
 	if ball != nil {
-		out.PreHitSpeed = ball.PreHitSpeed
-		out.PostHitSpeed = ball.PostHitSpeed
-		out.Location = ball.Location
+		rec.PreHitSpeed = ball.PreHitSpeed
+		rec.PostHitSpeed = ball.PostHitSpeed
 	}
-
-	// Track the most recent ball-touch player so _OwnGoal can identify
-	// the deflector when a score-delta points at the wrong team. The
-	// first player in BallHit.Players is the one who actually touched
-	// the ball; multi-player BallHit events list secondary contacts
-	// after, but RL's primary-touch convention puts [0] first.
-	if len(resolved) > 0 && resolved[0] != nil {
-		s.lastBallTouchMu.Lock()
-		s.lastBallTouchPlayer = resolved[0]
-		s.lastBallTouchMu.Unlock()
-	}
-
-	// Record the BallHit so _OwnGoal can correlate (Phase 2) and the
-	// touch-variant emitters can attach pre/post hit speed alongside
-	// the resolved first-toucher.
-	if len(resolved) > 0 {
-		s.correlation.Record("BallHit", &ballHitRecord{
-			Player:       resolved[0],
-			PreHitSpeed:  out.PreHitSpeed,
-			PostHitSpeed: out.PostHitSpeed,
-		})
-	}
-
-	b, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	s.bus.Broadcast(Event{Raw: b})
+	s.correlation.Record("BallHit", rec)
 }
 
 // crossbarHitData mirrors the wire shape of a CrossbarHit envelope.
