@@ -453,38 +453,6 @@
       } catch {
         applySnapshot(null);
       }
-      // Legacy storage drain. Pre-2.0 builds kept identity in browser
-      // store at _rlt:identity (and even earlier, dejavu:config). If
-      // we hydrated empty AND there's a legacy id, push it up.
-      // Idempotent: subsequent runs find empty stores.
-      try {
-        let legacyId = '';
-        const cfg = await storeGet('_rlt', 'identity');
-        if (cfg && typeof cfg.my_id === 'string' && cfg.my_id) {
-          legacyId = cfg.my_id;
-        } else {
-          const dejavu = await storeGet('dejavu', 'config');
-          if (dejavu && typeof dejavu.my_id === 'string') legacyId = dejavu.my_id;
-        }
-        if (legacyId && !myId) {
-          await fetch('/api/identity', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ primaryId: legacyId, name: '' }),
-          }).catch(() => {});
-          // Re-fetch so myId reflects the just-pushed value.
-          try {
-            const r = await fetch('/api/identity');
-            if (r.ok) applySnapshot(await r.json().catch(() => null));
-          } catch { /* noop */ }
-        }
-        await Promise.all([
-          storeDelete('_rlt', 'identity').catch(() => {}),
-          storeDelete('dejavu', 'config').catch(() => {}),
-        ]);
-      } catch {
-        // Migration is best-effort; stale local data is harmless.
-      }
     })();
 
     return {
@@ -532,20 +500,7 @@
 
     async function load() {
       const fresh = await storeGet('_rlt', 'encounters');
-      if (fresh) {
-        map = fresh;
-      } else {
-        const legacy = await storeGet('dejavu', 'encounters');
-        if (legacy) {
-          map = legacy;
-          for (const id of Object.keys(map)) {
-            const e = map[id];
-            const truth = Math.max(1, (e?.matches || []).length);
-            if ((e.count || 0) !== truth) e.count = truth;
-          }
-          await storeSet('_rlt', 'encounters', map);
-        }
-      }
+      if (fresh) map = fresh;
       loaded = true;
       ev.emit('change', map);
     }
