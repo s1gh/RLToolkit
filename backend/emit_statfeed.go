@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"sync"
-	"time"
 )
 
 // realGoalsLookup is the slim interface StatfeedEmitter needs from
@@ -18,19 +17,6 @@ import (
 type realGoalsLookup interface {
 	RealGoals(playerID string) int
 }
-
-// demoChainEntry pairs a demo timestamp with the resolved victim, so
-// _DemoChain can report `victims[]` for the chain so far.
-type demoChainEntry struct {
-	at     time.Time
-	victim *EnrichedPlayer
-}
-
-// demoChainWindow is the sliding window within which back-to-back
-// demos by the same attacker count as a chain. 5s is wide enough to
-// cover a player chasing across the field, narrow enough that the
-// next match's first demo doesn't extend a stale chain.
-const demoChainWindow = 5 * time.Second
 
 // StatfeedEmitter owns every Statfeed-driven synthetic event:
 //
@@ -47,18 +33,16 @@ const demoChainWindow = 5 * time.Second
 //     by the goal emitter for the IsFlipResetGoal modifier flag.
 //   - flipResetCountByID: per-match counter on every _FlipReset wire
 //     payload.
-//   - demolishLog: raw _PlayerDemolished envelopes published this
-//     match, replayed to fresh SSE subscribers via DemolishLog().
-//   - demoChainByID: per-attacker rolling demo timestamps for chain
-//     detection.
 //
 // State read from shared stores:
 //
 //   - roster (resolve targets)
 //   - correlation (lookback for Save→Shot, Assist→Goal,
 //     touch-variants→BallHit)
-//   - tickStore (PlayerScalars for _PlayerDemolished attackerSpeed)
 //   - realGoals (HatTrick suppression)
+//
+// Demos are split into a typed _Demolish event the DemosEmitter
+// consumes; this emitter doesn't own _PlayerDemolished or _DemoChain.
 //
 // Dispatch is idempotent across reset events: MatchCreated and
 // MatchDestroyed both clear per-match maps so a back-to-back rejoin
@@ -66,43 +50,33 @@ const demoChainWindow = 5 * time.Second
 type StatfeedEmitter struct {
 	roster      *RosterTracker
 	correlation *CorrelationBuffer
-	ticks       *TickStore
 	discoveries *StatfeedDiscoveryStore
 	realGoals   realGoalsLookup
 
-	// flipResetMu guards flipResetArmed + flipResetCountByID. Both are
-	// written from Process (FlipReset variant) and read from Process
-	// (Goal lookup via ConsumeFlipResetArm). Pipeline.Run is
+	// flipResetMu guards flipResetArmed + flipResetCountByID. Both
+	// are written from Process (FlipReset variant) and read from
+	// Process (Goal lookup via ConsumeFlipResetArm). Pipeline.Run is
 	// single-threaded so the lock is precautionary — there's no
 	// concurrent Process today, but ConsumeFlipResetArm is a public
 	// method called from a different processor's Process.
 	flipResetMu        sync.Mutex
 	flipResetArmed     map[string]bool
 	flipResetCountByID map[string]int
-
-	demolishMu  sync.Mutex
-	demolishLog [][]byte
-
-	demoChainMu   sync.Mutex
-	demoChainByID map[string][]demoChainEntry
 }
 
 func NewStatfeedEmitter(
 	roster *RosterTracker,
 	correlation *CorrelationBuffer,
-	ticks *TickStore,
 	discoveries *StatfeedDiscoveryStore,
 	realGoals realGoalsLookup,
 ) *StatfeedEmitter {
 	return &StatfeedEmitter{
 		roster:             roster,
 		correlation:        correlation,
-		ticks:              ticks,
 		discoveries:        discoveries,
 		realGoals:          realGoals,
 		flipResetArmed:     make(map[string]bool),
 		flipResetCountByID: make(map[string]int),
-		demoChainByID:      make(map[string][]demoChainEntry),
 	}
 }
 
@@ -134,21 +108,6 @@ func (e *StatfeedEmitter) ClearFlipResetArm(playerID string) {
 	delete(e.flipResetArmed, playerID)
 }
 
-// DemolishLog returns a snapshot of every _PlayerDemolished envelope
-// published since the current match started. Used by the SSE handler
-// to replay per-match demo history to a freshly-connected client so
-// per-match counters survive page refreshes.
-func (e *StatfeedEmitter) DemolishLog() [][]byte {
-	e.demolishMu.Lock()
-	defer e.demolishMu.Unlock()
-	if len(e.demolishLog) == 0 {
-		return nil
-	}
-	out := make([][]byte, len(e.demolishLog))
-	copy(out, e.demolishLog)
-	return out
-}
-
 // Process handles MatchCreated/MatchDestroyed (reset) and StatfeedEvent
 // (the actual work). Everything else is ignored.
 func (e *StatfeedEmitter) Process(evt Event) []Event {
@@ -171,16 +130,6 @@ func (e *StatfeedEmitter) reset() {
 		delete(e.flipResetCountByID, k)
 	}
 	e.flipResetMu.Unlock()
-
-	e.demolishMu.Lock()
-	e.demolishLog = nil
-	e.demolishMu.Unlock()
-
-	e.demoChainMu.Lock()
-	for k := range e.demoChainByID {
-		delete(e.demoChainByID, k)
-	}
-	e.demoChainMu.Unlock()
 }
 
 func (e *StatfeedEmitter) processStatfeed(evt Event) []Event {
@@ -256,7 +205,23 @@ func (e *StatfeedEmitter) processStatfeed(evt Event) []Event {
 	}
 	switch eventName {
 	case "Demolish":
-		out = append(out, e.playerDemolished(guid, resolvedMain, resolvedSecondary)...)
+		// Typed _Demolish carries just the resolved targets. DemosEmitter
+		// consumes it and produces _PlayerDemolished (with attackerSpeed)
+		// and _DemoChain (with chain detection).
+		if resolvedMain != nil && resolvedSecondary != nil {
+			body, err := json.Marshal(struct {
+				MatchGUID string          `json:"matchGuid,omitempty"`
+				Attacker  *EnrichedPlayer `json:"attacker"`
+				Victim    *EnrichedPlayer `json:"victim"`
+			}{
+				MatchGUID: guid,
+				Attacker:  resolvedMain,
+				Victim:    resolvedSecondary,
+			})
+			if err == nil {
+				out = append(out, Event{Name: "_Demolish", Data: body})
+			}
+		}
 	case "FlipReset":
 		if v := e.flipReset(guid, resolvedMain); v != nil {
 			out = append(out, *v)
@@ -343,114 +308,6 @@ func (e *StatfeedEmitter) flipReset(guid string, main *EnrichedPlayer) *Event {
 		return nil
 	}
 	return &Event{Name: "_FlipReset", Data: body}
-}
-
-func (e *StatfeedEmitter) playerDemolished(guid string, attacker, victim *EnrichedPlayer) []Event {
-	if attacker == nil || victim == nil {
-		// Without one of the two targets the event is meaningless;
-		// the catch-all _StatfeedEvent already covered it.
-		return nil
-	}
-	attackerSpeed, attackerSupersonic := e.ticks.PlayerScalars(attacker.ID)
-
-	payload := struct {
-		MatchGUID             string          `json:"matchGuid,omitempty"`
-		Attacker              *EnrichedPlayer `json:"attacker"`
-		Victim                *EnrichedPlayer `json:"victim"`
-		IsSelfDemo            bool            `json:"isSelfDemo,omitempty"`
-		IsTeamDemo            bool            `json:"isTeamDemo,omitempty"`
-		AttackerSpeed         *float64        `json:"attackerSpeed,omitempty"`
-		AttackerWasSupersonic *bool           `json:"attackerWasSupersonic,omitempty"`
-	}{
-		MatchGUID:     guid,
-		Attacker:      attacker,
-		Victim:        victim,
-		AttackerSpeed: attackerSpeed,
-	}
-	if attackerSpeed != nil {
-		// Only stamp supersonic when we have a tick row — otherwise
-		// we'd be claiming `false` from missing data.
-		ss := attackerSupersonic
-		payload.AttackerWasSupersonic = &ss
-	}
-	if attacker.ID != "" && attacker.ID == victim.ID {
-		payload.IsSelfDemo = true
-	} else if attacker.Team == victim.Team {
-		payload.IsTeamDemo = true
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil
-	}
-	out := []Event{{Name: "_PlayerDemolished", Data: body}}
-
-	// DemolishLog stores the wire-shaped envelope (the bus envelope
-	// the bus would have produced for this Event), so SSE replay
-	// hands subscribers something they can write directly. Build it
-	// once here.
-	envelope, err := json.Marshal(struct {
-		Event string          `json:"Event"`
-		Data  json.RawMessage `json:"Data"`
-	}{Event: "_PlayerDemolished", Data: body})
-	if err == nil {
-		e.demolishMu.Lock()
-		e.demolishLog = append(e.demolishLog, envelope)
-		e.demolishMu.Unlock()
-	}
-
-	// Demo-chain detection: ≥2 demos by the same attacker within the
-	// rolling window. Self-demos and team-demos still count as
-	// actions but skip chain reporting (a chain over your own
-	// teammate isn't a hype moment).
-	if !payload.IsSelfDemo && !payload.IsTeamDemo && attacker.ID != "" {
-		if chain := e.demoChain(guid, attacker, victim); chain != nil {
-			out = append(out, *chain)
-		}
-	}
-	return out
-}
-
-func (e *StatfeedEmitter) demoChain(guid string, attacker, victim *EnrichedPlayer) *Event {
-	now := time.Now()
-	cutoff := now.Add(-demoChainWindow)
-	e.demoChainMu.Lock()
-	hist := e.demoChainByID[attacker.ID]
-	trimmed := hist[:0]
-	for _, h := range hist {
-		if h.at.After(cutoff) {
-			trimmed = append(trimmed, h)
-		}
-	}
-	trimmed = append(trimmed, demoChainEntry{at: now, victim: victim})
-	e.demoChainByID[attacker.ID] = trimmed
-	count := len(trimmed)
-	victims := make([]*EnrichedPlayer, 0, count)
-	for _, h := range trimmed {
-		victims = append(victims, h.victim)
-	}
-	windowStart := trimmed[0].at
-	e.demoChainMu.Unlock()
-
-	if count < 2 {
-		return nil
-	}
-	body, err := json.Marshal(struct {
-		MatchGUID     string            `json:"matchGuid,omitempty"`
-		Attacker      *EnrichedPlayer   `json:"attacker"`
-		Victims       []*EnrichedPlayer `json:"victims"`
-		Count         int               `json:"count"`
-		WindowSeconds float64           `json:"windowSeconds"`
-	}{
-		MatchGUID:     guid,
-		Attacker:      attacker,
-		Victims:       victims,
-		Count:         count,
-		WindowSeconds: now.Sub(windowStart).Seconds(),
-	})
-	if err != nil {
-		return nil
-	}
-	return &Event{Name: "_DemoChain", Data: body}
 }
 
 func (e *StatfeedEmitter) hatTrick(guid string, main *EnrichedPlayer) *Event {

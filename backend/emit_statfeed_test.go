@@ -14,7 +14,7 @@ func (f *fakeRealGoals) RealGoals(id string) int { return f.counts[id] }
 func TestStatfeedEmitter_PublishesCatchall(t *testing.T) {
 	roster := NewRosterTracker(NewBus())
 	correlation := NewCorrelationBuffer(8)
-	e := NewStatfeedEmitter(roster, correlation, NewTickStore(), nil, &fakeRealGoals{})
+	e := NewStatfeedEmitter(roster, correlation, nil, &fakeRealGoals{})
 
 	out := e.Process(makeStatfeed(t, "Save", "Ada", 1, "", 0))
 	if !hasName(out, "_StatfeedEvent") {
@@ -25,7 +25,7 @@ func TestStatfeedEmitter_PublishesCatchall(t *testing.T) {
 func TestStatfeedEmitter_PromotesKnownVariants(t *testing.T) {
 	roster := NewRosterTracker(NewBus())
 	correlation := NewCorrelationBuffer(8)
-	e := NewStatfeedEmitter(roster, correlation, NewTickStore(), nil, &fakeRealGoals{})
+	e := NewStatfeedEmitter(roster, correlation, nil, &fakeRealGoals{})
 
 	cases := []struct {
 		name    string
@@ -52,7 +52,7 @@ func TestStatfeedEmitter_FlipResetArmsAndConsumes(t *testing.T) {
 	roster := NewRosterTracker(NewBus())
 	// Seed the roster so ResolveByShortcut returns a real ID.
 	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
-	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), NewTickStore(), nil, &fakeRealGoals{})
+	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), nil, &fakeRealGoals{})
 
 	_ = e.Process(makeStatfeed(t, "FlipReset", "Ada", 0, "", 0))
 	if !e.ConsumeFlipResetArm("Steam|7|0") {
@@ -67,7 +67,7 @@ func TestStatfeedEmitter_HatTrickSuppressedBelowThreshold(t *testing.T) {
 	roster := NewRosterTracker(NewBus())
 	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
 	rg := &fakeRealGoals{counts: map[string]int{"Steam|7|0": 2}}
-	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), NewTickStore(), nil, rg)
+	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), nil, rg)
 
 	out := e.Process(makeStatfeed(t, "HatTrick", "Ada", 0, "", 0))
 	if hasName(out, "_HatTrick") {
@@ -81,53 +81,28 @@ func TestStatfeedEmitter_HatTrickSuppressedBelowThreshold(t *testing.T) {
 	}
 }
 
-func TestStatfeedEmitter_DemoChainAfterTwoDemos(t *testing.T) {
+func TestStatfeedEmitter_DemolishPublishesTypedEvent(t *testing.T) {
 	roster := NewRosterTracker(NewBus())
 	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{
 		{ID: "Steam|1|0", Name: "Ada", Team: 0},
 		{ID: "Steam|2|0", Name: "Ben", Team: 1},
-		{ID: "Steam|3|0", Name: "Cal", Team: 1},
 	})})
-	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), NewTickStore(), nil, &fakeRealGoals{})
+	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), nil, &fakeRealGoals{})
 
 	out := e.Process(makeStatfeed(t, "Demolish", "Ada", 0, "Ben", 1))
-	if !hasName(out, "_PlayerDemolished") {
-		t.Fatalf("expected _PlayerDemolished in %v", names(out))
+	if !hasName(out, "_Demolish") {
+		t.Fatalf("expected _Demolish in %v", names(out))
 	}
-	if hasName(out, "_DemoChain") {
-		t.Fatalf("first demo should not yet fire _DemoChain, got %v", names(out))
-	}
-
-	out = e.Process(makeStatfeed(t, "Demolish", "Ada", 0, "Cal", 1))
-	if !hasName(out, "_DemoChain") {
-		t.Fatalf("second demo should fire _DemoChain, got %v", names(out))
-	}
-}
-
-func TestStatfeedEmitter_DemolishLogReplayed(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{
-		{ID: "Steam|1|0", Name: "Ada", Team: 0},
-		{ID: "Steam|2|0", Name: "Ben", Team: 1},
-	})})
-	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), NewTickStore(), nil, &fakeRealGoals{})
-
-	_ = e.Process(makeStatfeed(t, "Demolish", "Ada", 0, "Ben", 1))
-	log := e.DemolishLog()
-	if len(log) != 1 {
-		t.Fatalf("expected 1 entry in DemolishLog, got %d", len(log))
-	}
-
-	_ = e.Process(Event{Name: "MatchCreated"})
-	if got := e.DemolishLog(); got != nil {
-		t.Fatalf("DemolishLog should clear on MatchCreated, got %v", got)
+	// _PlayerDemolished and _DemoChain are DemosEmitter's job now.
+	if hasName(out, "_PlayerDemolished") || hasName(out, "_DemoChain") {
+		t.Fatalf("StatfeedEmitter should no longer emit demo events directly: %v", names(out))
 	}
 }
 
 func TestStatfeedEmitter_UnknownStatfeedFires(t *testing.T) {
 	roster := NewRosterTracker(NewBus())
 	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
-	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), NewTickStore(), nil, &fakeRealGoals{})
+	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), nil, &fakeRealGoals{})
 
 	out := e.Process(makeStatfeed(t, "MysteryStatfeed", "Ada", 0, "", 0))
 	if !hasName(out, "_UnknownStatfeed") {

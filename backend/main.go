@@ -121,7 +121,8 @@ func runServe() {
 	synth.AttachMatchState(matchState)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
 	ownGoal := NewOwnGoalEmitter(matchState, tickStore, correlation)
-	statfeed := NewStatfeedEmitter(roster, correlation, tickStore, discoveries, ownGoal)
+	statfeed := NewStatfeedEmitter(roster, correlation, discoveries, ownGoal)
+	demos := NewDemosEmitter(tickStore)
 	goalEmit := NewGoalEmitter(roster, correlation, tickStore, statfeed, ownGoal)
 
 	// Stage 5 wiring: events flow RLSource → Pipeline → Bus, and the
@@ -140,6 +141,7 @@ func runServe() {
 	pipe.AddEmit(goalEmit)
 	pipe.AddEmit(ownGoal)
 	pipe.AddEmit(statfeed)
+	pipe.AddEmit(demos)
 	pipe.AddEmit(synthBridge)
 	pipe.AddEmit(NewFastestShotEmitter())
 	pipe.AddEmit(NewFirstBloodEmitter())
@@ -166,7 +168,7 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, statfeed: statfeed, overrides: overrides, discoveries: discoveries, config: cfg}
+	srv := &Server{bus: bus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, demos: demos, overrides: overrides, discoveries: discoveries, config: cfg}
 	go source.Run(ctx)
 	go pipe.Run(ctx, source, bus)
 	go matchState.Run(ctx)

@@ -21,7 +21,7 @@ type Server struct {
 	source      *RLSource
 	matchState  *MatchState
 	roster      *RosterTracker
-	statfeed    *StatfeedEmitter
+	demos       *DemosEmitter
 	overrides   *OverridesStore
 	discoveries *StatfeedDiscoveryStore
 	config      Config
@@ -288,8 +288,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// MatchDestroyed, so a fresh match starts clean. Skipped when the
 	// subscriber didn't ask for _PlayerDemolished — replay shouldn't
 	// expand the wire surface beyond the negotiated filter.
-	if s.statfeed != nil && wantsEvent("_PlayerDemolished") {
-		for _, raw := range s.statfeed.DemolishLog() {
+	if s.demos != nil && wantsEvent("_PlayerDemolished") {
+		for _, raw := range s.demos.DemolishLog() {
 			if !writeFrame(sseDataPrefix, raw, sseRecordEnd) {
 				return
 			}
