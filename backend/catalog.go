@@ -106,8 +106,6 @@ var EventCatalog = []EventCatalogEntry{
 	{Name: "_OvertimeStarted", Category: "lifecycle", Shape: "overtime-started", LivePhases: liveOnly, Desc: "Rising edge of Game.bOvertime. Fires once per match. Includes tiedAt (the tied score going into OT).", Stability: "provisional", Since: "1.1"},
 	{Name: "_DemoChain", Category: "stat", Shape: "demo-chain", LivePhases: liveOrReplay, Desc: "Same attacker registered ≥2 demos within a rolling 5s window. Self-demos and team-demos are excluded. Re-fires with updated count + victims[] for each subsequent demo inside the window.", Stability: "provisional", Since: "1.2"},
 	{Name: "_FastestShotOfMatch", Category: "scoring", Shape: "fastest-shot", LivePhases: liveOrReplay, Desc: "Per-match max ball speed (in Unreal Units/second) was surpassed. Sources: BallHit.postHitSpeed and GoalScored.goalSpeed. Re-fires only when the previous max is beaten.", Stability: "provisional", Since: "1.2"},
-	{Name: "_KickoffConverted", Category: "scoring", Shape: "kickoff-converted", LivePhases: liveOnly, Desc: "First _Shot or _GoalScored within ~10s of RoundStarted, attributed to the team responsible. Once-per-round.", Stability: "provisional", Since: "1.2"},
-
 	// ─── Lifecycle + summary (Phase 5) ────────────────────────
 	// Framing-bypass: _MatchState is delivered to every subscriber
 	// regardless of the ?events= filter.

@@ -116,13 +116,6 @@ type Synthesizer struct {
 	// window each time we observe a demo. Cleared on match boundaries.
 	demoChainMu   sync.Mutex
 	demoChainByID map[string][]demoChainEntry
-
-// kickoffMu guards kickoff conversion state. roundStartedAtKickoff
-	// is set on RoundStarted; cleared once _KickoffConverted has fired
-	// for that round (or when the next RoundStarted resets it).
-	kickoffMu              sync.Mutex
-	kickoffWindowDeadline  time.Time
-	kickoffConvertedFired  bool
 }
 
 // demoChainEntry pairs a demo timestamp with the resolved victim, so
@@ -137,12 +130,6 @@ type demoChainEntry struct {
 // player chasing across the field, narrow enough that the next match's
 // first demo doesn't extend a stale chain.
 const demoChainWindow = 5 * time.Second
-
-// kickoffWindow caps how long after RoundStarted a same-team _Shot or
-// _GoalScored counts as the kickoff conversion. RL kickoffs typically
-// resolve inside ~10s; outside that, the play has settled into normal
-// possession and "kickoff conversion" stops being a useful framing.
-const kickoffWindow = 10 * time.Second
 
 // matchSummaryEndedTimeout is the outer fallback: if PodiumStart never
 // arrives (back-to-menu, network drop), flush the summary anyway after
@@ -230,8 +217,6 @@ func (s *Synthesizer) Feed(raw []byte) {
 		// fields were collected). Also reset the per-match flags.
 		s.flushMatchSummary("MatchDestroyed")
 		s.resetMatchMilestones()
-	case "RoundStarted":
-		s.armKickoffWindow()
 	case "PodiumStart":
 		// MVP is part of the podium scene itself, so the MVP Statfeed
 		// arrives at or after PodiumStart — never before. Restart the
@@ -285,63 +270,6 @@ func (s *Synthesizer) resetMatchMilestones() {
 		delete(s.demoChainByID, k)
 	}
 	s.demoChainMu.Unlock()
-	// Reset kickoff-conversion arming so a goal scored in the previous
-	// match's settle window can't trigger _KickoffConverted in the next.
-	s.kickoffMu.Lock()
-	s.kickoffWindowDeadline = time.Time{}
-	s.kickoffConvertedFired = false
-	s.kickoffMu.Unlock()
-}
-
-// armKickoffWindow arms the per-round kickoff-conversion window on
-// every RoundStarted. First _Shot or _GoalScored inside it fires
-// _KickoffConverted; subsequent rounds re-arm by overwriting the
-// deadline.
-func (s *Synthesizer) armKickoffWindow() {
-	s.kickoffMu.Lock()
-	s.kickoffWindowDeadline = time.Now().Add(kickoffWindow)
-	s.kickoffConvertedFired = false
-	s.kickoffMu.Unlock()
-}
-
-// maybeEmitKickoffConverted fires _KickoffConverted on the first
-// scoring action (_Shot or _GoalScored) inside the post-RoundStarted
-// window. Once-per-round; subsequent shots/goals in the same round
-// don't re-fire. The next RoundStarted re-arms.
-func (s *Synthesizer) maybeEmitKickoffConverted(guid, source string, player *EnrichedPlayer, team int) {
-	if player == nil {
-		return
-	}
-	now := time.Now()
-	s.kickoffMu.Lock()
-	deadline := s.kickoffWindowDeadline
-	if s.kickoffConvertedFired || deadline.IsZero() || now.After(deadline) {
-		s.kickoffMu.Unlock()
-		return
-	}
-	s.kickoffConvertedFired = true
-	armed := deadline.Add(-kickoffWindow)
-	s.kickoffMu.Unlock()
-
-	elapsed := now.Sub(armed).Seconds()
-	out := struct {
-		Event                       string          `json:"Event"`
-		MatchGUID                   string          `json:"matchGuid,omitempty"`
-		Source                      string          `json:"source"`
-		Player                      *EnrichedPlayer `json:"player"`
-		TeamNum                     int             `json:"teamNum"`
-		SecondsAfterRoundStart      float64         `json:"secondsAfterRoundStart"`
-	}{
-		Event:                  "_KickoffConverted",
-		MatchGUID:              guid,
-		Source:                 source,
-		Player:                 player,
-		TeamNum:                team,
-		SecondsAfterRoundStart: elapsed,
-	}
-	if b, err := json.Marshal(out); err == nil {
-		s.bus.Broadcast(Event{Raw: b})
-	}
 }
 
 // tickSnapshot is the slice of UpdateState we cache for diff emitters.
@@ -1342,7 +1270,6 @@ func (s *Synthesizer) emitShot(guid string, main *EnrichedPlayer) {
 		MainTarget:      main,
 		CorrelatedTouch: correlatedTouch,
 	}
-	defer s.maybeEmitKickoffConverted(guid, "Shot", main, main.Team)
 	b, err := json.Marshal(out)
 	if err != nil {
 		return
@@ -2042,10 +1969,6 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 		return
 	}
 	s.bus.Broadcast(Event{Raw: b})
-
-	// _KickoffConverted — first scoring action within the kickoff
-	// window after RoundStarted.
-	s.maybeEmitKickoffConverted(guid, "GoalScored", scorer, scoringTeam)
 }
 
 // goalRecord is the slim correlation-buffer entry for _GoalScored —
