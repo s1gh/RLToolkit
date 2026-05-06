@@ -59,7 +59,11 @@ type MatchState struct {
 	lastTick   time.Time
 
 	timeout time.Duration
+
+	bus Broadcaster // optional; if set, the watchdog publishes directly
 }
+
+func (m *MatchState) AttachBroadcaster(b Broadcaster) { m.bus = b }
 
 func NewMatchState() *MatchState {
 	now := time.Now()
@@ -257,4 +261,20 @@ func (m *MatchState) checkTimeout() {
 		return
 	}
 	m.transitionTo(PhasePhaseNone, "watchdogTimeout", "clear", false)
+
+	// Publish directly so subscribers learn about the timeout even
+	// when no events are flowing through the dispatcher.
+	if m.bus != nil {
+		evts := m.Process(Event{})
+		for _, evt := range evts {
+			body := evt.Data
+			envelope, err := json.Marshal(struct {
+				Event string          `json:"Event"`
+				Data  json.RawMessage `json:"Data"`
+			}{Event: evt.Name, Data: body})
+			if err == nil {
+				m.bus.Broadcast(Event{Name: evt.Name, Raw: envelope})
+			}
+		}
+	}
 }
