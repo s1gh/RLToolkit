@@ -110,7 +110,7 @@ var EventCatalog = []EventCatalogEntry{
 	// Framing-bypass: _MatchState is delivered to every subscriber
 	// regardless of the ?events= filter.
 	{Name: "_MatchState", Category: "lifecycle", Shape: "match-state", LivePhases: anyPhase, Desc: "Authoritative gameplay state. matchActive (am I in a match) and phase (lobby/countdown/live/paused/replay/ended/podium/none) on every transition, with previousPhase, phaseDurationSeconds, and trigger so subscribers see what changed and why. Replaces the legacy _Lifecycle and _LifecyclePhaseChanged events.", Stability: "stable", Since: "2.0"},
-	{Name: "_GoalReplayContext", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on the bReplay rising edge (start of a goal replay) with the full _GoalScored payload (scorer, assister, ballLastTouch, goalSpeed, goalTime, impactLocation, isOwnGoal, modifiers), so plugins know which goal the replay is for without correlating themselves. Edge-detected on UpdateState because recent RL builds skip the discrete GoalReplayStart event.", Stability: "provisional", Since: "1.1"},
+	{Name: "_GoalReplayStarted", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on the bReplay rising edge (start of a goal replay) with the full _GoalScored payload (scorer, assister, ballLastTouch, goalSpeed, goalTime, impactLocation, isOwnGoal, modifiers), so plugins know which goal the replay is for without correlating themselves. Edge-detected on UpdateState because recent RL builds skip the discrete GoalReplayStart event.", Stability: "provisional", Since: "1.1"},
 
 	// ─── Discoverability (Phase 6) ────────────────────────────
 	// _UnknownStatfeed fires whenever a StatfeedEvent.EventName is not

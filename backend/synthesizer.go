@@ -44,11 +44,11 @@ type Synthesizer struct {
 	correlation *CorrelationBuffer
 
 // lastGoalMu guards lastGoal. Set when _GoalScored is published,
-	// read when GoalReplayStart arrives so _GoalReplayContext can ship
+	// read when GoalReplayStart arrives so _GoalReplayStarted can ship
 	// the resolved goal payload without depending on the shared
 	// correlation buffer (which can evict the entry under burst load
 	// from intervening BallHit/StatfeedEvent records). Holds the full
-	// enriched envelope so _GoalReplayContext can mirror every field
+	// enriched envelope so _GoalReplayStarted can mirror every field
 	// _GoalScored carried (assister, ballLastTouch, modifiers, ...).
 	// Cleared on match boundaries via resetMatchMilestones.
 	lastGoalMu sync.Mutex
@@ -316,7 +316,7 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 		return
 	}
 
-	// Replay-edge detection runs regardless — _GoalReplayContext is
+	// Replay-edge detection runs regardless — _GoalReplayStarted is
 	// the one event that's *supposed* to fire on entering replay.
 	s.diffReplayEdge(prev, curr)
 
@@ -342,7 +342,7 @@ func (s *Synthesizer) onUpdateState(raw []byte) {
 	s.diffBallPossession(prev, curr)
 }
 
-// diffReplayEdge emits _GoalReplayContext on a rising bReplay edge.
+// diffReplayEdge emits _GoalReplayStarted on a rising bReplay edge.
 // Recent RL builds skip the discrete GoalReplayStart event entirely, so
 // the bReplay flag on the per-tick Game snapshot is the only reliable
 // "goal replay began" signal. We mirror the LifecycleTracker's edge
@@ -363,7 +363,7 @@ func (s *Synthesizer) diffReplayEdge(prev, curr *tickSnapshot) {
 	// downstream mutations of the cached envelope (none today, but
 	// defensive) don't reach back into the source.
 	out := *cached
-	out.Event = "_GoalReplayContext"
+	out.Event = "_GoalReplayStarted"
 	out.MatchGUID = curr.matchGUID
 	if b, err := json.Marshal(out); err == nil {
 		s.bus.Broadcast(Event{Raw: b})
@@ -1684,10 +1684,10 @@ func (s *Synthesizer) onGoalScored(raw []byte) {
 	}
 	s.correlation.Record("_GoalScored", rec)
 
-	// Dedicated cache for _GoalReplayContext. The correlation buffer is
+	// Dedicated cache for _GoalReplayStarted. The correlation buffer is
 	// shared with BallHit/StatfeedEvent and a goal celebration can evict
 	// the _GoalScored entry before GoalReplayStart arrives. Cache the
-	// full enriched envelope so _GoalReplayContext can mirror every
+	// full enriched envelope so _GoalReplayStarted can mirror every
 	// field (assister, ballLastTouch, modifiers, …).
 	cached := out
 	s.lastGoalMu.Lock()
