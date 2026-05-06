@@ -28,14 +28,12 @@ type Synthesizer struct {
 	// return them.
 	discoveries *StatfeedDiscoveryStore
 
-	// teamsMu guards lastTeams + lastTick. Cached from the most recent
-	// UpdateState so _MatchEnded can resolve WinnerTeamNum to a name
-	// and Phase-4 diff emitters can compare current vs previous tick.
-	teamsMu   sync.Mutex
-	lastTeams []teamRef
-	lastTick  *tickSnapshot
+	// ticks is the shared per-tick decode store. Owned by main; the
+	// synth's diff emitters read prev/latest from it instead of
+	// caching their own copy.
+	ticks *TickStore
 
-	// correlation is the shared sliding window of recent events. Owned
+// correlation is the shared sliding window of recent events. Owned
 	// by main; processors share one instance so a producer (e.g.
 	// BallHitEmitter) can record a touch and a consumer (the synth's
 	// _GoalScored fallback, soon emit_own_goal) can look it back up.
@@ -165,11 +163,12 @@ const matchSummaryEndedTimeout = 10 * time.Second
 // SetSummaryTimings to keep the suite fast.
 const matchSummaryPodiumSettle = 3 * time.Second
 
-func NewSynthesizer(bus Broadcaster, roster *RosterTracker, correlation *CorrelationBuffer) *Synthesizer {
+func NewSynthesizer(bus Broadcaster, roster *RosterTracker, correlation *CorrelationBuffer, ticks *TickStore) *Synthesizer {
 	return &Synthesizer{
 		bus:                 bus,
 		roster:              roster,
 		correlation:         correlation,
+		ticks:               ticks,
 		flipResetArmed:      make(map[string]bool),
 		realGoalsByID:       make(map[string]int),
 		flipResetCountByID:  make(map[string]int),
@@ -426,101 +425,24 @@ type updateStateFullPlayer struct {
 	BSupersonic  bool     `json:"bSupersonic"`
 }
 
-// onUpdateState caches the latest UpdateState slice for downstream
-// enrichment and runs Phase-4 diff emitters: _PlayerJoined / _PlayerLeft,
-// _PlayerScoreChanged, _BoostPickup, _BallPossessionChanged,
-// _TeamScoreChanged, plus _OwnGoal (which predates Phase 4 but lives
-// here for ordering with _TeamScoreChanged). Stays cheap — most of
-// the work is sub-millisecond integer compares.
+// onUpdateState runs the diff emitters owned by the synthesizer:
+// _PlayerJoined / _PlayerLeft, _PlayerScoreChanged, _BoostPickup,
+// _BallPossessionChanged, _TeamScoreChanged, plus _OwnGoal. Reads the
+// snapshot pair from the shared TickStore — the parse already
+// happened in TickStore.Observe before this synth-bridged emit
+// processor ran.
 func (s *Synthesizer) onUpdateState(raw []byte) {
-	inner := unwrapInnerData(raw)
-	if inner == "" {
+	curr := s.ticks.Latest()
+	prev := s.ticks.Previous()
+	if curr == nil {
 		return
 	}
-	var d updateStateFull
-	if err := json.Unmarshal([]byte(inner), &d); err != nil {
-		return
-	}
-	g := d.Game
-	if g == nil {
-		g = d.GameLow
-	}
-	if g == nil || len(g.Teams) == 0 {
-		return
-	}
-
-	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
-	teams := make([]teamRef, 0, len(g.Teams))
-	for _, t := range g.Teams {
-		teams = append(teams, teamRef{
-			TeamNum:        t.TeamNum,
-			Name:           t.Name,
-			Score:          t.Score,
-			ColorPrimary:   t.ColorPrimary,
-			ColorSecondary: t.ColorSecondary,
-		})
-	}
-
-	wirePlayers := d.Players
-	if len(wirePlayers) == 0 {
-		wirePlayers = d.PlayersLow
-	}
-	players := make([]tickPlayer, 0, len(wirePlayers))
-	for _, p := range wirePlayers {
-		var boost *int
-		if p.Boost != nil {
-			b := *p.Boost
-			boost = &b
-		}
-		var speed *float64
-		if p.Speed != nil {
-			sp := *p.Speed
-			speed = &sp
-		}
-		players = append(players, tickPlayer{
-			id:         canonicalizeBotId(p.PrimaryID, p.Name),
-			name:       p.Name,
-			team:       p.TeamNum,
-			score:      p.Score,
-			goals:      p.Goals,
-			assists:    p.Assists,
-			saves:      p.Saves,
-			shots:      p.Shots,
-			touches:    p.Touches,
-			carTouches: p.CarTouches,
-			demos:      p.Demos,
-			boost:      boost,
-			demolished: p.BDemolished,
-			onGround:   p.BOnGround,
-			speed:      speed,
-			supersonic: p.BSupersonic,
-		})
-	}
-
-	curr := &tickSnapshot{
-		matchGUID: guid,
-		teams:     teams,
-		players:   players,
-		overtime:  g.BOvertime,
-		bReplay:   g.BReplay,
-	}
-	if g.Ball != nil {
-		curr.ballTeam = g.Ball.TeamNum
-		curr.hasBall = true
-	}
-
-	s.teamsMu.Lock()
-	prev := s.lastTick
-	prevTeams := s.lastTeams
-	s.lastTick = curr
-	s.lastTeams = teams
-	s.teamsMu.Unlock()
 
 	// _OwnGoal predates Phase 4 but is also a per-team-score-delta
 	// emitter, so we keep it here. Skip the compare on the first tick
 	// (no baseline).
-	if len(prevTeams) > 0 {
-		s.detectOwnGoal(prevTeams, teams, guid)
+	if prev != nil {
+		s.detectOwnGoal(prev.teams, curr.teams, curr.matchGUID)
 	}
 
 	if prev == nil {
@@ -1024,42 +946,14 @@ type wireTeam struct {
 // when the speed pointer is non-nil — see the supersonic-stamping
 // guard in emitPlayerDemolished.
 func (s *Synthesizer) lookupTickScalars(id string) (*float64, bool) {
-	if id == "" {
-		return nil, false
-	}
-	s.teamsMu.Lock()
-	tick := s.lastTick
-	s.teamsMu.Unlock()
-	if tick == nil {
-		return nil, false
-	}
-	for i := range tick.players {
-		p := &tick.players[i]
-		if p.id != id {
-			continue
-		}
-		if p.speed == nil {
-			return nil, false
-		}
-		sp := *p.speed
-		return &sp, p.supersonic
-	}
-	return nil, false
+	return s.ticks.PlayerScalars(id)
 }
 
 // teamByNum returns a copy of the cached team with the given TeamNum,
 // or nil if no UpdateState has populated the cache or the team isn't
 // present.
 func (s *Synthesizer) teamByNum(num int) *teamRef {
-	s.teamsMu.Lock()
-	defer s.teamsMu.Unlock()
-	for i := range s.lastTeams {
-		if s.lastTeams[i].TeamNum == num {
-			t := s.lastTeams[i]
-			return &t
-		}
-	}
-	return nil
+	return s.ticks.TeamByNum(num)
 }
 
 // statfeedEnvelope mirrors the wire shape of a StatfeedEvent. RL ships
@@ -1779,9 +1673,7 @@ func (s *Synthesizer) onCrossbarHit(raw []byte) {
 	// shouldn't count. bReplay on the cached UpdateState is the
 	// canonical replay signal on this build (discrete
 	// GoalReplayStart/End events are unreliable).
-	s.teamsMu.Lock()
-	inReplay := s.lastTick != nil && s.lastTick.bReplay
-	s.teamsMu.Unlock()
+	inReplay := s.ticks.InReplay()
 	if inReplay {
 		return
 	}
@@ -1941,11 +1833,7 @@ func (s *Synthesizer) onMatchEnded(raw []byte) {
 // shouldn't happen in practice, but defensive), the existing one is
 // cancelled and the new one takes over.
 func (s *Synthesizer) beginMatchSummary(guid string, winner *int) {
-	// Snapshot the latest tick under teamsMu so we don't race with a
-	// concurrent UpdateState.
-	s.teamsMu.Lock()
-	finalSnap := s.lastTick
-	s.teamsMu.Unlock()
+	finalSnap := s.ticks.Latest()
 
 	s.summaryMu.Lock()
 	if s.summaryPending && s.summaryCancel != nil {

@@ -114,8 +114,9 @@ func runServe() {
 	matchState := NewMatchState()
 	matchState.AttachBroadcaster(bus)
 	correlation := NewCorrelationBuffer(32)
+	tickStore := NewTickStore()
 	synthBridge := &synthAdapter{}
-	synth := NewSynthesizer(synthBridge, roster, correlation)
+	synth := NewSynthesizer(synthBridge, roster, correlation, tickStore)
 	synthBridge.s = synth
 	synth.AttachMatchState(matchState)
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
@@ -130,6 +131,7 @@ func runServe() {
 	pipe := NewPipeline()
 	pipe.AddState(roster)
 	pipe.AddState(matchState)
+	pipe.AddState(tickStore)
 	pipe.AddEmit(matchState)
 	pipe.AddEmit(NewBallHitEmitter(roster, matchState, correlation))
 	pipe.AddEmit(synthBridge)
