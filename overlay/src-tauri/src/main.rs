@@ -924,7 +924,14 @@ fn init_layer_shell_common(
 
     gtk_window.set_layer(Layer::Overlay);
     gtk_window.set_keyboard_interactivity(false);
-    gtk_window.set_exclusive_zone(0);
+    // -1 tells the compositor "do not shrink this surface to accommodate
+    // other layer-shell clients' exclusive zones." Without it, panels like
+    // waybar push our overlay's bottom up by their reserved height — so a
+    // bottom-anchored widget at offset_y=0 lands behind/under the panel
+    // instead of at the actual monitor edge. Setting 0 (the value before)
+    // means "I claim no exclusive zone," which is NOT the same as "ignore
+    // other clients' zones."
+    gtk_window.set_exclusive_zone(-1);
 
     // Click-through. Without this the overlay still grabs every pointer
     // event even though it's transparent — clicks on the game underneath
