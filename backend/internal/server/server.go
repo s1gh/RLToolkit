@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"rl-toolkit/backend/internal/bootid"
 	"rl-toolkit/backend/internal/bus"
 	"rl-toolkit/backend/internal/catalog"
@@ -22,8 +23,8 @@ import (
 	"rl-toolkit/backend/internal/roster"
 	"rl-toolkit/backend/internal/source"
 	"rl-toolkit/backend/internal/state"
+	"rl-toolkit/backend/internal/surface"
 	"rl-toolkit/backend/internal/types"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +56,7 @@ type Deps struct {
 	Roster      *roster.Tracker
 	Demos       *emit.Demos
 	Overrides   *overrides.Store
+	Surface     *surface.Store
 	Discoveries *discoveries.Store
 	Identity    *identity.Store
 	PluginDir   string
@@ -85,6 +87,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/identity", s.handleIdentity)
 	mux.HandleFunc("/api/overlay/overrides", s.handleOverlayOverridesAll)
 	mux.HandleFunc("/api/overlay/overrides/", s.handleOverlayOverridesOne)
+	mux.HandleFunc("/api/overlay/surface", s.handleOverlaySurface)
+	mux.HandleFunc("/api/overlay/surface/detected", s.handleOverlaySurfaceDetected)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -656,7 +660,7 @@ func (s *Server) knownPlugin(name string) bool {
 // overrides map changes. The shape mirrors the GET endpoint so
 // subscribers can reuse merge code unchanged.
 type overridesChangedEnvelope struct {
-	Event string                       `json:"Event"`
+	Event string                        `json:"Event"`
 	Data  map[string]overrides.Override `json:"Data"`
 }
 
@@ -671,6 +675,111 @@ func MarshalOverridesChanged(data map[string]overrides.Override) []byte {
 	})
 	if err != nil {
 		log.Printf("[overrides] marshal _OverridesChanged: %v", err)
+		return nil
+	}
+	return b
+}
+
+// ── Overlay surface API ─────────────────────────────────────
+
+// handleOverlaySurface routes GET (read configured + detected + effective)
+// and PUT (set or clear configured) on /api/overlay/surface. PUT body
+// is either {"width": int, "height": int} or the literal `null` to clear.
+func (s *Server) handleOverlaySurface(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, surfaceResponse{
+			Configured: s.deps.Surface.Get(),
+			Detected:   s.deps.Surface.Detected(),
+			Effective:  s.deps.Surface.Effective(),
+		})
+	case http.MethodPut:
+		s.handleSurfacePut(w, r)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+type surfaceResponse struct {
+	Configured *surface.Size `json:"configured"`
+	Detected   *surface.Size `json:"detected"`
+	Effective  surface.Size  `json:"effective"`
+}
+
+func (s *Server) handleSurfacePut(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
+	if err != nil {
+		httpError(w, "read body", err, http.StatusInternalServerError)
+		return
+	}
+	// Accept the literal `null` to clear. json.Unmarshal of `null` into
+	// **Size leaves the pointer at nil, which is exactly what Set wants.
+	var sz *surface.Size
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&sz); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.deps.Surface.Set(sz); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, surfaceResponse{
+		Configured: s.deps.Surface.Get(),
+		Detected:   s.deps.Surface.Detected(),
+		Effective:  s.deps.Surface.Effective(),
+	})
+}
+
+// handleOverlaySurfaceDetected accepts a POST from rl-widget reporting
+// its bound monitor's logical size. In-memory only; resets on backend
+// restart. Returns 204 on success, 400 on invalid body.
+func (s *Server) handleOverlaySurfaceDetected(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
+	if err != nil {
+		httpError(w, "read body", err, http.StatusInternalServerError)
+		return
+	}
+	var sz surface.Size
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&sz); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.deps.Surface.SetDetected(&sz); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// surfaceChangedEnvelope is the SSE payload published when the configured
+// surface changes. Mirrors overridesChangedEnvelope shape.
+type surfaceChangedEnvelope struct {
+	Event string          `json:"Event"`
+	Data  surfaceResponse `json:"Data"`
+}
+
+// MarshalSurfaceChanged builds the JSON envelope for a _SurfaceChanged
+// event. Returns nil on marshal failure (caller treats nil as "no event").
+// Exported so main can publish without owning the envelope shape.
+func MarshalSurfaceChanged(configured, detected *surface.Size, effective surface.Size) []byte {
+	b, err := json.Marshal(surfaceChangedEnvelope{
+		Event: "_SurfaceChanged",
+		Data: surfaceResponse{
+			Configured: configured,
+			Detected:   detected,
+			Effective:  effective,
+		},
+	})
+	if err != nil {
+		log.Printf("[surface] marshal _SurfaceChanged: %v", err)
 		return nil
 	}
 	return b
