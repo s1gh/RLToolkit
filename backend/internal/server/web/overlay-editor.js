@@ -233,6 +233,12 @@
     .filter(({ overlay }) => overlay.enabled !== false)
     .map(({ plugin, overlay }) => buildWidget(plugin, overlay));
 
+  // Declared before the first applyCanvasLayout() so flagOffCanvasWidgets
+  // (which closes over `selected`) doesn't trip the TDZ on boot. The
+  // matching select() function lives further down where the rest of
+  // selection-handling code lives.
+  let selected = null;
+
   applyCanvasLayout();
   window.addEventListener('resize', applyCanvasLayout);
 
@@ -336,7 +342,8 @@
   // ─── Selection ────────────────────────────────────────────
   // Single-select: clicking a widget's capture div selects it; clicking
   // outside any widget deselects. Selected widget gets a brighter outline.
-  let selected = null;
+  // (`selected` is declared higher up, before applyCanvasLayout's first
+  // call, so flagOffCanvasWidgets can read it on boot without TDZ.)
 
   function select(w) {
     if (selected === w) return;
