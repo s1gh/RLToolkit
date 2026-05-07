@@ -351,6 +351,14 @@
   // Open the shared bus with the baseline filter. Each iframe's
   // hosted-mode hello will widen it as their handlers register.
   openBus();
+
+  // Diagnostic: report the actual rendered viewport so we can verify
+  // it matches what the editor's target says it should be. If they
+  // diverge, bottom-anchored widgets clip below the screen.
+  console.log('[rlt overlay] viewport',
+    window.innerWidth + 'x' + window.innerHeight,
+    'dpr=' + window.devicePixelRatio,
+    'screen=' + screen.width + 'x' + screen.height);
 })().catch((err) => {
   // OBS browser sources can't show toasts; at least log so the failure
   // is visible in the source's "Inspect" devtools.

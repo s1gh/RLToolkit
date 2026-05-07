@@ -983,19 +983,25 @@ fn apply_layer_shell_unified(
     // Resolve the chosen GDK monitor and report its logical size to the
     // toolkit. Same selection logic as init_layer_shell_common (primary
     // when no index given). Logical = device pixels / scale factor.
-    if let Some(display) = gtk::gdk::Display::default() {
+    let chosen_size = if let Some(display) = gtk::gdk::Display::default() {
         let mon = if let Some(n) = monitor_index {
             display.monitor(n as i32)
         } else {
             display.primary_monitor().or_else(|| display.monitor(0))
         };
-        if let Some(m) = mon {
+        mon.map(|m| {
             let geo = m.geometry();
             let scale = m.scale_factor().max(1) as f64;
-            let mon_w = geo.width() as f64 / scale;
-            let mon_h = geo.height() as f64 / scale;
-            report_detected_surface(toolkit, mon_w, mon_h);
-        }
+            let w = geo.width() as f64 / scale;
+            let h = geo.height() as f64 / scale;
+            (w, h)
+        })
+    } else {
+        None
+    };
+
+    if let Some((w, h)) = chosen_size {
+        report_detected_surface(toolkit, w, h);
     }
 
     let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else {
@@ -1005,6 +1011,18 @@ fn apply_layer_shell_unified(
     for e in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
         gtk_window.set_anchor(e, true);
         gtk_window.set_layer_shell_margin(e, 0);
+    }
+
+    // Pin the GTK window's default size to the monitor's logical size.
+    // Without this, WebKitGTK initially lays out the page at Tauri's
+    // default 800×600, and even though layer-shell anchoring stretches
+    // the surface, the webview's CSS viewport (100vh) sometimes stays
+    // at the smaller value until the next reflow — which means a
+    // bottom-anchored widget at offset_y=0 lands at the bottom of the
+    // ORIGINAL viewport, not the monitor edge, and clips below.
+    if let Some((w, h)) = chosen_size {
+        gtk_window.set_default_size(w as i32, h as i32);
+        let _ = window.set_size(tauri::LogicalSize::new(w, h));
     }
 }
 
