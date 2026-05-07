@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hello World — Settings</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <script src="/sdk.js" data-plugin="hello-world" data-view="settings"></script>
+    <style>
+      body {
+        font-family: var(--rlt-ui, "Inter", system-ui, sans-serif);
+        font-size: 14px;
+        color: var(--rlt-txt, #e9ecf2);
+        background: var(--rlt-bg-0, #08090f);
+        margin: 0;
+        padding: 24px;
+        max-width: 480px;
+      }
+      h2 {
+        margin: 0 0 18px;
+        font-size: 16px;
+      }
+      label {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+      }
+      .actions {
+        margin-top: 24px;
+        display: flex;
+        gap: 10px;
+      }
+      button {
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--rlt-line, #252938);
+        background: var(--rlt-bg-3, #1f232f);
+        color: var(--rlt-txt, #e9ecf2);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--rlt-cyan, #22d3ee);
+        color: #08090f;
+        border-color: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Hello World settings</h2>
+
+    <label>
+      <input type="checkbox" id="own-goals" />
+      Also log own goals
+    </label>
+
+    <div class="actions">
+      <button id="save" class="primary" type="button">Save</button>
+      <button id="cancel" type="button">Close</button>
+    </div>
+
+    <script src="./shared.js"></script>
+    <script>
+      RLT.plugin.register({
+        init() {
+          const checkbox = document.getElementById('own-goals');
+
+          // init is sync, so wrap the await in an inline async IIFE
+          // to hydrate the checkbox.
+          (async () => {
+            const cfg = await HW.readConfig();
+            checkbox.checked = cfg.logOwnGoals;
+          })();
+
+          document.getElementById('save').onclick = async () => {
+            await HW.writeConfig({ logOwnGoals: checkbox.checked });
+            // The overlay + dashboard both subscribed to
+            // store.onChange('config'), so this write broadcasts
+            // _StoreChanged → their refreshConfig handlers fire →
+            // caches update. No extra signaling needed.
+            RLT.settings.close();
+          };
+
+          document.getElementById('cancel').onclick = () => RLT.settings.close();
+        },
+      });
+    </script>
+  </body>
+</html>

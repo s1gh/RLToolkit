@@ -5,19 +5,83 @@
     <title>Hello World</title>
     <link rel="stylesheet" href="/sdk.css" />
     <script src="/sdk.js" data-plugin="hello-world" data-view="overlay"></script>
-    <script>
-      RLT.plugin.register({
-        whilePhase: ["live", "replay", "countdown", "paused"],
-
-        events: {
-          _Shot(p) {
-            console.log("Shot", p);
-          },
-        },
-      });
-    </script>
+    <style>
+      body {
+        font-family: var(--rlt-display, "Saira Condensed", sans-serif);
+        color: var(--rlt-txt, #e9ecf2);
+        background: var(--rlt-bg-1, rgba(8, 9, 15, 0.78));
+        margin: 0;
+        padding: 14px 18px;
+        border-radius: 10px;
+      }
+      body.overlay-mode {
+        background: rgba(8, 9, 15, 0.78);
+      }
+      h2 {
+        margin: 0 0 6px;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        color: var(--rlt-txt-2, #a6abbf);
+        text-transform: uppercase;
+      }
+      #last-goal {
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      .empty {
+        color: var(--rlt-txt-3, #6c739a);
+        font-style: italic;
+      }
+    </style>
   </head>
   <body>
-    <h1>Hello World</h1>
+    <h2>Last goal</h2>
+    <div id="last-goal" class="empty">queue up — waiting for a goal</div>
+
+    <script src="./shared.js"></script>
+    <script>
+      (function () {
+        // Cache config locally. Hydrated lazily in init, then refreshed
+        // whenever the settings panel writes (RLT.store.onChange fires
+        // for any cross-view write to our namespace). If a goal lands
+        // before the initial fetch resolves, logOwnGoals defaults to
+        // false — the safe option.
+        let logOwnGoals = false;
+        async function refreshConfig() {
+          ({ logOwnGoals } = await HW.readConfig());
+        }
+
+        const lastGoalEl = document.getElementById('last-goal');
+
+        RLT.plugin.register({
+          init() {
+            // init is sync — kick the fetch off without awaiting.
+            refreshConfig();
+
+            // Re-read whenever any view writes to store.config. The
+            // 'config' filter scopes us to that one key so we don't
+            // refetch on unrelated writes.
+            RLT.store.onChange('config', refreshConfig);
+
+            // RLT.widget.* calls no-op outside Tauri, so this is safe
+            // unconditionally. autoSize grows the widget to fit the
+            // text on the longest player name.
+            RLT.widget.autoSize(true, { target: document.body });
+          },
+
+          events: {
+            _GoalScored(goal) {
+              if (goal.isOwnGoal && !logOwnGoals) return;
+              const scorer = goal.scorer?.name ?? 'unknown';
+              const speed = goal.goalSpeed ?? 'n/a';
+              const tag = goal.isOwnGoal ? ' (own goal)' : '';
+              lastGoalEl.textContent = `${scorer} — ${speed} km/h${tag}`;
+              lastGoalEl.classList.remove('empty');
+            },
+          },
+        });
+      })();
+    </script>
   </body>
 </html>

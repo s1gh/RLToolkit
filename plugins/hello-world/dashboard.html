@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hello World</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <script src="/sdk.js" data-plugin="hello-world" data-view="dashboard"></script>
+    <style>
+      body {
+        font-family: var(--rlt-ui, "Inter", system-ui, sans-serif);
+        font-size: 14px;
+        line-height: 1.4;
+        color: var(--rlt-txt, #e9ecf2);
+        background: var(--rlt-bg-0, #08090f);
+        margin: 0;
+        padding: 32px;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+      }
+      .lede {
+        margin: 0 0 24px;
+        color: var(--rlt-txt-2, #a6abbf);
+      }
+      ul {
+        padding: 0;
+        list-style: none;
+        border-top: 1px solid var(--rlt-line, #252938);
+      }
+      li {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--rlt-line, #252938);
+        font-variant-numeric: tabular-nums;
+      }
+      li.empty {
+        color: var(--rlt-txt-3, #6c739a);
+        font-style: italic;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Hello World</h1>
+      <p class="lede">Recent goals from this session.</p>
+      <ul id="goals">
+        <li class="empty">no goals yet</li>
+      </ul>
+    </main>
+
+    <script src="./shared.js"></script>
+    <script>
+      (function () {
+        const log = [];
+        const ul = document.getElementById('goals');
+
+        function render() {
+          if (log.length === 0) {
+            ul.innerHTML = '<li class="empty">no goals yet</li>';
+            return;
+          }
+          ul.innerHTML = log
+            .slice(-20)
+            .reverse()
+            .map((line) => `<li>${RLT.ui.esc(line)}</li>`)
+            .join('');
+        }
+
+        let logOwnGoals = false;
+        async function refreshConfig() {
+          ({ logOwnGoals } = await HW.readConfig());
+        }
+
+        RLT.plugin.register({
+          init() {
+            refreshConfig();
+            RLT.store.onChange('config', refreshConfig);
+          },
+
+          events: {
+            _GoalScored(goal) {
+              if (goal.isOwnGoal && !logOwnGoals) return;
+              const scorer = goal.scorer?.name ?? 'unknown';
+              const speed = goal.goalSpeed ?? 'n/a';
+              const tag = goal.isOwnGoal ? ' (own goal)' : '';
+              const time = new Date().toLocaleTimeString();
+              log.push(`${time} — ${scorer} — ${speed} km/h${tag}`);
+              render();
+            },
+          },
+        });
+      })();
+    </script>
+  </body>
+</html>
