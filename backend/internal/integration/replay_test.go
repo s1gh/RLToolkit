@@ -1,19 +1,24 @@
-package backend
+// Package integration holds end-to-end tests that exercise multiple
+// internal packages together. Kept separate from any production
+// package so its presence doesn't pull test fixtures into the binary.
+package integration
 
 import (
 	"bufio"
 	"encoding/json"
 	"os"
 	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/roster"
+	"rl-toolkit/backend/internal/state"
 	"rl-toolkit/backend/internal/wire"
 	"testing"
 	"time"
 )
 
 // fixtureReplay reads a JSON-lines fixture (one envelope per line) and
-// feeds each line to the provided feeder function in order. Used by the
-// synthetic-event test harness to replay real wire traffic through the
-// backend without running Rocket League.
+// feeds each line to the provided feeder function in order. Used by
+// the synthetic-event test harness to replay real wire traffic
+// through the pipeline without running Rocket League.
 func fixtureReplay(t *testing.T, path string, feeder func([]byte)) {
 	t.Helper()
 	f, err := os.Open(path)
@@ -30,7 +35,6 @@ func fixtureReplay(t *testing.T, path string, feeder func([]byte)) {
 		if len(line) == 0 {
 			continue
 		}
-		// Sanity check: valid JSON envelope.
 		var raw map[string]interface{}
 		if err := json.Unmarshal(line, &raw); err != nil {
 			t.Fatalf("fixture %s:%d: invalid JSON: %v", path, lineNum, err)
@@ -43,14 +47,14 @@ func fixtureReplay(t *testing.T, path string, feeder func([]byte)) {
 }
 
 // captureSynthetic replays a fixture through the given bus and returns
-// every synthetic event whose name matches `eventName`. The fixture is
-// fed to MatchState (Observe-then-Process) and the roster tracker
+// every synthetic event whose name matches `eventName`. The fixture
+// is fed to MatchState (Observe-then-Process) and the roster tracker
 // before being published, preserving the same ordering as the real
 // dispatcher.
 //
-// If eventName is empty, all synthetic events (those starting with "_")
-// are returned.
-func captureSynthetic(t *testing.T, b *bus.Bus, matchState *MatchState, roster *RosterTracker, fixturePath string, eventName string) []map[string]interface{} {
+// If eventName is empty, all synthetic events (those starting with
+// "_") are returned.
+func captureSynthetic(t *testing.T, b *bus.Bus, ms *state.MatchState, rt *roster.Tracker, fixturePath string, eventName string) []map[string]interface{} {
 	t.Helper()
 
 	ch, cancel := b.Subscribe(nil)
@@ -68,20 +72,20 @@ func captureSynthetic(t *testing.T, b *bus.Bus, matchState *MatchState, roster *
 			data = env.DataLower
 		}
 		evt := bus.Event{Name: name, Data: data, Raw: raw}
-		if roster != nil {
-			roster.Observe(evt)
+		if rt != nil {
+			rt.Observe(evt)
 		}
-		if matchState != nil {
-			matchState.Observe(evt)
+		if ms != nil {
+			ms.Observe(evt)
 		}
 		b.Broadcast(evt)
-		if matchState != nil {
-			for _, out := range matchState.Process(evt) {
+		if ms != nil {
+			for _, out := range ms.Process(evt) {
 				b.Broadcast(out)
 			}
 		}
-		if roster != nil {
-			for _, out := range roster.Process(evt) {
+		if rt != nil {
+			for _, out := range rt.Process(evt) {
 				b.Broadcast(out)
 			}
 		}
@@ -89,8 +93,6 @@ func captureSynthetic(t *testing.T, b *bus.Bus, matchState *MatchState, roster *
 
 	fixtureReplay(t, fixturePath, feed)
 
-	// Drain the subscriber channel with a generous deadline so that
-	// synthetic events published inline have time to arrive.
 	deadline := time.NewTimer(50 * time.Millisecond)
 	defer deadline.Stop()
 
@@ -122,19 +124,16 @@ func captureSynthetic(t *testing.T, b *bus.Bus, matchState *MatchState, roster *
 	return out
 }
 
-// TestFixtureReplay_BasicMatch exercises the harness itself: replay the
-// basic_match fixture and assert that the expected synthetic events are
-// captured in the right order.
+// TestFixtureReplay_BasicMatch exercises the harness itself: replay
+// the basic_match fixture and assert that the expected synthetic
+// events are captured in the right order.
 func TestFixtureReplay_BasicMatch(t *testing.T) {
-	bus := bus.NewBus()
-	matchState := NewMatchState()
-	roster := NewRosterTracker(bus)
+	b := bus.NewBus()
+	ms := state.New()
+	rt := roster.New()
 
-	got := captureSynthetic(t, bus, matchState, roster, "testdata/fixtures/basic_match.jsonl", "")
+	got := captureSynthetic(t, b, ms, rt, "testdata/fixtures/basic_match.jsonl", "")
 
-	// We expect at minimum: _MatchState transitions + _RosterChanged.
-	// The exact count depends on the fixture, but we can sanity-check
-	// ordering and presence.
 	var matchStateCount, rosterCount int
 	var phases []string
 	for _, ev := range got {
@@ -158,10 +157,6 @@ func TestFixtureReplay_BasicMatch(t *testing.T) {
 		t.Error("expected at least one _RosterChanged event")
 	}
 
-	// Phase progression check: the fixture drives the match through the
-	// canonical lifecycle. Verify the prefix of observed phase
-	// transitions matches the expected sequence so regressions in the
-	// state machine surface here.
 	wantPhases := []string{"lobby", "countdown", "live"}
 	if len(phases) < len(wantPhases) {
 		t.Fatalf("expected at least phases %v, got %v", wantPhases, phases)
