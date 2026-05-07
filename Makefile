@@ -36,7 +36,37 @@ endif
 OUT_DIR := $(RELEASE_DIR)/$(HOST_OS)
 
 .PHONY: all backend widget launcher release run clean release-clean \
-        fmt fmt-check lint check
+        fmt fmt-check lint check sdk
+
+# --- SDK bundle: esbuild the modular sources into sdk/dist/sdk.js ------
+#
+# The Go binary embeds sdk/dist/sdk.js. Sources live under
+# backend/internal/server/web/sdk/src/. Source maps land alongside the
+# bundle (--sourcemap=external) so production stack traces resolve.
+#
+# The banner/footer wraps the entire bundled IIFE in `if (!window.RLT)
+# { … }` so a duplicate <script src="/sdk.js"> include is a no-op
+# (matches the legacy monolith's `if (window.RLT) return` guard).
+# Module-top-level side effects (manifest fetch, identity bootHydrate,
+# bus subscriptions) live inside the wrapped block.
+
+SDK_OUT   := backend/internal/server/web/sdk/dist/sdk.js
+SDK_ENTRY := backend/internal/server/web/sdk/src/index.js
+SDK_BANNER := if(!window.RLT){
+SDK_FOOTER := }
+
+ifeq ($(HOST_OS),windows)
+sdk:
+	@$(call MKDIR,backend/internal/server/web/sdk/dist)
+	npx esbuild $(SDK_ENTRY) --bundle --format=iife --target=es2020 --legal-comments=inline --sourcemap=external --banner:js="$(SDK_BANNER)" --footer:js="$(SDK_FOOTER)" --outfile=$(SDK_OUT)
+else
+sdk:
+	@$(call MKDIR,backend/internal/server/web/sdk/dist)
+	npx esbuild $(SDK_ENTRY) --bundle --format=iife --target=es2020 \
+		--legal-comments=inline --sourcemap=external \
+		--banner:js="$(SDK_BANNER)" --footer:js="$(SDK_FOOTER)" \
+		--outfile=$(SDK_OUT)
+endif
 
 # Default: full stack (backend + launcher, which also yields the widget).
 all: release
@@ -44,12 +74,12 @@ all: release
 # --- backend: Go server / plugin host -----------------------------------
 
 ifeq ($(HOST_OS),windows)
-backend:
+backend: sdk
 	@$(call MKDIR,$(OUT_DIR))
 	set "CGO_ENABLED=0" && set "GOOS=$(GOOS_VAL)" && set "GOARCH=amd64" && go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o $(OUT_DIR)/$(BINARY)$(EXE) ./backend/cmd/rl-toolkit
 	@echo -- $(OUT_DIR)/$(BINARY)$(EXE)
 else
-backend:
+backend: sdk
 	@$(call MKDIR,$(OUT_DIR))
 	CGO_ENABLED=0 GOOS=$(GOOS_VAL) GOARCH=amd64 \
 		go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
@@ -85,7 +115,7 @@ endif
 # launcher can locate the sidecar at runtime.
 
 ifeq ($(HOST_OS),windows)
-launcher:
+launcher: sdk
 	@$(call MKDIR,$(OUT_DIR))
 	@for /f "tokens=2" %%i in ('rustc -vV ^| findstr /B "host:"') do @( \
 	  echo host triple: %%i && \
@@ -101,7 +131,7 @@ launcher:
 	@echo -- $(OUT_DIR)/$(WIDGET_BIN)$(EXE)
 	@echo -- $(OUT_DIR)/$(BINARY)$(EXE) (sidecar)
 else
-launcher:
+launcher: sdk
 	@$(call MKDIR,$(OUT_DIR))
 	@triple=$$(rustc -vV | sed -n 's/host: //p'); \
 	  echo "host triple: $$triple"; \

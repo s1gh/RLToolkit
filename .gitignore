@@ -6,6 +6,9 @@
 /release/
 *.exe
 
+# SDK bundle (built by `make sdk` from sdk/src/)
+/backend/internal/server/web/sdk/dist/
+
 # Per-plugin persistence — runtime data, not source
 /data/*.json
 

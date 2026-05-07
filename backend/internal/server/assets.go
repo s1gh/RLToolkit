@@ -17,8 +17,9 @@ import (
 // the web font swaps in for the system fallback. Self-hosting kills
 // both costs.
 //
-//go:embed web/dashboard.html web/overlay.html web/sdk.js web/sdk.css web/overlay-editor.js
+//go:embed web/dashboard.html web/overlay.html web/sdk.css web/overlay-editor.js
 //go:embed web/fonts/*.woff2
+//go:embed web/sdk/dist/sdk.js
 var webFS embed.FS
 
 // faviconSVG mirrors the dashboard's logo gradient so the browser tab
@@ -45,7 +46,7 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 // synchronous `RLT.stats.DEMOLISH` while keeping the registry in one
 // place (internal/types/statfeed.go).
 var (
-	sdkJSBytes      = renderSDKJS(mustReadEmbed("web/sdk.js"))
+	sdkJSBytes      = renderSDKJS(mustReadEmbed("web/sdk/dist/sdk.js"))
 	sdkCSSBytes     = mustReadEmbed("web/sdk.css")
 	faviconSVGBytes = []byte(faviconSVG)
 	dashboardHTML   = mustReadEmbed("web/dashboard.html")
@@ -62,10 +63,19 @@ func mustReadEmbed(path string) []byte {
 }
 
 // statsPlaceholder is the marker the SDK source carries where the
-// registry literal should land. Kept distinctive (a JS comment +
-// empty-object literal) so it's a no-op if substitution somehow
-// fails — the SDK still parses, plugins just see RLT.stats == {}.
-var statsPlaceholder = []byte("/*__RLT_STATS__*/ {}")
+// registry literal should land. Bundled SDK source has:
+//
+//	JSON.parse("__RLT_STATS_JSON__")
+//
+// We replace the inner double-quoted token (including quotes) with a
+// JSON-encoded string of the same shape, so `JSON.parse(...)` at
+// runtime yields the registry object.
+//
+// Why a string literal rather than the previous comment + empty-object
+// placeholder? esbuild reformats comment+literal pairs, breaking
+// byte-exact substitution. String literals come through bundlers
+// verbatim.
+var statsPlaceholder = []byte(`"__RLT_STATS_JSON__"`)
 
 // renderSDKJS substitutes the types.VerifiedStatfeedNames registry
 // into the SDK source at startup. Result is cached for the lifetime of
@@ -77,13 +87,15 @@ func renderSDKJS(src []byte) []byte {
 	if !bytes.Contains(src, statsPlaceholder) {
 		panic("sdk.js missing " + string(statsPlaceholder) + " placeholder")
 	}
-	return bytes.Replace(src, statsPlaceholder, buildStatsLiteral(), 1)
+	return bytes.Replace(src, statsPlaceholder, buildStatsJSONLiteral(), 1)
 }
 
-// buildStatsLiteral renders types.VerifiedStatfeedNames as a JS object
-// literal with SCREAMING_SNAKE keys mapping to the original PascalCase
-// names. Sorted by key for deterministic byte output.
-func buildStatsLiteral() []byte {
+// buildStatsJSONLiteral renders types.VerifiedStatfeedNames as a
+// JS-string-quoted JSON object: e.g. `'{"DEMOLISH":"Demolish",…}'`
+// (single-quoted to avoid escaping the inner double quotes). The SDK
+// passes this to `JSON.parse`, which yields the registry object.
+// Sorted by key for deterministic byte output.
+func buildStatsJSONLiteral() []byte {
 	type entry struct{ key, val string }
 	rows := make([]entry, 0, len(types.VerifiedStatfeedNames))
 	for name := range types.VerifiedStatfeedNames {
@@ -92,17 +104,20 @@ func buildStatsLiteral() []byte {
 	sort.Slice(rows, func(i, j int) bool { return rows[i].key < rows[j].key })
 
 	var b bytes.Buffer
+	b.WriteByte('\'')
 	b.WriteByte('{')
 	for i, r := range rows {
 		if i > 0 {
 			b.WriteByte(',')
 		}
+		b.WriteByte('"')
 		b.WriteString(r.key)
-		b.WriteString(`:"`)
+		b.WriteString(`":"`)
 		b.WriteString(r.val)
 		b.WriteByte('"')
 	}
 	b.WriteByte('}')
+	b.WriteByte('\'')
 	return b.Bytes()
 }
 
