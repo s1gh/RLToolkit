@@ -1,4 +1,4 @@
-package backend
+package emit
 
 import (
 	"encoding/json"
@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestFastestShotEmitter_FiresOnNewMaximum(t *testing.T) {
-	e := NewFastestShotEmitter()
+func TestFastestShot_FiresOnNewMaximum(t *testing.T) {
+	e := NewFastestShot()
 
 	out1 := e.Process(syntheticGoal(t, 80))
 	if len(out1) != 1 || out1[0].Name != "_FastestShotOfMatch" {
@@ -25,8 +25,8 @@ func TestFastestShotEmitter_FiresOnNewMaximum(t *testing.T) {
 	}
 }
 
-func TestFastestShotEmitter_ResetsOnMatchBoundary(t *testing.T) {
-	e := NewFastestShotEmitter()
+func TestFastestShot_ResetsOnMatchBoundary(t *testing.T) {
+	e := NewFastestShot()
 	_ = e.Process(syntheticGoal(t, 100))
 	_ = e.Process(bus.Event{Name: "MatchCreated"})
 	out := e.Process(syntheticGoal(t, 50))
@@ -35,8 +35,8 @@ func TestFastestShotEmitter_ResetsOnMatchBoundary(t *testing.T) {
 	}
 }
 
-func TestFastestShotEmitter_BallHitTracked(t *testing.T) {
-	e := NewFastestShotEmitter()
+func TestFastestShot_BallHitTracked(t *testing.T) {
+	e := NewFastestShot()
 	speed := 65.0
 	body, _ := json.Marshal(map[string]any{
 		"postHitSpeed": speed,
@@ -58,14 +58,13 @@ func TestFastestShotEmitter_BallHitTracked(t *testing.T) {
 	}
 }
 
-// TestFastestShotEmitter_DecodesFromRaw guards the bridge that lets
-// the emitter consume legacy-shaped events: when the upstream producer
+// TestFastestShot_DecodesFromRaw guards the bridge that lets the
+// emitter consume legacy-shaped events: when the upstream producer
 // (Stage 5 Synthesizer) marshals a flat JSON envelope into evt.Raw and
 // leaves evt.Data empty, the emitter must still extract the speed
-// field. Regressing this would silently zero out _FastestShotOfMatch
-// in production until emit_ball_hit / emit_goal land.
-func TestFastestShotEmitter_DecodesFromRaw(t *testing.T) {
-	e := NewFastestShotEmitter()
+// field.
+func TestFastestShot_DecodesFromRaw(t *testing.T) {
+	e := NewFastestShot()
 	speed := 90.0
 	raw, _ := json.Marshal(map[string]any{
 		"Event":     "_GoalScored",

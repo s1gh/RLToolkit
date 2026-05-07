@@ -1,12 +1,14 @@
-package backend
+package emit
 
 import (
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
+	"rl-toolkit/internal/wire"
 	"time"
 )
 
-// FirstBloodEmitter publishes three "fire once per match" milestones:
+// FirstBlood publishes three "fire once per match" milestones:
 //
 //   - _FirstTouch on the first _BallHit after each RoundStarted (re-arms
 //     every round; each goal ends with a kickoff, so the next round
@@ -18,7 +20,7 @@ import (
 // rematch into the same lobby starts fresh.
 //
 // No mutex: emit processors run single-threaded inside Pipeline.Run.
-type FirstBloodEmitter struct {
+type FirstBlood struct {
 	awaitingFirstTouch   bool
 	firstBloodFired      bool
 	overtimeStartedFired bool
@@ -27,12 +29,12 @@ type FirstBloodEmitter struct {
 	roundStartedAt       time.Time
 }
 
-func NewFirstBloodEmitter() *FirstBloodEmitter { return &FirstBloodEmitter{} }
+func NewFirstBlood() *FirstBlood { return &FirstBlood{} }
 
-func (e *FirstBloodEmitter) Process(evt bus.Event) []bus.Event {
+func (e *FirstBlood) Process(evt bus.Event) []bus.Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
-		*e = FirstBloodEmitter{}
+		*e = FirstBlood{}
 		return nil
 	case "MatchInitialized":
 		e.matchInitializedAt = time.Now()
@@ -51,7 +53,7 @@ func (e *FirstBloodEmitter) Process(evt bus.Event) []bus.Event {
 	return nil
 }
 
-func (e *FirstBloodEmitter) emitFirstTouch(evt bus.Event) []bus.Event {
+func (e *FirstBlood) emitFirstTouch(evt bus.Event) []bus.Event {
 	if !e.awaitingFirstTouch {
 		return nil
 	}
@@ -59,10 +61,10 @@ func (e *FirstBloodEmitter) emitFirstTouch(evt bus.Event) []bus.Event {
 	roundStart := e.roundStartedAt
 
 	var p struct {
-		MatchGUID    string            `json:"matchGuid"`
-		Players      []*EnrichedPlayer `json:"players"`
-		PostHitSpeed *float64          `json:"postHitSpeed"`
-		Location     *vec3             `json:"location"`
+		MatchGUID    string                  `json:"matchGuid"`
+		Players      []*types.EnrichedPlayer `json:"players"`
+		PostHitSpeed *float64                `json:"postHitSpeed"`
+		Location     *types.Vec3             `json:"location"`
 	}
 	if err := json.Unmarshal(payloadBytes(evt), &p); err != nil {
 		return nil
@@ -73,11 +75,11 @@ func (e *FirstBloodEmitter) emitFirstTouch(evt bus.Event) []bus.Event {
 		elapsed = &dur
 	}
 	body, err := json.Marshal(struct {
-		MatchGUID                   string            `json:"matchGuid,omitempty"`
-		Players                     []*EnrichedPlayer `json:"players"`
-		PostHitSpeed                *float64          `json:"postHitSpeed,omitempty"`
-		Location                    *vec3             `json:"location,omitempty"`
-		TimeFromCountdownEndSeconds *float64          `json:"timeFromCountdownEndSeconds,omitempty"`
+		MatchGUID                   string                  `json:"matchGuid,omitempty"`
+		Players                     []*types.EnrichedPlayer `json:"players"`
+		PostHitSpeed                *float64                `json:"postHitSpeed,omitempty"`
+		Location                    *types.Vec3             `json:"location,omitempty"`
+		TimeFromCountdownEndSeconds *float64                `json:"timeFromCountdownEndSeconds,omitempty"`
 	}{
 		MatchGUID:                   p.MatchGUID,
 		Players:                     p.Players,
@@ -91,7 +93,7 @@ func (e *FirstBloodEmitter) emitFirstTouch(evt bus.Event) []bus.Event {
 	return []bus.Event{{Name: "_FirstTouch", Data: body}}
 }
 
-func (e *FirstBloodEmitter) emitFirstBlood(evt bus.Event) []bus.Event {
+func (e *FirstBlood) emitFirstBlood(evt bus.Event) []bus.Event {
 	if e.firstBloodFired {
 		return nil
 	}
@@ -99,10 +101,10 @@ func (e *FirstBloodEmitter) emitFirstBlood(evt bus.Event) []bus.Event {
 	matchStart := e.matchInitializedAt
 
 	var p struct {
-		MatchGUID     string          `json:"matchGuid"`
-		Scorer        *EnrichedPlayer `json:"scorer"`
-		ScoringTeam   *int            `json:"scoringTeam"`
-		ConcedingTeam *int            `json:"concedingTeam"`
+		MatchGUID     string                `json:"matchGuid"`
+		Scorer        *types.EnrichedPlayer `json:"scorer"`
+		ScoringTeam   *int                  `json:"scoringTeam"`
+		ConcedingTeam *int                  `json:"concedingTeam"`
 	}
 	if err := json.Unmarshal(payloadBytes(evt), &p); err != nil {
 		return nil
@@ -121,11 +123,11 @@ func (e *FirstBloodEmitter) emitFirstBlood(evt bus.Event) []bus.Event {
 		concedingTeam = *p.ConcedingTeam
 	}
 	body, err := json.Marshal(struct {
-		MatchGUID        string          `json:"matchGuid,omitempty"`
-		Scorer           *EnrichedPlayer `json:"scorer"`
-		ScoringTeam      int             `json:"scoringTeam"`
-		ConcedingTeam    int             `json:"concedingTeam"`
-		SecondsIntoMatch *float64        `json:"secondsIntoMatch,omitempty"`
+		MatchGUID        string                `json:"matchGuid,omitempty"`
+		Scorer           *types.EnrichedPlayer `json:"scorer"`
+		ScoringTeam      int                   `json:"scoringTeam"`
+		ConcedingTeam    int                   `json:"concedingTeam"`
+		SecondsIntoMatch *float64              `json:"secondsIntoMatch,omitempty"`
 	}{
 		MatchGUID:        p.MatchGUID,
 		Scorer:           p.Scorer,
@@ -144,8 +146,8 @@ func (e *FirstBloodEmitter) emitFirstBlood(evt bus.Event) []bus.Event {
 // payload as a JSON-encoded string) rather than depending on
 // TickStore — Stage 5.7 will move the per-tick decode into a shared
 // store, but until then this emitter pulls only what it needs.
-func (e *FirstBloodEmitter) emitOvertime(evt bus.Event) []bus.Event {
-	inner := unwrapInnerData(evt.Raw)
+func (e *FirstBlood) emitOvertime(evt bus.Event) []bus.Event {
+	inner := wire.UnwrapInnerData(evt.Raw)
 	if inner == "" {
 		return nil
 	}
@@ -153,10 +155,10 @@ func (e *FirstBloodEmitter) emitOvertime(evt bus.Event) []bus.Event {
 		Game *struct {
 			BOvertime bool `json:"bOvertime"`
 		} `json:"Game"`
-		MatchGUID    string     `json:"MatchGuid"`
-		MatchGUIDLow string     `json:"matchGuid"`
-		Teams        []wireTeam `json:"Teams"`
-		TeamsLow     []wireTeam `json:"teams"`
+		MatchGUID    string           `json:"MatchGuid"`
+		MatchGUIDLow string           `json:"matchGuid"`
+		Teams        []types.WireTeam `json:"Teams"`
+		TeamsLow     []types.WireTeam `json:"teams"`
 	}
 	if err := json.Unmarshal([]byte(inner), &d); err != nil || d.Game == nil {
 		return nil

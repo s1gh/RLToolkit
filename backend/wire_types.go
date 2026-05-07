@@ -1,6 +1,19 @@
 package backend
 
-import "encoding/json"
+import (
+	"rl-toolkit/internal/types"
+	"rl-toolkit/internal/wire"
+)
+
+// vec3 + wireTeam alias internal/types so future emit subpackages can
+// share them. unwrapInnerData / pickStr / pickFloat forward to
+// internal/wire helpers.
+type vec3 = types.Vec3
+type wireTeam = types.WireTeam
+
+var unwrapInnerData = wire.UnwrapInnerData
+var pickStr = wire.PickStr
+var pickFloat = wire.PickFloat
 
 // Wire-shape types and small helpers shared by multiple emit
 // processors. Each type mirrors the JSON RL ships (or the JSON the
@@ -89,13 +102,6 @@ type updateStateFullPlayer struct {
 	BSupersonic bool     `json:"bSupersonic"`
 }
 
-type wireTeam struct {
-	TeamNum        int    `json:"TeamNum"`
-	Name           string `json:"Name"`
-	Score          int    `json:"Score"`
-	ColorPrimary   string `json:"ColorPrimary"`
-	ColorSecondary string `json:"ColorSecondary"`
-}
 
 // ownGoalScoreAfter is part of _OwnGoal's wire shape.
 type ownGoalScoreAfter struct {
@@ -132,14 +138,6 @@ type statfeedData struct {
 	MainTargetLow   *ShortcutRef `json:"maintarget"`
 	SecondaryTarget *ShortcutRef `json:"SecondaryTarget"`
 	SecondTargetLow *ShortcutRef `json:"secondarytarget"`
-}
-
-// vec3 is the 3D location/vector shape RL ships on BallHit /
-// CrossbarHit / GoalScored.
-type vec3 struct {
-	X float64 `json:"X"`
-	Y float64 `json:"Y"`
-	Z float64 `json:"Z"`
 }
 
 // ballRef is the ball location/speed block found on BallHit and
@@ -201,36 +199,3 @@ type matchEndedData struct {
 	WinnerTeamLow *int   `json:"winnerteamnum"`
 }
 
-// unwrapInnerData pulls the inner Data string out of an envelope,
-// accepting both PascalCase and lowercase top-level keys. Returns ""
-// on missing or malformed envelope.
-func unwrapInnerData(raw []byte) string {
-	var env struct {
-		Data    string `json:"Data"`
-		DataLow string `json:"data"`
-	}
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return ""
-	}
-	if env.Data != "" {
-		return env.Data
-	}
-	return env.DataLow
-}
-
-// pickStr returns a if non-empty, otherwise b. Used to pick between
-// PascalCase and lowercase JSON values.
-func pickStr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
-// pickFloat returns a if non-nil, otherwise b.
-func pickFloat(a, b *float64) *float64 {
-	if a != nil {
-		return a
-	}
-	return b
-}
