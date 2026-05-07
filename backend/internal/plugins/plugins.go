@@ -308,3 +308,18 @@ func (pm *Manager) DevPath(name string) string {
 	defer pm.mu.Unlock()
 	return pm.dev[name]
 }
+
+// NotifyReload signals that a dev-registered plugin's assets have
+// changed. v1: invalidates the dev manifest cache so the next List()
+// re-reads it, and logs the reload. A future change can broadcast a
+// `_DevPluginReload` event over the bus so an open overlay window
+// reloads itself; for now the dashboard refresh + iframe reload is
+// the user-driven path.
+func (pm *Manager) NotifyReload(name string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if path, ok := pm.dev[name]; ok {
+		delete(pm.devCache, path)
+	}
+	log.Printf("[plugins] Dev reload: %s", name)
+}

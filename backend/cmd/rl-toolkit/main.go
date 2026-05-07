@@ -19,6 +19,7 @@ import (
 	"rl-toolkit/backend/internal/bus"
 	"rl-toolkit/backend/internal/correlation"
 	"rl-toolkit/backend/internal/datastore"
+	"rl-toolkit/backend/internal/devapi"
 	"rl-toolkit/backend/internal/discoveries"
 	"rl-toolkit/backend/internal/emit"
 	"rl-toolkit/backend/internal/identity"
@@ -122,6 +123,17 @@ func runServe() {
 
 	eventBus := bus.NewBus()
 	pm := plugins.New(cfg.PluginDir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	devSrv, err := devapi.Start(ctx, pm, cfg.DataDir)
+	if err != nil {
+		log.Fatalf("[server] devapi start: %v", err)
+	}
+	defer devSrv.Stop()
+	log.Printf("[devapi] listening on %s (port written to %s/dev.port)", devSrv.Addr(), cfg.DataDir)
+
 	src := source.NewRL(cfg.RLAddr)
 	rt := roster.New()
 	matchState := state.New()
@@ -198,9 +210,6 @@ func runServe() {
 			eventBus.Broadcast(bus.Event{Name: "_OverridesChanged", Raw: env})
 		}
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	srv := server.New(server.Deps{
 		Bus:         eventBus,
