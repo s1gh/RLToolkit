@@ -11,6 +11,7 @@ overlays on top of the game.
   - [Render contexts](#render-contexts)
 - [The 5-minute Hello World](#the-5-minute-hello-world)
 - [Project layout](#project-layout)
+- [Packaging and distribution](#packaging-and-distribution)
 - [Manifest reference](#manifest-reference)
 - [The `RLT` global](#the-rlt-global)
   - [Plugin lifecycle: `RLT.plugin.register`](#plugin-lifecycle-rltpluginregister)
@@ -431,6 +432,56 @@ folder):
 The `data-view` attribute on the SDK script tag tells the SDK which
 view it's in. Use `"overlay"` / `"dashboard"` / `"settings"` to match
 the manifest. Without it, the SDK defaults to `"overlay"`.
+
+---
+
+## Packaging and distribution
+
+A finished plugin ships as a single `.rltp` file — a ZIP archive whose
+root contains `manifest.json` and the rest of the plugin's assets, with
+no nested top-level folder. The canonical filename is
+`<name>-<version>.rltp`, derived from the manifest.
+
+The `rl-toolkit` binary has four subcommands for working with `.rltp`
+files:
+
+```sh
+rl-toolkit pack [-out <dir>] <plugin-folder>
+# Zips a plugin source folder into <name>-<version>.rltp.
+
+rl-toolkit install [-plugins <dir>] <file.rltp>
+# Unzips a .rltp into the plugins directory (default: <exe-dir>/plugins).
+
+rl-toolkit uninstall [-plugins <dir>] <name>
+# Removes an installed plugin folder.
+
+rl-toolkit dev [-data <dir>] <plugin-folder>
+# Hot-reload an unpackaged plugin folder against the running overlay.
+```
+
+`rl-toolkit dev` is the daily-driver loop while authoring. With the
+overlay running in one terminal:
+
+```sh
+rl-toolkit             # in terminal A — starts the overlay/server
+rl-toolkit dev plugins/my-plugin   # in terminal B
+```
+
+`rl-toolkit dev` reads the overlay's localhost-only dev API port from
+`<data-dir>/dev.port`, registers the folder, watches it for changes,
+and tells the overlay to reload the plugin on each save (debounced
+~150ms). Ctrl-C unregisters and exits cleanly. The overlay's plugin
+directory is never modified — the dev plugin lives entirely in memory
+and shadows any installed plugin of the same name until you Ctrl-C.
+
+If `rl-toolkit dev` errors with "is the overlay running?", start the
+overlay first; the CLI does not launch it.
+
+End users install third-party plugins three ways: drag-drop a `.rltp`
+into the overlay window, use the dashboard's "Install from file…"
+picker, or `rl-toolkit install path/to/plugin.rltp` from a terminal.
+All three run the same install path: validate the manifest, replace
+the existing plugin folder if any, write the new files.
 
 ---
 
