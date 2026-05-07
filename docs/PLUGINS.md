@@ -238,7 +238,7 @@ The dashboard's per-plugin card will show:
             const speed = goal.goalSpeed ?? 'n/a';
             const tag = goal.isOwnGoal ? ' (own goal)' : '';
             document.getElementById('last-goal').textContent =
-              `${scorer} scored at ${speed} uu/s${tag}`;
+              `${scorer} scored at ${speed} km/h${tag}`;
           },
         },
       });
@@ -306,7 +306,7 @@ The dashboard's per-plugin card will show:
             const scorer = goal.scorer?.name ?? 'unknown';
             const speed = goal.goalSpeed ?? 'n/a';
             const tag = goal.isOwnGoal ? ' (own goal)' : '';
-            log.push(`${scorer} — ${speed} uu/s${tag}`);
+            log.push(`${scorer} — ${speed} km/h${tag}`);
             render();
           },
         },
@@ -382,7 +382,7 @@ The dashboard's per-plugin card will show:
 Drop the directory under `plugins/` and restart the toolkit:
 
 - **Tauri widget** opens `overlay.html`. The text on screen updates
-  with each goal — `<scorer> scored at <speed> uu/s`.
+  with each goal — `<scorer> scored at <speed> km/h`.
 - **Dashboard card** for "Hello World" shows three buttons: enable
   toggle, "Open Dashboard", "Settings". Clicking "Open Dashboard"
   opens `dashboard.html` in a new tab; the goal list there fills up
@@ -650,7 +650,7 @@ RLT.match.subscribe()  // ensure UpdateState is subscribed even without a callba
   orangeTeam,      // teams.find(t => t.teamNum === 1) or null
   replayInfo,      // { frame, elapsed } during replay, else null
   ball: {          // null when game.Ball is absent
-    speed,         // ball speed (uu/s) or null
+    speed,         // ball speed (km/h) or null
     teamNum,       // last-touched team or null
     lastTouchTeam, // null when no team has touched yet (RL sentinel 255)
     raw,           // raw RL Ball object
@@ -967,7 +967,7 @@ ball-touch player, ball speed at goal, the goal location, and a
   scorer: EnrichedPlayer,
   assister: EnrichedPlayer | null,
   ballLastTouch: { player: EnrichedPlayer|null, speed: number|null } | null,
-  goalSpeed: number | null,           // ball speed (uu/s) at the moment of the goal
+  goalSpeed: number | null,           // ball speed (km/h) at the moment of the goal
   goalTime: number | null,            // seconds since round start
   impactLocation: { X, Y, Z } | null, // where the ball crossed the goal line
   scoringTeam: 0 | 1 | null,

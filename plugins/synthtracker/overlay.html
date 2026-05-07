@@ -269,9 +269,9 @@
         const modsEl = document.getElementById('mods');
         const mvpNameEl = document.querySelector('#mvp .mvp-name');
 
-        // Goal speed comes off _GoalScored.goalSpeed. On this RL build
-        // the wire value is already km/h (older builds shipped uu/s — if
-        // future RL changes back, we'll need to detect and convert).
+        // Goal speed comes off _GoalScored.goalSpeed in km/h. The
+        // Stats API always reports speeds in km/h — both this and the
+        // live Game.Ball.Speed.
         const speedStats = { latest: null, max: null, min: null, sum: 0, n: 0 };
         const speedEls = {
           latest: document.querySelector('[data-speed="latest"]'),
