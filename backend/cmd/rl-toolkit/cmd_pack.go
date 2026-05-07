@@ -15,12 +15,13 @@ func runPack(args []string) int {
 		fmt.Fprintf(os.Stderr, "Usage: rl-toolkit pack [path] [-out <dir>]\n\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	flagArgs, positional := splitFlagsAndPositional(args)
+	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
 	src := "."
-	if fs.NArg() >= 1 {
-		src = fs.Arg(0)
+	if len(positional) >= 1 {
+		src = positional[0]
 	}
 
 	path, err := pack.Pack(src, *out)

@@ -16,14 +16,15 @@ func runInstall(args []string) int {
 		fmt.Fprintf(os.Stderr, "Usage: rl-toolkit install <file.rltp> [-plugins <dir>]\n\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	flagArgs, positional := splitFlagsAndPositional(args)
+	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	if fs.NArg() < 1 {
+	if len(positional) < 1 {
 		fs.Usage()
 		return 2
 	}
-	rltp := fs.Arg(0)
+	rltp := positional[0]
 
 	name, err := install.Install(rltp, *pluginDir)
 	if err != nil {
@@ -41,14 +42,15 @@ func runUninstall(args []string) int {
 		fmt.Fprintf(os.Stderr, "Usage: rl-toolkit uninstall <name> [-plugins <dir>]\n\n")
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	flagArgs, positional := splitFlagsAndPositional(args)
+	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	if fs.NArg() < 1 {
+	if len(positional) < 1 {
 		fs.Usage()
 		return 2
 	}
-	name := fs.Arg(0)
+	name := positional[0]
 	if err := install.Uninstall(name, *pluginDir); err != nil {
 		fmt.Fprintf(os.Stderr, "uninstall: %v\n", err)
 		return 1
