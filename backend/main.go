@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/scaffold"
 	"strings"
 	"syscall"
 	"time"
@@ -241,7 +242,7 @@ func runNew(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	if err := scaffoldPlugin(*pluginDir, positional[0]); err != nil {
+	if err := scaffold.Plugin(*pluginDir, positional[0]); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}

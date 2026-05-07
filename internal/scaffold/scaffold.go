@@ -1,22 +1,30 @@
-package backend
+// Package scaffold creates a working plugin from the minimum-viable
+// templates. The result runs immediately — start the server, open the
+// dashboard, and the new overlay shows up under "Plugins".
+//
+// The plugin is one HTML file plus a manifest. The author writes
+// their logic inline in <script>; everything visual is handed to them
+// by the SDK's overlay-mode handling and the shared design tokens in
+// /sdk.css.
+package scaffold
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
-// scaffoldPlugin creates a working plugin in <pluginDir>/<name>/ from the
-// minimum-viable templates. The result runs immediately — start the server,
-// open the dashboard, and the new overlay shows up under "Plugins".
-//
-// The plugin is one HTML file plus a manifest. The author writes their
-// logic inline in <script>; everything visual is handed to them by the
-// SDK's overlay-mode handling and the shared design tokens in /sdk.css.
-func scaffoldPlugin(pluginDir, name string) error {
-	if !pluginNamePattern.MatchString(name) {
-		return fmt.Errorf("plugin name %q must match %s", name, pluginNamePattern)
+// namePattern restricts plugin identifiers to a safe character set.
+// Mirrors backend.pluginNamePattern; kept independent so this package
+// has no backend dependency.
+var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// Plugin scaffolds a new plugin in <pluginDir>/<name>/.
+func Plugin(pluginDir, name string) error {
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("plugin name %q must match %s", name, namePattern)
 	}
 	dir := filepath.Join(pluginDir, name)
 	if _, err := os.Stat(dir); err == nil {
@@ -27,8 +35,8 @@ func scaffoldPlugin(pluginDir, name string) error {
 	}
 
 	files := map[string]string{
-		"manifest.json": renderTemplate(manifestTemplate, name),
-		"overlay.html":  renderTemplate(overlayTemplate, name),
+		"manifest.json": render(manifestTemplate, name),
+		"overlay.html":  render(overlayTemplate, name),
 	}
 	for filename, content := range files {
 		path := filepath.Join(dir, filename)
@@ -44,7 +52,7 @@ func scaffoldPlugin(pluginDir, name string) error {
 	return nil
 }
 
-func renderTemplate(tpl, name string) string {
+func render(tpl, name string) string {
 	// Tiny templating — just a placeholder swap. We avoid text/template here
 	// because the templates contain a lot of {{}}-unfriendly content
 	// (CSS rules, JS object literals) and a one-token replace is plenty.
