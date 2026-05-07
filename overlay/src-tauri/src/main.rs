@@ -686,16 +686,19 @@ fn build_overlay_window(
 ) -> tauri::Result<()> {
     let parsed = url::Url::parse(url).map_err(tauri::Error::InvalidUrl)?;
 
-    // BISECT step 3: step 2 froze. Drop focused(false), visible(false),
-    // incognito(true) — most likely deadlock candidates — and add
-    // transparent(true) back. Keep the remaining flags from step 2.
+    // BISECT step 4: step 3 worked. Add focused(false) and visible(false)
+    // back to test which of focused/visible/incognito is the culprit.
+    // If this freezes, one of the two we just added is it. If it works,
+    // incognito(true) is the culprit.
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(title)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
         .skip_taskbar(true)
-        .resizable(false);
+        .resizable(false)
+        .focused(false)
+        .visible(false);
 
     let _ = persist_cache;
     if let Mode::Plugin { manifest } = mode {
