@@ -1,4 +1,4 @@
-package backend
+package source
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestFixtureSource_ReadsJSONL(t *testing.T) {
+func TestFixture_ReadsJSONL(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "events.jsonl")
 	body := `{"Event":"MatchCreated","Data":""}
@@ -18,7 +18,7 @@ func TestFixtureSource_ReadsJSONL(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	src := &FixtureSource{Path: path}
+	src := &Fixture{Path: path}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ch := src.Events(ctx)

@@ -10,6 +10,7 @@ import (
 	"rl-toolkit/backend/internal/bus"
 	"rl-toolkit/backend/internal/datastore"
 	"rl-toolkit/backend/internal/emit"
+	"rl-toolkit/backend/internal/source"
 	"strings"
 	"sync"
 	"time"
@@ -252,7 +253,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !writeFrame(sseDataPrefix, newStatusEvent(s.source.Status()), sseRecordEnd) {
+	if !writeFrame(sseDataPrefix, source.StatusEventBytes(s.source.Status()), sseRecordEnd) {
 		return
 	}
 	// Initial match-state snapshot so the SDK doesn't have to wait for
