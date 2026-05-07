@@ -45,11 +45,19 @@ try {
       html.style.margin = '0';
       html.style.padding = '0';
       html.style.height = '100%';
+      // Overlays are click-through and run inside an iframe sized to
+      // the manifest's declared bounds. A scrollbar would visibly
+      // appear over the game and isn't useful even if it could be
+      // clicked. Clip any content overflow at the html/body level so
+      // a too-tall plugin renders flush with its declared size and
+      // truncates rather than showing a chrome scrollbar.
+      html.style.overflow = 'hidden';
       body.style.margin = '0';
       body.style.padding = '0';
       body.style.minHeight = '100%';
       body.style.height = '100%';
       body.style.width = '100%';
+      body.style.overflow = 'hidden';
       const gated = overlayHideWhenUnfocused || overlayPhaseGate !== null;
       body.style.display = gated ? 'none' : 'flex';
       body.style.flexDirection = 'column';
