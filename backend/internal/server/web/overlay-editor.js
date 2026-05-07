@@ -5,7 +5,7 @@
 // merged them into window.__rltOverlayContext. This script takes over
 // rendering: production-style iframes for the live preview, plus edit
 // chrome (outlines, badges, capture divs that block iframe mouse events).
-(function () {
+(async function () {
   // Loaded as a classic <script>, not an ES module — strict mode is opt-in.
   // biome-ignore lint/suspicious/noRedundantUseStrict: classic script
   'use strict';
@@ -14,6 +14,33 @@
     console.error('[overlay-editor] missing __rltOverlayContext');
     return;
   }
+
+  // ─── Target surface ──────────────────────────────────────
+  // Represents the production overlay's pixel dimensions. Configured
+  // server-side (dashboard) with a fallback to rl-widget's reported
+  // monitor size or 1920×1080. The editor renders a canvas of exactly
+  // these dimensions and scales it to fit the viewport — so a widget at
+  // (0, 0) in the editor lands at (0, 0) on the production overlay
+  // regardless of which window/monitor either is in.
+  let surface = {
+    configured: null,
+    detected: null,
+    effective: { width: 1920, height: 1080 },
+  };
+  let canvasScale = 1;
+
+  async function loadSurface() {
+    try {
+      const r = await fetch('/api/overlay/surface');
+      if (r.ok) {
+        surface = await r.json();
+      }
+    } catch (err) {
+      console.warn('[overlay-editor] surface fetch failed; using fallback', err);
+    }
+  }
+
+  await loadSurface();
 
   // Make the edit page non-transparent so widget chrome is readable
   // against something. The production overlay is intentionally see-
@@ -38,12 +65,14 @@
     '<span style="opacity:.6">Drag to position · Drop to save</span>' +
     '<span style="flex:1"></span>' +
     '<span style="opacity:.6;text-transform:none;letter-spacing:.02em;font-weight:500">8px grid · hold Shift for fine adjust</span>' +
+    '<span data-role="target-label" style="opacity:.7;text-transform:none;letter-spacing:.02em;font-weight:500;margin-left:12px"></span>' +
     '<button data-role="reset-all" style="' +
     'padding:6px 12px;background:#1d2238;color:#a9b0cf;' +
     'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
     'font:600 10px Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase' +
     '">Reset all</button>';
   document.body.appendChild(topbar);
+  const topbarTarget = topbar.querySelector('[data-role="target-label"]');
 
   topbar.querySelector('[data-role="reset-all"]').addEventListener('click', async () => {
     const ok = await confirmModal({
@@ -79,9 +108,57 @@
   // dashboard, not the editor. Re-enabling on the dashboard reloads
   // the editor naturally (the SSE-driven reflow only affects the
   // production /overlay page, not this editor session).
+  // ─── Canvas ──────────────────────────────────────────────
+  // The canvas div is sized in target-surface pixels (Wt × Ht) and CSS-
+  // scaled to fit the viewport. Every widget element is parented here,
+  // not on body, so a single transform on the canvas scales the entire
+  // edit world. The transform doesn't reflow surrounding layout, so we
+  // also offset top/left manually to keep the scaled canvas centered
+  // beneath the topbar.
+  const canvas = document.createElement('div');
+  canvas.id = '__rlt_canvas';
+  canvas.style.cssText =
+    'position:absolute;top:0;left:0;' +
+    'background:rgba(15,19,32,0.35);' +
+    'outline:1px solid rgba(34,211,238,0.5);' +
+    'transform-origin:top left';
+  document.body.appendChild(canvas);
+
+  function applyCanvasLayout() {
+    const W = surface.effective.width;
+    const H = surface.effective.height;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    // Topbar is 32px tall and overlays the viewport — discount it from
+    // the available height so the scaled canvas doesn't peek under it.
+    const availW = window.innerWidth;
+    const availH = Math.max(0, window.innerHeight - 32);
+    const k = Math.min(availW / W, availH / H, 1);
+    canvasScale = k;
+    canvas.style.transform = 'scale(' + k + ')';
+    // Center the (scaled) canvas in the available viewport area.
+    const scaledW = W * k;
+    const scaledH = H * k;
+    const offX = Math.max(0, Math.round((availW - scaledW) / 2));
+    const offY = Math.max(0, Math.round((availH - scaledH) / 2)) + 32;
+    canvas.style.left = offX + 'px';
+    canvas.style.top = offY + 'px';
+    updateTopbarLabel();
+  }
+
+  function updateTopbarLabel() {
+    const W = surface.effective.width;
+    const H = surface.effective.height;
+    const pct = Math.round(canvasScale * 100);
+    topbarTarget.textContent = 'Target: ' + W + ' × ' + H + ' @ ' + pct + '%';
+  }
+
   const widgets = ctx.merged
     .filter(({ overlay }) => overlay.enabled !== false)
     .map(({ plugin, overlay }) => buildWidget(plugin, overlay));
+
+  applyCanvasLayout();
+  window.addEventListener('resize', applyCanvasLayout);
 
   function buildWidget(plugin, overlay) {
     const a = overlay.anchor || 'top-right';
@@ -144,7 +221,7 @@
     el.appendChild(resize);
     positionResizeHandle(resize, a);
 
-    document.body.appendChild(el);
+    canvas.appendChild(el);
     return { plugin, overlay, el, iframe, capture, badge, resize };
   }
 
@@ -682,6 +759,23 @@
     // client-side and duplicating drift risk.
     location.reload();
   }
+
+  // Listen for live surface changes from the dashboard. /events filters by
+  // the URL param; we ask for just _SurfaceChanged to avoid receiving the
+  // full game-event firehose.
+  const surfaceES = new EventSource('/events?events=_SurfaceChanged');
+  surfaceES.onmessage = (e) => {
+    let env;
+    try {
+      env = JSON.parse(e.data);
+    } catch (_) {
+      return;
+    }
+    if (!env || env.Event !== '_SurfaceChanged' || !env.Data) return;
+    surface = env.Data;
+    applyCanvasLayout();
+  };
+  surfaceES.onerror = (err) => console.warn('[overlay-editor] surface SSE lost', err);
 
   console.log('[overlay-editor] rendered', widgets.length, 'widget(s)');
 })();
