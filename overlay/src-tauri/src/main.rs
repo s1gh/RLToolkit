@@ -625,10 +625,12 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
 
     // GTK window creation must happen on the main thread. The launcher
     // calls us from a background probe thread, so dispatch to main.
+    eprintln!("[overlay-build] enter build_overlay_for_launcher");
     app.clone()
         .run_on_main_thread(move || {
-            // If the window already exists (e.g. toggle called twice), just show it.
+            eprintln!("[overlay-build] main-thread closure start");
             if let Some(w) = app.get_webview_window("main") {
+                eprintln!("[overlay-build] window 'main' already exists, showing");
                 let _ = w.show();
                 return;
             }
@@ -643,7 +645,8 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
             let url = unified_url(&toolkit_url);
             let title = "RL Toolkit – Overlay".to_string();
 
-            if let Err(e) = build_overlay_window(
+            eprintln!("[overlay-build] calling build_overlay_window url={url}");
+            match build_overlay_window(
                 &app,
                 &Mode::Unified,
                 &url,
@@ -652,13 +655,13 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
                 None,
                 &toolkit_url,
             ) {
-                eprintln!("[launcher] build_overlay_window failed: {e}");
-                return;
+                Ok(()) => eprintln!("[overlay-build] build_overlay_window returned Ok"),
+                Err(e) => {
+                    eprintln!("[launcher] build_overlay_window failed: {e}");
+                    return;
+                }
             }
-
-            // The focus watcher (spawned in launcher::run) drives real
-            // __rlt_focus__ messages into the overlay webview. Plugins with
-            // hide_when_unfocused=1 wait on those before rendering.
+            eprintln!("[overlay-build] main-thread closure end");
         })
         .map_err(|e| e.to_string())
 }
@@ -705,10 +708,16 @@ fn build_overlay_window(
         builder = builder.inner_size(manifest.width as f64, manifest.height as f64);
     }
 
+    eprintln!("[overlay-build] before builder.build()");
     let window = builder.build()?;
+    eprintln!("[overlay-build] after builder.build()");
 
     #[cfg(target_os = "windows")]
-    apply_windows_no_border(&window);
+    {
+        eprintln!("[overlay-build] before apply_windows_no_border");
+        apply_windows_no_border(&window);
+        eprintln!("[overlay-build] after apply_windows_no_border");
+    }
 
     match mode {
         Mode::Plugin { manifest } => {
@@ -729,7 +738,11 @@ fn build_overlay_window(
             apply_layer_shell_unified(&window, monitor, toolkit);
 
             #[cfg(not(target_os = "linux"))]
-            apply_fullscreen_position(&window, toolkit);
+            {
+                eprintln!("[overlay-build] before apply_fullscreen_position");
+                apply_fullscreen_position(&window, toolkit);
+                eprintln!("[overlay-build] after apply_fullscreen_position");
+            }
         }
     }
 
@@ -741,10 +754,14 @@ fn build_overlay_window(
     // (DWM hit-tests those), but the launcher's webview content becomes dead.
     #[cfg(not(target_os = "linux"))]
     {
+        eprintln!("[overlay-build] before set_ignore_cursor_events");
         let _ = window.set_ignore_cursor_events(true);
+        eprintln!("[overlay-build] after set_ignore_cursor_events");
     }
 
+    eprintln!("[overlay-build] before window.show()");
     window.show()?;
+    eprintln!("[overlay-build] after window.show()");
 
     Ok(())
 }
