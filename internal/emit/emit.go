@@ -27,6 +27,14 @@ type ReplayGate interface {
 	InReplay() bool
 }
 
+// TickHistory is the diff view goal/own-goal/score-diff emitters need
+// into TickStore: the (prev, latest) pair of TickSnapshots used to
+// detect what changed between two ticks.
+type TickHistory interface {
+	Latest() *types.TickSnapshot
+	Previous() *types.TickSnapshot
+}
+
 // TeamReader is the slim view emitters need into the most recent
 // UpdateState's Teams[] cache: pull a team's score / name / colors
 // by TeamNum, returning nil if no tick has arrived or the team isn't
