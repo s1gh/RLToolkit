@@ -23,15 +23,20 @@ This is the development host. Both binaries build natively here.
 sudo pacman -S base-devel rustup go webkit2gtk-4.1 \
                gtk-layer-shell pkg-config nodejs npm
 rustup default stable
+npm install                # one-time: pulls esbuild + biome locally
 ```
 
 Other distros: install equivalents of `webkit2gtk-4.1`, `gtk-layer-shell`,
 and the GTK 3 dev headers. On Ubuntu 24.04+ that's
 `libwebkit2gtk-4.1-dev`, `libgtk-layer-shell-dev`, and `libgtk-3-dev`.
 
-`nodejs`/`npm` are only needed for the formatter (biome) used on the
-web SDK and plugin sources — not for the runtime. Skip if you don't plan
-to run `make fmt` / `make lint`.
+`nodejs`/`npm` are required for any `make` target — the `make sdk` step
+bundles the web SDK with esbuild, and every other target (`make backend`,
+`make release`, etc.) depends on it. After cloning, run `npm install`
+once to fetch esbuild (and biome, used by `make fmt` / `make lint`).
+If you only want to build the Go binary directly (`go build .`) and skip
+the bundled SDK, you can do that without Node — but the resulting
+binary will serve a stale `sdk.js` from the last bundle on disk.
 
 ### Build
 
@@ -90,7 +95,23 @@ design, you can't reach it with the mouse or alt-tab. Two exit paths:
    ```
    If that returns nothing, install the [evergreen runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 4. **Go** (for the toolkit, optional — see "Building rl-toolkit" below).
-5. **Tauri CLI**:
+5. **Node.js (LTS)** — required for any `make` target on Windows. The
+   `make sdk` step bundles the web SDK with esbuild, and `make backend`
+   / `make release` depend on it. Install from
+   [nodejs.org](https://nodejs.org/) (LTS installer adds `node` and
+   `npm` to PATH). Then in the repo root:
+   ```powershell
+   npm install
+   ```
+   to fetch the local esbuild + biome devDeps.
+
+   If Node isn't installed, you can still build the toolkit binary
+   directly with `go build -o rl-toolkit.exe .` — but that skips the
+   SDK bundle step, so the binary will serve whatever `sdk.js` is
+   currently on disk under `backend\internal\server\web\sdk\dist\`.
+   Building from a fresh clone without Node will fail — there's no
+   pre-bundled SDK in version control.
+6. **Tauri CLI**:
    ```powershell
    cargo install tauri-cli --version "^2.0" --locked
    ```
@@ -161,8 +182,10 @@ Untested as of v0.1.0. The Tauri code paths exist
 Windows), but no one's compiled against the Apple toolchain yet.
 
 To attempt: install Rust, Xcode Command Line Tools (`xcode-select
---install`), then `cargo tauri build` from `overlay/src-tauri`.
-Report what breaks.
+--install`), Node.js LTS (`brew install node` — required for `make`
+targets to bundle the web SDK), and Go if you also want the toolkit
+(`brew install go`). Then `npm install` in the repo root, then
+`cargo tauri build` from `overlay/src-tauri`. Report what breaks.
 
 ---
 
