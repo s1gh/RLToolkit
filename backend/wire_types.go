@@ -42,7 +42,7 @@ type tickPlayer struct {
 	touches    int
 	carTouches int
 	demos      int
-	boost      *int     // pointer because RL omits in non-spectator mode
+	boost      *int // pointer because RL omits in non-spectator mode
 	demolished bool
 	onGround   bool
 	speed      *float64 // pointer: SPECTATOR-only field, omitted otherwise

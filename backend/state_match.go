@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,7 +89,7 @@ func (m *MatchState) Snapshot() MatchStateSnapshot {
 // Observe is the StateProcessor entry point. It updates internal state
 // based on the event. If the state actually changed, it stages a
 // pending snapshot that the next Process call will return.
-func (m *MatchState) Observe(evt Event) {
+func (m *MatchState) Observe(evt bus.Event) {
 	// Hot path: UpdateState. Track last-tick time, do replay-edge
 	// detection, opportunistically capture matchGuid on first tick of
 	// a fresh connection.
@@ -215,7 +216,7 @@ func (m *MatchState) transitionIf(phase Phase, trigger, guid string, allow func(
 
 // Process is the EmitProcessor entry point. Returns the staged
 // _MatchState event if Observe set one; nil otherwise.
-func (m *MatchState) Process(evt Event) []Event {
+func (m *MatchState) Process(evt bus.Event) []bus.Event {
 	m.mu.Lock()
 	if !m.emit {
 		m.mu.Unlock()
@@ -228,7 +229,7 @@ func (m *MatchState) Process(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{
+	return []bus.Event{{
 		Name: "_MatchState",
 		Data: body,
 	}}
@@ -265,7 +266,7 @@ func (m *MatchState) checkTimeout() {
 	// Publish directly so subscribers learn about the timeout even
 	// when no events are flowing through the dispatcher.
 	if m.bus != nil {
-		evts := m.Process(Event{})
+		evts := m.Process(bus.Event{})
 		for _, evt := range evts {
 			body := evt.Data
 			envelope, err := json.Marshal(struct {
@@ -273,7 +274,7 @@ func (m *MatchState) checkTimeout() {
 				Data  json.RawMessage `json:"Data"`
 			}{Event: evt.Name, Data: body})
 			if err == nil {
-				m.bus.Broadcast(Event{Name: evt.Name, Raw: envelope})
+				m.bus.Broadcast(bus.Event{Name: evt.Name, Raw: envelope})
 			}
 		}
 	}

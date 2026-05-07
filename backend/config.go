@@ -15,12 +15,9 @@ type Config struct {
 // RL's TCP send buffer, and on Linux/Proton that freezes RL's main game
 // thread inside send(). The bus, the outbox, and the SSE writer all
 // prefer "drop / disconnect" over "block" for that reason.
+// Note: subscriberBufSize lives in internal/bus/bus.go since it sizes
+// the bus's per-subscriber channel.
 const (
-	// subscriberBufSize ≈ 1s of 60Hz UpdateStates per SSE client. Big
-	// enough to absorb GC pauses and browser repaint hitches, small
-	// enough that a truly stalled consumer is evicted within ~1s.
-	subscriberBufSize = 64
-
 	// outboxBufSize ≈ 17s of 60Hz traffic between the TCP read loop and
 	// the bus dispatcher. Far more than any expected GC or downstream
 	// hiccup; if it ever fills, packets are dropped (not blocked).

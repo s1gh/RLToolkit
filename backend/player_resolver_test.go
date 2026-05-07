@@ -1,6 +1,9 @@
 package backend
 
-import "testing"
+import (
+	"rl-toolkit/internal/bus"
+	"testing"
+)
 
 func TestRoster_StampsIsMeFromIdentity(t *testing.T) {
 	store, err := NewIdentityStore(t.TempDir())
@@ -11,7 +14,7 @@ func TestRoster_StampsIsMeFromIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	roster := NewRosterTracker(NewBus())
+	roster := NewRosterTracker(bus.NewBus())
 	roster.AttachIdentity(store)
 	// Inject a roster snapshot directly so the resolver has someone
 	// to find.
@@ -37,7 +40,7 @@ func TestRoster_StampsIsMeFromPrimaryID(t *testing.T) {
 	}
 	_ = store.Set(Identity{PrimaryID: "Steam|42|0", Name: "Me"})
 
-	roster := NewRosterTracker(NewBus())
+	roster := NewRosterTracker(bus.NewBus())
 	roster.AttachIdentity(store)
 	roster.lastRoster = []rosterPlayer{{ID: "Steam|42|0", Name: "Me", Team: 1}}
 
@@ -48,7 +51,7 @@ func TestRoster_StampsIsMeFromPrimaryID(t *testing.T) {
 }
 
 func TestRoster_NoIdentityStoreLeavesIsMeFalse(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
+	roster := NewRosterTracker(bus.NewBus())
 	roster.lastRoster = []rosterPlayer{{ID: "Steam|42|0", Name: "Me", Team: 1}}
 	got := roster.ResolveByShortcut(ShortcutRef{Name: "Me", TeamNum: 1})
 	if got == nil || got.IsMe {

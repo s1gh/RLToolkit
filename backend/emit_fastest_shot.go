@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 )
 
 // FastestShotEmitter publishes _FastestShotOfMatch when a new
@@ -24,7 +25,7 @@ func NewFastestShotEmitter() *FastestShotEmitter {
 	return &FastestShotEmitter{max: -1}
 }
 
-func (e *FastestShotEmitter) Process(evt Event) []Event {
+func (e *FastestShotEmitter) Process(evt bus.Event) []bus.Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
 		e.max = -1
@@ -57,7 +58,7 @@ func (e *FastestShotEmitter) Process(evt Event) []Event {
 	return nil
 }
 
-func (e *FastestShotEmitter) maybeEmit(speed float64, source string, who *EnrichedPlayer, guid string) []Event {
+func (e *FastestShotEmitter) maybeEmit(speed float64, source string, who *EnrichedPlayer, guid string) []bus.Event {
 	if speed <= 0 || speed <= e.max {
 		return nil
 	}
@@ -71,7 +72,7 @@ func (e *FastestShotEmitter) maybeEmit(speed float64, source string, who *Enrich
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_FastestShotOfMatch", Data: body}}
+	return []bus.Event{{Name: "_FastestShotOfMatch", Data: body}}
 }
 
 // payloadBytes returns the JSON object the upstream emitter produced.
@@ -79,7 +80,7 @@ func (e *FastestShotEmitter) maybeEmit(speed float64, source string, who *Enrich
 // raw JSON (with "Event" at the top level inline with the fields), so
 // Raw is what we want. Native emit processors return Event{Name, Data}
 // where Data is the typed payload — when that's set we prefer it.
-func payloadBytes(evt Event) []byte {
+func payloadBytes(evt bus.Event) []byte {
 	if len(evt.Data) > 0 {
 		return evt.Data
 	}

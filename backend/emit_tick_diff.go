@@ -1,6 +1,9 @@
 package backend
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"rl-toolkit/internal/bus"
+)
 
 // flipResetClearer is the slim interface TickDiffEmitter calls when a
 // player's bOnGround flag rises (clears any flip-reset arm so the
@@ -47,7 +50,7 @@ func NewTickDiffEmitter(
 	}
 }
 
-func (e *TickDiffEmitter) Process(evt Event) []Event {
+func (e *TickDiffEmitter) Process(evt bus.Event) []bus.Event {
 	if evt.Name != "UpdateState" {
 		return nil
 	}
@@ -63,7 +66,7 @@ func (e *TickDiffEmitter) Process(evt Event) []Event {
 		return nil
 	}
 
-	out := make([]Event, 0)
+	out := make([]bus.Event, 0)
 
 	// Roster + per-player score diffs run in any phase. Players can
 	// join/leave or have stats reconciled in lobby, podium, etc.
@@ -89,7 +92,7 @@ func (e *TickDiffEmitter) Process(evt Event) []Event {
 	return out
 }
 
-func (e *TickDiffEmitter) diffPlayers(prev, curr *tickSnapshot) []Event {
+func (e *TickDiffEmitter) diffPlayers(prev, curr *tickSnapshot) []bus.Event {
 	prevByID := make(map[string]*tickPlayer, len(prev.players))
 	for i := range prev.players {
 		p := &prev.players[i]
@@ -105,7 +108,7 @@ func (e *TickDiffEmitter) diffPlayers(prev, curr *tickSnapshot) []Event {
 		}
 	}
 
-	var out []Event
+	var out []bus.Event
 	for id, p := range currByID {
 		if _, was := prevByID[id]; was {
 			continue
@@ -125,7 +128,7 @@ func (e *TickDiffEmitter) diffPlayers(prev, curr *tickSnapshot) []Event {
 	return out
 }
 
-func (e *TickDiffEmitter) playerEnvelope(eventName, guid string, p *tickPlayer) *Event {
+func (e *TickDiffEmitter) playerEnvelope(eventName, guid string, p *tickPlayer) *bus.Event {
 	if p == nil || p.id == "" {
 		return nil
 	}
@@ -148,7 +151,7 @@ func (e *TickDiffEmitter) playerEnvelope(eventName, guid string, p *tickPlayer) 
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: eventName, Data: body}
+	return &bus.Event{Name: eventName, Data: body}
 }
 
 func (e *TickDiffEmitter) currentPhaseString() string {
@@ -158,7 +161,7 @@ func (e *TickDiffEmitter) currentPhaseString() string {
 	return string(e.matchState.Snapshot().Phase)
 }
 
-func (e *TickDiffEmitter) diffPlayersLive(prev, curr *tickSnapshot) []Event {
+func (e *TickDiffEmitter) diffPlayersLive(prev, curr *tickSnapshot) []bus.Event {
 	prevByID := make(map[string]*tickPlayer, len(prev.players))
 	for i := range prev.players {
 		p := &prev.players[i]
@@ -166,7 +169,7 @@ func (e *TickDiffEmitter) diffPlayersLive(prev, curr *tickSnapshot) []Event {
 			prevByID[p.id] = p
 		}
 	}
-	var out []Event
+	var out []bus.Event
 	for i := range curr.players {
 		c := &curr.players[i]
 		if c.id == "" {
@@ -191,7 +194,7 @@ func (e *TickDiffEmitter) diffPlayersLive(prev, curr *tickSnapshot) []Event {
 
 // playerScoreChanged compares the seven non-spectator stat fields.
 // Only sends a delta map for fields that actually moved.
-func (e *TickDiffEmitter) playerScoreChanged(guid string, prev, curr *tickPlayer) *Event {
+func (e *TickDiffEmitter) playerScoreChanged(guid string, prev, curr *tickPlayer) *bus.Event {
 	delta := map[string]int{}
 	if curr.score != prev.score {
 		delta["score"] = curr.score - prev.score
@@ -236,7 +239,7 @@ func (e *TickDiffEmitter) playerScoreChanged(guid string, prev, curr *tickPlayer
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_PlayerScoreChanged", Data: body}
+	return &bus.Event{Name: "_PlayerScoreChanged", Data: body}
 }
 
 // boostPickup fires when the player's Boost increased (i.e., they
@@ -245,7 +248,7 @@ func (e *TickDiffEmitter) playerScoreChanged(guid string, prev, curr *tickPlayer
 // reset, not a pickup. Also suppresses the first observation (no
 // baseline), which happens when prev.boost is nil (non-spectator
 // blackout).
-func (e *TickDiffEmitter) boostPickup(guid string, prev, curr *tickPlayer) *Event {
+func (e *TickDiffEmitter) boostPickup(guid string, prev, curr *tickPlayer) *bus.Event {
 	if curr.boost == nil {
 		return nil
 	}
@@ -285,18 +288,18 @@ func (e *TickDiffEmitter) boostPickup(guid string, prev, curr *tickPlayer) *Even
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_BoostPickup", Data: body}
+	return &bus.Event{Name: "_BoostPickup", Data: body}
 }
 
 // diffTeamScores fires _TeamScoreChanged when any team's Score moves.
 // Distinct from _OwnGoal: this fires for every score delta, including
 // regular goals.
-func (e *TickDiffEmitter) diffTeamScores(prev, curr *tickSnapshot) []Event {
+func (e *TickDiffEmitter) diffTeamScores(prev, curr *tickSnapshot) []bus.Event {
 	prevByNum := make(map[int]int, len(prev.teams))
 	for _, t := range prev.teams {
 		prevByNum[t.TeamNum] = t.Score
 	}
-	var out []Event
+	var out []bus.Event
 	for _, t := range curr.teams {
 		old, ok := prevByNum[t.TeamNum]
 		if !ok || t.Score == old {
@@ -318,7 +321,7 @@ func (e *TickDiffEmitter) diffTeamScores(prev, curr *tickSnapshot) []Event {
 			Delta:     t.Score - old,
 		})
 		if err == nil {
-			out = append(out, Event{Name: "_TeamScoreChanged", Data: body})
+			out = append(out, bus.Event{Name: "_TeamScoreChanged", Data: body})
 		}
 	}
 	return out
@@ -327,7 +330,7 @@ func (e *TickDiffEmitter) diffTeamScores(prev, curr *tickSnapshot) []Event {
 // diffBallPossession fires _BallPossessionChanged when the ball's
 // TeamNum field changes. Normalizes 255 (RL's "untouched" sentinel)
 // to null in the JSON via *int.
-func (e *TickDiffEmitter) diffBallPossession(prev, curr *tickSnapshot) *Event {
+func (e *TickDiffEmitter) diffBallPossession(prev, curr *tickSnapshot) *bus.Event {
 	if !prev.hasBall || !curr.hasBall || prev.ballTeam == curr.ballTeam {
 		return nil
 	}
@@ -352,5 +355,5 @@ func (e *TickDiffEmitter) diffBallPossession(prev, curr *tickSnapshot) *Event {
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_BallPossessionChanged", Data: body}
+	return &bus.Event{Name: "_BallPossessionChanged", Data: body}
 }

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"rl-toolkit/internal/bus"
 	"strings"
 	"syscall"
 	"time"
@@ -77,12 +78,12 @@ func runServe() {
 		log.Fatalf("[server] %v", err)
 	}
 
-	bus := NewBus()
+	eventBus := bus.NewBus()
 	pm := NewPluginManager(cfg.PluginDir)
 	source := NewRLSource(cfg.RLAddr)
-	roster := NewRosterTracker(bus)
+	roster := NewRosterTracker(eventBus)
 	matchState := NewMatchState()
-	matchState.AttachBroadcaster(bus)
+	matchState.AttachBroadcaster(eventBus)
 	correlation := NewCorrelationBuffer(32)
 	tickStore := NewTickStore()
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
@@ -138,7 +139,7 @@ func runServe() {
 		if err != nil {
 			return
 		}
-		bus.Broadcast(Event{Name: "_IdentityChanged", Data: body})
+		eventBus.Broadcast(bus.Event{Name: "_IdentityChanged", Data: body})
 	}
 
 	overrides, err := NewOverridesStore(cfg.DataDir)
@@ -156,16 +157,16 @@ func runServe() {
 		// state, not necessarily the write that fired us. Latest-wins
 		// is the right semantics for live reflow.
 		if env := marshalOverridesChanged(overrides.GetAll()); env != nil {
-			bus.Broadcast(Event{Name: "_OverridesChanged", Raw: env})
+			eventBus.Broadcast(bus.Event{Name: "_OverridesChanged", Raw: env})
 		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: bus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, demos: demos, overrides: overrides, discoveries: discoveries, identity: identity, config: cfg}
+	srv := &Server{bus: eventBus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, demos: demos, overrides: overrides, discoveries: discoveries, identity: identity, config: cfg}
 	go source.Run(ctx)
-	go pipe.Run(ctx, source, bus)
+	go pipe.Run(ctx, source, eventBus)
 	go matchState.Run(ctx)
 	// Periodically flush new Statfeed-name discoveries to disk. The store
 	// itself is debounced (no-op when nothing changed), so a tight tick
@@ -355,7 +356,7 @@ func printStartupBanner(cfg Config) {
 			cDim, label, cReset, cCyan, value, cReset)
 	}
 	row("Dashboard", fmt.Sprintf("http://localhost:%d", cfg.HTTPPort))
-	row("Overlay",   fmt.Sprintf("http://localhost:%d/overlay", cfg.HTTPPort))
+	row("Overlay", fmt.Sprintf("http://localhost:%d/overlay", cfg.HTTPPort))
 	row("Stats API", cfg.RLAddr)
 	fmt.Fprintln(os.Stderr)
 }
@@ -461,7 +462,7 @@ func (s *styledLogWriter) styleLine(out *bytes.Buffer, line []byte) {
 		out.Write(line)
 		return
 	}
-	tsEnd := 8                    // index just past "HH:MM:SS"
+	tsEnd := 8                          // index just past "HH:MM:SS"
 	facet := string(line[10 : 9+close]) // contents between '[' and ']'
 	color := facetColor[facet]
 	if color == "" {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"rl-toolkit/internal/bus"
 	"strings"
 	"sync"
 	"time"
@@ -49,7 +50,7 @@ type RLSource struct {
 	// out carries decoded events to whoever called Events(). Buffered so
 	// the TCP read loop can stay non-blocking; on full, packets are
 	// dropped (logged via dropLog).
-	out chan Event
+	out chan bus.Event
 
 	mu     sync.RWMutex
 	status RLStatus
@@ -81,7 +82,7 @@ type RLSource struct {
 func NewRLSource(addr string) *RLSource {
 	return &RLSource{
 		addr:    addr,
-		out:     make(chan Event, outboxBufSize),
+		out:     make(chan bus.Event, outboxBufSize),
 		status:  StatusDisconnected,
 		dropLog: rateLimitedLogger{interval: dropLogInterval},
 		idleLog: rateLimitedLogger{interval: idleLogInterval},
@@ -92,7 +93,7 @@ func NewRLSource(addr string) *RLSource {
 // events to start flowing. The channel stays open across reconnect
 // cycles — closing it would force every downstream pipeline to handle
 // reopen, but the source keeps trying as long as Run's ctx is alive.
-func (s *RLSource) Events(ctx context.Context) <-chan Event { return s.out }
+func (s *RLSource) Events(ctx context.Context) <-chan bus.Event { return s.out }
 
 func (s *RLSource) Status() RLStatus {
 	s.mu.RLock()
@@ -133,7 +134,7 @@ func (s *RLSource) enqueue(msg []byte) {
 		data = env.DataLower
 	}
 	select {
-	case s.out <- Event{Name: name, Data: data, Raw: msg}:
+	case s.out <- bus.Event{Name: name, Data: data, Raw: msg}:
 	default:
 		s.dropLog.log("[rl-api] event channel full — dropping packets (downstream is too slow)")
 	}
@@ -152,7 +153,7 @@ func (s *RLSource) setStatus(st RLStatus) {
 	// so existing SSE consumers don't notice the difference.
 	body := newStatusEvent(st)
 	select {
-	case s.out <- Event{Name: "_ConnectionStatus", Raw: body}:
+	case s.out <- bus.Event{Name: "_ConnectionStatus", Raw: body}:
 	case <-time.After(statusPushTimeout):
 	}
 }

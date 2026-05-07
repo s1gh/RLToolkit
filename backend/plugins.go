@@ -9,12 +9,12 @@ import (
 )
 
 type PluginManifest struct {
-	Name        string          `json:"name"`
-	Title       string          `json:"title"`
-	Version     string          `json:"version"`
-	Author      string          `json:"author"`
-	Description string          `json:"description,omitempty"`
-	Overlay     OverlayConfig   `json:"overlay"`
+	Name        string        `json:"name"`
+	Title       string        `json:"title"`
+	Version     string        `json:"version"`
+	Author      string        `json:"author"`
+	Description string        `json:"description,omitempty"`
+	Overlay     OverlayConfig `json:"overlay"`
 	// Settings, when truthy, opts the plugin into the dashboard's
 	// per-plugin Settings button. The plugin's overlay.html is loaded
 	// in an iframe with `?settings=1` and is responsible for rendering

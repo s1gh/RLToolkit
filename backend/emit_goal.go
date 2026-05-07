@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"sync"
 )
 
@@ -126,8 +127,8 @@ type GoalEmitter struct {
 	flipReset   flipResetConsumer
 	goals       goalCounter
 
-	mu       sync.Mutex
-	lastGoal *enrichedGoalScored
+	mu         sync.Mutex
+	lastGoal   *enrichedGoalScored
 	prevReplay bool
 }
 
@@ -147,7 +148,7 @@ func NewGoalEmitter(
 	}
 }
 
-func (e *GoalEmitter) Process(evt Event) []Event {
+func (e *GoalEmitter) Process(evt bus.Event) []bus.Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
 		e.mu.Lock()
@@ -157,7 +158,7 @@ func (e *GoalEmitter) Process(evt Event) []Event {
 		return nil
 	case "GoalScored":
 		if g := e.processGoal(evt); g != nil {
-			return []Event{*g}
+			return []bus.Event{*g}
 		}
 		return nil
 	case "UpdateState":
@@ -166,7 +167,7 @@ func (e *GoalEmitter) Process(evt Event) []Event {
 	return nil
 }
 
-func (e *GoalEmitter) processGoal(evt Event) *Event {
+func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
 	inner := unwrapInnerData(evt.Raw)
 	if inner == "" {
 		return nil
@@ -210,7 +211,7 @@ func (e *GoalEmitter) processGoal(evt Event) *Event {
 	scoringTeam := scorer.Team
 	concedingTeam := 1 - scoringTeam
 	out := enrichedGoalScored{
-		Event:          "_GoalScored",
+		Event:      "_GoalScored",
 		MatchGUID:      guid,
 		Scorer:         scorer,
 		GoalSpeed:      pickFloat(d.GoalSpeed, d.GoalSpeedLow),
@@ -321,10 +322,10 @@ func (e *GoalEmitter) processGoal(evt Event) *Event {
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_GoalScored", Data: body}
+	return &bus.Event{Name: "_GoalScored", Data: body}
 }
 
-func (e *GoalEmitter) maybeReplayStarted() []Event {
+func (e *GoalEmitter) maybeReplayStarted() []bus.Event {
 	curr := e.ticks.Latest()
 	if curr == nil {
 		return nil
@@ -344,7 +345,7 @@ func (e *GoalEmitter) maybeReplayStarted() []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_GoalReplayStarted", Data: body}}
+	return []bus.Event{{Name: "_GoalReplayStarted", Data: body}}
 }
 
 // marshalGoalBody encodes an enrichedGoalScored as just its data

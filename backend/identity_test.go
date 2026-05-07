@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"rl-toolkit/internal/bus"
 	"strings"
 	"sync"
 	"testing"
@@ -106,7 +107,7 @@ func TestSSE_InitialIdentitySnapshot(t *testing.T) {
 	}
 
 	srv := &Server{
-		bus:      NewBus(),
+		bus:      bus.NewBus(),
 		source:   NewRLSource("127.0.0.1:0"),
 		identity: identity,
 	}

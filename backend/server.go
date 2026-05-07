@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"rl-toolkit/internal/bus"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +16,7 @@ import (
 // and RLSource. It owns no goroutines of its own; long-lived per-request
 // goroutines (notably handleSSE) listen on r.Context().
 type Server struct {
-	bus         *Bus
+	bus         *bus.Bus
 	store       *DataStore
 	plugins     *PluginManager
 	source      *RLSource
@@ -614,7 +615,7 @@ type overridesChangedEnvelope struct {
 func marshalOverridesChanged(data map[string]OverlayOverride) []byte {
 	b, err := json.Marshal(overridesChangedEnvelope{
 		Event: "_OverridesChanged",
-		Data:  data,
+		Data:      data,
 	})
 	if err != nil {
 		log.Printf("[overrides] marshal _OverridesChanged: %v", err)

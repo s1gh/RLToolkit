@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"testing"
 )
 
@@ -23,8 +24,8 @@ func (f *fakeGoalCounter) BumpRealGoals(id string) {
 }
 
 func TestGoalEmitter_PublishesGoalScored(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
 	correlation := NewCorrelationBuffer(8)
 	e := NewGoalEmitter(roster, correlation, NewTickStore(), &fakeFlipReset{}, &fakeGoalCounter{})
 
@@ -48,8 +49,8 @@ func TestGoalEmitter_PublishesGoalScored(t *testing.T) {
 }
 
 func TestGoalEmitter_BumpsRealGoalsForCleanGoal(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
 	gc := &fakeGoalCounter{}
 	e := NewGoalEmitter(roster, NewCorrelationBuffer(8), NewTickStore(), &fakeFlipReset{}, gc)
 
@@ -60,8 +61,8 @@ func TestGoalEmitter_BumpsRealGoalsForCleanGoal(t *testing.T) {
 }
 
 func TestGoalEmitter_OwnGoalSkipsRealGoalBump(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{
 		{ID: "Steam|1|0", Name: "Ada", Team: 0},
 		{ID: "Steam|2|0", Name: "Ben", Team: 1},
 	})})
@@ -85,8 +86,8 @@ func TestGoalEmitter_SoloOwnGoal(t *testing.T) {
 	// themselves as Scorer. lastToucher.Team == scorer.Team. The
 	// emitter should still flag it and flip the scoring/conceding
 	// teams to match the actual score change.
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{
 		{ID: "Steam|1|0", Name: "Ada", Team: 0},
 	})})
 	correlation := NewCorrelationBuffer(8)
@@ -123,8 +124,8 @@ func TestGoalEmitter_SoloOwnGoal(t *testing.T) {
 }
 
 func TestGoalEmitter_GoalReplayStartedOnReplayEdge(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
 	ticks := NewTickStore()
 	e := NewGoalEmitter(roster, NewCorrelationBuffer(8), ticks, &fakeFlipReset{}, &fakeGoalCounter{})
 
@@ -146,13 +147,13 @@ func TestGoalEmitter_GoalReplayStartedOnReplayEdge(t *testing.T) {
 }
 
 func TestGoalEmitter_ResetsCacheOnMatchBoundary(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
 	ticks := NewTickStore()
 	e := NewGoalEmitter(roster, NewCorrelationBuffer(8), ticks, &fakeFlipReset{}, &fakeGoalCounter{})
 
 	_ = e.Process(makeGoalScored(t, "Ada", 100))
-	_ = e.Process(Event{Name: "MatchCreated"})
+	_ = e.Process(bus.Event{Name: "MatchCreated"})
 
 	ticks.Observe(updateStateTick(t, "G1", 0, 0, false))
 	ticks.Observe(updateStateTick(t, "G1", 0, 0, true))
@@ -162,12 +163,12 @@ func TestGoalEmitter_ResetsCacheOnMatchBoundary(t *testing.T) {
 	}
 }
 
-func makeGoalScored(t *testing.T, scorerName string, speed float64) Event {
+func makeGoalScored(t *testing.T, scorerName string, speed float64) bus.Event {
 	t.Helper()
 	return makeGoalScoredFor(t, scorerName, 0, speed)
 }
 
-func makeGoalScoredFor(t *testing.T, scorerName string, scorerTeam int, speed float64) Event {
+func makeGoalScoredFor(t *testing.T, scorerName string, scorerTeam int, speed float64) bus.Event {
 	t.Helper()
 	inner, _ := json.Marshal(map[string]any{
 		"MatchGuid": "G1",
@@ -175,12 +176,12 @@ func makeGoalScoredFor(t *testing.T, scorerName string, scorerTeam int, speed fl
 		"GoalSpeed": speed,
 	})
 	raw, _ := json.Marshal(map[string]any{"Event": "GoalScored", "Data": string(inner)})
-	return Event{Name: "GoalScored", Raw: raw}
+	return bus.Event{Name: "GoalScored", Raw: raw}
 }
 
 func TestGoalEmitter_ModifiersAlwaysPresent(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
 	correlation := NewCorrelationBuffer(8)
 	correlation.Record("StatfeedEvent", &statfeedRecord{
 		EventName: "AerialGoal",
@@ -218,8 +219,8 @@ func TestGoalEmitter_ModifiersAlwaysPresent(t *testing.T) {
 }
 
 func TestGoalEmitter_ConsumesModifierStatfeeds(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|1|0", Name: "Ada", Team: 0}})})
 	correlation := NewCorrelationBuffer(8)
 	correlation.Record("StatfeedEvent", &statfeedRecord{
 		EventName: "AerialGoal",

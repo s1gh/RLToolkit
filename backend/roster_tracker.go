@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,7 +61,7 @@ func (r *RosterTracker) AttachIdentity(s *IdentityStore) { r.identity = s }
 // NewRosterTracker creates a tracker. The bus arg is kept so existing
 // call sites keep compiling, but the tracker no longer needs it —
 // the pipeline broadcasts via the EmitProcessor return value.
-func NewRosterTracker(_ *Bus) *RosterTracker {
+func NewRosterTracker(_ *bus.Bus) *RosterTracker {
 	return &RosterTracker{}
 }
 
@@ -68,7 +69,7 @@ func NewRosterTracker(_ *Bus) *RosterTracker {
 // snapshot on MatchDestroyed and connection-loss so a fresh
 // rejoin into the same lobby publishes _RosterChanged for late
 // subscribers.
-func (t *RosterTracker) Observe(evt Event) {
+func (t *RosterTracker) Observe(evt bus.Event) {
 	switch evt.Name {
 	case "UpdateState":
 		t.onUpdateState(evt.Raw)
@@ -85,7 +86,7 @@ func (t *RosterTracker) Observe(evt Event) {
 // Process returns _RosterChanged when Observe staged one. Pipeline
 // registration order should put RosterTracker before any consumer
 // that reads ResolveByShortcut/RosterSnapshot inside its own Process.
-func (t *RosterTracker) Process(evt Event) []Event {
+func (t *RosterTracker) Process(evt bus.Event) []bus.Event {
 	t.pendingMu.Lock()
 	pending := t.pendingPayload
 	t.pendingPayload = nil
@@ -103,13 +104,13 @@ func (t *RosterTracker) Process(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_RosterChanged", Data: body}}
+	return []bus.Event{{Name: "_RosterChanged", Data: body}}
 }
 
 func (t *RosterTracker) queueEmission(guid string, players []rosterPlayer) {
 	t.pendingMu.Lock()
 	t.pendingPayload = &rosterEvent{
-		Event:     "_RosterChanged",
+		Event: "_RosterChanged",
 		MatchGUID: guid,
 		Players:   append([]rosterPlayer(nil), players...),
 	}

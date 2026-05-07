@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"sync"
 	"time"
 )
@@ -66,7 +67,7 @@ func (e *DemosEmitter) DemolishLog() [][]byte {
 	return out
 }
 
-func (e *DemosEmitter) Process(evt Event) []Event {
+func (e *DemosEmitter) Process(evt bus.Event) []bus.Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
 		e.reset()
@@ -89,7 +90,7 @@ func (e *DemosEmitter) reset() {
 	e.chainMu.Unlock()
 }
 
-func (e *DemosEmitter) processDemolish(evt Event) []Event {
+func (e *DemosEmitter) processDemolish(evt bus.Event) []bus.Event {
 	var d struct {
 		MatchGUID string          `json:"matchGuid"`
 		Attacker  *EnrichedPlayer `json:"attacker"`
@@ -130,7 +131,7 @@ func (e *DemosEmitter) processDemolish(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	out := []Event{{Name: "_PlayerDemolished", Data: body}}
+	out := []bus.Event{{Name: "_PlayerDemolished", Data: body}}
 
 	// Build the wire-shaped envelope for SSE replay (the bus
 	// envelope it would produce). Done once here so the SSE handler
@@ -158,7 +159,7 @@ func (e *DemosEmitter) processDemolish(evt Event) []Event {
 	return out
 }
 
-func (e *DemosEmitter) recordChain(guid string, attacker, victim *EnrichedPlayer) *Event {
+func (e *DemosEmitter) recordChain(guid string, attacker, victim *EnrichedPlayer) *bus.Event {
 	now := time.Now()
 	cutoff := now.Add(-demoChainWindow)
 	e.chainMu.Lock()
@@ -198,5 +199,5 @@ func (e *DemosEmitter) recordChain(guid string, attacker, victim *EnrichedPlayer
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_DemoChain", Data: body}
+	return &bus.Event{Name: "_DemoChain", Data: body}
 }

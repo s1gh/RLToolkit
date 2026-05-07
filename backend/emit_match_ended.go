@@ -1,6 +1,9 @@
 package backend
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"rl-toolkit/internal/bus"
+)
 
 // MatchEndedEmitter republishes RL's MatchEnded as _MatchEnded with
 // final scores + winner name resolved from the cached UpdateState.
@@ -14,7 +17,7 @@ func NewMatchEndedEmitter(ticks *TickStore) *MatchEndedEmitter {
 	return &MatchEndedEmitter{ticks: ticks}
 }
 
-func (e *MatchEndedEmitter) Process(evt Event) []Event {
+func (e *MatchEndedEmitter) Process(evt bus.Event) []bus.Event {
 	if evt.Name != "MatchEnded" {
 		return nil
 	}
@@ -59,5 +62,5 @@ func (e *MatchEndedEmitter) Process(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_MatchEnded", Data: body}}
+	return []bus.Event{{Name: "_MatchEnded", Data: body}}
 }

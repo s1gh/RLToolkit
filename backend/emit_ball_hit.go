@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 )
 
 // BallHitEmitter republishes RL's `BallHit` event as `_BallHit` with
@@ -29,7 +30,7 @@ func NewBallHitEmitter(roster *RosterTracker, ms *MatchState, correlation *Corre
 	return &BallHitEmitter{roster: roster, matchState: ms, correlation: correlation}
 }
 
-func (e *BallHitEmitter) Process(evt Event) []Event {
+func (e *BallHitEmitter) Process(evt bus.Event) []bus.Event {
 	if evt.Name != "BallHit" {
 		return nil
 	}
@@ -96,5 +97,5 @@ func (e *BallHitEmitter) Process(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_BallHit", Data: body}}
+	return []bus.Event{{Name: "_BallHit", Data: body}}
 }

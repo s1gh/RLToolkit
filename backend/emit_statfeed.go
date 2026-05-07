@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"sync"
 )
 
@@ -110,7 +111,7 @@ func (e *StatfeedEmitter) ClearFlipResetArm(playerID string) {
 
 // Process handles MatchCreated/MatchDestroyed (reset) and StatfeedEvent
 // (the actual work). Everything else is ignored.
-func (e *StatfeedEmitter) Process(evt Event) []Event {
+func (e *StatfeedEmitter) Process(evt bus.Event) []bus.Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
 		e.reset()
@@ -132,7 +133,7 @@ func (e *StatfeedEmitter) reset() {
 	e.flipResetMu.Unlock()
 }
 
-func (e *StatfeedEmitter) processStatfeed(evt Event) []Event {
+func (e *StatfeedEmitter) processStatfeed(evt bus.Event) []bus.Event {
 	inner := unwrapInnerData(evt.Raw)
 	if inner == "" {
 		return nil
@@ -179,7 +180,7 @@ func (e *StatfeedEmitter) processStatfeed(evt Event) []Event {
 
 	// Catch-all _StatfeedEvent first — same wire shape every
 	// subscriber depends on, irrespective of variant promotion.
-	out := make([]Event, 0, 3)
+	out := make([]bus.Event, 0, 3)
 	if body, err := json.Marshal(struct {
 		MatchGUID       string          `json:"matchGuid,omitempty"`
 		EventName       string          `json:"eventName"`
@@ -193,7 +194,7 @@ func (e *StatfeedEmitter) processStatfeed(evt Event) []Event {
 		MainTarget:      resolvedMain,
 		SecondaryTarget: resolvedSecondary,
 	}); err == nil {
-		out = append(out, Event{Name: "_StatfeedEvent", Data: body})
+		out = append(out, bus.Event{Name: "_StatfeedEvent", Data: body})
 	}
 
 	// Variant fan-out. Unknown names land as _UnknownStatfeed plus a
@@ -219,7 +220,7 @@ func (e *StatfeedEmitter) processStatfeed(evt Event) []Event {
 				Victim:    resolvedSecondary,
 			})
 			if err == nil {
-				out = append(out, Event{Name: "_Demolish", Data: body})
+				out = append(out, bus.Event{Name: "_Demolish", Data: body})
 			}
 		}
 	case "FlipReset":
@@ -262,7 +263,7 @@ func (e *StatfeedEmitter) processStatfeed(evt Event) []Event {
 	return out
 }
 
-func (e *StatfeedEmitter) unknownStatfeed(guid, eventName string, main, secondary *EnrichedPlayer) *Event {
+func (e *StatfeedEmitter) unknownStatfeed(guid, eventName string, main, secondary *EnrichedPlayer) *bus.Event {
 	body, err := json.Marshal(struct {
 		MatchGUID       string          `json:"matchGuid,omitempty"`
 		EventName       string          `json:"eventName"`
@@ -280,10 +281,10 @@ func (e *StatfeedEmitter) unknownStatfeed(guid, eventName string, main, secondar
 	if e.discoveries != nil {
 		e.discoveries.Record(eventName)
 	}
-	return &Event{Name: "_UnknownStatfeed", Data: body}
+	return &bus.Event{Name: "_UnknownStatfeed", Data: body}
 }
 
-func (e *StatfeedEmitter) flipReset(guid string, main *EnrichedPlayer) *Event {
+func (e *StatfeedEmitter) flipReset(guid string, main *EnrichedPlayer) *bus.Event {
 	if main == nil {
 		return nil
 	}
@@ -307,10 +308,10 @@ func (e *StatfeedEmitter) flipReset(guid string, main *EnrichedPlayer) *Event {
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_FlipReset", Data: body}
+	return &bus.Event{Name: "_FlipReset", Data: body}
 }
 
-func (e *StatfeedEmitter) hatTrick(guid string, main *EnrichedPlayer) *Event {
+func (e *StatfeedEmitter) hatTrick(guid string, main *EnrichedPlayer) *bus.Event {
 	if main == nil {
 		return nil
 	}
@@ -331,10 +332,10 @@ func (e *StatfeedEmitter) hatTrick(guid string, main *EnrichedPlayer) *Event {
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_HatTrick", Data: body}
+	return &bus.Event{Name: "_HatTrick", Data: body}
 }
 
-func (e *StatfeedEmitter) save(guid string, main *EnrichedPlayer, eventName string) *Event {
+func (e *StatfeedEmitter) save(guid string, main *EnrichedPlayer, eventName string) *bus.Event {
 	if main == nil {
 		return nil
 	}
@@ -364,10 +365,10 @@ func (e *StatfeedEmitter) save(guid string, main *EnrichedPlayer, eventName stri
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: eventName, Data: body}
+	return &bus.Event{Name: eventName, Data: body}
 }
 
-func (e *StatfeedEmitter) shot(guid string, main *EnrichedPlayer) *Event {
+func (e *StatfeedEmitter) shot(guid string, main *EnrichedPlayer) *bus.Event {
 	if main == nil {
 		return nil
 	}
@@ -383,10 +384,10 @@ func (e *StatfeedEmitter) shot(guid string, main *EnrichedPlayer) *Event {
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_Shot", Data: body}
+	return &bus.Event{Name: "_Shot", Data: body}
 }
 
-func (e *StatfeedEmitter) assist(guid string, main *EnrichedPlayer) *Event {
+func (e *StatfeedEmitter) assist(guid string, main *EnrichedPlayer) *bus.Event {
 	if main == nil {
 		return nil
 	}
@@ -422,10 +423,10 @@ func (e *StatfeedEmitter) assist(guid string, main *EnrichedPlayer) *Event {
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: "_Assist", Data: body}
+	return &bus.Event{Name: "_Assist", Data: body}
 }
 
-func (e *StatfeedEmitter) touchVariant(guid string, main *EnrichedPlayer, eventName string) *Event {
+func (e *StatfeedEmitter) touchVariant(guid string, main *EnrichedPlayer, eventName string) *bus.Event {
 	if main == nil {
 		return nil
 	}
@@ -441,7 +442,7 @@ func (e *StatfeedEmitter) touchVariant(guid string, main *EnrichedPlayer, eventN
 	if err != nil {
 		return nil
 	}
-	return &Event{Name: eventName, Data: body}
+	return &bus.Event{Name: eventName, Data: body}
 }
 
 // recentTouch looks up the most recent BallHit from the shared

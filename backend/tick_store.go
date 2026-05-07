@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"sync"
 )
 
@@ -26,7 +27,7 @@ func NewTickStore() *TickStore { return &TickStore{} }
 // and returns. Non-UpdateState events are skipped.
 //
 // Implements StateProcessor so the pipeline can register it directly.
-func (t *TickStore) Observe(evt Event) {
+func (t *TickStore) Observe(evt bus.Event) {
 	if evt.Name != "UpdateState" {
 		return
 	}

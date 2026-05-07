@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func TestDemosEmitter_DemolishLogClearsOnMatchBoundary(t *testing.T) {
 	if len(e.DemolishLog()) != 1 {
 		t.Fatalf("expected 1 demolish log entry, got %d", len(e.DemolishLog()))
 	}
-	_ = e.Process(Event{Name: "MatchCreated"})
+	_ = e.Process(bus.Event{Name: "MatchCreated"})
 	if got := e.DemolishLog(); got != nil {
 		t.Fatalf("DemolishLog should clear on MatchCreated, got %v", got)
 	}
@@ -50,17 +51,17 @@ func TestDemosEmitter_DemolishLogClearsOnMatchBoundary(t *testing.T) {
 
 func TestDemosEmitter_IgnoresOtherEvents(t *testing.T) {
 	e := NewDemosEmitter(NewTickStore())
-	if got := e.Process(Event{Name: "UpdateState"}); len(got) != 0 {
+	if got := e.Process(bus.Event{Name: "UpdateState"}); len(got) != 0 {
 		t.Fatalf("non-_Demolish events should be ignored, got %v", got)
 	}
 }
 
-func makeDemolishEvt(t *testing.T, attackerID string, attackerTeam int, victimID string, victimTeam int) Event {
+func makeDemolishEvt(t *testing.T, attackerID string, attackerTeam int, victimID string, victimTeam int) bus.Event {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"matchGuid": "G1",
 		"attacker":  &EnrichedPlayer{ID: attackerID, Name: "Att", Team: attackerTeam},
 		"victim":    &EnrichedPlayer{ID: victimID, Name: "Vic", Team: victimTeam},
 	})
-	return Event{Name: "_Demolish", Data: body}
+	return bus.Event{Name: "_Demolish", Data: body}
 }

@@ -1,4 +1,4 @@
-package backend
+package bus
 
 import (
 	"sort"
@@ -51,11 +51,11 @@ func (m *busMetrics) recordPublish(durNS int64, deliveries, skipped, evicted, by
 	m.durMu.Unlock()
 }
 
-// metricsSnapshot is the wire shape served at /api/metrics. Counters
+// MetricsSnapshot is the wire shape served at /api/metrics. Counters
 // are cumulative since process start; durations are summarized over
 // the recent window. Keep field names stable — dashboards and
 // external tools may scrape this.
-type metricsSnapshot struct {
+type MetricsSnapshot struct {
 	UptimeSec       float64 `json:"uptime_sec"`
 	Subscribers     int     `json:"subscribers"`
 	Publishes       uint64  `json:"publishes_total"`
@@ -70,7 +70,7 @@ type metricsSnapshot struct {
 	PublishUsMax    int64   `json:"publish_us_max"`
 }
 
-func (m *busMetrics) snapshot(subscribers int) metricsSnapshot {
+func (m *busMetrics) snapshot(subscribers int) MetricsSnapshot {
 	uptime := time.Since(m.startedAt).Seconds()
 	publishes := m.publishes.Load()
 
@@ -81,7 +81,7 @@ func (m *busMetrics) snapshot(subscribers int) metricsSnapshot {
 
 	p50, p95, p99, max := m.percentilesUS()
 
-	return metricsSnapshot{
+	return MetricsSnapshot{
 		UptimeSec:       uptime,
 		Subscribers:     subscribers,
 		Publishes:       publishes,

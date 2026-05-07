@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"testing"
 )
 
@@ -33,8 +34,8 @@ func TestTickStore_AdvancesOnEachUpdateState(t *testing.T) {
 
 func TestTickStore_IgnoresNonUpdateState(t *testing.T) {
 	ts := NewTickStore()
-	ts.Observe(Event{Name: "MatchCreated"})
-	ts.Observe(Event{Name: "GoalScored", Raw: []byte(`{"Event":"GoalScored","Data":"{}"}`)})
+	ts.Observe(bus.Event{Name: "MatchCreated"})
+	ts.Observe(bus.Event{Name: "GoalScored", Raw: []byte(`{"Event":"GoalScored","Data":"{}"}`)})
 	if ts.Latest() != nil {
 		t.Fatal("non-UpdateState events should not populate the store")
 	}
@@ -72,7 +73,7 @@ func TestTickStore_InReplay(t *testing.T) {
 // updateStateTick builds a minimal UpdateState envelope. Returns the
 // typed Event a state processor would receive from the pipeline (with
 // Name pre-set, mirroring RLSource.enqueue).
-func updateStateTick(t *testing.T, guid string, scoreBlue, scoreOrange int, bReplay bool) Event {
+func updateStateTick(t *testing.T, guid string, scoreBlue, scoreOrange int, bReplay bool) bus.Event {
 	t.Helper()
 	inner, _ := json.Marshal(map[string]any{
 		"MatchGuid": guid,
@@ -83,5 +84,5 @@ func updateStateTick(t *testing.T, guid string, scoreBlue, scoreOrange int, bRep
 		"Players": []map[string]any{},
 	})
 	raw, _ := json.Marshal(map[string]any{"Event": "UpdateState", "Data": string(inner)})
-	return Event{Name: "UpdateState", Raw: raw}
+	return bus.Event{Name: "UpdateState", Raw: raw}
 }

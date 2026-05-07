@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"time"
 )
 
@@ -28,7 +29,7 @@ type FirstBloodEmitter struct {
 
 func NewFirstBloodEmitter() *FirstBloodEmitter { return &FirstBloodEmitter{} }
 
-func (e *FirstBloodEmitter) Process(evt Event) []Event {
+func (e *FirstBloodEmitter) Process(evt bus.Event) []bus.Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
 		*e = FirstBloodEmitter{}
@@ -50,7 +51,7 @@ func (e *FirstBloodEmitter) Process(evt Event) []Event {
 	return nil
 }
 
-func (e *FirstBloodEmitter) emitFirstTouch(evt Event) []Event {
+func (e *FirstBloodEmitter) emitFirstTouch(evt bus.Event) []bus.Event {
 	if !e.awaitingFirstTouch {
 		return nil
 	}
@@ -87,10 +88,10 @@ func (e *FirstBloodEmitter) emitFirstTouch(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_FirstTouch", Data: body}}
+	return []bus.Event{{Name: "_FirstTouch", Data: body}}
 }
 
-func (e *FirstBloodEmitter) emitFirstBlood(evt Event) []Event {
+func (e *FirstBloodEmitter) emitFirstBlood(evt bus.Event) []bus.Event {
 	if e.firstBloodFired {
 		return nil
 	}
@@ -135,7 +136,7 @@ func (e *FirstBloodEmitter) emitFirstBlood(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_FirstBlood", Data: body}}
+	return []bus.Event{{Name: "_FirstBlood", Data: body}}
 }
 
 // emitOvertime detects the rising edge of bOvertime within UpdateState.
@@ -143,7 +144,7 @@ func (e *FirstBloodEmitter) emitFirstBlood(evt Event) []Event {
 // payload as a JSON-encoded string) rather than depending on
 // TickStore — Stage 5.7 will move the per-tick decode into a shared
 // store, but until then this emitter pulls only what it needs.
-func (e *FirstBloodEmitter) emitOvertime(evt Event) []Event {
+func (e *FirstBloodEmitter) emitOvertime(evt bus.Event) []bus.Event {
 	inner := unwrapInnerData(evt.Raw)
 	if inner == "" {
 		return nil
@@ -207,5 +208,5 @@ func (e *FirstBloodEmitter) emitOvertime(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_OvertimeStarted", Data: body}}
+	return []bus.Event{{Name: "_OvertimeStarted", Data: body}}
 }

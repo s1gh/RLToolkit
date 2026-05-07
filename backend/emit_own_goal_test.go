@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"testing"
 )
 
@@ -104,8 +105,8 @@ func TestOwnGoalEmitter_DifferentMatchGuid(t *testing.T) {
 func liveMatchState(t *testing.T) *MatchState {
 	t.Helper()
 	ms := NewMatchState()
-	ms.Observe(Event{Name: "MatchCreated", Data: json.RawMessage(`{"matchGuid":"G1"}`)})
-	ms.Observe(Event{Name: "RoundStarted"})
+	ms.Observe(bus.Event{Name: "MatchCreated", Data: json.RawMessage(`{"matchGuid":"G1"}`)})
+	ms.Observe(bus.Event{Name: "RoundStarted"})
 	if ms.Snapshot().Phase != PhaseLive {
 		t.Fatalf("setup: expected PhaseLive, got %v", ms.Snapshot().Phase)
 	}

@@ -2,17 +2,18 @@ package backend
 
 import (
 	"context"
+	"rl-toolkit/internal/bus"
 	"sync"
 	"testing"
 )
 
 // staticSource produces a fixed list of events then closes.
 type staticSource struct {
-	events []Event
+	events []bus.Event
 }
 
-func (s *staticSource) Events(ctx context.Context) <-chan Event {
-	ch := make(chan Event, len(s.events))
+func (s *staticSource) Events(ctx context.Context) <-chan bus.Event {
+	ch := make(chan bus.Event, len(s.events))
 	for _, e := range s.events {
 		ch <- e
 	}
@@ -23,19 +24,19 @@ func (s *staticSource) Events(ctx context.Context) <-chan Event {
 // recordingBroadcaster captures every Broadcast call.
 type recordingBroadcaster struct {
 	mu     sync.Mutex
-	events []Event
+	events []bus.Event
 }
 
-func (b *recordingBroadcaster) Broadcast(evt Event) {
+func (b *recordingBroadcaster) Broadcast(evt bus.Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.events = append(b.events, evt)
 }
 
-func (b *recordingBroadcaster) snapshot() []Event {
+func (b *recordingBroadcaster) snapshot() []bus.Event {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	out := make([]Event, len(b.events))
+	out := make([]bus.Event, len(b.events))
 	copy(out, b.events)
 	return out
 }
@@ -45,17 +46,17 @@ type recordingState struct {
 	observed []string
 }
 
-func (r *recordingState) Observe(evt Event) { r.observed = append(r.observed, evt.Name) }
+func (r *recordingState) Observe(evt bus.Event) { r.observed = append(r.observed, evt.Name) }
 
 // echoEmit emits one synthetic event named "_Echo:<input>" for every event.
 type echoEmit struct{}
 
-func (e *echoEmit) Process(evt Event) []Event {
-	return []Event{{Name: "_Echo:" + evt.Name}}
+func (e *echoEmit) Process(evt bus.Event) []bus.Event {
+	return []bus.Event{{Name: "_Echo:" + evt.Name}}
 }
 
 func TestPipeline_RunsStateBeforeEmit(t *testing.T) {
-	src := &staticSource{events: []Event{{Name: "A"}, {Name: "B"}}}
+	src := &staticSource{events: []bus.Event{{Name: "A"}, {Name: "B"}}}
 	dst := &recordingBroadcaster{}
 	state := &recordingState{}
 	emit := &echoEmit{}
@@ -88,11 +89,11 @@ func TestPipeline_RunsStateBeforeEmit(t *testing.T) {
 // otherwise feed each other forever.
 type prefixEmit struct{ prefix string }
 
-func (p *prefixEmit) Process(evt Event) []Event {
+func (p *prefixEmit) Process(evt bus.Event) []bus.Event {
 	if len(evt.Name) >= len(p.prefix) && evt.Name[:len(p.prefix)] == p.prefix {
 		return nil
 	}
-	return []Event{{Name: p.prefix + ":" + evt.Name}}
+	return []bus.Event{{Name: p.prefix + ":" + evt.Name}}
 }
 
 // TestPipeline_EmissionsFeedDownstreamEmitters verifies that a later
@@ -105,7 +106,7 @@ func (p *prefixEmit) Process(evt Event) []Event {
 // — because `first` runs on A, produces _one:A, then `second` runs on
 // both A (sibling) and _one:A (downstream of first's output).
 func TestPipeline_EmissionsFeedDownstreamEmitters(t *testing.T) {
-	src := &staticSource{events: []Event{{Name: "A"}}}
+	src := &staticSource{events: []bus.Event{{Name: "A"}}}
 	dst := &recordingBroadcaster{}
 	first := &prefixEmit{prefix: "_one"}
 	second := &prefixEmit{prefix: "_two"}
@@ -134,7 +135,7 @@ func TestPipeline_EmissionsFeedDownstreamEmitters(t *testing.T) {
 // produced. If it did, the prefix-guard recursion would still
 // terminate but `first` would emit a "_one:_two:A".
 func TestPipeline_EarlierEmittersDoNotSeeLaterEmissions(t *testing.T) {
-	src := &staticSource{events: []Event{{Name: "A"}}}
+	src := &staticSource{events: []bus.Event{{Name: "A"}}}
 	dst := &recordingBroadcaster{}
 	first := &prefixEmit{prefix: "_one"}
 	second := &prefixEmit{prefix: "_two"}
@@ -151,7 +152,7 @@ func TestPipeline_EarlierEmittersDoNotSeeLaterEmissions(t *testing.T) {
 	}
 }
 
-func names(evts []Event) []string {
+func names(evts []bus.Event) []string {
 	out := make([]string, len(evts))
 	for i, e := range evts {
 		out[i] = e.Name

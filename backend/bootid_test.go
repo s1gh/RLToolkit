@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"rl-toolkit/internal/bus"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 
 func newBootIDTestServer(t *testing.T) *Server {
 	t.Helper()
-	bus := NewBus()
+	bus := bus.NewBus()
 	source := NewRLSource("127.0.0.1:0")
 	return &Server{bus: bus, source: source}
 }

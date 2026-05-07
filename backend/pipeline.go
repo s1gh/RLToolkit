@@ -2,43 +2,26 @@ package backend
 
 import (
 	"context"
-	"encoding/json"
+	"rl-toolkit/internal/bus"
 )
-
-// Event is the unit of data flowing through the pipeline. Decoded
-// envelope, raw payload kept for processors that want to skip
-// per-field decoding.
-type Event struct {
-	// Name is the canonical PascalCase event name. Synthetic events
-	// produced by processors carry the "_"-prefixed convention
-	// (_MatchState, _GoalScored, ...).
-	Name string
-	// Data is the event-specific payload. For RL events, it's the
-	// "Data" field of the envelope. For synthetic events, it's the
-	// marshaled struct the emitting processor produced.
-	Data json.RawMessage
-	// Raw is the original wire bytes. Present for events read from a
-	// Source; nil for synthetic events emitted by processors.
-	Raw []byte
-}
 
 // Source produces Events. The RL TCP client is the production source;
 // tests use a slice-backed fake.
 type Source interface {
-	Events(ctx context.Context) <-chan Event
+	Events(ctx context.Context) <-chan bus.Event
 }
 
 // Broadcaster ships events to subscribers. The SSE bus is the
 // production implementation.
 type Broadcaster interface {
-	Broadcast(evt Event)
+	Broadcast(evt bus.Event)
 }
 
 // StateProcessor consumes events to maintain queryable state. Runs in
 // the pipeline's first phase, before any EmitProcessor sees the event.
 // Does NOT emit events itself.
 type StateProcessor interface {
-	Observe(evt Event)
+	Observe(evt bus.Event)
 }
 
 // EmitProcessor consumes events and returns zero or more synthetic
@@ -46,7 +29,7 @@ type StateProcessor interface {
 // state processor has Observed the event. Pure: same input + state →
 // same output, no side effects beyond updating its own internal state.
 type EmitProcessor interface {
-	Process(evt Event) []Event
+	Process(evt bus.Event) []bus.Event
 }
 
 // Pipeline orchestrates the two-phase event flow.
@@ -112,7 +95,7 @@ func (p *Pipeline) Run(ctx context.Context, src Source, dst Broadcaster) {
 // (producer, producer's children, sibling, sibling's children, …) so
 // dependent emitters always see their inputs before their own turn
 // comes again.
-func (p *Pipeline) runEmit(evt Event, start int, dst Broadcaster) {
+func (p *Pipeline) runEmit(evt bus.Event, start int, dst Broadcaster) {
 	for i := start; i < len(p.emit); i++ {
 		for _, out := range p.emit[i].Process(evt) {
 			dst.Broadcast(out)

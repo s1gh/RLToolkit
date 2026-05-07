@@ -1,4 +1,4 @@
-package backend
+package bus
 
 import (
 	"encoding/json"
@@ -6,6 +6,11 @@ import (
 	"sync"
 	"time"
 )
+
+// subscriberBufSize ≈ 1s of 60Hz UpdateStates per SSE client. Big
+// enough to absorb GC pauses and browser repaint hitches, small enough
+// that a truly stalled consumer is evicted within ~1s.
+const subscriberBufSize = 64
 
 // Bus fans out raw RL messages to all SSE subscribers.
 //
@@ -60,7 +65,7 @@ func (b *Bus) Subscribers() int {
 
 // Metrics exposes the bus's instrumentation snapshot. Read-only; safe
 // for concurrent use.
-func (b *Bus) Metrics() metricsSnapshot {
+func (b *Bus) Metrics() MetricsSnapshot {
 	return b.metrics.snapshot(b.Subscribers())
 }
 
@@ -138,7 +143,7 @@ func isFramingSignal(eventName string) bool {
 // pre-marshal their own framing.
 func (b *Bus) Broadcast(evt Event) {
 	if evt.Raw != nil {
-		b.broadcastRaw(evt.Raw)
+		b.broadcastRaw(evt.Name, evt.Raw)
 		return
 	}
 	envelope, err := json.Marshal(struct {
@@ -148,14 +153,12 @@ func (b *Bus) Broadcast(evt Event) {
 	if err != nil {
 		return
 	}
-	b.broadcastRaw(envelope)
+	b.broadcastRaw(evt.Name, envelope)
 }
 
-func (b *Bus) broadcastRaw(data []byte) {
+func (b *Bus) broadcastRaw(eventName string, data []byte) {
 	start := time.Now()
 
-	// Extract the event name once, used per subscriber below.
-	eventName := extractEventName(data)
 	// Framing-signal synthetics bypass the per-subscriber filter — every
 	// subscriber needs them regardless of what they listed in ?events=.
 	// Other synthetic _-prefixed events (_StatfeedEvent, _GoalScored,

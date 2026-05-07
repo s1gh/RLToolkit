@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ type fakeRealGoals struct{ counts map[string]int }
 func (f *fakeRealGoals) RealGoals(id string) int { return f.counts[id] }
 
 func TestStatfeedEmitter_PublishesCatchall(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
+	roster := NewRosterTracker(bus.NewBus())
 	correlation := NewCorrelationBuffer(8)
 	e := NewStatfeedEmitter(roster, correlation, nil, &fakeRealGoals{})
 
@@ -23,7 +24,7 @@ func TestStatfeedEmitter_PublishesCatchall(t *testing.T) {
 }
 
 func TestStatfeedEmitter_PromotesKnownVariants(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
+	roster := NewRosterTracker(bus.NewBus())
 	correlation := NewCorrelationBuffer(8)
 	e := NewStatfeedEmitter(roster, correlation, nil, &fakeRealGoals{})
 
@@ -49,9 +50,9 @@ func TestStatfeedEmitter_PromotesKnownVariants(t *testing.T) {
 }
 
 func TestStatfeedEmitter_FlipResetArmsAndConsumes(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
+	roster := NewRosterTracker(bus.NewBus())
 	// Seed the roster so ResolveByShortcut returns a real ID.
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
 	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), nil, &fakeRealGoals{})
 
 	_ = e.Process(makeStatfeed(t, "FlipReset", "Ada", 0, "", 0))
@@ -64,8 +65,8 @@ func TestStatfeedEmitter_FlipResetArmsAndConsumes(t *testing.T) {
 }
 
 func TestStatfeedEmitter_HatTrickSuppressedBelowThreshold(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
 	rg := &fakeRealGoals{counts: map[string]int{"Steam|7|0": 2}}
 	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), nil, rg)
 
@@ -82,8 +83,8 @@ func TestStatfeedEmitter_HatTrickSuppressedBelowThreshold(t *testing.T) {
 }
 
 func TestStatfeedEmitter_DemolishPublishesTypedEvent(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{
 		{ID: "Steam|1|0", Name: "Ada", Team: 0},
 		{ID: "Steam|2|0", Name: "Ben", Team: 1},
 	})})
@@ -100,8 +101,8 @@ func TestStatfeedEmitter_DemolishPublishesTypedEvent(t *testing.T) {
 }
 
 func TestStatfeedEmitter_UnknownStatfeedFires(t *testing.T) {
-	roster := NewRosterTracker(NewBus())
-	roster.Observe(Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
+	roster := NewRosterTracker(bus.NewBus())
+	roster.Observe(bus.Event{Name: "UpdateState", Raw: makeUpdateStateRoster(t, []rosterPlayerStub{{ID: "Steam|7|0", Name: "Ada", Team: 0}})})
 	e := NewStatfeedEmitter(roster, NewCorrelationBuffer(8), nil, &fakeRealGoals{})
 
 	out := e.Process(makeStatfeed(t, "MysteryStatfeed", "Ada", 0, "", 0))
@@ -110,7 +111,7 @@ func TestStatfeedEmitter_UnknownStatfeedFires(t *testing.T) {
 	}
 }
 
-func makeStatfeed(t *testing.T, variant, mainName string, mainTeam int, secondaryName string, secondaryTeam int) Event {
+func makeStatfeed(t *testing.T, variant, mainName string, mainTeam int, secondaryName string, secondaryTeam int) bus.Event {
 	t.Helper()
 	inner := map[string]any{
 		"MatchGuid":  "G1",
@@ -122,5 +123,5 @@ func makeStatfeed(t *testing.T, variant, mainName string, mainTeam int, secondar
 	}
 	innerBytes, _ := json.Marshal(inner)
 	raw, _ := json.Marshal(map[string]any{"Event": "StatfeedEvent", "Data": string(innerBytes)})
-	return Event{Name: "StatfeedEvent", Raw: raw}
+	return bus.Event{Name: "StatfeedEvent", Raw: raw}
 }

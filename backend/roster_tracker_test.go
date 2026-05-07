@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func envelope(eventName string, inner any) []byte {
 		Data  string `json:"Data"`
 	}{
 		Event: eventName,
-		Data:  string(innerBytes),
+		Data:      string(innerBytes),
 	})
 	return outer
 }
@@ -30,12 +31,12 @@ func envelope(eventName string, inner any) []byte {
 // state and an emit processor — same pattern as the real pipeline,
 // just with the bus broadcast inlined here so existing tests can
 // keep subscribing to a bus channel.
-func feedRaw(t *testing.T, tracker *RosterTracker, bus *Bus, raw []byte) {
+func feedRaw(t *testing.T, tracker *RosterTracker, b *bus.Bus, raw []byte) {
 	t.Helper()
-	evt := Event{Name: extractEventName(raw), Raw: raw}
+	evt := bus.Event{Name: extractEventName(raw), Raw: raw}
 	tracker.Observe(evt)
 	for _, out := range tracker.Process(evt) {
-		bus.Broadcast(out)
+		b.Broadcast(out)
 	}
 }
 
@@ -67,7 +68,7 @@ func drainRoster(t *testing.T, ch <-chan []byte) []rosterEvent {
 			}
 			_ = json.Unmarshal(env.Data, &payload)
 			out = append(out, rosterEvent{
-				Event:     env.Event,
+				Event: env.Event,
 				MatchGUID: payload.MatchGUID,
 				Players:   payload.Players,
 			})
@@ -78,7 +79,7 @@ func drainRoster(t *testing.T, ch <-chan []byte) []rosterEvent {
 }
 
 func TestRosterTracker_EmitsOnFirstSeen(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -108,7 +109,7 @@ func TestRosterTracker_EmitsOnFirstSeen(t *testing.T) {
 }
 
 func TestRosterTracker_NoEmitOnIdenticalRoster(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -132,7 +133,7 @@ func TestRosterTracker_NoEmitOnIdenticalRoster(t *testing.T) {
 }
 
 func TestRosterTracker_EmitsOnLateJoiner(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -161,7 +162,7 @@ func TestRosterTracker_EmitsOnLateJoiner(t *testing.T) {
 }
 
 func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -189,7 +190,7 @@ func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
 }
 
 func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -216,7 +217,7 @@ func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
 }
 
 func TestRosterTracker_EmitsOnGuidChange(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -237,7 +238,7 @@ func TestRosterTracker_EmitsOnGuidChange(t *testing.T) {
 }
 
 func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -268,7 +269,7 @@ func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
 }
 
 func TestRosterTracker_IgnoresNonUpdateState(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -281,7 +282,7 @@ func TestRosterTracker_IgnoresNonUpdateState(t *testing.T) {
 }
 
 func TestRosterTracker_LowercaseWire(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -298,7 +299,7 @@ func TestRosterTracker_LowercaseWire(t *testing.T) {
 		Data  string `json:"data"`
 	}{
 		Event: "updatestate",
-		Data:  string(innerBytes),
+		Data:      string(innerBytes),
 	})
 	feedRaw(t, tracker, bus, outer)
 	got := drainRoster(t, ch)
@@ -318,7 +319,7 @@ func TestRosterTracker_LowercaseWire(t *testing.T) {
 // derived from the Name. Without this, every bot collapses into one
 // roster entry / one ledger row / one synthetic-event subject.
 func TestRosterTracker_RewritesBotIds(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
@@ -505,10 +506,10 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 // TestCanonicalizeBotId covers the boundary helper directly.
 func TestCanonicalizeBotId(t *testing.T) {
 	cases := []struct {
-		name     string
-		inID     string
-		inName   string
-		want     string
+		name   string
+		inID   string
+		inName string
+		want   string
 	}{
 		{"real player passthrough", "Steam|111|0", "Alice", "Steam|111|0"},
 		{"real player named Bot still passes", "Steam|111|0", "Bot", "Steam|111|0"},
@@ -529,7 +530,7 @@ func TestCanonicalizeBotId(t *testing.T) {
 func TestRosterTracker_DoesntStallOnBus(t *testing.T) {
 	// Sanity check — feeding many packets should never block. The
 	// underlying bus drops slow subscribers rather than backpressure.
-	bus := NewBus()
+	bus := bus.NewBus()
 	tracker := NewRosterTracker(bus)
 	// No subscriber attached — Broadcast should just no-op for missing
 	// receivers.

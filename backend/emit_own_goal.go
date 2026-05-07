@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"sync"
 )
 
@@ -63,7 +64,7 @@ func (e *OwnGoalEmitter) BumpRealGoals(playerID string) {
 	e.realGoalsByID[playerID]++
 }
 
-func (e *OwnGoalEmitter) Process(evt Event) []Event {
+func (e *OwnGoalEmitter) Process(evt bus.Event) []bus.Event {
 	if evt.Name == "MatchCreated" || evt.Name == "MatchDestroyed" {
 		e.realGoalsMu.Lock()
 		for k := range e.realGoalsByID {
@@ -97,7 +98,7 @@ func (e *OwnGoalEmitter) Process(evt Event) []Event {
 		prevByNum[p.TeamNum] = p.Score
 	}
 
-	var emissions []Event
+	var emissions []bus.Event
 	for _, t := range curr.teams {
 		oldScore, ok := prevByNum[t.TeamNum]
 		if !ok {
@@ -153,7 +154,7 @@ func (e *OwnGoalEmitter) Process(evt Event) []Event {
 		if err != nil {
 			continue
 		}
-		emissions = append(emissions, Event{Name: "_OwnGoal", Data: body})
+		emissions = append(emissions, bus.Event{Name: "_OwnGoal", Data: body})
 	}
 	return emissions
 }

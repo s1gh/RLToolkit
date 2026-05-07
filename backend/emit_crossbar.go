@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"time"
 )
 
@@ -32,7 +33,7 @@ func NewCrossbarEmitter(roster *RosterTracker, ticks *TickStore) *CrossbarEmitte
 	return &CrossbarEmitter{roster: roster, ticks: ticks}
 }
 
-func (e *CrossbarEmitter) Process(evt Event) []Event {
+func (e *CrossbarEmitter) Process(evt bus.Event) []bus.Event {
 	if evt.Name != "CrossbarHit" {
 		return nil
 	}
@@ -100,5 +101,5 @@ func (e *CrossbarEmitter) Process(evt Event) []Event {
 	if err != nil {
 		return nil
 	}
-	return []Event{{Name: "_CrossbarHit", Data: body}}
+	return []bus.Event{{Name: "_CrossbarHit", Data: body}}
 }

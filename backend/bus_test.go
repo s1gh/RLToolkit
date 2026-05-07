@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"rl-toolkit/internal/bus"
 	"testing"
 	"time"
 )
@@ -48,10 +49,10 @@ func fixtureReplay(t *testing.T, path string, feeder func([]byte)) {
 //
 // If eventName is empty, all synthetic events (those starting with "_")
 // are returned.
-func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *RosterTracker, fixturePath string, eventName string) []map[string]interface{} {
+func captureSynthetic(t *testing.T, b *bus.Bus, matchState *MatchState, roster *RosterTracker, fixturePath string, eventName string) []map[string]interface{} {
 	t.Helper()
 
-	ch, cancel := bus.Subscribe(nil)
+	ch, cancel := b.Subscribe(nil)
 	defer cancel()
 
 	feed := func(raw []byte) {
@@ -65,22 +66,22 @@ func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *Ro
 		if len(data) == 0 {
 			data = env.DataLower
 		}
-		evt := Event{Name: name, Data: data, Raw: raw}
+		evt := bus.Event{Name: name, Data: data, Raw: raw}
 		if roster != nil {
 			roster.Observe(evt)
 		}
 		if matchState != nil {
 			matchState.Observe(evt)
 		}
-		bus.Broadcast(evt)
+		b.Broadcast(evt)
 		if matchState != nil {
 			for _, out := range matchState.Process(evt) {
-				bus.Broadcast(out)
+				b.Broadcast(out)
 			}
 		}
 		if roster != nil {
 			for _, out := range roster.Process(evt) {
-				bus.Broadcast(out)
+				b.Broadcast(out)
 			}
 		}
 	}
@@ -124,7 +125,7 @@ func captureSynthetic(t *testing.T, bus *Bus, matchState *MatchState, roster *Ro
 // basic_match fixture and assert that the expected synthetic events are
 // captured in the right order.
 func TestFixtureReplay_BasicMatch(t *testing.T) {
-	bus := NewBus()
+	bus := bus.NewBus()
 	matchState := NewMatchState()
 	roster := NewRosterTracker(bus)
 

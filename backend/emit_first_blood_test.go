@@ -2,14 +2,15 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"testing"
 )
 
 func TestFirstBloodEmitter_FirstTouchOnce(t *testing.T) {
 	e := NewFirstBloodEmitter()
 
-	_ = e.Process(Event{Name: "MatchInitialized"})
-	_ = e.Process(Event{Name: "RoundStarted"})
+	_ = e.Process(bus.Event{Name: "MatchInitialized"})
+	_ = e.Process(bus.Event{Name: "RoundStarted"})
 
 	out1 := e.Process(syntheticBallHit(t))
 	if !hasName(out1, "_FirstTouch") {
@@ -24,11 +25,11 @@ func TestFirstBloodEmitter_FirstTouchOnce(t *testing.T) {
 
 func TestFirstBloodEmitter_FirstTouchRearmsOnRoundStarted(t *testing.T) {
 	e := NewFirstBloodEmitter()
-	_ = e.Process(Event{Name: "MatchInitialized"})
-	_ = e.Process(Event{Name: "RoundStarted"})
+	_ = e.Process(bus.Event{Name: "MatchInitialized"})
+	_ = e.Process(bus.Event{Name: "RoundStarted"})
 	_ = e.Process(syntheticBallHit(t))
 	// Second round.
-	_ = e.Process(Event{Name: "RoundStarted"})
+	_ = e.Process(bus.Event{Name: "RoundStarted"})
 	out := e.Process(syntheticBallHit(t))
 	if !hasName(out, "_FirstTouch") {
 		t.Fatalf("expected _FirstTouch after second RoundStarted")
@@ -37,8 +38,8 @@ func TestFirstBloodEmitter_FirstTouchRearmsOnRoundStarted(t *testing.T) {
 
 func TestFirstBloodEmitter_FirstBloodOnce(t *testing.T) {
 	e := NewFirstBloodEmitter()
-	_ = e.Process(Event{Name: "MatchInitialized"})
-	_ = e.Process(Event{Name: "RoundStarted"})
+	_ = e.Process(bus.Event{Name: "MatchInitialized"})
+	_ = e.Process(bus.Event{Name: "RoundStarted"})
 
 	goal := syntheticGoal(t, 80)
 	out1 := e.Process(goal)
@@ -54,7 +55,7 @@ func TestFirstBloodEmitter_FirstBloodOnce(t *testing.T) {
 
 func TestFirstBloodEmitter_OvertimeOnce(t *testing.T) {
 	e := NewFirstBloodEmitter()
-	_ = e.Process(Event{Name: "MatchInitialized"})
+	_ = e.Process(bus.Event{Name: "MatchInitialized"})
 
 	out1 := e.Process(updateStateWithOvertime(t, true))
 	if !hasName(out1, "_OvertimeStarted") {
@@ -69,7 +70,7 @@ func TestFirstBloodEmitter_OvertimeOnce(t *testing.T) {
 
 func TestFirstBloodEmitter_OvertimeIgnoredBeforeRisingEdge(t *testing.T) {
 	e := NewFirstBloodEmitter()
-	_ = e.Process(Event{Name: "MatchInitialized"})
+	_ = e.Process(bus.Event{Name: "MatchInitialized"})
 	out := e.Process(updateStateWithOvertime(t, false))
 	if hasName(out, "_OvertimeStarted") {
 		t.Fatalf("_OvertimeStarted fired without a rising edge")
@@ -78,14 +79,14 @@ func TestFirstBloodEmitter_OvertimeIgnoredBeforeRisingEdge(t *testing.T) {
 
 func TestFirstBloodEmitter_ResetsOnMatchBoundary(t *testing.T) {
 	e := NewFirstBloodEmitter()
-	_ = e.Process(Event{Name: "MatchInitialized"})
-	_ = e.Process(Event{Name: "RoundStarted"})
+	_ = e.Process(bus.Event{Name: "MatchInitialized"})
+	_ = e.Process(bus.Event{Name: "RoundStarted"})
 	_ = e.Process(syntheticGoal(t, 80))
 	_ = e.Process(updateStateWithOvertime(t, true))
 
-	_ = e.Process(Event{Name: "MatchCreated"})
-	_ = e.Process(Event{Name: "MatchInitialized"})
-	_ = e.Process(Event{Name: "RoundStarted"})
+	_ = e.Process(bus.Event{Name: "MatchCreated"})
+	_ = e.Process(bus.Event{Name: "MatchInitialized"})
+	_ = e.Process(bus.Event{Name: "RoundStarted"})
 
 	if !hasName(e.Process(syntheticGoal(t, 80)), "_FirstBlood") {
 		t.Fatal("_FirstBlood should re-arm after MatchCreated")
@@ -97,16 +98,16 @@ func TestFirstBloodEmitter_ResetsOnMatchBoundary(t *testing.T) {
 	}
 }
 
-func syntheticBallHit(t *testing.T) Event {
+func syntheticBallHit(t *testing.T) bus.Event {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"matchGuid": "G",
 		"players":   []*EnrichedPlayer{{ID: "Steam|1|0", Name: "A", Team: 0}},
 	})
-	return Event{Name: "_BallHit", Data: body}
+	return bus.Event{Name: "_BallHit", Data: body}
 }
 
-func updateStateWithOvertime(t *testing.T, overtime bool) Event {
+func updateStateWithOvertime(t *testing.T, overtime bool) bus.Event {
 	t.Helper()
 	inner, _ := json.Marshal(map[string]any{
 		"MatchGuid": "G",
@@ -117,10 +118,10 @@ func updateStateWithOvertime(t *testing.T, overtime bool) Event {
 		},
 	})
 	raw, _ := json.Marshal(map[string]any{"Event": "UpdateState", "Data": string(inner)})
-	return Event{Name: "UpdateState", Raw: raw}
+	return bus.Event{Name: "UpdateState", Raw: raw}
 }
 
-func hasName(evts []Event, name string) bool {
+func hasName(evts []bus.Event, name string) bool {
 	for _, e := range evts {
 		if e.Name == name {
 			return true

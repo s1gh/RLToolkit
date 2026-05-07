@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"rl-toolkit/internal/bus"
 )
 
 // FixtureSource replays a JSONL file as a stream of Events. One JSON
@@ -14,8 +15,8 @@ type FixtureSource struct {
 	Path string
 }
 
-func (s *FixtureSource) Events(ctx context.Context) <-chan Event {
-	ch := make(chan Event, 64)
+func (s *FixtureSource) Events(ctx context.Context) <-chan bus.Event {
+	ch := make(chan bus.Event, 64)
 	go func() {
 		defer close(ch)
 		f, err := os.Open(s.Path)
@@ -49,7 +50,7 @@ func (s *FixtureSource) Events(ctx context.Context) <-chan Event {
 			select {
 			case <-ctx.Done():
 				return
-			case ch <- Event{Name: name, Data: data, Raw: raw}:
+			case ch <- bus.Event{Name: name, Data: data, Raw: raw}:
 			}
 		}
 	}()

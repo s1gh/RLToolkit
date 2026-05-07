@@ -2,12 +2,13 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"testing"
 	"time"
 )
 
 func TestCrossbarEmitter_FiresOnFirstHit(t *testing.T) {
-	e := NewCrossbarEmitter(NewRosterTracker(NewBus()), nil)
+	e := NewCrossbarEmitter(NewRosterTracker(bus.NewBus()), nil)
 	out := e.Process(makeCrossbarHit(t))
 	if len(out) != 1 || out[0].Name != "_CrossbarHit" {
 		t.Fatalf("expected _CrossbarHit, got %v", out)
@@ -15,7 +16,7 @@ func TestCrossbarEmitter_FiresOnFirstHit(t *testing.T) {
 }
 
 func TestCrossbarEmitter_DebouncesBurst(t *testing.T) {
-	e := NewCrossbarEmitter(NewRosterTracker(NewBus()), nil)
+	e := NewCrossbarEmitter(NewRosterTracker(bus.NewBus()), nil)
 	_ = e.Process(makeCrossbarHit(t))
 	out := e.Process(makeCrossbarHit(t))
 	if len(out) != 0 {
@@ -24,7 +25,7 @@ func TestCrossbarEmitter_DebouncesBurst(t *testing.T) {
 }
 
 func TestCrossbarEmitter_FiresAgainAfterWindow(t *testing.T) {
-	e := NewCrossbarEmitter(NewRosterTracker(NewBus()), nil)
+	e := NewCrossbarEmitter(NewRosterTracker(bus.NewBus()), nil)
 	_ = e.Process(makeCrossbarHit(t))
 	// Rewind the lastHit timestamp past the debounce window so the
 	// next hit looks fresh without sleeping.
@@ -38,7 +39,7 @@ func TestCrossbarEmitter_FiresAgainAfterWindow(t *testing.T) {
 func TestCrossbarEmitter_SkippedDuringReplay(t *testing.T) {
 	ticks := NewTickStore()
 	ticks.Observe(updateStateTick(t, "G1", 0, 0, true))
-	e := NewCrossbarEmitter(NewRosterTracker(NewBus()), ticks)
+	e := NewCrossbarEmitter(NewRosterTracker(bus.NewBus()), ticks)
 	out := e.Process(makeCrossbarHit(t))
 	if len(out) != 0 {
 		t.Fatalf("crossbar during replay should be skipped, got %v", out)
@@ -46,13 +47,13 @@ func TestCrossbarEmitter_SkippedDuringReplay(t *testing.T) {
 }
 
 func TestCrossbarEmitter_IgnoresOtherEvents(t *testing.T) {
-	e := NewCrossbarEmitter(NewRosterTracker(NewBus()), nil)
-	if got := e.Process(Event{Name: "Other"}); len(got) != 0 {
+	e := NewCrossbarEmitter(NewRosterTracker(bus.NewBus()), nil)
+	if got := e.Process(bus.Event{Name: "Other"}); len(got) != 0 {
 		t.Fatalf("non-CrossbarHit should be ignored, got %v", got)
 	}
 }
 
-func makeCrossbarHit(t *testing.T) Event {
+func makeCrossbarHit(t *testing.T) bus.Event {
 	t.Helper()
 	inner, _ := json.Marshal(map[string]any{
 		"MatchGuid":    "G1",
@@ -65,5 +66,5 @@ func makeCrossbarHit(t *testing.T) Event {
 		},
 	})
 	raw, _ := json.Marshal(map[string]any{"Event": "CrossbarHit", "Data": string(inner)})
-	return Event{Name: "CrossbarHit", Raw: raw}
+	return bus.Event{Name: "CrossbarHit", Raw: raw}
 }

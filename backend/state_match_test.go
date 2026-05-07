@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"rl-toolkit/internal/bus"
 	"testing"
 	"time"
 )
@@ -31,8 +32,8 @@ func TestMatchState_InitialSnapshot(t *testing.T) {
 func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
 	ms := NewMatchState()
 
-	feed := func(name, data string) []Event {
-		evt := Event{Name: name, Data: []byte(data), Raw: []byte(`{"Event":"` + name + `","Data":` + data + `}`)}
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data), Raw: []byte(`{"Event":"` + name + `","Data":` + data + `}`)}
 		ms.Observe(evt)
 		return ms.Process(evt)
 	}
@@ -71,8 +72,8 @@ func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
 
 func TestMatchState_NoEmissionOnIdentityTransition(t *testing.T) {
 	ms := NewMatchState()
-	feed := func(name string) []Event {
-		evt := Event{Name: name, Data: []byte(`""`)}
+	feed := func(name string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(`""`)}
 		ms.Observe(evt)
 		return ms.Process(evt)
 	}
@@ -90,7 +91,7 @@ func TestMatchState_WatchdogFlipsInactive(t *testing.T) {
 	ms.timeout = 50 * time.Millisecond
 
 	// Drive into a live state via UpdateState.
-	evt := Event{Name: "UpdateState", Raw: []byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"abc\"}"}`)}
+	evt := bus.Event{Name: "UpdateState", Raw: []byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"abc\"}"}`)}
 	ms.Observe(evt)
 	_ = ms.Process(evt)
 
@@ -102,7 +103,7 @@ func TestMatchState_WatchdogFlipsInactive(t *testing.T) {
 	time.Sleep(120 * time.Millisecond)
 	ms.checkTimeout()
 
-	emitted := ms.Process(Event{Name: "tick"})
+	emitted := ms.Process(bus.Event{Name: "tick"})
 	if len(emitted) != 1 {
 		t.Fatalf("expected 1 _MatchState emission from watchdog, got %d", len(emitted))
 	}

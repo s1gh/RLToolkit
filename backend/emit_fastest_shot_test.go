@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"rl-toolkit/internal/bus"
 	"testing"
 )
 
@@ -27,7 +28,7 @@ func TestFastestShotEmitter_FiresOnNewMaximum(t *testing.T) {
 func TestFastestShotEmitter_ResetsOnMatchBoundary(t *testing.T) {
 	e := NewFastestShotEmitter()
 	_ = e.Process(syntheticGoal(t, 100))
-	_ = e.Process(Event{Name: "MatchCreated"})
+	_ = e.Process(bus.Event{Name: "MatchCreated"})
 	out := e.Process(syntheticGoal(t, 50))
 	if len(out) != 1 {
 		t.Fatalf("expected emission after reset, got %v", out)
@@ -41,7 +42,7 @@ func TestFastestShotEmitter_BallHitTracked(t *testing.T) {
 		"postHitSpeed": speed,
 		"players":      []map[string]any{{"id": "1", "name": "Tester", "team": 0}},
 	})
-	out := e.Process(Event{Name: "_BallHit", Data: body})
+	out := e.Process(bus.Event{Name: "_BallHit", Data: body})
 	if len(out) != 1 {
 		t.Fatalf("ball hit: expected 1 emission, got %v", out)
 	}
@@ -71,17 +72,17 @@ func TestFastestShotEmitter_DecodesFromRaw(t *testing.T) {
 		"goalSpeed": speed,
 		"scorer":    map[string]any{"id": "9", "name": "Ada", "team": 1},
 	})
-	out := e.Process(Event{Name: "_GoalScored", Raw: raw})
+	out := e.Process(bus.Event{Name: "_GoalScored", Raw: raw})
 	if len(out) != 1 {
 		t.Fatalf("expected 1 emission from Raw-only event, got %v", out)
 	}
 }
 
-func syntheticGoal(t *testing.T, speed float64) Event {
+func syntheticGoal(t *testing.T, speed float64) bus.Event {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"goalSpeed": speed,
 		"scorer":    map[string]any{"id": "1", "name": "Tester", "team": 0},
 	})
-	return Event{Name: "_GoalScored", Data: body}
+	return bus.Event{Name: "_GoalScored", Data: body}
 }
