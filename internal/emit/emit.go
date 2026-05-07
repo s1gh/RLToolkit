@@ -27,6 +27,14 @@ type ReplayGate interface {
 	InReplay() bool
 }
 
+// TeamReader is the slim view emitters need into the most recent
+// UpdateState's Teams[] cache: pull a team's score / name / colors
+// by TeamNum, returning nil if no tick has arrived or the team isn't
+// present.
+type TeamReader interface {
+	TeamByNum(num int) *types.TeamRef
+}
+
 // payloadBytes returns the JSON object the upstream emitter produced.
 // During the synth-bridged transition the legacy producer ships flat
 // raw JSON (with "Event" at the top level inline with the fields), so

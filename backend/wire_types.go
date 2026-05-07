@@ -19,16 +19,7 @@ var pickFloat = wire.PickFloat
 // processors. Each type mirrors the JSON RL ships (or the JSON the
 // toolkit produces); JSON tags pin the keys.
 
-// teamRef is the slice of UpdateState.Game.Teams[] cached for
-// downstream enrichment. Score is here for diff events; only Name
-// and TeamNum are read by _MatchEnded.
-type teamRef struct {
-	TeamNum        int
-	Name           string
-	Score          int
-	ColorPrimary   string
-	ColorSecondary string
-}
+type teamRef = types.TeamRef
 
 // tickSnapshot is the slice of UpdateState we cache for diff
 // emitters. Only fields read by Phase-4 events are kept.
@@ -167,11 +158,5 @@ type crossbarHitData = types.CrossbarHitData
 type ballLastTouch = types.BallLastTouch
 type enrichedBallLastTouch = types.EnrichedBallLastTouch
 
-// matchEndedData mirrors the wire shape of MatchEnded.
-type matchEndedData struct {
-	MatchGUID     string `json:"MatchGuid"`
-	MatchGUIDLow  string `json:"matchguid"`
-	WinnerTeamNum *int   `json:"WinnerTeamNum"`
-	WinnerTeamLow *int   `json:"winnerteamnum"`
-}
+type matchEndedData = types.MatchEndedData
 

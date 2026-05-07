@@ -1,35 +1,37 @@
-package backend
+package emit
 
 import (
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
+	"rl-toolkit/internal/wire"
 )
 
-// MatchEndedEmitter republishes RL's MatchEnded as _MatchEnded with
-// final scores + winner name resolved from the cached UpdateState.
+// MatchEnded republishes RL's MatchEnded as _MatchEnded with final
+// scores + winner name resolved from the cached UpdateState.
 // Subscribers don't have to keep their own tick state to render the
 // post-match line.
-type MatchEndedEmitter struct {
-	ticks *TickStore
+type MatchEnded struct {
+	teams TeamReader
 }
 
-func NewMatchEndedEmitter(ticks *TickStore) *MatchEndedEmitter {
-	return &MatchEndedEmitter{ticks: ticks}
+func NewMatchEnded(teams TeamReader) *MatchEnded {
+	return &MatchEnded{teams: teams}
 }
 
-func (e *MatchEndedEmitter) Process(evt bus.Event) []bus.Event {
+func (e *MatchEnded) Process(evt bus.Event) []bus.Event {
 	if evt.Name != "MatchEnded" {
 		return nil
 	}
-	inner := unwrapInnerData(evt.Raw)
+	inner := wire.UnwrapInnerData(evt.Raw)
 	if inner == "" {
 		return nil
 	}
-	var d matchEndedData
+	var d types.MatchEndedData
 	if err := json.Unmarshal([]byte(inner), &d); err != nil {
 		return nil
 	}
-	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
+	guid := wire.PickStr(d.MatchGUID, d.MatchGUIDLow)
 	winner := d.WinnerTeamNum
 	if winner == nil {
 		winner = d.WinnerTeamLow
@@ -45,16 +47,16 @@ func (e *MatchEndedEmitter) Process(evt bus.Event) []bus.Event {
 		MatchGUID:     guid,
 		WinnerTeamNum: winner,
 	}
-	if blue := e.ticks.TeamByNum(0); blue != nil {
+	if blue := e.teams.TeamByNum(0); blue != nil {
 		score := blue.Score
 		payload.ScoreBlue = &score
 	}
-	if orange := e.ticks.TeamByNum(1); orange != nil {
+	if orange := e.teams.TeamByNum(1); orange != nil {
 		score := orange.Score
 		payload.ScoreOrange = &score
 	}
 	if winner != nil {
-		if t := e.ticks.TeamByNum(*winner); t != nil {
+		if t := e.teams.TeamByNum(*winner); t != nil {
 			payload.WinnerName = t.Name
 		}
 	}

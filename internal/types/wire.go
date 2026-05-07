@@ -1,5 +1,18 @@
 package types
 
+// TeamRef is the slim per-team record cached by TickStore for
+// downstream enrichment. Mirrors the fields that come off
+// UpdateState.Game.Teams[]; TickStore decodes once so consumers don't
+// each re-parse on every tick. No JSON tags on purpose — this never
+// leaves the toolkit on the wire.
+type TeamRef struct {
+	TeamNum        int
+	Name           string
+	Score          int
+	ColorPrimary   string
+	ColorSecondary string
+}
+
 // Vec3 is the 3D location/vector shape RL ships on BallHit /
 // CrossbarHit / GoalScored.
 type Vec3 struct {
@@ -52,4 +65,12 @@ type BallLastTouch struct {
 type EnrichedBallLastTouch struct {
 	Player *EnrichedPlayer `json:"player,omitempty"`
 	Speed  *float64        `json:"speed,omitempty"`
+}
+
+// MatchEndedData mirrors the wire shape of MatchEnded.
+type MatchEndedData struct {
+	MatchGUID     string `json:"MatchGuid"`
+	MatchGUIDLow  string `json:"matchguid"`
+	WinnerTeamNum *int   `json:"WinnerTeamNum"`
+	WinnerTeamLow *int   `json:"winnerteamnum"`
 }
