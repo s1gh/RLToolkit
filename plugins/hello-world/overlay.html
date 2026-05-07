@@ -4,7 +4,11 @@
     <meta charset="utf-8" />
     <title>Hello World</title>
     <link rel="stylesheet" href="/sdk.css" />
-    <script src="/sdk.js" data-plugin="hello-world" data-view="overlay"></script>
+    <script
+      src="/sdk.js"
+      data-plugin="hello-world"
+      data-view="overlay"
+    ></script>
     <style>
       body {
         font-family: var(--rlt-display, "Saira Condensed", sans-serif);
@@ -52,7 +56,7 @@
           ({ logOwnGoals } = await HW.readConfig());
         }
 
-        const lastGoalEl = document.getElementById('last-goal');
+        const lastGoalEl = document.getElementById("last-goal");
 
         RLT.plugin.register({
           init() {
@@ -62,22 +66,17 @@
             // Re-read whenever any view writes to store.config. The
             // 'config' filter scopes us to that one key so we don't
             // refetch on unrelated writes.
-            RLT.store.onChange('config', refreshConfig);
-
-            // RLT.widget.* calls no-op outside Tauri, so this is safe
-            // unconditionally. autoSize grows the widget to fit the
-            // text on the longest player name.
-            RLT.widget.autoSize(true, { target: document.body });
+            RLT.store.onChange("config", refreshConfig);
           },
 
           events: {
             _GoalScored(goal) {
               if (goal.isOwnGoal && !logOwnGoals) return;
-              const scorer = goal.scorer?.name ?? 'unknown';
-              const speed = goal.goalSpeed ?? 'n/a';
-              const tag = goal.isOwnGoal ? ' (own goal)' : '';
+              const scorer = goal.scorer?.name ?? "unknown";
+              const speed = goal.goalSpeed ?? "n/a";
+              const tag = goal.isOwnGoal ? " (own goal)" : "";
               lastGoalEl.textContent = `${scorer} — ${speed} km/h${tag}`;
-              lastGoalEl.classList.remove('empty');
+              lastGoalEl.classList.remove("empty");
             },
           },
         });

@@ -6,7 +6,7 @@
   "description": "Logs every goal scorer + ball speed. Reference plugin demonstrating the three-view layout (overlay + dashboard + settings).",
   "overlay": {
     "file": "overlay.html",
-    "width": 320,
+    "width": 400,
     "height": 80,
     "anchor": "top-right"
   },
