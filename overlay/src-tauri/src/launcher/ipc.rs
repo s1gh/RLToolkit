@@ -111,14 +111,16 @@ pub fn toggle_overlay(
         ctx.settings.save(&s).map_err(|e| e.to_string())?;
     } // release the lock before calling out
 
-    if enabled {
-        if let Some(w) = app.get_webview_window("main") {
+    // The overlay window was created during launcher setup() and lives
+    // for the app's lifetime — never built from this IPC handler. Building
+    // a webview window from an IPC worker thread deadlocks WebView2 on
+    // Windows; show/hide is safe from any thread.
+    if let Some(w) = app.get_webview_window("main") {
+        if enabled {
             let _ = w.show();
         } else {
-            crate::overlay_bridge::ensure_overlay(&app)?;
+            let _ = w.hide();
         }
-    } else if let Some(w) = app.get_webview_window("main") {
-        let _ = w.hide();
     }
     Ok(())
 }

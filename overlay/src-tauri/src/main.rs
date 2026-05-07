@@ -664,18 +664,26 @@ fn build_overlay_window(
 ) -> tauri::Result<()> {
     let parsed = url::Url::parse(url).map_err(tauri::Error::InvalidUrl)?;
 
-    // BISECT step 6: still freezes with focused(false) + incognito(true)
-    // even after dropping visible(false). Drop both to confirm whether
-    // either is also a deadlock culprit.
+    // The overlay window is built once during launcher setup() with
+    // visible(false), then show()/hide()d on toggle. Building from an
+    // IPC command's worker thread deadlocks WebView2 on Windows; only
+    // the main-thread setup() path works. visible(false) is safe here
+    // (in setup) — the deadlock only manifested when combined with
+    // building from an IPC worker.
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(title)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
         .skip_taskbar(true)
-        .resizable(false);
+        .resizable(false)
+        .focused(false)
+        .visible(false);
 
-    let _ = persist_cache;
+    if !persist_cache {
+        builder = builder.incognito(true);
+    }
+
     if let Mode::Plugin { manifest } = mode {
         builder = builder.inner_size(manifest.width as f64, manifest.height as f64);
     }
@@ -719,6 +727,8 @@ fn build_overlay_window(
         let _ = window.set_ignore_cursor_events(true);
     }
 
+    // Caller decides whether to show the window. The launcher path keeps
+    // it hidden until toggled on; the standalone path shows immediately.
     Ok(())
 }
 
@@ -833,6 +843,16 @@ fn main_overlay(args: Args) {
                 if let Some(window) = app.get_webview_window("main") {
                     let state = app.state::<Mutex<WidgetState>>();
                     apply_pixel_position(&window, &state);
+                }
+            }
+
+            // Standalone overlay always shows immediately. (The launcher
+            // path keeps the window hidden and toggles visibility from
+            // toggle_overlay; see launcher::mod::run.)
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
                 }
             }
 

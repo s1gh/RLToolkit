@@ -32,11 +32,12 @@ pub fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
                 }
             }
             "toggle_overlay" => {
+                // Overlay window is built once during launcher setup; just
+                // toggle its visibility. See toggle_overlay in ipc.rs for
+                // why we never build webview windows from non-setup paths.
                 if let Some(w) = app.get_webview_window("main") {
                     let visible = w.is_visible().unwrap_or(false);
                     if visible { let _ = w.hide(); } else { let _ = w.show(); }
-                } else {
-                    let _ = crate::overlay_bridge::ensure_overlay(app);
                 }
             }
             "quit" => app.exit(0),

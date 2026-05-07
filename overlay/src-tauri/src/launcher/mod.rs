@@ -75,10 +75,21 @@ pub fn run(args: Args) {
             // Build the window immediately so the user sees something while we probe.
             window::build_launcher_window(&handle, &toolkit_url, &initial_settings)?;
 
+            // Build the overlay window now too, hidden. It must be created
+            // from setup() (the Tauri main thread during initialization).
+            // Building it later from an IPC command's worker thread —
+            // which is what toggle_overlay used to do — deadlocks
+            // WebView2 on Windows: build() never returns and every
+            // subsequent invoke from the launcher webview hangs forever.
+            // Creating it once up front means toggle_overlay only needs
+            // show()/hide(), which is safe from any thread.
+            if let Err(e) = crate::overlay_bridge::ensure_overlay(&handle) {
+                eprintln!("[launcher] overlay pre-build failed: {e}");
+            }
+
             // Drive real RL focus events into every webview the launcher
             // owns (the launcher window itself ignores them; the overlay
-            // window — created later via build_overlay_for_launcher —
-            // forwards them to plugin iframes for hide_when_unfocused).
+            // window forwards them to plugin iframes for hide_when_unfocused).
             let rule = focus_watcher::match_rule_from_arg(args.game_match.as_deref());
             focus_watcher::spawn(handle.clone(), rule);
 
@@ -143,6 +154,8 @@ pub fn run(args: Args) {
                 clear_starting(&app_for_probe);
 
                 // Autostart the overlay if overlay_enabled was set.
+                // The overlay window was already built (hidden) during
+                // setup(); just reveal it.
                 let auto = {
                     use tauri::Manager;
                     let state: tauri::State<LauncherState> = app_for_probe.state();
@@ -150,16 +163,9 @@ pub fn run(args: Args) {
                     ctx.overlay_enabled
                 };
                 if auto {
-                    if let Err(e) = crate::overlay_bridge::ensure_overlay(&app_for_probe) {
-                        eprintln!("[launcher] overlay autostart failed: {e}");
-                        // Persist enabled=false so we don't loop on next launch.
-                        if let Some(s) = app_for_probe.try_state::<LauncherState>() {
-                            let mut ctx = s.lock().unwrap();
-                            ctx.overlay_enabled = false;
-                            let mut on_disk = ctx.settings.load();
-                            on_disk.overlay_enabled = false;
-                            let _ = ctx.settings.save(&on_disk);
-                        }
+                    use tauri::Manager;
+                    if let Some(w) = app_for_probe.get_webview_window("main") {
+                        let _ = w.show();
                     }
                 }
 
