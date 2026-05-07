@@ -169,10 +169,14 @@
     const H = surface.effective.height;
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
-    // Topbar is 32px tall and overlays the viewport — discount it from
-    // the available height so the scaled canvas doesn't peek under it.
+    // Reserve 32px for the topbar and 32px of breathing room at the
+    // bottom so the canvas's outline stays visible on both edges. Without
+    // a bottom margin a height-limited canvas lands flush against the
+    // viewport edge and the 1px bottom outline gets clipped.
+    const TOP_MARGIN = 32;
+    const BOTTOM_MARGIN = 32;
     const availW = window.innerWidth;
-    const availH = Math.max(0, window.innerHeight - 32);
+    const availH = Math.max(0, window.innerHeight - TOP_MARGIN - BOTTOM_MARGIN);
     const k = Math.min(availW / W, availH / H, 1);
     canvasScale = k;
     canvas.style.transform = 'scale(' + k + ')';
@@ -180,7 +184,7 @@
     const scaledW = W * k;
     const scaledH = H * k;
     const offX = Math.max(0, Math.round((availW - scaledW) / 2));
-    const offY = Math.max(0, Math.round((availH - scaledH) / 2)) + 32;
+    const offY = Math.max(0, Math.round((availH - scaledH) / 2)) + TOP_MARGIN;
     canvas.style.left = offX + 'px';
     canvas.style.top = offY + 'px';
     updateTopbarLabel();
