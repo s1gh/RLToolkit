@@ -622,20 +622,7 @@ fn launcher_mode_active(args: &Args) -> bool {
 fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
     use tauri::Manager;
 
-    // Call WebviewWindowBuilder::build() from the caller's thread (a Tauri
-    // command worker on Linux, the launcher's startup probe thread on
-    // autostart). The wry runtime internally dispatches the real window
-    // creation to the main event loop and blocks the caller until done.
-    //
-    // We MUST NOT wrap this in run_on_main_thread on Windows: that posts
-    // the build closure into the main pump, but build()'s internal
-    // main-thread dispatch then re-enters the same pump and deadlocks —
-    // every IPC call from the launcher webview hangs forever because the
-    // pump is stuck. Linux's GTK pathway also tolerates building from a
-    // worker thread for the same reason.
-    eprintln!("[overlay-build] enter build_overlay_for_launcher");
     if let Some(w) = app.get_webview_window("main") {
-        eprintln!("[overlay-build] window 'main' already exists, showing");
         let _ = w.show();
         return Ok(());
     }
@@ -649,17 +636,8 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
     let url = unified_url(&toolkit_url);
     let title = "RL Toolkit – Overlay".to_string();
 
-    eprintln!("[overlay-build] calling build_overlay_window url={url}");
-    match build_overlay_window(app, &Mode::Unified, &url, &title, false, None, &toolkit_url) {
-        Ok(()) => {
-            eprintln!("[overlay-build] build_overlay_window returned Ok");
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("[launcher] build_overlay_window failed: {e}");
-            Err(e.to_string())
-        }
-    }
+    build_overlay_window(app, &Mode::Unified, &url, &title, false, None, &toolkit_url)
+        .map_err(|e| e.to_string())
 }
 
 /// Construct the overlay webview window inside the given app.
@@ -686,9 +664,19 @@ fn build_overlay_window(
 ) -> tauri::Result<()> {
     let parsed = url::Url::parse(url).map_err(tauri::Error::InvalidUrl)?;
 
-    // BISECT step 5: step 4 froze. Keep visible(false), drop focused(false).
-    // If this freezes, visible(false) is the culprit. If it works,
-    // focused(false) is.
+    // Build the overlay window VISIBLE from the start. Constructing it
+    // with visible(false) and calling window.show() afterward deadlocks
+    // WebView2 on Windows: build() never returns, every IPC call from
+    // the launcher webview hangs forever, and the user's only recovery
+    // is to kill the process from Task Manager. Bisected via incremental
+    // flag re-add — `visible(false)` is the sole culprit; transparent,
+    // always_on_top, skip_taskbar, decorations, focused, and incognito
+    // are all safe.
+    //
+    // Trade-off: the window may briefly flash at its default size/
+    // position before apply_fullscreen_position resizes it. Acceptable
+    // for a frameless transparent overlay; the alternative is a
+    // permanently frozen launcher.
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(title)
         .decorations(false)
@@ -696,23 +684,20 @@ fn build_overlay_window(
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .visible(false);
+        .focused(false);
 
-    let _ = persist_cache;
+    if !persist_cache {
+        builder = builder.incognito(true);
+    }
+
     if let Mode::Plugin { manifest } = mode {
         builder = builder.inner_size(manifest.width as f64, manifest.height as f64);
     }
 
-    eprintln!("[overlay-build] before builder.build()");
     let window = builder.build()?;
-    eprintln!("[overlay-build] after builder.build()");
 
     #[cfg(target_os = "windows")]
-    {
-        eprintln!("[overlay-build] before apply_windows_no_border");
-        apply_windows_no_border(&window);
-        eprintln!("[overlay-build] after apply_windows_no_border");
-    }
+    apply_windows_no_border(&window);
 
     match mode {
         Mode::Plugin { manifest } => {
@@ -733,11 +718,7 @@ fn build_overlay_window(
             apply_layer_shell_unified(&window, monitor, toolkit);
 
             #[cfg(not(target_os = "linux"))]
-            {
-                eprintln!("[overlay-build] before apply_fullscreen_position");
-                apply_fullscreen_position(&window, toolkit);
-                eprintln!("[overlay-build] after apply_fullscreen_position");
-            }
+            apply_fullscreen_position(&window, toolkit);
         }
     }
 
@@ -749,14 +730,8 @@ fn build_overlay_window(
     // (DWM hit-tests those), but the launcher's webview content becomes dead.
     #[cfg(not(target_os = "linux"))]
     {
-        eprintln!("[overlay-build] before set_ignore_cursor_events");
         let _ = window.set_ignore_cursor_events(true);
-        eprintln!("[overlay-build] after set_ignore_cursor_events");
     }
-
-    eprintln!("[overlay-build] before window.show()");
-    window.show()?;
-    eprintln!("[overlay-build] after window.show()");
 
     Ok(())
 }
