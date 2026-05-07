@@ -467,7 +467,7 @@ rl-toolkit             # in terminal A — starts the overlay/server
 rl-toolkit dev plugins/my-plugin   # in terminal B
 ```
 
-`rl-toolkit dev` reads the overlay's localhost-only dev API port from a platform-canonical user config dir (`~/.config/rl-toolkit/dev.port` on Linux, `~/Library/Application Support/rl-toolkit/dev.port` on macOS, `%APPDATA%\rl-toolkit\dev.port` on Windows). The launcher and CLI agree on this location automatically; no flags needed. It registers the folder, watches it for changes, and tells the overlay to reload the plugin on each save (debounced ~150ms). Ctrl-C unregisters and exits cleanly. The overlay's plugin directory is never modified — the dev plugin lives entirely in memory and shadows any installed plugin of the same name until you Ctrl-C.
+`rl-toolkit dev` reads the overlay's localhost-only dev API port from a platform-canonical user config dir (`~/.config/rl-toolkit/dev.port` on Linux, `~/Library/Application Support/rl-toolkit/dev.port` on macOS, `%APPDATA%\rl-toolkit\dev.port` on Windows). The launcher and CLI agree on this location automatically; no flags needed. It registers the folder, watches it for changes, and tells the overlay to reload the plugin on each save (debounced ~150ms). On save, the overlay window and any open dashboard tab for that plugin reloads itself automatically — no manual browser refresh needed. Ctrl-C unregisters and exits cleanly. The overlay's plugin directory is never modified — the dev plugin lives entirely in memory and shadows any installed plugin of the same name until you Ctrl-C.
 
 If `rl-toolkit dev` errors with "is the overlay running?", start the
 overlay first; the CLI does not launch it.

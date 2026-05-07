@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"rl-toolkit/backend/internal/bus"
+	"sync"
 	"testing"
 	"time"
 )
@@ -225,4 +227,46 @@ func TestManager_DevPathReturnsAbsoluteRegisteredPath(t *testing.T) {
 	if got := pm.DevPath("alpha"); got != abs {
 		t.Errorf("DevPath after register = %q, want %q", got, abs)
 	}
+}
+
+// stubBroadcaster captures broadcast events for assertions.
+type stubBroadcaster struct {
+	mu     sync.Mutex
+	events []bus.Event
+}
+
+func (s *stubBroadcaster) Broadcast(evt bus.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, evt)
+}
+
+func TestManager_NotifyReloadBroadcastsDevPluginReload(t *testing.T) {
+	pm := New(t.TempDir())
+	stub := &stubBroadcaster{}
+	pm.AttachBroadcaster(stub)
+
+	pm.NotifyReload("alpha")
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.events) != 1 {
+		t.Fatalf("got %d events, want 1", len(stub.events))
+	}
+	if stub.events[0].Name != "_DevPluginReload" {
+		t.Errorf("event name = %q, want _DevPluginReload", stub.events[0].Name)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(stub.events[0].Data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload["name"] != "alpha" {
+		t.Errorf("payload name = %q, want alpha", payload["name"])
+	}
+}
+
+func TestManager_NotifyReloadWithoutBroadcasterDoesNotPanic(t *testing.T) {
+	pm := New(t.TempDir())
+	// No AttachBroadcaster.
+	pm.NotifyReload("alpha") // should not panic, should just log
 }

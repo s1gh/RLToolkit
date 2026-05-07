@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"rl-toolkit/backend/internal/bus"
 	"sync"
 )
 
@@ -71,6 +72,13 @@ type OverlayConfig struct {
 	ShowDuringPhase []string `json:"show_during_phase,omitempty"`
 }
 
+// Broadcaster matches the slim publishing surface used elsewhere
+// (see state.Broadcaster). Defined here so the manager doesn't import
+// the bus package directly.
+type Broadcaster interface {
+	Broadcast(evt bus.Event)
+}
+
 // Manager scans the plugin directory and serves manifest listings.
 //
 // Dev plugins are an in-memory registration of <name → absolute folder
@@ -92,6 +100,11 @@ type Manager struct {
 	// re-registering the same path under a different name doesn't lose
 	// the cache.
 	devCache map[string]*cachedManifest
+
+	// bus is set via AttachBroadcaster. NotifyReload publishes a
+	// `_DevPluginReload` event when bus is non-nil, so open SDK
+	// instances of the matching plugin reload themselves.
+	bus Broadcaster
 }
 
 type cachedManifest struct {
@@ -309,17 +322,33 @@ func (pm *Manager) DevPath(name string) string {
 	return pm.dev[name]
 }
 
-// NotifyReload signals that a dev-registered plugin's assets have
-// changed. v1: invalidates the dev manifest cache so the next List()
-// re-reads it, and logs the reload. A future change can broadcast a
-// `_DevPluginReload` event over the bus so an open overlay window
-// reloads itself; for now the dashboard refresh + iframe reload is
-// the user-driven path.
-func (pm *Manager) NotifyReload(name string) {
+// AttachBroadcaster wires a publisher into the manager so dev-plugin
+// reload notifications reach SSE subscribers (the running overlay and
+// dashboard windows). Called once at startup; safe to omit (NotifyReload
+// degrades to "log + invalidate cache" without it).
+func (pm *Manager) AttachBroadcaster(b Broadcaster) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
+	pm.bus = b
+}
+
+// NotifyReload signals that a dev-registered plugin's assets have
+// changed. Invalidates the dev manifest cache so the next List()
+// re-reads it, then publishes `_DevPluginReload` over the bus (if
+// attached) so any open SDK instance of this plugin reloads its page.
+func (pm *Manager) NotifyReload(name string) {
+	pm.mu.Lock()
 	if path, ok := pm.dev[name]; ok {
 		delete(pm.devCache, path)
 	}
+	b := pm.bus
+	pm.mu.Unlock()
+
 	log.Printf("[plugins] Dev reload: %s", name)
+	if b != nil {
+		body, err := json.Marshal(map[string]string{"name": name})
+		if err == nil {
+			b.Broadcast(bus.Event{Name: "_DevPluginReload", Data: body})
+		}
+	}
 }

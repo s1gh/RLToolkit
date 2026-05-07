@@ -40,12 +40,14 @@ import { settings } from './settings.js';
 import { getManifest, onManifest } from './manifest.js';
 import { setStampDeps } from './stamps.js';
 import { setStoreBusDeps } from './store.js';
+import { installDevReload } from './dev-reload.js';
 
 // Wire late-bound deps that would otherwise create import cycles.
 // Must run before any SSE event is dispatched (we kick off connect()
 // at the end of this file, which is after these singletons exist).
 setStampDeps(identity, encounters);
 setStoreBusDeps(bus.on.bind(bus), addEvent);
+installDevReload();
 
 // ─── Public API ────────────────────────────────────────────
 window.RLT = {

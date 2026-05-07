@@ -135,6 +135,7 @@ func runServe() {
 
 	eventBus := bus.NewBus()
 	pm := plugins.New(cfg.PluginDir)
+	pm.AttachBroadcaster(eventBus)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
