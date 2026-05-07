@@ -450,7 +450,10 @@ rl-toolkit pack [-out <dir>] <plugin-folder>
 # Zips a plugin source folder into <name>-<version>.rltp.
 
 rl-toolkit install [-plugins <dir>] <file.rltp>
-# Unzips a .rltp into the plugins directory (default: <exe-dir>/plugins).
+# Unzips a .rltp into the plugins directory (default: the per-OS
+# RLToolkit data dir, e.g. ~/.local/share/RLToolkit/plugins on Linux,
+# %LOCALAPPDATA%\RLToolkit\plugins on Windows, or
+# ~/Library/Application Support/RLToolkit/plugins on macOS).
 
 rl-toolkit uninstall [-plugins <dir>] <name>
 # Removes an installed plugin folder.
