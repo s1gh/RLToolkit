@@ -3,7 +3,9 @@
  *
  *   <script src="/sdk.js" data-plugin="my-plugin"></script>
  *
- * Exposes `window.RLT`. Plugin-author docs: docs/PLUGINS.md.
+ * Exposes `window.RLT`. The event catalog (names, shapes, phase
+ * gating, stability) is the canonical reference: read it via
+ * RLT.events.catalog or GET /api/events.
  */
 (function () {
   // sdk.js is loaded as a classic <script>, not an ES module — the
@@ -1677,6 +1679,15 @@
       'provisional',
       '2.0',
       'Full _GoalScored payload on the bReplay rising edge.',
+    ],
+    [
+      '_BootId',
+      'lifecycle',
+      'boot-id',
+      '*',
+      'stable',
+      '1.0',
+      'Process-lifetime ID; first SSE frame on every connect (framing-bypass).',
     ],
     [
       '_MatchState',
