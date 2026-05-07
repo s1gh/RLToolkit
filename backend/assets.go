@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"embed"
+	"rl-toolkit/backend/internal/types"
 	"sort"
 	"strings"
 )
@@ -39,7 +40,7 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 // allocation+copy on every request. The sdkJSBytes / sdkCSSBytes names
 // are preserved so server.go's handlers don't need to change.
 //
-// sdkJSBytes is rendered once at startup with the verifiedStatfeedNames
+// sdkJSBytes is rendered once at startup with the types.VerifiedStatfeedNames
 // registry inlined where the source has the `/*__RLT_STATS__*/{}`
 // placeholder. That gives plugins a synchronous `RLT.stats.DEMOLISH`
 // while keeping the registry in one place (statfeed_discoveries.go).
@@ -66,7 +67,7 @@ func mustReadEmbed(path string) []byte {
 // fails — the SDK still parses, plugins just see RLT.stats == {}.
 var statsPlaceholder = []byte("/*__RLT_STATS__*/ {}")
 
-// renderSDKJS substitutes the verifiedStatfeedNames registry into the
+// renderSDKJS substitutes the types.VerifiedStatfeedNames registry into the
 // SDK source at startup. Result is cached for the lifetime of the
 // process (the registry is a compile-time constant; nothing changes
 // at runtime). Panics if the placeholder isn't present — that would
@@ -79,13 +80,13 @@ func renderSDKJS(src []byte) []byte {
 	return bytes.Replace(src, statsPlaceholder, buildStatsLiteral(), 1)
 }
 
-// buildStatsLiteral renders verifiedStatfeedNames as a JS object
+// buildStatsLiteral renders types.VerifiedStatfeedNames as a JS object
 // literal with SCREAMING_SNAKE keys mapping to the original
 // PascalCase names. Sorted by key for deterministic byte output.
 func buildStatsLiteral() []byte {
 	type entry struct{ key, val string }
-	rows := make([]entry, 0, len(verifiedStatfeedNames))
-	for name := range verifiedStatfeedNames {
+	rows := make([]entry, 0, len(types.VerifiedStatfeedNames))
+	for name := range types.VerifiedStatfeedNames {
 		rows = append(rows, entry{key: pascalToScreamingSnake(name), val: name})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].key < rows[j].key })
