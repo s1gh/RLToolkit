@@ -160,8 +160,7 @@
   canvas.style.cssText =
     'position:absolute;top:0;left:0;' +
     'background:rgba(15,19,32,0.35);' +
-    'outline:1px solid rgba(34,211,238,0.5);' +
-    'transform-origin:top left';
+    'outline:1px solid rgba(34,211,238,0.5);';
   document.body.appendChild(canvas);
 
   function applyCanvasLayout() {
@@ -179,8 +178,17 @@
     const availH = Math.max(0, window.innerHeight - TOP_MARGIN - BOTTOM_MARGIN);
     const k = Math.min(availW / W, availH / H, 1);
     canvasScale = k;
-    canvas.style.transform = 'scale(' + k + ')';
-    // Center the (scaled) canvas in the available viewport area.
+    // CSS zoom (not transform: scale) so the scale propagates into
+    // iframe content rendering. Firefox-on-Windows has a long-standing
+    // compositing quirk where iframes inside a transform: scale parent
+    // paint at native resolution and overflow the iframe element box.
+    // zoom changes layout and flows through iframe boundaries reliably
+    // on every modern browser (Firefox 126+, Chrome/Edge/Safari long-
+    // standing). With zoom, getBoundingClientRect / pointer coords are
+    // already in zoomed pixels, so drag math no longer needs to divide
+    // pointer deltas by k.
+    canvas.style.zoom = String(k);
+    // Center the (zoomed) canvas in the available viewport area.
     const scaledW = W * k;
     const scaledH = H * k;
     const offX = Math.max(0, Math.round((availW - scaledW) / 2));
