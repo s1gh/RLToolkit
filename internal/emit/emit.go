@@ -53,14 +53,22 @@ type PhaseGate interface {
 }
 
 // Correlator is the slim view emitters need into the shared
-// CorrelationBuffer: stash a typed entry (ballHitRecord, goalRecord,
-// statfeedRecord, etc.) under a string key, look it back up via Recent
-// or FindWithin. Backend's CorrelationBuffer satisfies this.
+// CorrelationBuffer: stash a typed entry (BallHitRecord, GoalRecord,
+// StatfeedRecord, etc.) under a string key, look it back up via Recent
+// or FindWithin. correlation.Buffer satisfies this.
 type Correlator interface {
 	Record(name string, payload interface{})
 	Recent(name string, n int) []interface{}
 	FindWithin(name string, lookback int, predicate func(interface{}) bool) interface{}
 	RemoveByName(name string, predicate func(interface{}) bool)
+}
+
+// FlipResetClearer is the slim view TickDiff needs into Statfeed:
+// when a player's bOnGround flag rises, clear any flip-reset arm so
+// the next goal from that player isn't tagged unless they earn
+// another reset run.
+type FlipResetClearer interface {
+	ClearFlipResetArm(playerID string)
 }
 
 // liveGameplayPhases gates BallHit / OwnGoal / Statfeed emitters that
@@ -71,6 +79,29 @@ func liveGameplayPhases(g PhaseGate) bool {
 	}
 	ph := g.CurrentPhase()
 	return ph == types.PhaseLive || ph == types.PhaseCountdown || ph == types.PhasePaused
+}
+
+// recentTouch looks up the most recent BallHit from the shared
+// correlation buffer and returns it as a wire-ready
+// EnrichedCorrelatedTouch. Used by both TickDiff (for
+// _BallPossessionChanged.triggeredBy) and Goal (for the implicit
+// last-touch fallback when GoalScored omits BallLastTouch).
+func recentTouch(c Correlator, window int) *types.EnrichedCorrelatedTouch {
+	if c == nil {
+		return nil
+	}
+	for _, p := range c.Recent("BallHit", window) {
+		rec, ok := p.(*types.BallHitRecord)
+		if !ok || rec == nil || rec.Player == nil {
+			continue
+		}
+		return &types.EnrichedCorrelatedTouch{
+			Player:       rec.Player,
+			PreHitSpeed:  rec.PreHitSpeed,
+			PostHitSpeed: rec.PostHitSpeed,
+		}
+	}
+	return nil
 }
 
 // payloadBytes returns the JSON object the upstream emitter produced.
