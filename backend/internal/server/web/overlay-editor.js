@@ -345,8 +345,16 @@
     function move(ev) {
       if (ev.pointerId !== pointerId) return;
       ev.preventDefault();
-      const nx = clamp(startOX + sx * (ev.clientX - startX), 0);
-      const ny = clamp(startOY + sy * (ev.clientY - startY), 0);
+      // Pointer deltas are in client (CSS) pixels. The widget lives inside
+      // a canvas scaled by canvasScale, so 1 client pixel = 1/k canvas px.
+      const dxCanvas = (ev.clientX - startX) / canvasScale;
+      const dyCanvas = (ev.clientY - startY) / canvasScale;
+      const W = surface.effective.width;
+      const H = surface.effective.height;
+      const wW = w.el.offsetWidth;
+      const wH = w.el.offsetHeight;
+      const nx = clampRange(startOX + sx * dxCanvas, 0, Math.max(0, W - wW));
+      const ny = clampRange(startOY + sy * dyCanvas, 0, Math.max(0, H - wH));
       w.overlay.offset_x = nx;
       w.overlay.offset_y = ny;
       applyAnchor(w.el, anchor, nx, ny);
@@ -420,8 +428,17 @@
     function move(ev) {
       if (ev.pointerId !== pointerId) return;
       ev.preventDefault();
-      const nw = clamp(startW + sx * (ev.clientX - startX), 16);
-      const nh = clamp(startH + sy * (ev.clientY - startY), 16);
+      const dxCanvas = (ev.clientX - startX) / canvasScale;
+      const dyCanvas = (ev.clientY - startY) / canvasScale;
+      const W = surface.effective.width;
+      const H = surface.effective.height;
+      // Resize bounds: widget can't grow past the canvas edge along the
+      // anchor's free axis. offset_x is fixed during resize; max width is
+      // W - offset_x along the free axis (and analogously for height).
+      const ox = w.overlay.offset_x | 0;
+      const oy = w.overlay.offset_y | 0;
+      const nw = clampRange(startW + sx * dxCanvas, 16, Math.max(16, W - ox));
+      const nh = clampRange(startH + sy * dyCanvas, 16, Math.max(16, H - oy));
       w.overlay.width = nw;
       w.overlay.height = nh;
       w.el.style.width = nw + 'px';
@@ -461,6 +478,12 @@
 
   function clamp(v, min) {
     return v < min ? min : v;
+  }
+
+  function clampRange(v, lo, hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
   }
 
   // ─── Persistence ──────────────────────────────────────────
@@ -707,14 +730,20 @@
         const prev = w.overlay.anchor || 'top-right';
         if (next === prev) return;
         // Recompute offsets so the widget visually stays in place under
-        // the new anchor. Read the live viewport so the math works
-        // regardless of editor browser size.
-        const r = w.el.getBoundingClientRect();
+        // the new anchor. Use the widget's layout-coords (offsetLeft/Top
+        // relative to the canvas parent) — these are already in canvas-
+        // pixel space and unaffected by the canvas's CSS transform.
+        const wL = w.el.offsetLeft;
+        const wT = w.el.offsetTop;
+        const wW = w.el.offsetWidth;
+        const wH = w.el.offsetHeight;
+        const W = surface.effective.width;
+        const H = surface.effective.height;
         let nx, ny;
-        if (next.indexOf('-left') >= 0) nx = Math.max(0, Math.round(r.left));
-        else nx = Math.max(0, Math.round(window.innerWidth - r.right));
-        if (next.indexOf('top') === 0) ny = Math.max(0, Math.round(r.top));
-        else ny = Math.max(0, Math.round(window.innerHeight - r.bottom));
+        if (next.indexOf('-left') >= 0) nx = Math.max(0, Math.round(wL));
+        else nx = Math.max(0, Math.round(W - (wL + wW)));
+        if (next.indexOf('top') === 0) ny = Math.max(0, Math.round(wT));
+        else ny = Math.max(0, Math.round(H - (wT + wH)));
         w.overlay.anchor = next;
         w.overlay.offset_x = nx;
         w.overlay.offset_y = ny;
