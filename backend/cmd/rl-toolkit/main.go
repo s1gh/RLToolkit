@@ -31,6 +31,7 @@ import (
 	"rl-toolkit/backend/internal/server"
 	"rl-toolkit/backend/internal/source"
 	"rl-toolkit/backend/internal/state"
+	"rl-toolkit/backend/internal/surface"
 	"rl-toolkit/backend/internal/tick"
 	"strings"
 	"syscall"
@@ -224,6 +225,16 @@ func runServe() {
 		}
 	}
 
+	surf, err := surface.New(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("[server] %v", err)
+	}
+	surf.Notify = func() {
+		if env := server.MarshalSurfaceChanged(surf.Get(), surf.Detected(), surf.Effective()); env != nil {
+			eventBus.Broadcast(bus.Event{Name: "_SurfaceChanged", Raw: env})
+		}
+	}
+
 	srv := server.New(server.Deps{
 		Bus:         eventBus,
 		Store:       store,
@@ -233,6 +244,7 @@ func runServe() {
 		Roster:      rt,
 		Demos:       demos,
 		Overrides:   ovr,
+		Surface:     surf,
 		Discoveries: disc,
 		Identity:    idStore,
 		PluginDir:   cfg.PluginDir,

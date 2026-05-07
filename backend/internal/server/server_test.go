@@ -16,6 +16,7 @@ import (
 	"rl-toolkit/backend/internal/bus"
 	"rl-toolkit/backend/internal/plugins"
 	"rl-toolkit/backend/internal/source"
+	"rl-toolkit/backend/internal/surface"
 	"strings"
 	"testing"
 	"time"
@@ -258,5 +259,129 @@ func TestSideload_RejectsBadArchive(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSurface_GetReturnsFallbackWhenEmpty(t *testing.T) {
+	surf, err := surface.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Surface: surf})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/overlay/surface", nil)
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Configured *surface.Size `json:"configured"`
+		Detected   *surface.Size `json:"detected"`
+		Effective  surface.Size  `json:"effective"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Configured != nil || body.Detected != nil {
+		t.Errorf("expected nils, got configured=%+v detected=%+v", body.Configured, body.Detected)
+	}
+	if body.Effective.W != 1920 || body.Effective.H != 1080 {
+		t.Errorf("effective: %+v", body.Effective)
+	}
+}
+
+func TestSurface_PutPersistsAndPrioritizesConfigured(t *testing.T) {
+	surf, err := surface.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Surface: surf})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/overlay/surface", strings.NewReader(`{"width":2560,"height":1440}`))
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT status %d: %s", rr.Code, rr.Body.String())
+	}
+	got := surf.Get()
+	if got == nil || got.W != 2560 || got.H != 1440 {
+		t.Errorf("after PUT: %+v", got)
+	}
+}
+
+func TestSurface_PutNullClears(t *testing.T) {
+	surf, err := surface.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := surf.Set(&surface.Size{W: 2560, H: 1440}); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Surface: surf})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/overlay/surface", strings.NewReader(`null`))
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT null status %d: %s", rr.Code, rr.Body.String())
+	}
+	if surf.Get() != nil {
+		t.Errorf("expected cleared, got %+v", surf.Get())
+	}
+}
+
+func TestSurface_PutRejectsInvalid(t *testing.T) {
+	surf, err := surface.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Surface: surf})
+	cases := []string{
+		`{"width":0,"height":1080}`,
+		`{"width":99999,"height":1080}`,
+		`not json`,
+		`{"width":-1,"height":-1}`,
+	}
+	for _, c := range cases {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/api/overlay/surface", strings.NewReader(c))
+		srv.Routes().ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("body %q: status %d, want 400", c, rr.Code)
+		}
+	}
+}
+
+func TestSurface_DetectedPostStoresInMemory(t *testing.T) {
+	surf, err := surface.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Surface: surf})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/overlay/surface/detected", strings.NewReader(`{"width":3840,"height":2160}`))
+	srv.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	d := surf.Detected()
+	if d == nil || d.W != 3840 || d.H != 2160 {
+		t.Errorf("detected: %+v", d)
+	}
+}
+
+func TestMarshalSurfaceChanged_Shape(t *testing.T) {
+	cfg := &surface.Size{W: 1280, H: 720}
+	det := &surface.Size{W: 2560, H: 1440}
+	eff := surface.Size{W: 1280, H: 720}
+	raw := MarshalSurfaceChanged(cfg, det, eff)
+	if raw == nil {
+		t.Fatal("MarshalSurfaceChanged returned nil")
+	}
+	want := `{"Event":"_SurfaceChanged","Data":{"configured":{"width":1280,"height":720},"detected":{"width":2560,"height":1440},"effective":{"width":1280,"height":720}}}`
+	if string(raw) != want {
+		t.Errorf("envelope shape mismatch:\n got: %s\nwant: %s", raw, want)
 	}
 }

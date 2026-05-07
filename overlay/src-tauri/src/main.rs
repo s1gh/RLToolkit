@@ -39,7 +39,10 @@
 // CLI:
 //   rl-widget [--plugin=<name>] [--toolkit=URL] [--quit-hotkey=COMBO]
 
-#![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
 
 use rl_widget::cli::Args;
 use rl_widget::focus_watcher;
@@ -133,11 +136,20 @@ fn fetch_manifest(toolkit: &str, plugin: &str) -> Result<OverlayCfg, String> {
     list.into_iter()
         .find(|p| p.name == plugin)
         .map(|p| p.overlay)
-        .ok_or_else(|| format!("plugin {plugin:?} not in {}/api/plugins", toolkit.trim_end_matches('/')))
+        .ok_or_else(|| {
+            format!(
+                "plugin {plugin:?} not in {}/api/plugins",
+                toolkit.trim_end_matches('/')
+            )
+        })
 }
 
 fn plugin_url(toolkit: &str, plugin: &str, file: &str, anchor: &str) -> String {
-    let f = if file.is_empty() { "overlay.html" } else { file };
+    let f = if file.is_empty() {
+        "overlay.html"
+    } else {
+        file
+    };
     // The view discriminator now lives on the <script data-view="overlay">
     // tag inside the file; the URL only carries parameterized runtime
     // info the SDK can't derive on its own (anchor for body alignment).
@@ -176,6 +188,29 @@ fn probe_toolkit(toolkit: &str) -> Result<(), String> {
         .call()
         .map(|_| ())
         .map_err(|e| format!("toolkit unreachable at {}: {}", base, e))
+}
+
+/// Best-effort POST of the bound monitor's logical (w, h) to
+/// /api/overlay/surface/detected. The dashboard setting is the canonical
+/// source of truth; this is purely informational so the editor and the
+/// dashboard "Use detected" button have a sane default. Failure is
+/// logged but never propagated — the launcher must keep starting even
+/// when the toolkit is offline at this exact instant.
+fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
+    let base = toolkit.trim_end_matches('/');
+    let url = format!("{}/api/overlay/surface/detected", base);
+    let body = format!(
+        r#"{{"width":{},"height":{}}}"#,
+        w.round() as i64,
+        h.round() as i64
+    );
+    let result = ureq::post(&url)
+        .timeout(std::time::Duration::from_secs(2))
+        .set("Content-Type", "application/json")
+        .send_string(&body);
+    if let Err(e) = result {
+        eprintln!("[rl-widget] detected-surface report failed: {e}");
+    }
 }
 
 // ─── Tauri commands (the RLT.widget.* surface) ──────────────────
@@ -322,16 +357,15 @@ fn apply_linux_size(window: &tauri::WebviewWindow, w: i32, h: i32) {
 }
 
 #[cfg(target_os = "linux")]
-fn apply_linux_anchor(
-    window: &tauri::WebviewWindow,
-    state: &tauri::State<'_, Mutex<WidgetState>>,
-) {
+fn apply_linux_anchor(window: &tauri::WebviewWindow, state: &tauri::State<'_, Mutex<WidgetState>>) {
     use gtk_layer_shell::LayerShell;
     let snapshot = match state.lock() {
         Ok(s) => s.clone(),
         Err(_) => return,
     };
-    let Ok(gtk_window) = window.gtk_window() else { return };
+    let Ok(gtk_window) = window.gtk_window() else {
+        return;
+    };
 
     // Reset anchors first — gtk-layer-shell remembers prior set_anchor calls,
     // so flipping from bottom-left to top-right needs the old edges cleared.
@@ -358,7 +392,9 @@ fn apply_pixel_position(
         Ok(s) => s.clone(),
         Err(_) => return,
     };
-    let Ok(Some(monitor)) = window.current_monitor() else { return };
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
     let mon_size = monitor.size();
     let scale = monitor.scale_factor();
     let mon_w = mon_size.width as f64 / scale;
@@ -382,12 +418,15 @@ fn apply_pixel_position(
 /// size to the current monitor's logical size and positions at (0, 0).
 /// The toolkit's /overlay page handles per-plugin positioning inside.
 #[cfg(not(target_os = "linux"))]
-fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
-    let Ok(Some(monitor)) = window.current_monitor() else { return };
+fn apply_fullscreen_position(window: &tauri::WebviewWindow, toolkit: &str) {
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
     let mon_size = monitor.size();
     let scale = monitor.scale_factor();
     let mon_w = mon_size.width as f64 / scale;
     let mon_h = mon_size.height as f64 / scale;
+    report_detected_surface(toolkit, mon_w, mon_h);
     let _ = window.set_size(LogicalSize::new(mon_w, mon_h));
     let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
 }
@@ -422,9 +461,8 @@ fn apply_fullscreen_position(window: &tauri::WebviewWindow) {
 fn apply_windows_no_border(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::Graphics::Dwm::{
-        DwmSetWindowAttribute, DWMNCRP_DISABLED, DWMWA_BORDER_COLOR,
+        DwmSetWindowAttribute, DWMNCRP_DISABLED, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
         DWMWA_NCRENDERING_POLICY, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
-        DWMWA_COLOR_NONE,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_STYLE, SWP_FRAMECHANGED,
@@ -514,8 +552,7 @@ fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
 
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)
         .map_err(|e| format!("build menu item: {e}"))?;
-    let menu =
-        Menu::with_items(app, &[&quit]).map_err(|e| format!("build tray menu: {e}"))?;
+    let menu = Menu::with_items(app, &[&quit]).map_err(|e| format!("build tray menu: {e}"))?;
 
     TrayIconBuilder::new()
         .icon(icon)
@@ -576,31 +613,42 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
 
     // GTK window creation must happen on the main thread. The launcher
     // calls us from a background probe thread, so dispatch to main.
-    app.clone().run_on_main_thread(move || {
-        // If the window already exists (e.g. toggle called twice), just show it.
-        if let Some(w) = app.get_webview_window("main") {
-            let _ = w.show();
-            return;
-        }
+    app.clone()
+        .run_on_main_thread(move || {
+            // If the window already exists (e.g. toggle called twice), just show it.
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                return;
+            }
 
-        let toolkit_url = if let Some(state) = app.try_state::<crate::launcher::ipc::LauncherState>() {
-            state.lock().unwrap().toolkit_url.clone()
-        } else {
-            "http://localhost:49200".to_string()
-        };
+            let toolkit_url =
+                if let Some(state) = app.try_state::<crate::launcher::ipc::LauncherState>() {
+                    state.lock().unwrap().toolkit_url.clone()
+                } else {
+                    "http://localhost:49200".to_string()
+                };
 
-        let url = unified_url(&toolkit_url);
-        let title = "RL Toolkit – Overlay".to_string();
+            let url = unified_url(&toolkit_url);
+            let title = "RL Toolkit – Overlay".to_string();
 
-        if let Err(e) = build_overlay_window(&app, &Mode::Unified, &url, &title, false, None) {
-            eprintln!("[launcher] build_overlay_window failed: {e}");
-            return;
-        }
+            if let Err(e) = build_overlay_window(
+                &app,
+                &Mode::Unified,
+                &url,
+                &title,
+                false,
+                None,
+                &toolkit_url,
+            ) {
+                eprintln!("[launcher] build_overlay_window failed: {e}");
+                return;
+            }
 
-        // The focus watcher (spawned in launcher::run) drives real
-        // __rlt_focus__ messages into the overlay webview. Plugins with
-        // hide_when_unfocused=1 wait on those before rendering.
-    }).map_err(|e| e.to_string())
+            // The focus watcher (spawned in launcher::run) drives real
+            // __rlt_focus__ messages into the overlay webview. Plugins with
+            // hide_when_unfocused=1 wait on those before rendering.
+        })
+        .map_err(|e| e.to_string())
 }
 
 /// Construct the overlay webview window inside the given app.
@@ -623,6 +671,7 @@ fn build_overlay_window(
     title: &str,
     persist_cache: bool,
     monitor: Option<usize>,
+    toolkit: &str,
 ) -> tauri::Result<()> {
     let parsed = url::Url::parse(url).map_err(tauri::Error::InvalidUrl)?;
 
@@ -670,10 +719,10 @@ fn build_overlay_window(
         }
         Mode::Unified => {
             #[cfg(target_os = "linux")]
-            apply_layer_shell_unified(&window, monitor);
+            apply_layer_shell_unified(&window, monitor, toolkit);
 
             #[cfg(not(target_os = "linux"))]
-            apply_fullscreen_position(&window);
+            apply_fullscreen_position(&window, toolkit);
         }
     }
 
@@ -689,9 +738,7 @@ fn main() {
         // Install the overlay factory the launcher can call later.
         // Must be a bare fn pointer (no captures), so the body calls a
         // free function that takes only &AppHandle.
-        rl_widget::overlay_bridge::install(|app| {
-            build_overlay_for_launcher(app)
-        });
+        rl_widget::overlay_bridge::install(|app| build_overlay_for_launcher(app));
         launcher::run(args);
         return;
     }
@@ -785,6 +832,7 @@ fn main_overlay(args: Args) {
                 &title,
                 args_for_setup.persist_cache,
                 args_for_setup.monitor,
+                &args_for_setup.toolkit,
             )?;
 
             // In plugin mode on non-linux, apply pixel positioning using
@@ -905,7 +953,9 @@ fn apply_layer_shell_plugin(
     use gtk::prelude::*;
     use gtk_layer_shell::LayerShell;
 
-    let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else { return };
+    let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else {
+        return;
+    };
 
     gtk_window.set_size_request(cfg.width as i32, cfg.height as i32);
     gtk_window.set_default_size(cfg.width as i32, cfg.height as i32);
@@ -922,10 +972,35 @@ fn apply_layer_shell_plugin(
 /// size — the compositor sizes the surface to the output, which is the
 /// standard fullscreen-overlay layer-shell idiom.
 #[cfg(target_os = "linux")]
-fn apply_layer_shell_unified(window: &tauri::WebviewWindow, monitor_index: Option<usize>) {
+fn apply_layer_shell_unified(
+    window: &tauri::WebviewWindow,
+    monitor_index: Option<usize>,
+    toolkit: &str,
+) {
+    use gtk::prelude::*;
     use gtk_layer_shell::{Edge, LayerShell};
 
-    let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else { return };
+    // Resolve the chosen GDK monitor and report its logical size to the
+    // toolkit. Same selection logic as init_layer_shell_common (primary
+    // when no index given). Logical = device pixels / scale factor.
+    if let Some(display) = gtk::gdk::Display::default() {
+        let mon = if let Some(n) = monitor_index {
+            display.monitor(n as i32)
+        } else {
+            display.primary_monitor().or_else(|| display.monitor(0))
+        };
+        if let Some(m) = mon {
+            let geo = m.geometry();
+            let scale = m.scale_factor().max(1) as f64;
+            let mon_w = geo.width() as f64 / scale;
+            let mon_h = geo.height() as f64 / scale;
+            report_detected_surface(toolkit, mon_w, mon_h);
+        }
+    }
+
+    let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else {
+        return;
+    };
 
     for e in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
         gtk_window.set_anchor(e, true);
@@ -937,7 +1012,15 @@ fn apply_layer_shell_unified(window: &tauri::WebviewWindow, monitor_index: Optio
 fn parse_anchor(s: &str) -> (gtk_layer_shell::Edge, gtk_layer_shell::Edge) {
     use gtk_layer_shell::Edge;
     let s = s.to_ascii_lowercase();
-    let vert = if s.contains("top") { Edge::Top } else { Edge::Bottom };
-    let horiz = if s.contains("right") { Edge::Right } else { Edge::Left };
+    let vert = if s.contains("top") {
+        Edge::Top
+    } else {
+        Edge::Bottom
+    };
+    let horiz = if s.contains("right") {
+        Edge::Right
+    } else {
+        Edge::Left
+    };
     (vert, horiz)
 }

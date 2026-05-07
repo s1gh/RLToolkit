@@ -5,7 +5,7 @@
 // merged them into window.__rltOverlayContext. This script takes over
 // rendering: production-style iframes for the live preview, plus edit
 // chrome (outlines, badges, capture divs that block iframe mouse events).
-(function () {
+(async function () {
   // Loaded as a classic <script>, not an ES module — strict mode is opt-in.
   // biome-ignore lint/suspicious/noRedundantUseStrict: classic script
   'use strict';
@@ -14,6 +14,50 @@
     console.error('[overlay-editor] missing __rltOverlayContext');
     return;
   }
+
+  // ─── Target surface ──────────────────────────────────────
+  // Represents the production overlay's pixel dimensions. Configured
+  // server-side (dashboard) with a fallback to rl-widget's reported
+  // monitor size or 1920×1080. The editor renders a canvas of exactly
+  // these dimensions and scales it to fit the viewport — so a widget at
+  // (0, 0) in the editor lands at (0, 0) on the production overlay
+  // regardless of which window/monitor either is in.
+  let surface = {
+    configured: null,
+    detected: null,
+    effective: { width: 1920, height: 1080 },
+  };
+  let canvasScale = 1;
+
+  // Defensive: validate the server's response shape so a backend
+  // regression or partial deploy can't NaN-poison drag math. Returns
+  // the input unchanged when valid; otherwise the fallback surface.
+  function normalizeSurface(s) {
+    const e = s?.effective;
+    if (
+      !e ||
+      !Number.isFinite(e.width) ||
+      !Number.isFinite(e.height) ||
+      e.width <= 0 ||
+      e.height <= 0
+    ) {
+      return { configured: null, detected: null, effective: { width: 1920, height: 1080 } };
+    }
+    return s;
+  }
+
+  async function loadSurface() {
+    try {
+      const r = await fetch('/api/overlay/surface');
+      if (r.ok) {
+        surface = normalizeSurface(await r.json());
+      }
+    } catch (err) {
+      console.warn('[overlay-editor] surface fetch failed; using fallback', err);
+    }
+  }
+
+  await loadSurface();
 
   // Make the edit page non-transparent so widget chrome is readable
   // against something. The production overlay is intentionally see-
@@ -32,18 +76,38 @@
     'display:flex;align-items:center;gap:12px;padding:0 14px;' +
     'background:rgba(15,19,32,0.95);border-bottom:1px solid #232a44;' +
     'color:#a9b0cf;font:600 11px Inter,system-ui,sans-serif;' +
-    'letter-spacing:.05em;z-index:100';
+    'letter-spacing:.05em;z-index:100;transition:opacity .1s';
   topbar.innerHTML =
     '<span style="color:#22d3ee;text-transform:uppercase">Overlay editor</span>' +
     '<span style="opacity:.6">Drag to position · Drop to save</span>' +
     '<span style="flex:1"></span>' +
     '<span style="opacity:.6;text-transform:none;letter-spacing:.02em;font-weight:500">8px grid · hold Shift for fine adjust</span>' +
+    '<span data-role="target-label" style="opacity:.7;text-transform:none;letter-spacing:.02em;font-weight:500;margin-left:12px"></span>' +
     '<button data-role="reset-all" style="' +
     'padding:6px 12px;background:#1d2238;color:#a9b0cf;' +
     'border:1px solid #232a44;border-radius:6px;cursor:pointer;' +
     'font:600 10px Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase' +
     '">Reset all</button>';
   document.body.appendChild(topbar);
+  const topbarTarget = topbar.querySelector('[data-role="target-label"]');
+
+  // Resolve manifest defaults for a plugin so reset paths can send a
+  // deterministic PUT body. ctx.plugins is the raw /api/plugins array;
+  // each entry's `overlay` block holds the manifest values before any
+  // user override is layered on. Falls back to safe defaults so a
+  // manifest missing fields doesn't crash the reset flow.
+  function manifestDefaultsFor(plugin) {
+    const p = ctx.plugins.find((p) => p.name === plugin.name);
+    const o = p?.overlay || {};
+    return {
+      anchor: o.anchor || 'top-right',
+      offset_x: o.offset_x | 0,
+      offset_y: o.offset_y | 0,
+      width: o.width | 0 || 320,
+      height: o.height | 0 || 120,
+      opacity: o.opacity == null ? 1 : o.opacity,
+    };
+  }
 
   topbar.querySelector('[data-role="reset-all"]').addEventListener('click', async () => {
     const ok = await confirmModal({
@@ -56,11 +120,25 @@
     });
     if (!ok) return;
     try {
-      // Sequential DELETEs — N is small (one per plugin) so a parallel
-      // burst gains nothing and would muddle error reporting.
+      // Sequential PUTs — N is small (one per plugin) so a parallel
+      // burst gains nothing and would muddle error reporting. PUT
+      // (not DELETE) so production /overlay still sees enabled:true
+      // and keeps each iframe mounted.
       for (const w of widgets) {
+        const m = manifestDefaultsFor(w.plugin);
+        const body = {
+          enabled: true,
+          anchor: m.anchor,
+          offset_x: m.offset_x,
+          offset_y: m.offset_y,
+          width: m.width,
+          height: m.height,
+          opacity: m.opacity,
+        };
         const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(w.plugin.name), {
-          method: 'DELETE',
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
         });
         if (!r.ok) throw new Error(w.plugin.name + ' → HTTP ' + r.status);
       }
@@ -69,6 +147,78 @@
       toast('Reset all failed: ' + err.message);
     }
   });
+
+  // ─── Canvas ──────────────────────────────────────────────
+  // The canvas div is sized in target-surface pixels (Wt × Ht) and CSS-
+  // scaled to fit the viewport. Every widget element is parented here,
+  // not on body, so a single transform on the canvas scales the entire
+  // edit world. The transform doesn't reflow surrounding layout, so we
+  // also offset top/left manually to keep the scaled canvas centered
+  // beneath the topbar.
+  const canvas = document.createElement('div');
+  canvas.id = '__rlt_canvas';
+  canvas.style.cssText =
+    'position:absolute;top:0;left:0;' +
+    'background:rgba(15,19,32,0.35);' +
+    'outline:1px solid rgba(34,211,238,0.5);' +
+    'transform-origin:top left';
+  document.body.appendChild(canvas);
+
+  function applyCanvasLayout() {
+    const W = surface.effective.width;
+    const H = surface.effective.height;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    // Topbar is 32px tall and overlays the viewport — discount it from
+    // the available height so the scaled canvas doesn't peek under it.
+    const availW = window.innerWidth;
+    const availH = Math.max(0, window.innerHeight - 32);
+    const k = Math.min(availW / W, availH / H, 1);
+    canvasScale = k;
+    canvas.style.transform = 'scale(' + k + ')';
+    // Center the (scaled) canvas in the available viewport area.
+    const scaledW = W * k;
+    const scaledH = H * k;
+    const offX = Math.max(0, Math.round((availW - scaledW) / 2));
+    const offY = Math.max(0, Math.round((availH - scaledH) / 2)) + 32;
+    canvas.style.left = offX + 'px';
+    canvas.style.top = offY + 'px';
+    updateTopbarLabel();
+    flagOffCanvasWidgets();
+  }
+
+  function updateTopbarLabel() {
+    const W = surface.effective.width;
+    const H = surface.effective.height;
+    const pct = Math.round(canvasScale * 100);
+    topbarTarget.textContent = 'Target: ' + W + ' × ' + H + ' @ ' + pct + '%';
+  }
+
+  // Highlight widgets whose current offset+size puts them outside the
+  // canvas. Common after the user shrinks the target — silent auto-move
+  // would be worse than the visible warning. The clamp on drag still
+  // applies, so any user-initiated move pulls the widget back into bounds.
+  function flagOffCanvasWidgets() {
+    const W = surface.effective.width;
+    const H = surface.effective.height;
+    for (const w of widgets) {
+      const ox = w.overlay.offset_x | 0;
+      const oy = w.overlay.offset_y | 0;
+      const wW = w.overlay.width | 0;
+      const wH = w.overlay.height | 0;
+      const off = ox < 0 || oy < 0 || ox + wW > W || oy + wH > H;
+      // Use a different outline color for off-canvas widgets, persisting
+      // across the selected/unselected outline updates by checking here
+      // whenever we re-layout.
+      if (off) {
+        w.el.style.outline = '2px dashed #f97316'; // orange
+      } else if (w === selected) {
+        w.el.style.outline = '2px solid rgba(34, 211, 238, 1)';
+      } else {
+        w.el.style.outline = '1px solid rgba(34, 211, 238, 0.4)';
+      }
+    }
+  }
 
   // Per-widget state. `el` is the wrapper div that owns positioning;
   // `iframe` is the live preview; `capture` is the transparent overlay
@@ -82,6 +232,9 @@
   const widgets = ctx.merged
     .filter(({ overlay }) => overlay.enabled !== false)
     .map(({ plugin, overlay }) => buildWidget(plugin, overlay));
+
+  applyCanvasLayout();
+  window.addEventListener('resize', applyCanvasLayout);
 
   function buildWidget(plugin, overlay) {
     const a = overlay.anchor || 'top-right';
@@ -144,7 +297,7 @@
     el.appendChild(resize);
     positionResizeHandle(resize, a);
 
-    document.body.appendChild(el);
+    canvas.appendChild(el);
     return { plugin, overlay, el, iframe, capture, badge, resize };
   }
 
@@ -196,6 +349,7 @@
       selected.el.style.outline = '2px solid rgba(34, 211, 238, 1)';
       selected.resize.style.display = 'block';
     }
+    flagOffCanvasWidgets();
     renderPanel();
   }
 
@@ -241,6 +395,7 @@
     try {
       target.setPointerCapture(pointerId);
     } catch (_) {}
+    setChromeFaded(true);
 
     // Token used to detect a stale rollback: if a second drag starts on
     // this widget before this drag's save resolves, w._dragToken changes,
@@ -251,8 +406,16 @@
     function move(ev) {
       if (ev.pointerId !== pointerId) return;
       ev.preventDefault();
-      const nx = clamp(startOX + sx * (ev.clientX - startX), 0);
-      const ny = clamp(startOY + sy * (ev.clientY - startY), 0);
+      // Pointer deltas are in client (CSS) pixels. The widget lives inside
+      // a canvas scaled by canvasScale, so 1 client pixel = 1/k canvas px.
+      const dxCanvas = (ev.clientX - startX) / canvasScale;
+      const dyCanvas = (ev.clientY - startY) / canvasScale;
+      const W = surface.effective.width;
+      const H = surface.effective.height;
+      const wW = w.el.offsetWidth;
+      const wH = w.el.offsetHeight;
+      const nx = clampRange(startOX + sx * dxCanvas, 0, Math.max(0, W - wW));
+      const ny = clampRange(startOY + sy * dyCanvas, 0, Math.max(0, H - wH));
       w.overlay.offset_x = nx;
       w.overlay.offset_y = ny;
       applyAnchor(w.el, anchor, nx, ny);
@@ -265,6 +428,7 @@
       try {
         target.releasePointerCapture(pointerId);
       } catch (_) {}
+      setChromeFaded(false);
 
       // Snap on release (unless Shift held), then persist.
       if (!ev.shiftKey) {
@@ -320,14 +484,24 @@
     try {
       target.setPointerCapture(pointerId);
     } catch (_) {}
+    setChromeFaded(true);
     w._resizeToken = (w._resizeToken | 0) + 1;
     const token = w._resizeToken;
 
     function move(ev) {
       if (ev.pointerId !== pointerId) return;
       ev.preventDefault();
-      const nw = clamp(startW + sx * (ev.clientX - startX), 16);
-      const nh = clamp(startH + sy * (ev.clientY - startY), 16);
+      const dxCanvas = (ev.clientX - startX) / canvasScale;
+      const dyCanvas = (ev.clientY - startY) / canvasScale;
+      const W = surface.effective.width;
+      const H = surface.effective.height;
+      // Resize bounds: widget can't grow past the canvas edge along the
+      // anchor's free axis. offset_x is fixed during resize; max width is
+      // W - offset_x along the free axis (and analogously for height).
+      const ox = w.overlay.offset_x | 0;
+      const oy = w.overlay.offset_y | 0;
+      const nw = clampRange(startW + sx * dxCanvas, 16, Math.max(16, W - ox));
+      const nh = clampRange(startH + sy * dyCanvas, 16, Math.max(16, H - oy));
       w.overlay.width = nw;
       w.overlay.height = nh;
       w.el.style.width = nw + 'px';
@@ -341,6 +515,7 @@
       try {
         target.releasePointerCapture(pointerId);
       } catch (_) {}
+      setChromeFaded(false);
 
       if (!ev.shiftKey) {
         w.overlay.width = Math.round(w.overlay.width / SNAP) * SNAP;
@@ -365,8 +540,23 @@
     target.addEventListener('pointercancel', end);
   }
 
-  function clamp(v, min) {
-    return v < min ? min : v;
+  function clampRange(v, lo, hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+  }
+
+  // Fade chrome (topbar + properties panel) during drag/resize so they
+  // don't block the canvas corners the user is trying to reach. Both
+  // stop intercepting pointer events while faded so a drag-onto-them
+  // can't be hijacked.
+  function setChromeFaded(faded) {
+    const op = faded ? '0.15' : '';
+    const pe = faded ? 'none' : '';
+    topbar.style.opacity = op;
+    topbar.style.pointerEvents = pe;
+    panel.style.opacity = op;
+    panel.style.pointerEvents = pe;
   }
 
   // ─── Persistence ──────────────────────────────────────────
@@ -513,7 +703,7 @@
     'position:fixed;top:48px;right:16px;width:240px;' +
     'background:#161b2c;border:1px solid #232a44;border-radius:10px;' +
     'padding:14px;color:#e6e9f5;font:500 12px Inter,system-ui,sans-serif;' +
-    'box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:50;display:none';
+    'box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:50;display:none;transition:opacity .1s';
   document.body.appendChild(panel);
 
   function renderPanel() {
@@ -613,14 +803,20 @@
         const prev = w.overlay.anchor || 'top-right';
         if (next === prev) return;
         // Recompute offsets so the widget visually stays in place under
-        // the new anchor. Read the live viewport so the math works
-        // regardless of editor browser size.
-        const r = w.el.getBoundingClientRect();
+        // the new anchor. Use the widget's layout-coords (offsetLeft/Top
+        // relative to the canvas parent) — these are already in canvas-
+        // pixel space and unaffected by the canvas's CSS transform.
+        const wL = w.el.offsetLeft;
+        const wT = w.el.offsetTop;
+        const wW = w.el.offsetWidth;
+        const wH = w.el.offsetHeight;
+        const W = surface.effective.width;
+        const H = surface.effective.height;
         let nx, ny;
-        if (next.indexOf('-left') >= 0) nx = Math.max(0, Math.round(r.left));
-        else nx = Math.max(0, Math.round(window.innerWidth - r.right));
-        if (next.indexOf('top') === 0) ny = Math.max(0, Math.round(r.top));
-        else ny = Math.max(0, Math.round(window.innerHeight - r.bottom));
+        if (next.indexOf('-left') >= 0) nx = Math.max(0, Math.round(wL));
+        else nx = Math.max(0, Math.round(W - (wL + wW)));
+        if (next.indexOf('top') === 0) ny = Math.max(0, Math.round(wT));
+        else ny = Math.max(0, Math.round(H - (wT + wH)));
         w.overlay.anchor = next;
         w.overlay.offset_x = nx;
         w.overlay.offset_y = ny;
@@ -668,9 +864,21 @@
   }
 
   async function resetWidget(w) {
+    const m = manifestDefaultsFor(w.plugin);
+    const body = {
+      enabled: true,
+      anchor: m.anchor,
+      offset_x: m.offset_x,
+      offset_y: m.offset_y,
+      width: m.width,
+      height: m.height,
+      opacity: m.opacity,
+    };
     try {
       const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(w.plugin.name), {
-        method: 'DELETE',
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
     } catch (err) {
@@ -682,6 +890,23 @@
     // client-side and duplicating drift risk.
     location.reload();
   }
+
+  // Listen for live surface changes from the dashboard. /events filters by
+  // the URL param; we ask for just _SurfaceChanged to avoid receiving the
+  // full game-event firehose.
+  const surfaceES = new EventSource('/events?events=_SurfaceChanged');
+  surfaceES.onmessage = (e) => {
+    let env;
+    try {
+      env = JSON.parse(e.data);
+    } catch (_) {
+      return;
+    }
+    if (!env || env.Event !== '_SurfaceChanged' || !env.Data) return;
+    surface = normalizeSurface(env.Data);
+    applyCanvasLayout();
+  };
+  surfaceES.onerror = (err) => console.warn('[overlay-editor] surface SSE lost', err);
 
   console.log('[overlay-editor] rendered', widgets.length, 'widget(s)');
 })();
