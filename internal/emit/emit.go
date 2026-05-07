@@ -2,9 +2,30 @@
 // Each emitter implements pipeline.EmitProcessor (one Process method)
 // and stays free of internal mutex state — the pipeline runs them
 // single-threaded so any per-match counters live as plain fields.
+//
+// Cross-package dependencies are expressed as small consumer-side
+// interfaces (TickReader, RosterResolver, ReplayGate) so this package
+// stays free of any backend coupling.
 package emit
 
-import "rl-toolkit/internal/bus"
+import (
+	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
+)
+
+// RosterResolver is the slim view emitters need into the roster
+// tracker: turn a {Name, Shortcut, TeamNum} stub into a fully-enriched
+// player. The roster tracker in backend satisfies this structurally.
+type RosterResolver interface {
+	ResolveByShortcut(ref types.ShortcutRef) *types.EnrichedPlayer
+}
+
+// ReplayGate exposes the single bit of TickStore state emitters need
+// for phase-gated suppression: are we currently in a goal replay?
+// (RL keeps firing some envelopes during the cinematic.)
+type ReplayGate interface {
+	InReplay() bool
+}
 
 // payloadBytes returns the JSON object the upstream emitter produced.
 // During the synth-bridged transition the legacy producer ships flat

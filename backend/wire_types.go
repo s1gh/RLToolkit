@@ -163,33 +163,9 @@ type ballHitInner struct {
 	Location     *vec3    `json:"Location"`
 }
 
-// crossbarHitData mirrors the wire shape of a CrossbarHit envelope.
-// BallLastTouch is the player who last touched the ball before it
-// hit the crossbar — typically the shooter.
-type crossbarHitData struct {
-	MatchGUID        string         `json:"MatchGuid"`
-	MatchGUIDLow     string         `json:"matchguid"`
-	BallSpeed        *float64       `json:"BallSpeed"`
-	BallSpeedLow     *float64       `json:"ballspeed"`
-	ImpactForce      *float64       `json:"ImpactForce"`
-	ImpactForceLow   *float64       `json:"impactforce"`
-	BallLocation     *vec3          `json:"BallLocation"`
-	BallLocationLow  *vec3          `json:"balllocation"`
-	BallLastTouch    *ballLastTouch `json:"BallLastTouch"`
-	BallLastTouchLow *ballLastTouch `json:"balllasttouch"`
-}
-
-type ballLastTouch struct {
-	Player    *ShortcutRef `json:"Player"`
-	PlayerLow *ShortcutRef `json:"player"`
-	Speed     *float64     `json:"Speed"`
-	SpeedLow  *float64     `json:"speed"`
-}
-
-type enrichedBallLastTouch struct {
-	Player *EnrichedPlayer `json:"player,omitempty"`
-	Speed  *float64        `json:"speed,omitempty"`
-}
+type crossbarHitData = types.CrossbarHitData
+type ballLastTouch = types.BallLastTouch
+type enrichedBallLastTouch = types.EnrichedBallLastTouch
 
 // matchEndedData mirrors the wire shape of MatchEnded.
 type matchEndedData struct {

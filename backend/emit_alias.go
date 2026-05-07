@@ -12,13 +12,26 @@ import (
 type FastestShotEmitter = emit.FastestShot
 type FirstBloodEmitter = emit.FirstBlood
 type DemosEmitter = emit.Demos
+type CrossbarEmitter = emit.Crossbar
 
 func NewFastestShotEmitter() *FastestShotEmitter { return emit.NewFastestShot() }
 func NewFirstBloodEmitter() *FirstBloodEmitter   { return emit.NewFirstBlood() }
+
+// NewDemosEmitter forwards into emit.NewDemos. TickStore satisfies
+// emit.TickReader structurally (PlayerScalars has the same signature).
 func NewDemosEmitter(ticks *TickStore) *DemosEmitter {
-	// TickStore satisfies emit.TickReader structurally (PlayerScalars
-	// has the same signature), so the cast is safe.
 	return emit.NewDemos(ticks)
+}
+
+// NewCrossbarEmitter forwards into emit.NewCrossbar. RosterTracker
+// satisfies emit.RosterResolver and TickStore satisfies emit.ReplayGate
+// structurally; an explicit nil ticks (used by some tests) flows
+// through unchanged.
+func NewCrossbarEmitter(roster *RosterTracker, ticks *TickStore) *CrossbarEmitter {
+	if ticks == nil {
+		return emit.NewCrossbar(roster, nil)
+	}
+	return emit.NewCrossbar(roster, ticks)
 }
 
 // payloadBytes is preserved here for the remaining in-backend emitters

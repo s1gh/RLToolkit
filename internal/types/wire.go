@@ -18,3 +18,38 @@ type WireTeam struct {
 	ColorPrimary   string `json:"ColorPrimary"`
 	ColorSecondary string `json:"ColorSecondary"`
 }
+
+// CrossbarHitData mirrors the wire shape of a CrossbarHit envelope.
+// BallLastTouch is the player who last touched the ball before it
+// hit the crossbar — typically the shooter. RL ships either
+// PascalCase or all-lowercase keys depending on build, hence each
+// field appearing twice.
+type CrossbarHitData struct {
+	MatchGUID        string         `json:"MatchGuid"`
+	MatchGUIDLow     string         `json:"matchguid"`
+	BallSpeed        *float64       `json:"BallSpeed"`
+	BallSpeedLow     *float64       `json:"ballspeed"`
+	ImpactForce      *float64       `json:"ImpactForce"`
+	ImpactForceLow   *float64       `json:"impactforce"`
+	BallLocation     *Vec3          `json:"BallLocation"`
+	BallLocationLow  *Vec3          `json:"balllocation"`
+	BallLastTouch    *BallLastTouch `json:"BallLastTouch"`
+	BallLastTouchLow *BallLastTouch `json:"balllasttouch"`
+}
+
+// BallLastTouch is the wire-shape "who last touched the ball" stub
+// found inside CrossbarHit envelopes.
+type BallLastTouch struct {
+	Player    *ShortcutRef `json:"Player"`
+	PlayerLow *ShortcutRef `json:"player"`
+	Speed     *float64     `json:"Speed"`
+	SpeedLow  *float64     `json:"speed"`
+}
+
+// EnrichedBallLastTouch is the toolkit-side projection of
+// BallLastTouch with the player resolved against the live roster.
+// Shipped on _CrossbarHit.
+type EnrichedBallLastTouch struct {
+	Player *EnrichedPlayer `json:"player,omitempty"`
+	Speed  *float64        `json:"speed,omitempty"`
+}

@@ -1,8 +1,10 @@
-package backend
+package emit
 
 import (
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
+	"rl-toolkit/internal/wire"
 	"time"
 )
 
@@ -12,28 +14,28 @@ import (
 // distinct hits in a single play still both fire.
 const crossbarDebounceWindow = 500 * time.Millisecond
 
-// CrossbarEmitter republishes RL's CrossbarHit as _CrossbarHit with
-// the BallLastTouch player resolved against the live roster, plus a
+// Crossbar republishes RL's CrossbarHit as _CrossbarHit with the
+// BallLastTouch player resolved against the live roster, plus a
 // debounce: RL fires bursts when the ball rolls along the goal frame,
 // and we want one event per real impact.
 //
 // Phase gate: skipped during goal replays (RL still fires CrossbarHit
 // on the cinematic camera bouncing the ball off the frame). Reads the
-// replay flag from the shared TickStore.
+// replay flag from the injected ReplayGate.
 //
 // No mutex: emit processors run single-threaded inside Pipeline.Run.
-type CrossbarEmitter struct {
-	roster *RosterTracker
-	ticks  *TickStore
+type Crossbar struct {
+	roster RosterResolver
+	ticks  ReplayGate
 
 	lastHit time.Time
 }
 
-func NewCrossbarEmitter(roster *RosterTracker, ticks *TickStore) *CrossbarEmitter {
-	return &CrossbarEmitter{roster: roster, ticks: ticks}
+func NewCrossbar(roster RosterResolver, ticks ReplayGate) *Crossbar {
+	return &Crossbar{roster: roster, ticks: ticks}
 }
 
-func (e *CrossbarEmitter) Process(evt bus.Event) []bus.Event {
+func (e *Crossbar) Process(evt bus.Event) []bus.Event {
 	if evt.Name != "CrossbarHit" {
 		return nil
 	}
@@ -48,17 +50,17 @@ func (e *CrossbarEmitter) Process(evt bus.Event) []bus.Event {
 	}
 	e.lastHit = now
 
-	inner := unwrapInnerData(evt.Raw)
+	inner := wire.UnwrapInnerData(evt.Raw)
 	if inner == "" {
 		return nil
 	}
-	var d crossbarHitData
+	var d types.CrossbarHitData
 	if err := json.Unmarshal([]byte(inner), &d); err != nil {
 		return nil
 	}
-	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
-	speed := pickFloat(d.BallSpeed, d.BallSpeedLow)
-	force := pickFloat(d.ImpactForce, d.ImpactForceLow)
+	guid := wire.PickStr(d.MatchGUID, d.MatchGUIDLow)
+	speed := wire.PickFloat(d.BallSpeed, d.BallSpeedLow)
+	force := wire.PickFloat(d.ImpactForce, d.ImpactForceLow)
 	loc := d.BallLocation
 	if loc == nil {
 		loc = d.BallLocationLow
@@ -69,11 +71,11 @@ func (e *CrossbarEmitter) Process(evt bus.Event) []bus.Event {
 	}
 
 	out := struct {
-		MatchGUID     string                 `json:"matchGuid,omitempty"`
-		BallSpeed     *float64               `json:"ballSpeed,omitempty"`
-		ImpactForce   *float64               `json:"impactForce,omitempty"`
-		BallLocation  *vec3                  `json:"ballLocation,omitempty"`
-		BallLastTouch *enrichedBallLastTouch `json:"ballLastTouch,omitempty"`
+		MatchGUID     string                       `json:"matchGuid,omitempty"`
+		BallSpeed     *float64                     `json:"ballSpeed,omitempty"`
+		ImpactForce   *float64                     `json:"impactForce,omitempty"`
+		BallLocation  *types.Vec3                  `json:"ballLocation,omitempty"`
+		BallLastTouch *types.EnrichedBallLastTouch `json:"ballLastTouch,omitempty"`
 	}{
 		MatchGUID:    guid,
 		BallSpeed:    speed,
@@ -85,13 +87,13 @@ func (e *CrossbarEmitter) Process(evt bus.Event) []bus.Event {
 		if ref == nil {
 			ref = lastTouch.PlayerLow
 		}
-		sp := pickFloat(lastTouch.Speed, lastTouch.SpeedLow)
-		var enrichedRef *EnrichedPlayer
-		if ref != nil {
+		sp := wire.PickFloat(lastTouch.Speed, lastTouch.SpeedLow)
+		var enrichedRef *types.EnrichedPlayer
+		if ref != nil && e.roster != nil {
 			enrichedRef = e.roster.ResolveByShortcut(*ref)
 		}
 		if enrichedRef != nil || sp != nil {
-			out.BallLastTouch = &enrichedBallLastTouch{
+			out.BallLastTouch = &types.EnrichedBallLastTouch{
 				Player: enrichedRef,
 				Speed:  sp,
 			}
