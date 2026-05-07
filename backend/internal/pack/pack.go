@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -52,11 +53,34 @@ func Pack(srcDir, outDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create archive: %w", err)
 	}
+	// Safety net: ensures f is closed on early returns from the walk.
+	// The explicit f.Close() below is the one whose error is reported.
 	defer f.Close()
 
 	zw := zip.NewWriter(f)
-	defer zw.Close()
 
+	// addFile opens path, copies its contents into the zip as entry rel,
+	// and closes the source file before returning — no fd leak across
+	// WalkDir iterations.
+	addFile := func(path, rel string) error {
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		// Stable mtime so two packs of the same source produce byte-identical archives (matters for sha256 integrity in the registry).
+		hdr := &zip.FileHeader{Name: rel, Method: zip.Deflate}
+		w, err := zw.CreateHeader(hdr)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(w, src)
+		return err
+	}
+
+	// S1: Collect all file paths first, then sort, so archive entry order
+	// is deterministic regardless of filesystem ordering.
+	var paths []string
 	walkErr := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -64,28 +88,39 @@ func Pack(srcDir, outDir string) (string, error) {
 		if d.IsDir() {
 			return nil
 		}
+		paths = append(paths, path)
+		return nil
+	})
+	if walkErr != nil {
+		return "", fmt.Errorf("walk %s: %w", srcDir, walkErr)
+	}
+
+	sort.Strings(paths)
+
+	for _, path := range paths {
 		rel, err := filepath.Rel(srcDir, path)
 		if err != nil {
-			return err
+			return "", fmt.Errorf("rel path %s: %w", path, err)
 		}
 		// Force forward slashes in archive entries (zip convention,
 		// portable across OSes).
 		rel = strings.ReplaceAll(rel, string(filepath.Separator), "/")
+		if err := addFile(path, rel); err != nil {
+			return "", fmt.Errorf("add file %s: %w", rel, err)
+		}
+	}
 
-		w, err := zw.Create(rel)
-		if err != nil {
-			return err
-		}
-		src, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer src.Close()
-		_, err = io.Copy(w, src)
-		return err
-	})
-	if walkErr != nil {
-		return "", fmt.Errorf("walk %s: %w", srcDir, walkErr)
+	// B1: Close zip writer explicitly (not deferred) so flush errors are
+	// surfaced before closing the underlying file.
+	if err := zw.Close(); err != nil {
+		return "", fmt.Errorf("close zip: %w", err)
+	}
+	// B1: Close the file explicitly and report any error (e.g. disk-full
+	// on the final flush). The deferred f.Close() above will call Close a
+	// second time; *os.File returns ErrClosed on double-close, which is
+	// harmless because we no longer check it.
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("close archive: %w", err)
 	}
 
 	return outPath, nil
