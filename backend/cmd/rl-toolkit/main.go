@@ -61,6 +61,8 @@ func main() {
 			os.Args = append(os.Args[:1], os.Args[2:]...)
 		case "new":
 			os.Exit(runNew(os.Args[2:]))
+		case "pack":
+			os.Exit(runPack(os.Args[2:]))
 		case "help", "-h", "--help":
 			printUsage(os.Stdout)
 			return
@@ -81,6 +83,7 @@ func printUsage(w *os.File) {
 Usage:
   rl-toolkit [serve] [flags]   Run the server (default).
   rl-toolkit new <name>        Scaffold a new plugin in plugins/<name>.
+  rl-toolkit pack [path]       Zip a plugin folder into <name>-<version>.rltp.
   rl-toolkit help              Show this message.
 
 Server flags (serve):
