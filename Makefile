@@ -152,14 +152,12 @@ endif
 ifeq ($(HOST_OS),windows)
 release: backend launcher
 	@$(call MKDIR,$(OUT_DIR))
-	@$(call MKDIR,$(OUT_DIR)/data)
 	@echo.
 	@echo Release artefacts under $(OUT_DIR)/:
 	@dir /b $(subst /,\,$(OUT_DIR))
 else
 release: backend launcher
 	@$(call MKDIR,$(OUT_DIR))
-	@$(call MKDIR,$(OUT_DIR)/data)
 	@echo ""
 	@echo "Release artefacts under $(OUT_DIR)/:"
 	@find $(OUT_DIR) -maxdepth 1 | sort
