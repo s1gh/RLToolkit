@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"rl-toolkit/internal/bootid"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/datastore"
 	"strings"
 	"sync"
 	"time"
@@ -534,7 +535,7 @@ func (s *Server) handleOverlayOverridesOne(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "plugin name required", http.StatusBadRequest)
 		return
 	}
-	if !pluginNamePattern.MatchString(plugin) {
+	if !datastore.ValidName(plugin) {
 		http.Error(w, "invalid plugin name", http.StatusBadRequest)
 		return
 	}

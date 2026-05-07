@@ -1,4 +1,9 @@
-package backend
+// Package datastore persists per-plugin key/value JSON to disk, one
+// file per plugin. Each plugin gets its own mutex so an unrelated
+// plugin's slow Write doesn't stall others. An in-memory cache
+// eliminates the read amplification of loading the JSON file on every
+// Get.
+package datastore
 
 import (
 	"encoding/json"
@@ -10,16 +15,20 @@ import (
 	"sync"
 )
 
-// pluginNamePattern restricts plugin identifiers to a safe character set.
-// Anything outside this is rejected before touching the filesystem — we
-// don't try to "sanitize" arbitrary input into a path.
-var pluginNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+// namePattern restricts plugin identifiers to a safe character set.
+// Anything outside this is rejected before touching the filesystem —
+// we don't try to "sanitize" arbitrary input into a path.
+var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-// DataStore persists per-plugin key/value JSON to disk, one file per plugin.
-// Each plugin gets its own mutex so an unrelated plugin's slow Write doesn't
-// stall others. An in-memory cache eliminates the read amplification of
-// loading the JSON file on every Get.
-type DataStore struct {
+// ValidName reports whether s is a valid plugin identifier. Exposed
+// for callers (HTTP handlers) that need to gate input before reaching
+// any DataStore method.
+func ValidName(s string) bool {
+	return namePattern.MatchString(s)
+}
+
+// Store persists per-plugin key/value JSON.
+type Store struct {
 	dir string
 
 	mu     sync.Mutex // guards the shards map itself
@@ -32,18 +41,20 @@ type pluginShard struct {
 	data   map[string]json.RawMessage
 }
 
-func NewDataStore(dir string) (*DataStore, error) {
+// New creates a Store rooted at dir. The directory is created if
+// missing.
+func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("create data dir %q: %w", dir, err)
 	}
-	return &DataStore{
+	return &Store{
 		dir:    dir,
 		shards: make(map[string]*pluginShard),
 	}, nil
 }
 
-func (s *DataStore) safePath(plugin string) (string, error) {
-	if !pluginNamePattern.MatchString(plugin) {
+func (s *Store) safePath(plugin string) (string, error) {
+	if !namePattern.MatchString(plugin) {
 		return "", fmt.Errorf("invalid plugin name %q", plugin)
 	}
 	return filepath.Join(s.dir, plugin+".json"), nil
@@ -52,7 +63,7 @@ func (s *DataStore) safePath(plugin string) (string, error) {
 // shard returns the (lazily created) shard for plugin. The shards map lock
 // is only held to look up / create the shard pointer; per-plugin work then
 // uses the shard's own RWMutex.
-func (s *DataStore) shard(plugin string) *pluginShard {
+func (s *Store) shard(plugin string) *pluginShard {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sh, ok := s.shards[plugin]; ok {
@@ -65,7 +76,7 @@ func (s *DataStore) shard(plugin string) *pluginShard {
 
 // loadInto populates sh.data from disk if it hasn't been loaded yet. Caller
 // must hold sh.mu (write).
-func (s *DataStore) loadInto(plugin string, sh *pluginShard) error {
+func (s *Store) loadInto(plugin string, sh *pluginShard) error {
 	if sh.loaded {
 		return nil
 	}
@@ -97,7 +108,7 @@ func (s *DataStore) loadInto(plugin string, sh *pluginShard) error {
 // flushLocked persists sh.data to disk via write-to-temp + rename so a
 // crash mid-write never corrupts the existing file. Caller must hold
 // sh.mu (write).
-func (s *DataStore) flushLocked(plugin string, sh *pluginShard) error {
+func (s *Store) flushLocked(plugin string, sh *pluginShard) error {
 	path, err := s.safePath(plugin)
 	if err != nil {
 		return err
@@ -113,7 +124,7 @@ func (s *DataStore) flushLocked(plugin string, sh *pluginShard) error {
 	return os.Rename(tmp, path)
 }
 
-func (s *DataStore) LoadAll(plugin string) (map[string]json.RawMessage, error) {
+func (s *Store) LoadAll(plugin string) (map[string]json.RawMessage, error) {
 	sh := s.shard(plugin)
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
@@ -128,7 +139,7 @@ func (s *DataStore) LoadAll(plugin string) (map[string]json.RawMessage, error) {
 	return out, nil
 }
 
-func (s *DataStore) Get(plugin, key string) (json.RawMessage, bool, error) {
+func (s *Store) Get(plugin, key string) (json.RawMessage, bool, error) {
 	sh := s.shard(plugin)
 	sh.mu.RLock()
 	if sh.loaded {
@@ -147,7 +158,7 @@ func (s *DataStore) Get(plugin, key string) (json.RawMessage, bool, error) {
 	return val, ok, nil
 }
 
-func (s *DataStore) Set(plugin, key string, value json.RawMessage) error {
+func (s *Store) Set(plugin, key string, value json.RawMessage) error {
 	sh := s.shard(plugin)
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
@@ -164,7 +175,7 @@ func (s *DataStore) Set(plugin, key string, value json.RawMessage) error {
 	return nil
 }
 
-func (s *DataStore) Delete(plugin, key string) error {
+func (s *Store) Delete(plugin, key string) error {
 	sh := s.shard(plugin)
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
