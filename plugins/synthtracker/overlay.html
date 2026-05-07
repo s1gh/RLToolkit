@@ -232,10 +232,11 @@
         const synthetics = RLT.events.catalog
           .map((e) => e.name)
           .filter((n) => n.startsWith('_'))
-          // _ConnectionStatus / _Lifecycle / _RosterChanged / _LifecyclePhaseChanged
-          // are framing signals that always bypass the filter on the server,
-          // and they'll show up here regardless. Keep them in the list so
-          // their counts are visible alongside the gameplay synthetics.
+          // _BootId / _ConnectionStatus / _MatchState / _RosterChanged /
+          // _IdentityChanged are framing signals that always bypass the
+          // filter on the server, and they'll show up here regardless.
+          // Keep them in the list so their counts are visible alongside
+          // the gameplay synthetics.
           .sort();
 
         const counts = {};
@@ -249,8 +250,8 @@
         // Goal modifiers ride on _GoalScored.modifiers as boolean flags;
         // MVP rides on _MatchSummary.mvp as an EnrichedPlayer. Neither is
         // a top-level event, so we surface them here separately. The flag
-        // list mirrors backend/synthesizer.go modifierStatfeedNames so a
-        // new modifier added there shows up here without code changes.
+        // list mirrors the modifier statfeed registry in
+        // backend/internal/emit/goal.go.
         const MODIFIER_FLAGS = [
           'isAerialGoal',
           'isBackwardsGoal',
@@ -387,10 +388,10 @@
             .replace(/>/g, '&gt;');
         }
 
-        // Tally modifier flags off a _GoalScored payload. Backend ships
-        // the flat envelope (no Data wrapper) for synthetics, so the
-        // payload IS the goal record itself. modifiers is omitempty —
-        // absent when no flag fired.
+        // Tally modifier flags off a _GoalScored payload. The SDK
+        // unwraps the {Event, Data} envelope and hands the inner Data
+        // straight to plugin handlers, so payload IS the goal record
+        // itself. modifiers is omitempty — absent when no flag fired.
         function tallyModifiers(payload) {
           const mods = payload && payload.modifiers;
           if (mods) {
@@ -539,10 +540,10 @@
           }
         });
 
-        // Lifecycle phase indicator — handy for verifying that phase-gated
+        // Phase indicator — handy for verifying that phase-gated
         // synthetics (like _OwnGoal, only live/replay) only fire when expected.
-        if (RLT.match && typeof RLT.match.onLifecycle === 'function') {
-          RLT.match.onLifecycle((phase) => { phaseEl.textContent = phase || '—'; });
+        if (RLT.match && typeof RLT.match.onState === 'function') {
+          RLT.match.onState((phase) => { phaseEl.textContent = phase || '—'; });
         }
         if (RLT.match && RLT.match.state && RLT.match.state.phase) {
           phaseEl.textContent = RLT.match.state.phase;
