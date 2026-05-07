@@ -415,7 +415,12 @@ fn apply_pixel_position(
 }
 
 /// Unified-mode fullscreen pass on non-Linux platforms. Sets the window
-/// size to the current monitor's logical size and positions at (0, 0).
+/// size to the current monitor's logical size, positions at (0, 0), then
+/// flips to true fullscreen so Windows lets the surface draw over the
+/// taskbar. Without fullscreen, a borderless window at (0,0) sized to the
+/// monitor still gets clipped to the work-area on Windows 11 — the
+/// taskbar reserves the bottom ~48px and a bottom-anchored widget at
+/// offset_y=0 lands behind it. set_fullscreen drops that constraint.
 /// The toolkit's /overlay page handles per-plugin positioning inside.
 #[cfg(not(target_os = "linux"))]
 fn apply_fullscreen_position(window: &tauri::WebviewWindow, toolkit: &str) {
@@ -427,8 +432,15 @@ fn apply_fullscreen_position(window: &tauri::WebviewWindow, toolkit: &str) {
     let mon_w = mon_size.width as f64 / scale;
     let mon_h = mon_size.height as f64 / scale;
     report_detected_surface(toolkit, mon_w, mon_h);
-    let _ = window.set_size(LogicalSize::new(mon_w, mon_h));
     let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
+    let _ = window.set_size(LogicalSize::new(mon_w, mon_h));
+    // Windows: cover the taskbar area too. set_fullscreen flips the
+    // window into a true-fullscreen state (without the legacy mode-
+    // change flicker since we don't change resolution). On macOS this
+    // would invoke the green-button "Full Screen" mode which animates
+    // and isn't what we want for an overlay, so gate to Windows.
+    #[cfg(target_os = "windows")]
+    let _ = window.set_fullscreen(true);
 }
 
 /// Suppress the Windows 11 hairline frame around the overlay window.
