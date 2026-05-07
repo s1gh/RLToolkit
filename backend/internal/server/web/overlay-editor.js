@@ -29,11 +29,28 @@
   };
   let canvasScale = 1;
 
+  // Defensive: validate the server's response shape so a backend
+  // regression or partial deploy can't NaN-poison drag math. Returns
+  // the input unchanged when valid; otherwise the fallback surface.
+  function normalizeSurface(s) {
+    const e = s?.effective;
+    if (
+      !e ||
+      !Number.isFinite(e.width) ||
+      !Number.isFinite(e.height) ||
+      e.width <= 0 ||
+      e.height <= 0
+    ) {
+      return { configured: null, detected: null, effective: { width: 1920, height: 1080 } };
+    }
+    return s;
+  }
+
   async function loadSurface() {
     try {
       const r = await fetch('/api/overlay/surface');
       if (r.ok) {
-        surface = await r.json();
+        surface = normalizeSurface(await r.json());
       }
     } catch (err) {
       console.warn('[overlay-editor] surface fetch failed; using fallback', err);
@@ -99,15 +116,6 @@
     }
   });
 
-  // Per-widget state. `el` is the wrapper div that owns positioning;
-  // `iframe` is the live preview; `capture` is the transparent overlay
-  // that intercepts mouse events so iframe content never sees them.
-  // `overlay` is the live override values (with manifest defaults filled
-  // in) — mutated by drag/resize/anchor/opacity changes.
-  // Skip plugins the user has disabled — they're managed from the
-  // dashboard, not the editor. Re-enabling on the dashboard reloads
-  // the editor naturally (the SSE-driven reflow only affects the
-  // production /overlay page, not this editor session).
   // ─── Canvas ──────────────────────────────────────────────
   // The canvas div is sized in target-surface pixels (Wt × Ht) and CSS-
   // scaled to fit the viewport. Every widget element is parented here,
@@ -153,6 +161,15 @@
     topbarTarget.textContent = 'Target: ' + W + ' × ' + H + ' @ ' + pct + '%';
   }
 
+  // Per-widget state. `el` is the wrapper div that owns positioning;
+  // `iframe` is the live preview; `capture` is the transparent overlay
+  // that intercepts mouse events so iframe content never sees them.
+  // `overlay` is the live override values (with manifest defaults filled
+  // in) — mutated by drag/resize/anchor/opacity changes.
+  // Skip plugins the user has disabled — they're managed from the
+  // dashboard, not the editor. Re-enabling on the dashboard reloads
+  // the editor naturally (the SSE-driven reflow only affects the
+  // production /overlay page, not this editor session).
   const widgets = ctx.merged
     .filter(({ overlay }) => overlay.enabled !== false)
     .map(({ plugin, overlay }) => buildWidget(plugin, overlay));
@@ -772,7 +789,7 @@
       return;
     }
     if (!env || env.Event !== '_SurfaceChanged' || !env.Data) return;
-    surface = env.Data;
+    surface = normalizeSurface(env.Data);
     applyCanvasLayout();
   };
   surfaceES.onerror = (err) => console.warn('[overlay-editor] surface SSE lost', err);
