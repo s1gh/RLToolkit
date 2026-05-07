@@ -112,14 +112,16 @@ func (b *Bus) removeLocked(s *subscriber) {
 // framingSignals lists synthetic event names that bypass the per-subscriber
 // filter. Every subscriber needs these regardless of the ?events= filter
 // — they're status/lifecycle signals the SDK uses for its own bookkeeping
-// (connection state, gameplay phase, roster identity). Other synthetic
-// events (_StatfeedEvent, _GoalScored, etc.) are filterable like normal
-// events: a plugin only receives them if it subscribed by name.
+// (connection state, gameplay phase, roster identity, dev hot-reload).
+// Other synthetic events (_StatfeedEvent, _GoalScored, etc.) are
+// filterable like normal events: a plugin only receives them if it
+// subscribed by name.
 var framingSignals = map[string]struct{}{
 	"_ConnectionStatus": {},
 	"_MatchState":       {},
 	"_RosterChanged":    {},
 	"_IdentityChanged":  {},
+	"_DevPluginReload":  {},
 }
 
 func isFramingSignal(eventName string) bool {
