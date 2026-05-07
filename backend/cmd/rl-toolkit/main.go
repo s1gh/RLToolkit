@@ -139,12 +139,12 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	devSrv, err := devapi.Start(ctx, pm, cfg.DataDir)
+	devSrv, err := devapi.Start(ctx, pm)
 	if err != nil {
 		log.Fatalf("[server] devapi start: %v", err)
 	}
 	defer devSrv.Stop()
-	log.Printf("[devapi] listening on %s (port written to %s/dev.port)", devSrv.Addr(), cfg.DataDir)
+	log.Printf("[devapi] listening on %s (port file in user config dir; set RLT_DEV_DISCOVERY_DIR to override)", devSrv.Addr())
 
 	src := source.NewRL(cfg.RLAddr)
 	rt := roster.New()

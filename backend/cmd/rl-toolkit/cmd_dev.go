@@ -16,22 +16,25 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"rl-toolkit/backend/internal/devapi"
 )
 
 type devClient struct {
-	dataDir string
-	http    *http.Client
+	http *http.Client
 }
 
-func newDevClient(dataDir string) *devClient {
+func newDevClient() *devClient {
 	return &devClient{
-		dataDir: dataDir,
-		http:    &http.Client{Timeout: 5 * time.Second},
+		http: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
 func (c *devClient) baseURL() (string, error) {
-	body, err := os.ReadFile(filepath.Join(c.dataDir, "dev.port"))
+	dir, err := devapi.DiscoveryDir()
+	if err != nil {
+		return "", err
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "dev.port"))
 	if err != nil {
 		return "", fmt.Errorf("read dev.port (is the overlay running?): %w", err)
 	}
@@ -81,9 +84,8 @@ func (c *devClient) unregister(name string) error {
 
 func runDev(args []string) int {
 	fs := flag.NewFlagSet("dev", flag.ContinueOnError)
-	dataDir := fs.String("data", filepath.Join(exeDirOrDot(), "data"), "Data directory (where dev.port lives)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: rl-toolkit dev [path] [-data <dir>]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: rl-toolkit dev [path]\n\n")
 		fs.PrintDefaults()
 	}
 	flagArgs, positional := splitFlagsAndPositional(args)
@@ -113,7 +115,7 @@ func runDev(args []string) int {
 		return 1
 	}
 
-	client := newDevClient(*dataDir)
+	client := newDevClient()
 	if err := client.register(m.Name, src); err != nil {
 		fmt.Fprintf(os.Stderr, "dev: register: %v\n", err)
 		return 1

@@ -59,6 +59,7 @@ func TestDevClient_PostsRegisterReloadUnregister(t *testing.T) {
 	port, _ := strconv.Atoi(portStr)
 
 	dataDir := t.TempDir()
+	t.Setenv("RLT_DEV_DISCOVERY_DIR", dataDir)
 	if err := os.WriteFile(filepath.Join(dataDir, "dev.port"), []byte(strconv.Itoa(port)), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestDevClient_PostsRegisterReloadUnregister(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client := newDevClient(dataDir)
+	client := newDevClient()
 	if err := client.register("alpha", pluginDir); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -102,7 +103,8 @@ func TestDevClient_PostsRegisterReloadUnregister(t *testing.T) {
 
 func TestDevClient_FailsWithoutPortFile(t *testing.T) {
 	dataDir := t.TempDir()
-	client := newDevClient(dataDir)
+	t.Setenv("RLT_DEV_DISCOVERY_DIR", dataDir)
+	client := newDevClient()
 	if err := client.register("alpha", t.TempDir()); err == nil {
 		t.Fatal("expected error when dev.port absent")
 	}
@@ -118,12 +120,13 @@ func TestDevClient_RegisterSendsAbsolutePath(t *testing.T) {
 	port, _ := strconv.Atoi(portStr)
 
 	dataDir := t.TempDir()
+	t.Setenv("RLT_DEV_DISCOVERY_DIR", dataDir)
 	os.WriteFile(filepath.Join(dataDir, "dev.port"), []byte(strconv.Itoa(port)), 0644)
 
 	pluginDir := t.TempDir()
 	os.WriteFile(filepath.Join(pluginDir, "manifest.json"), []byte(`{"name":"alpha","version":"0.1.0"}`), 0644)
 
-	client := newDevClient(dataDir)
+	client := newDevClient()
 	// Pass a relative path; client should resolve to absolute before sending.
 	wd, _ := os.Getwd()
 	rel, err := filepath.Rel(wd, pluginDir)

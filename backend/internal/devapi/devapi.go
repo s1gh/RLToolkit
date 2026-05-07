@@ -2,7 +2,8 @@
 // `rl-toolkit dev` calls to register/reload/unregister plugins it's
 // watching. Bound strictly to 127.0.0.1 so a LAN client cannot push a
 // dev folder path at the running overlay; the file with the bound
-// port is written to <data-dir>/dev.port for the CLI to discover.
+// port is written to the platform-canonical user config dir for the
+// CLI to discover.
 package devapi
 
 import (
@@ -35,7 +36,6 @@ type Plugins interface {
 // Server is a running devapi listener.
 type Server struct {
 	pluginsAPI Plugins
-	dataDir    string
 	httpSrv    *http.Server
 	listener   net.Listener
 	portFile   string
@@ -43,12 +43,36 @@ type Server struct {
 	stopOnce sync.Once
 }
 
+// DiscoveryDir returns the directory where dev.port lives. The
+// location is platform-canonical (os.UserConfigDir + "/rl-toolkit"):
+//
+//	Linux:   $XDG_CONFIG_HOME/rl-toolkit  (or ~/.config/rl-toolkit)
+//	macOS:   ~/Library/Application Support/rl-toolkit
+//	Windows: %APPDATA%\rl-toolkit
+//
+// Set RLT_DEV_DISCOVERY_DIR to override (used by tests and by advanced
+// users running multiple instances on the same machine).
+func DiscoveryDir() (string, error) {
+	if env := os.Getenv("RLT_DEV_DISCOVERY_DIR"); env != "" {
+		return env, nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("user config dir: %w", err)
+	}
+	return filepath.Join(base, "rl-toolkit"), nil
+}
+
 // Start binds a listener on 127.0.0.1:0 and serves the dev API. Blocks
 // only long enough to bind; the HTTP server runs in a goroutine. The
 // returned *Server is safe to Stop concurrently.
-func Start(_ context.Context, p Plugins, dataDir string) (*Server, error) {
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("ensure dataDir: %w", err)
+func Start(_ context.Context, p Plugins) (*Server, error) {
+	dir, err := DiscoveryDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("ensure discovery dir: %w", err)
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -56,7 +80,7 @@ func Start(_ context.Context, p Plugins, dataDir string) (*Server, error) {
 		return nil, fmt.Errorf("bind 127.0.0.1: %w", err)
 	}
 
-	portFile := filepath.Join(dataDir, "dev.port")
+	portFile := filepath.Join(dir, "dev.port")
 	port := ln.Addr().(*net.TCPAddr).Port
 	if err := os.WriteFile(portFile, []byte(fmt.Sprintf("%d", port)), 0644); err != nil {
 		ln.Close()
@@ -65,7 +89,6 @@ func Start(_ context.Context, p Plugins, dataDir string) (*Server, error) {
 
 	s := &Server{
 		pluginsAPI: p,
-		dataDir:    dataDir,
 		listener:   ln,
 		portFile:   portFile,
 	}

@@ -53,7 +53,8 @@ func (s *stubPlugins) NotifyReload(name string) {
 func startTestServer(t *testing.T, pluginsAPI Plugins) (*Server, string, string) {
 	t.Helper()
 	dataDir := t.TempDir()
-	srv, err := Start(context.Background(), pluginsAPI, dataDir)
+	t.Setenv("RLT_DEV_DISCOVERY_DIR", dataDir)
+	srv, err := Start(context.Background(), pluginsAPI)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -206,3 +207,28 @@ var errSentinel = &sentinelErr{}
 type sentinelErr struct{}
 
 func (*sentinelErr) Error() string { return "stub error" }
+
+func TestDevAPI_HonorsDiscoveryEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RLT_DEV_DISCOVERY_DIR", dir)
+	got, err := DiscoveryDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != dir {
+		t.Errorf("DiscoveryDir() = %q, want %q", got, dir)
+	}
+}
+
+func TestDevAPI_DefaultDiscoveryDirUnderUserConfig(t *testing.T) {
+	t.Setenv("RLT_DEV_DISCOVERY_DIR", "")
+	got, err := DiscoveryDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, _ := os.UserConfigDir()
+	want := filepath.Join(base, "rl-toolkit")
+	if got != want {
+		t.Errorf("DiscoveryDir() default = %q, want %q", got, want)
+	}
+}
