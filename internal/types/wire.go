@@ -120,6 +120,24 @@ type MatchEndedData struct {
 	WinnerTeamLow *int   `json:"winnerteamnum"`
 }
 
+// GoalScoredData mirrors the wire shape of GoalScored.
+type GoalScoredData struct {
+	MatchGUID         string         `json:"MatchGuid"`
+	MatchGUIDLow      string         `json:"matchguid"`
+	Scorer            *ShortcutRef   `json:"Scorer"`
+	ScorerLow         *ShortcutRef   `json:"scorer"`
+	Assister          *ShortcutRef   `json:"Assister"`
+	AssisterLow       *ShortcutRef   `json:"assister"`
+	BallLastTouch     *BallLastTouch `json:"BallLastTouch"`
+	BallLastTouchLow  *BallLastTouch `json:"balllasttouch"`
+	GoalSpeed         *float64       `json:"GoalSpeed"`
+	GoalSpeedLow      *float64       `json:"goalspeed"`
+	GoalTime          *float64       `json:"GoalTime"`
+	GoalTimeLow       *float64       `json:"goaltime"`
+	ImpactLocation    *Vec3          `json:"ImpactLocation"`
+	ImpactLocationLow *Vec3          `json:"impactlocation"`
+}
+
 // BallHitData mirrors the wire shape of a BallHit envelope. RL ships
 // either PascalCase or all-lowercase keys depending on build, hence
 // each field appearing twice.

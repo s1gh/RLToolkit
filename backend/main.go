@@ -92,7 +92,7 @@ func runServe() {
 	ownGoal := emit.NewOwnGoal(matchState, tickStore, correlation)
 	statfeed := emit.NewStatfeed(roster, correlation, discoveries, ownGoal)
 	demos := emit.NewDemos(tickStore)
-	goalEmit := NewGoalEmitter(roster, correlation, tickStore, statfeed, ownGoal)
+	goalEmit := emit.NewGoal(roster, correlation, tickStore, statfeed, ownGoal)
 	tickDiff := emit.NewTickDiff(matchState, tickStore, correlation, statfeed)
 	matchEnded := emit.NewMatchEnded(tickStore)
 

@@ -1,43 +1,12 @@
-package backend
+package emit
 
 import (
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
+	"rl-toolkit/internal/wire"
 	"sync"
 )
-
-// goalScoredData mirrors the wire shape of GoalScored.
-type goalScoredData struct {
-	MatchGUID         string         `json:"MatchGuid"`
-	MatchGUIDLow      string         `json:"matchguid"`
-	Scorer            *ShortcutRef   `json:"Scorer"`
-	ScorerLow         *ShortcutRef   `json:"scorer"`
-	Assister          *ShortcutRef   `json:"Assister"`
-	AssisterLow       *ShortcutRef   `json:"assister"`
-	BallLastTouch     *ballLastTouch `json:"BallLastTouch"`
-	BallLastTouchLow  *ballLastTouch `json:"balllasttouch"`
-	GoalSpeed         *float64       `json:"GoalSpeed"`
-	GoalSpeedLow      *float64       `json:"goalspeed"`
-	GoalTime          *float64       `json:"GoalTime"`
-	GoalTimeLow       *float64       `json:"goaltime"`
-	ImpactLocation    *vec3          `json:"ImpactLocation"`
-	ImpactLocationLow *vec3          `json:"impactlocation"`
-}
-
-type enrichedGoalScored struct {
-	Event          string                 `json:"Event"`
-	MatchGUID      string                 `json:"matchGuid,omitempty"`
-	Scorer         *EnrichedPlayer        `json:"scorer,omitempty"`
-	Assister       *EnrichedPlayer        `json:"assister,omitempty"`
-	BallLastTouch  *enrichedBallLastTouch `json:"ballLastTouch,omitempty"`
-	GoalSpeed      *float64               `json:"goalSpeed,omitempty"`
-	GoalTime       *float64               `json:"goalTime,omitempty"`
-	ImpactLocation *vec3                  `json:"impactLocation,omitempty"`
-	ScoringTeam    *int                   `json:"scoringTeam,omitempty"`
-	ConcedingTeam  *int                   `json:"concedingTeam,omitempty"`
-	IsOwnGoal      bool                   `json:"isOwnGoal"`
-	Modifiers      *goalModifiers         `json:"modifiers"`
-}
 
 // goalModifiers carries the same-frame statfeed flags RL fires
 // alongside a goal. Every field is always present in the JSON output
@@ -76,7 +45,7 @@ var modifierStatfeedNames = map[string]func(*goalModifiers){
 // RL's Shortcut is the per-match slot index (number); Name is the
 // human-readable form. Either match counts; both unset means no
 // match.
-func sameShortcutPlayer(a, b *ShortcutRef) bool {
+func sameShortcutPlayer(a, b *types.ShortcutRef) bool {
 	if a == nil || b == nil {
 		return false
 	}
@@ -89,57 +58,56 @@ func sameShortcutPlayer(a, b *ShortcutRef) bool {
 	return false
 }
 
-// flipResetConsumer is the slim interface GoalEmitter needs from
-// StatfeedEmitter to consume the per-player flip-reset arm flag for
-// the IsFlipResetGoal modifier.
-type flipResetConsumer interface {
-	ConsumeFlipResetArm(playerID string) bool
+type enrichedGoalScored struct {
+	Event          string                       `json:"Event"`
+	MatchGUID      string                       `json:"matchGuid,omitempty"`
+	Scorer         *types.EnrichedPlayer        `json:"scorer,omitempty"`
+	Assister       *types.EnrichedPlayer        `json:"assister,omitempty"`
+	BallLastTouch  *types.EnrichedBallLastTouch `json:"ballLastTouch,omitempty"`
+	GoalSpeed      *float64                     `json:"goalSpeed,omitempty"`
+	GoalTime       *float64                     `json:"goalTime,omitempty"`
+	ImpactLocation *types.Vec3                  `json:"impactLocation,omitempty"`
+	ScoringTeam    *int                         `json:"scoringTeam,omitempty"`
+	ConcedingTeam  *int                         `json:"concedingTeam,omitempty"`
+	IsOwnGoal      bool                         `json:"isOwnGoal"`
+	Modifiers      *goalModifiers               `json:"modifiers"`
 }
 
-// goalCounter is the slim interface GoalEmitter needs from
-// OwnGoalEmitter for the per-player honest-goal counter (used to
-// suppress RL's HatTrick statfeed when the threshold was reached
-// only because RL counts own goals).
-type goalCounter interface {
-	RealGoals(playerID string) int
-	BumpRealGoals(playerID string)
-}
-
-// GoalEmitter publishes _GoalScored (with modifiers + last-touch +
-// own-goal heuristic) and _GoalReplayStarted (on the bReplay rising
-// edge during a goal celebration).
+// Goal publishes _GoalScored (with modifiers + last-touch + own-goal
+// heuristic) and _GoalReplayStarted (on the bReplay rising edge during
+// a goal celebration).
 //
 // Reads:
 //   - roster — resolve scorer/assister/ballLastTouch refs.
 //   - correlation — same-frame statfeed modifiers; fallback for
 //     missing BallLastTouch via Recent("BallHit", 1).
-//   - tickStore — bReplay edge detection for _GoalReplayStarted.
+//   - ticks — bReplay edge detection for _GoalReplayStarted.
 //   - flipReset — consume the per-player arm for IsFlipResetGoal.
 //   - goals — bump on non-own-goal, look up for HatTrick suppression.
 //
 // Writes:
-//   - correlation: Records ("_GoalScored", goalRecord) so OwnGoal /
+//   - correlation: Records ("_GoalScored", GoalRecord) so OwnGoal /
 //     Statfeed (Assist) can correlate.
-type GoalEmitter struct {
-	roster      *RosterTracker
-	correlation *CorrelationBuffer
-	ticks       *TickStore
-	flipReset   flipResetConsumer
-	goals       goalCounter
+type Goal struct {
+	roster      RosterResolver
+	correlation Correlator
+	ticks       TickHistory
+	flipReset   FlipResetConsumer
+	goals       GoalCounter
 
 	mu         sync.Mutex
 	lastGoal   *enrichedGoalScored
 	prevReplay bool
 }
 
-func NewGoalEmitter(
-	roster *RosterTracker,
-	correlation *CorrelationBuffer,
-	ticks *TickStore,
-	flipReset flipResetConsumer,
-	goals goalCounter,
-) *GoalEmitter {
-	return &GoalEmitter{
+func NewGoal(
+	roster RosterResolver,
+	correlation Correlator,
+	ticks TickHistory,
+	flipReset FlipResetConsumer,
+	goals GoalCounter,
+) *Goal {
+	return &Goal{
 		roster:      roster,
 		correlation: correlation,
 		ticks:       ticks,
@@ -148,7 +116,7 @@ func NewGoalEmitter(
 	}
 }
 
-func (e *GoalEmitter) Process(evt bus.Event) []bus.Event {
+func (e *Goal) Process(evt bus.Event) []bus.Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
 		e.mu.Lock()
@@ -167,12 +135,12 @@ func (e *GoalEmitter) Process(evt bus.Event) []bus.Event {
 	return nil
 }
 
-func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
-	inner := unwrapInnerData(evt.Raw)
+func (e *Goal) processGoal(evt bus.Event) *bus.Event {
+	inner := wire.UnwrapInnerData(evt.Raw)
 	if inner == "" {
 		return nil
 	}
-	var d goalScoredData
+	var d types.GoalScoredData
 	if err := json.Unmarshal([]byte(inner), &d); err != nil {
 		return nil
 	}
@@ -194,7 +162,7 @@ func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
 		return nil
 	}
 
-	guid := pickStr(d.MatchGUID, d.MatchGUIDLow)
+	guid := wire.PickStr(d.MatchGUID, d.MatchGUIDLow)
 	assisterRef := d.Assister
 	if assisterRef == nil {
 		assisterRef = d.AssisterLow
@@ -211,11 +179,11 @@ func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
 	scoringTeam := scorer.Team
 	concedingTeam := 1 - scoringTeam
 	out := enrichedGoalScored{
-		Event:      "_GoalScored",
+		Event:          "_GoalScored",
 		MatchGUID:      guid,
 		Scorer:         scorer,
-		GoalSpeed:      pickFloat(d.GoalSpeed, d.GoalSpeedLow),
-		GoalTime:       pickFloat(d.GoalTime, d.GoalTimeLow),
+		GoalSpeed:      wire.PickFloat(d.GoalSpeed, d.GoalSpeedLow),
+		GoalTime:       wire.PickFloat(d.GoalTime, d.GoalTimeLow),
 		ImpactLocation: loc,
 		ScoringTeam:    &scoringTeam,
 		ConcedingTeam:  &concedingTeam,
@@ -225,18 +193,18 @@ func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
 		out.Assister = e.roster.ResolveByShortcut(*assisterRef)
 	}
 
-	var lastToucher *EnrichedPlayer
+	var lastToucher *types.EnrichedPlayer
 	if lastTouch != nil {
 		ref := lastTouch.Player
 		if ref == nil {
 			ref = lastTouch.PlayerLow
 		}
-		sp := pickFloat(lastTouch.Speed, lastTouch.SpeedLow)
+		sp := wire.PickFloat(lastTouch.Speed, lastTouch.SpeedLow)
 		if ref != nil {
 			lastToucher = e.roster.ResolveByShortcut(*ref)
 		}
 		if lastToucher != nil || sp != nil {
-			out.BallLastTouch = &enrichedBallLastTouch{
+			out.BallLastTouch = &types.EnrichedBallLastTouch{
 				Player: lastToucher,
 				Speed:  sp,
 			}
@@ -247,7 +215,7 @@ func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
 	// the most recent BallHit from the shared correlation buffer.
 	if lastToucher == nil {
 		for _, p := range e.correlation.Recent("BallHit", 1) {
-			if rec, ok := p.(*ballHitRecord); ok && rec != nil {
+			if rec, ok := p.(*types.BallHitRecord); ok && rec != nil {
 				lastToucher = rec.Player
 			}
 		}
@@ -266,8 +234,8 @@ func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
 	//      scoringTeam/concedingTeam to reflect the actual score
 	//      change and flag the goal.
 	//
-	// The richer _OwnGoal event ships via emit_own_goal.go with
-	// score-delta verification; this flag is the cheap header.
+	// The richer _OwnGoal event ships via OwnGoal with score-delta
+	// verification; this flag is the cheap header.
 	if lastToucher != nil {
 		if lastToucher.Team == concedingTeam {
 			out.IsOwnGoal = true
@@ -303,7 +271,7 @@ func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
 
 	// Record the resolved goal so _OwnGoal can attach it as
 	// `correlatedGoal` and _Assist can find its companion.
-	e.correlation.Record("_GoalScored", &goalRecord{
+	e.correlation.Record("_GoalScored", &types.GoalRecord{
 		Scorer:        scorer,
 		ScoringTeam:   scoringTeam,
 		ConcedingTeam: concedingTeam,
@@ -325,7 +293,7 @@ func (e *GoalEmitter) processGoal(evt bus.Event) *bus.Event {
 	return &bus.Event{Name: "_GoalScored", Data: body}
 }
 
-func (e *GoalEmitter) maybeReplayStarted() []bus.Event {
+func (e *Goal) maybeReplayStarted() []bus.Event {
 	curr := e.ticks.Latest()
 	if curr == nil {
 		return nil
@@ -350,21 +318,20 @@ func (e *GoalEmitter) maybeReplayStarted() []bus.Event {
 
 // marshalGoalBody encodes an enrichedGoalScored as just its data
 // payload (no top-level Event field — the bus envelope provides
-// that). The legacy synth emitted the Event field inline; the new
-// pipeline wraps via the Bus.Broadcast envelope path.
+// that).
 func marshalGoalBody(g enrichedGoalScored) ([]byte, error) {
 	return json.Marshal(struct {
-		MatchGUID      string                 `json:"matchGuid,omitempty"`
-		Scorer         *EnrichedPlayer        `json:"scorer,omitempty"`
-		Assister       *EnrichedPlayer        `json:"assister,omitempty"`
-		BallLastTouch  *enrichedBallLastTouch `json:"ballLastTouch,omitempty"`
-		GoalSpeed      *float64               `json:"goalSpeed,omitempty"`
-		GoalTime       *float64               `json:"goalTime,omitempty"`
-		ImpactLocation *vec3                  `json:"impactLocation,omitempty"`
-		ScoringTeam    *int                   `json:"scoringTeam,omitempty"`
-		ConcedingTeam  *int                   `json:"concedingTeam,omitempty"`
-		IsOwnGoal      bool                   `json:"isOwnGoal"`
-		Modifiers      *goalModifiers         `json:"modifiers,omitempty"`
+		MatchGUID      string                       `json:"matchGuid,omitempty"`
+		Scorer         *types.EnrichedPlayer        `json:"scorer,omitempty"`
+		Assister       *types.EnrichedPlayer        `json:"assister,omitempty"`
+		BallLastTouch  *types.EnrichedBallLastTouch `json:"ballLastTouch,omitempty"`
+		GoalSpeed      *float64                     `json:"goalSpeed,omitempty"`
+		GoalTime       *float64                     `json:"goalTime,omitempty"`
+		ImpactLocation *types.Vec3                  `json:"impactLocation,omitempty"`
+		ScoringTeam    *int                         `json:"scoringTeam,omitempty"`
+		ConcedingTeam  *int                         `json:"concedingTeam,omitempty"`
+		IsOwnGoal      bool                         `json:"isOwnGoal"`
+		Modifiers      *goalModifiers               `json:"modifiers,omitempty"`
 	}{
 		MatchGUID:      g.MatchGUID,
 		Scorer:         g.Scorer,
@@ -384,7 +351,7 @@ func marshalGoalBody(g enrichedGoalScored) ([]byte, error) {
 // modifier statfeeds. Always returns a non-nil struct so consumers
 // get explicit false values for every modifier field. Consumes the
 // matched modifier statfeeds so they don't bleed into the next goal.
-func collectGoalModifiers(correlation *CorrelationBuffer, scorer *ShortcutRef) *goalModifiers {
+func collectGoalModifiers(c Correlator, scorer *types.ShortcutRef) *goalModifiers {
 	mods := &goalModifiers{}
 	if scorer == nil {
 		return mods
@@ -396,8 +363,8 @@ func collectGoalModifiers(correlation *CorrelationBuffer, scorer *ShortcutRef) *
 		}
 		setter(mods)
 	}
-	for _, p := range correlation.Recent("StatfeedEvent", 15) {
-		rec, ok := p.(*statfeedRecord)
+	for _, p := range c.Recent("StatfeedEvent", 15) {
+		rec, ok := p.(*types.StatfeedRecord)
 		if !ok || rec.MainRef == nil {
 			continue
 		}
@@ -408,8 +375,8 @@ func collectGoalModifiers(correlation *CorrelationBuffer, scorer *ShortcutRef) *
 	}
 
 	// Consume modifier statfeeds so they don't apply to the next goal.
-	correlation.RemoveByName("StatfeedEvent", func(p interface{}) bool {
-		rec, ok := p.(*statfeedRecord)
+	c.RemoveByName("StatfeedEvent", func(p interface{}) bool {
+		rec, ok := p.(*types.StatfeedRecord)
 		if !ok || rec.MainRef == nil {
 			return false
 		}
