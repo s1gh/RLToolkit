@@ -3,6 +3,7 @@ package backend
 import (
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
 	"sort"
 	"strconv"
 	"strings"
@@ -291,18 +292,7 @@ func (t *RosterTracker) Snapshot() []byte {
 	return envelope
 }
 
-// platformFromID extracts the leading "Steam" / "Epic" / etc segment
-// from a PrimaryId of the shape "Platform|UserId|SubId". Mirrors the
-// SDK's `id.split('|')[0]` so plugins receive the same value whether
-// they read it from match.current.players or from a _RosterChanged
-// payload.
-func platformFromID(id string) string {
-	if id == "" {
-		return ""
-	}
-	i := strings.IndexByte(id, '|')
-	if i <= 0 {
-		return ""
-	}
-	return id[:i]
-}
+// platformFromID forwards to internal/types so emit subpackages get
+// the same logic when they need to derive the "Steam" / "Epic" prefix
+// without depending on backend.
+var platformFromID = types.PlatformFromID

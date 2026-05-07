@@ -62,7 +62,7 @@ func (e *TickDiffEmitter) Process(evt bus.Event) []bus.Event {
 	// Different-match guard: when the match guid changes, every
 	// "diff" against the previous snapshot would be misleading. The
 	// new tick is a fresh baseline.
-	if prev.matchGUID != "" && curr.matchGUID != "" && prev.matchGUID != curr.matchGUID {
+	if prev.MatchGUID != "" && curr.MatchGUID != "" && prev.MatchGUID != curr.MatchGUID {
 		return nil
 	}
 
@@ -93,18 +93,18 @@ func (e *TickDiffEmitter) Process(evt bus.Event) []bus.Event {
 }
 
 func (e *TickDiffEmitter) diffPlayers(prev, curr *tickSnapshot) []bus.Event {
-	prevByID := make(map[string]*tickPlayer, len(prev.players))
-	for i := range prev.players {
-		p := &prev.players[i]
-		if p.id != "" {
-			prevByID[p.id] = p
+	prevByID := make(map[string]*tickPlayer, len(prev.Players))
+	for i := range prev.Players {
+		p := &prev.Players[i]
+		if p.ID != "" {
+			prevByID[p.ID] = p
 		}
 	}
-	currByID := make(map[string]*tickPlayer, len(curr.players))
-	for i := range curr.players {
-		p := &curr.players[i]
-		if p.id != "" {
-			currByID[p.id] = p
+	currByID := make(map[string]*tickPlayer, len(curr.Players))
+	for i := range curr.Players {
+		p := &curr.Players[i]
+		if p.ID != "" {
+			currByID[p.ID] = p
 		}
 	}
 
@@ -113,7 +113,7 @@ func (e *TickDiffEmitter) diffPlayers(prev, curr *tickSnapshot) []bus.Event {
 		if _, was := prevByID[id]; was {
 			continue
 		}
-		if v := e.playerEnvelope("_PlayerJoined", curr.matchGUID, p); v != nil {
+		if v := e.playerEnvelope("_PlayerJoined", curr.MatchGUID, p); v != nil {
 			out = append(out, *v)
 		}
 	}
@@ -121,7 +121,7 @@ func (e *TickDiffEmitter) diffPlayers(prev, curr *tickSnapshot) []bus.Event {
 		if _, still := currByID[id]; still {
 			continue
 		}
-		if v := e.playerEnvelope("_PlayerLeft", prev.matchGUID, p); v != nil {
+		if v := e.playerEnvelope("_PlayerLeft", prev.MatchGUID, p); v != nil {
 			out = append(out, *v)
 		}
 	}
@@ -129,15 +129,15 @@ func (e *TickDiffEmitter) diffPlayers(prev, curr *tickSnapshot) []bus.Event {
 }
 
 func (e *TickDiffEmitter) playerEnvelope(eventName, guid string, p *tickPlayer) *bus.Event {
-	if p == nil || p.id == "" {
+	if p == nil || p.ID == "" {
 		return nil
 	}
 	enriched := &EnrichedPlayer{
-		ID:       p.id,
-		Name:     p.name,
-		Team:     p.team,
-		Platform: platformFromID(p.id),
-		IsBot:    isBotId(p.id),
+		ID:       p.ID,
+		Name:     p.Name,
+		Team:     p.Team,
+		Platform: platformFromID(p.ID),
+		IsBot:    isBotId(p.ID),
 	}
 	body, err := json.Marshal(struct {
 		MatchGUID string          `json:"matchGuid,omitempty"`
@@ -162,31 +162,31 @@ func (e *TickDiffEmitter) currentPhaseString() string {
 }
 
 func (e *TickDiffEmitter) diffPlayersLive(prev, curr *tickSnapshot) []bus.Event {
-	prevByID := make(map[string]*tickPlayer, len(prev.players))
-	for i := range prev.players {
-		p := &prev.players[i]
-		if p.id != "" {
-			prevByID[p.id] = p
+	prevByID := make(map[string]*tickPlayer, len(prev.Players))
+	for i := range prev.Players {
+		p := &prev.Players[i]
+		if p.ID != "" {
+			prevByID[p.ID] = p
 		}
 	}
 	var out []bus.Event
-	for i := range curr.players {
-		c := &curr.players[i]
-		if c.id == "" {
+	for i := range curr.Players {
+		c := &curr.Players[i]
+		if c.ID == "" {
 			continue
 		}
-		p, ok := prevByID[c.id]
+		p, ok := prevByID[c.ID]
 		if !ok {
 			continue
 		}
-		if v := e.playerScoreChanged(curr.matchGUID, p, c); v != nil {
+		if v := e.playerScoreChanged(curr.MatchGUID, p, c); v != nil {
 			out = append(out, *v)
 		}
-		if v := e.boostPickup(curr.matchGUID, p, c); v != nil {
+		if v := e.boostPickup(curr.MatchGUID, p, c); v != nil {
 			out = append(out, *v)
 		}
-		if !p.onGround && c.onGround && e.flipReset != nil {
-			e.flipReset.ClearFlipResetArm(c.id)
+		if !p.OnGround && c.OnGround && e.flipReset != nil {
+			e.flipReset.ClearFlipResetArm(c.ID)
 		}
 	}
 	return out
@@ -196,36 +196,36 @@ func (e *TickDiffEmitter) diffPlayersLive(prev, curr *tickSnapshot) []bus.Event 
 // Only sends a delta map for fields that actually moved.
 func (e *TickDiffEmitter) playerScoreChanged(guid string, prev, curr *tickPlayer) *bus.Event {
 	delta := map[string]int{}
-	if curr.score != prev.score {
-		delta["score"] = curr.score - prev.score
+	if curr.Score != prev.Score {
+		delta["score"] = curr.Score - prev.Score
 	}
-	if curr.goals != prev.goals {
-		delta["goals"] = curr.goals - prev.goals
+	if curr.Goals != prev.Goals {
+		delta["goals"] = curr.Goals - prev.Goals
 	}
-	if curr.assists != prev.assists {
-		delta["assists"] = curr.assists - prev.assists
+	if curr.Assists != prev.Assists {
+		delta["assists"] = curr.Assists - prev.Assists
 	}
-	if curr.saves != prev.saves {
-		delta["saves"] = curr.saves - prev.saves
+	if curr.Saves != prev.Saves {
+		delta["saves"] = curr.Saves - prev.Saves
 	}
-	if curr.shots != prev.shots {
-		delta["shots"] = curr.shots - prev.shots
+	if curr.Shots != prev.Shots {
+		delta["shots"] = curr.Shots - prev.Shots
 	}
-	if curr.touches != prev.touches {
-		delta["touches"] = curr.touches - prev.touches
+	if curr.Touches != prev.Touches {
+		delta["touches"] = curr.Touches - prev.Touches
 	}
-	if curr.demos != prev.demos {
-		delta["demos"] = curr.demos - prev.demos
+	if curr.Demos != prev.Demos {
+		delta["demos"] = curr.Demos - prev.Demos
 	}
 	if len(delta) == 0 {
 		return nil
 	}
 	enriched := &EnrichedPlayer{
-		ID:       curr.id,
-		Name:     curr.name,
-		Team:     curr.team,
-		Platform: platformFromID(curr.id),
-		IsBot:    isBotId(curr.id),
+		ID:       curr.ID,
+		Name:     curr.Name,
+		Team:     curr.Team,
+		Platform: platformFromID(curr.ID),
+		IsBot:    isBotId(curr.ID),
 	}
 	body, err := json.Marshal(struct {
 		MatchGUID string          `json:"matchGuid,omitempty"`
@@ -246,31 +246,31 @@ func (e *TickDiffEmitter) playerScoreChanged(guid string, prev, curr *tickPlayer
 // picked up a pad or ran over a big-boost icon). Suppresses the
 // post-respawn case (demolished → not demolished) — that's a boost
 // reset, not a pickup. Also suppresses the first observation (no
-// baseline), which happens when prev.boost is nil (non-spectator
+// baseline), which happens when prev.Boost is nil (non-spectator
 // blackout).
 func (e *TickDiffEmitter) boostPickup(guid string, prev, curr *tickPlayer) *bus.Event {
-	if curr.boost == nil {
+	if curr.Boost == nil {
 		return nil
 	}
 	// RL omits Boost when it's 0; treat nil as 0 so pickups from empty
 	// boost are still detected.
 	prevBoost := 0
-	if prev.boost != nil {
-		prevBoost = *prev.boost
+	if prev.Boost != nil {
+		prevBoost = *prev.Boost
 	}
-	if *curr.boost <= prevBoost {
+	if *curr.Boost <= prevBoost {
 		return nil
 	}
-	if prev.demolished && !curr.demolished {
+	if prev.Demolished && !curr.Demolished {
 		// Respawn boost-reset, not a pickup.
 		return nil
 	}
 	enriched := &EnrichedPlayer{
-		ID:       curr.id,
-		Name:     curr.name,
-		Team:     curr.team,
-		Platform: platformFromID(curr.id),
-		IsBot:    isBotId(curr.id),
+		ID:       curr.ID,
+		Name:     curr.Name,
+		Team:     curr.Team,
+		Platform: platformFromID(curr.ID),
+		IsBot:    isBotId(curr.ID),
 	}
 	body, err := json.Marshal(struct {
 		MatchGUID   string          `json:"matchGuid,omitempty"`
@@ -282,8 +282,8 @@ func (e *TickDiffEmitter) boostPickup(guid string, prev, curr *tickPlayer) *bus.
 		MatchGUID:   guid,
 		Player:      enriched,
 		BoostBefore: prevBoost,
-		BoostAfter:  *curr.boost,
-		Delta:       *curr.boost - prevBoost,
+		BoostAfter:  *curr.Boost,
+		Delta:       *curr.Boost - prevBoost,
 	})
 	if err != nil {
 		return nil
@@ -295,12 +295,12 @@ func (e *TickDiffEmitter) boostPickup(guid string, prev, curr *tickPlayer) *bus.
 // Distinct from _OwnGoal: this fires for every score delta, including
 // regular goals.
 func (e *TickDiffEmitter) diffTeamScores(prev, curr *tickSnapshot) []bus.Event {
-	prevByNum := make(map[int]int, len(prev.teams))
-	for _, t := range prev.teams {
+	prevByNum := make(map[int]int, len(prev.Teams))
+	for _, t := range prev.Teams {
 		prevByNum[t.TeamNum] = t.Score
 	}
 	var out []bus.Event
-	for _, t := range curr.teams {
+	for _, t := range curr.Teams {
 		old, ok := prevByNum[t.TeamNum]
 		if !ok || t.Score == old {
 			continue
@@ -313,7 +313,7 @@ func (e *TickDiffEmitter) diffTeamScores(prev, curr *tickSnapshot) []bus.Event {
 			After     int    `json:"after"`
 			Delta     int    `json:"delta"`
 		}{
-			MatchGUID: curr.matchGUID,
+			MatchGUID: curr.MatchGUID,
 			TeamNum:   t.TeamNum,
 			TeamName:  t.Name,
 			Before:    old,
@@ -331,7 +331,7 @@ func (e *TickDiffEmitter) diffTeamScores(prev, curr *tickSnapshot) []bus.Event {
 // TeamNum field changes. Normalizes 255 (RL's "untouched" sentinel)
 // to null in the JSON via *int.
 func (e *TickDiffEmitter) diffBallPossession(prev, curr *tickSnapshot) *bus.Event {
-	if !prev.hasBall || !curr.hasBall || prev.ballTeam == curr.ballTeam {
+	if !prev.HasBall || !curr.HasBall || prev.BallTeam == curr.BallTeam {
 		return nil
 	}
 	toNullable := func(team int) *int {
@@ -347,9 +347,9 @@ func (e *TickDiffEmitter) diffBallPossession(prev, curr *tickSnapshot) *bus.Even
 		After       *int                     `json:"after"`
 		TriggeredBy *enrichedCorrelatedTouch `json:"triggeredBy,omitempty"`
 	}{
-		MatchGUID:   curr.matchGUID,
-		Before:      toNullable(prev.ballTeam),
-		After:       toNullable(curr.ballTeam),
+		MatchGUID:   curr.MatchGUID,
+		Before:      toNullable(prev.BallTeam),
+		After:       toNullable(curr.BallTeam),
 		TriggeredBy: recentTouch(e.correlation, 3),
 	})
 	if err != nil {

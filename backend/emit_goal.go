@@ -332,15 +332,15 @@ func (e *GoalEmitter) maybeReplayStarted() []bus.Event {
 	}
 	e.mu.Lock()
 	prev := e.prevReplay
-	e.prevReplay = curr.bReplay
+	e.prevReplay = curr.BReplay
 	cached := e.lastGoal
 	e.mu.Unlock()
-	if prev || !curr.bReplay || cached == nil {
+	if prev || !curr.BReplay || cached == nil {
 		return nil
 	}
 	out := *cached
 	out.Event = "_GoalReplayStarted"
-	out.MatchGUID = curr.matchGUID
+	out.MatchGUID = curr.MatchGUID
 	body, err := marshalGoalBody(out)
 	if err != nil {
 		return nil

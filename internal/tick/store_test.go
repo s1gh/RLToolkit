@@ -1,4 +1,4 @@
-package backend
+package tick
 
 import (
 	"encoding/json"
@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestTickStore_AdvancesOnEachUpdateState(t *testing.T) {
-	ts := NewTickStore()
+func TestStore_AdvancesOnEachUpdateState(t *testing.T) {
+	ts := New()
 	if ts.Latest() != nil || ts.Previous() != nil {
 		t.Fatal("expected empty store on construction")
 	}
@@ -24,16 +24,16 @@ func TestTickStore_AdvancesOnEachUpdateState(t *testing.T) {
 	if ts.Latest() == nil || ts.Previous() == nil {
 		t.Fatal("expected both Latest and Previous after second tick")
 	}
-	if ts.Latest().teams[0].Score != 1 {
-		t.Fatalf("Latest score = %d, want 1", ts.Latest().teams[0].Score)
+	if ts.Latest().Teams[0].Score != 1 {
+		t.Fatalf("Latest score = %d, want 1", ts.Latest().Teams[0].Score)
 	}
-	if ts.Previous().teams[0].Score != 0 {
-		t.Fatalf("Previous score = %d, want 0", ts.Previous().teams[0].Score)
+	if ts.Previous().Teams[0].Score != 0 {
+		t.Fatalf("Previous score = %d, want 0", ts.Previous().Teams[0].Score)
 	}
 }
 
-func TestTickStore_IgnoresNonUpdateState(t *testing.T) {
-	ts := NewTickStore()
+func TestStore_IgnoresNonUpdateState(t *testing.T) {
+	ts := New()
 	ts.Observe(bus.Event{Name: "MatchCreated"})
 	ts.Observe(bus.Event{Name: "GoalScored", Raw: []byte(`{"Event":"GoalScored","Data":"{}"}`)})
 	if ts.Latest() != nil {
@@ -41,8 +41,8 @@ func TestTickStore_IgnoresNonUpdateState(t *testing.T) {
 	}
 }
 
-func TestTickStore_TeamByNum(t *testing.T) {
-	ts := NewTickStore()
+func TestStore_TeamByNum(t *testing.T) {
+	ts := New()
 	ts.Observe(updateStateTick(t, "G1", 3, 5, false))
 	if got := ts.TeamByNum(0); got == nil || got.Score != 3 {
 		t.Fatalf("TeamByNum(0) = %+v", got)
@@ -55,8 +55,8 @@ func TestTickStore_TeamByNum(t *testing.T) {
 	}
 }
 
-func TestTickStore_InReplay(t *testing.T) {
-	ts := NewTickStore()
+func TestStore_InReplay(t *testing.T) {
+	ts := New()
 	if ts.InReplay() {
 		t.Fatal("InReplay on empty store should be false")
 	}

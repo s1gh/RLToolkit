@@ -13,6 +13,51 @@ type TeamRef struct {
 	ColorSecondary string
 }
 
+// TickSnapshot is the slim per-tick projection of UpdateState that
+// TickStore caches once per envelope. Diff emitters compare
+// (Previous, Latest) snapshots; gate emitters read individual flags.
+type TickSnapshot struct {
+	MatchGUID string
+	Teams     []TeamRef
+	Players   []TickPlayer
+	BallTeam  int  // Game.Ball.TeamNum; 255 = untouched
+	HasBall   bool // false when Game.Ball was absent
+	Overtime  bool
+	BReplay   bool // Game.bReplay; rising edge marks a goal replay starting
+}
+
+// TickPlayer is the per-player slice of UpdateState we cache.
+type TickPlayer struct {
+	ID         string
+	Name       string
+	Team       int
+	Score      int
+	Goals      int
+	Assists    int
+	Saves      int
+	Shots      int
+	Touches    int
+	CarTouches int
+	Demos      int
+	Boost      *int // pointer because RL omits in non-spectator mode
+	Demolished bool
+	OnGround   bool
+	Speed      *float64 // pointer: SPECTATOR-only field, omitted otherwise
+	Supersonic bool
+}
+
+// TeamScore reads the Score for a TeamNum out of a Teams[] snapshot,
+// returning 0 if the team isn't present. Used by emit/state code that
+// builds blue/orange tallies for derived events.
+func TeamScore(teams []TeamRef, num int) int {
+	for _, t := range teams {
+		if t.TeamNum == num {
+			return t.Score
+		}
+	}
+	return 0
+}
+
 // Vec3 is the 3D location/vector shape RL ships on BallHit /
 // CrossbarHit / GoalScored.
 type Vec3 struct {
@@ -91,4 +136,11 @@ type BallHitInner struct {
 	PreHitSpeed  *float64 `json:"PreHitSpeed"`
 	PostHitSpeed *float64 `json:"PostHitSpeed"`
 	Location     *Vec3    `json:"Location"`
+}
+
+// OwnGoalScoreAfter is part of _OwnGoal's wire shape — the per-team
+// score state immediately after the deflection.
+type OwnGoalScoreAfter struct {
+	Blue   int `json:"blue"`
+	Orange int `json:"orange"`
 }

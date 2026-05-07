@@ -83,7 +83,7 @@ func (e *OwnGoalEmitter) Process(evt bus.Event) []bus.Event {
 	}
 	// Different-match guard: a guid change is a fresh baseline, not
 	// a score delta.
-	if prev.matchGUID != "" && curr.matchGUID != "" && prev.matchGUID != curr.matchGUID {
+	if prev.MatchGUID != "" && curr.MatchGUID != "" && prev.MatchGUID != curr.MatchGUID {
 		return nil
 	}
 	if e.matchState != nil {
@@ -93,13 +93,13 @@ func (e *OwnGoalEmitter) Process(evt bus.Event) []bus.Event {
 		}
 	}
 
-	prevByNum := make(map[int]int, len(prev.teams))
-	for _, p := range prev.teams {
+	prevByNum := make(map[int]int, len(prev.Teams))
+	for _, p := range prev.Teams {
 		prevByNum[p.TeamNum] = p.Score
 	}
 
 	var emissions []bus.Event
-	for _, t := range curr.teams {
+	for _, t := range curr.Teams {
 		oldScore, ok := prevByNum[t.TeamNum]
 		if !ok {
 			continue
@@ -141,13 +141,13 @@ func (e *OwnGoalEmitter) Process(evt bus.Event) []bus.Event {
 			ScoreAfter           ownGoalScoreAfter `json:"scoreAfter"`
 			CorrelatedGoalScorer *EnrichedPlayer   `json:"correlatedGoalScorer,omitempty"`
 		}{
-			MatchGUID:     curr.matchGUID,
+			MatchGUID:     curr.MatchGUID,
 			Deflector:     touchPlayer,
 			ScoringTeam:   t.TeamNum,
 			ConcedingTeam: touchPlayer.Team,
 			ScoreAfter: ownGoalScoreAfter{
-				Blue:   teamScore(curr.teams, 0),
-				Orange: teamScore(curr.teams, 1),
+				Blue:   teamScore(curr.Teams, 0),
+				Orange: teamScore(curr.Teams, 1),
 			},
 			CorrelatedGoalScorer: correlatedScorer,
 		})
