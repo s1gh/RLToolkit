@@ -212,7 +212,9 @@
       // whenever we re-layout.
       if (off) {
         w.el.style.outline = '2px dashed #f97316'; // orange
-      } else if (w !== selected) {
+      } else if (w === selected) {
+        w.el.style.outline = '2px solid rgba(34, 211, 238, 1)';
+      } else {
         w.el.style.outline = '1px solid rgba(34, 211, 238, 0.4)';
       }
     }
@@ -536,10 +538,6 @@
     target.addEventListener('pointermove', move);
     target.addEventListener('pointerup', end);
     target.addEventListener('pointercancel', end);
-  }
-
-  function clamp(v, min) {
-    return v < min ? min : v;
   }
 
   function clampRange(v, lo, hi) {
