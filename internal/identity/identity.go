@@ -1,4 +1,8 @@
-package backend
+// Package identity persists the "who am I" answer the backend uses
+// to stamp EnrichedPlayer.IsMe. Stored as one JSON file under the
+// data directory; reads are common (every roster resolve), writes
+// are rare (user picks themselves on the dashboard).
+package identity
 
 import (
 	"encoding/json"
@@ -8,25 +12,20 @@ import (
 	"sync"
 )
 
-// Identity is the persisted "who am I" answer the backend uses to
-// stamp EnrichedPlayer.IsMe. The PrimaryID is the canonical
-// "Platform|UserId|SubId" form RL ships on UpdateState; Name is kept
-// for diagnostics (UI labels, log lines).
+// Identity is the persisted "who am I" answer. PrimaryID is the
+// canonical "Platform|UserId|SubId" form RL ships on UpdateState;
+// Name is kept for diagnostics (UI labels, log lines).
 type Identity struct {
 	PrimaryID string `json:"primaryId"`
 	Name      string `json:"name"`
 }
 
-// IdentityStore persists a single Identity to identity.json under
-// the data directory. Reads are common (every roster resolve), writes
-// are rare (user picks themselves on the dashboard) — so the storage
-// is just one JSON file rewritten in place.
-//
-// Notify, when set, is invoked from outside the lock whenever the
-// stored identity changes. main.go wires it to broadcast
+// Store persists a single Identity to identity.json under the data
+// directory. Notify, when set, is invoked from outside the lock
+// whenever the stored identity changes. main wires it to broadcast
 // _IdentityChanged through the bus so plugins can react without
 // polling.
-type IdentityStore struct {
+type Store struct {
 	path string
 
 	mu  sync.RWMutex
@@ -35,21 +34,21 @@ type IdentityStore struct {
 	Notify func(*Identity)
 }
 
-// NewIdentityStore opens (or creates) identity.json under dataDir
-// and seeds the in-memory cache from disk. A missing file is fine —
-// the store starts empty until Set is called.
-func NewIdentityStore(dataDir string) (*IdentityStore, error) {
+// New opens (or creates) identity.json under dataDir and seeds the
+// in-memory cache from disk. A missing file is fine — the store
+// starts empty until Set is called.
+func New(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
-	s := &IdentityStore{path: filepath.Join(dataDir, "identity.json")}
+	s := &Store{path: filepath.Join(dataDir, "identity.json")}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *IdentityStore) load() error {
+func (s *Store) load() error {
 	body, err := os.ReadFile(s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -75,7 +74,7 @@ func (s *IdentityStore) load() error {
 
 // Get returns a copy of the current identity, or nil when none is
 // set. The copy keeps callers from mutating the stored value.
-func (s *IdentityStore) Get() *Identity {
+func (s *Store) Get() *Identity {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.cur == nil {
@@ -88,7 +87,7 @@ func (s *IdentityStore) Get() *Identity {
 // Set persists a new identity and fires Notify (if set) outside the
 // lock. PrimaryID is required; an empty value is treated as a
 // programming error.
-func (s *IdentityStore) Set(id Identity) error {
+func (s *Store) Set(id Identity) error {
 	if id.PrimaryID == "" {
 		return errors.New("primaryId required")
 	}
@@ -112,7 +111,7 @@ func (s *IdentityStore) Set(id Identity) error {
 
 // Clear removes the on-disk identity and zeroes the cache. Notify
 // fires with nil.
-func (s *IdentityStore) Clear() error {
+func (s *Store) Clear() error {
 	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
