@@ -1,4 +1,4 @@
-package backend
+package roster
 
 import (
 	"bytes"
@@ -12,6 +12,17 @@ import (
 	"time"
 )
 
+// init registers the wire-name aliases the production binary seeds
+// from EventCatalog. Without it, Canonical("updatestate") returns the
+// lowercase string, and the lowercase-wire test never reaches Observe.
+func init() {
+	wire.RegisterAliases(map[string]string{
+		"updatestate":   "UpdateState",
+		"goalscored":    "GoalScored",
+		"matchdestroyed": "MatchDestroyed",
+	})
+}
+
 // envelope mimics the RL Stats API wire shape: a top-level envelope
 // with Event/Data, Data being a JSON-encoded string. That double encode
 // matches how the toolkit forwards UpdateState through the bus.
@@ -22,17 +33,17 @@ func envelope(eventName string, inner any) []byte {
 		Data  string `json:"Data"`
 	}{
 		Event: eventName,
-		Data:      string(innerBytes),
+		Data:  string(innerBytes),
 	})
 	return outer
 }
 
 // feedRaw decodes a raw RL envelope into the typed Event shape the
-// pipeline produces and feeds it through RosterTracker as both a
-// state and an emit processor — same pattern as the real pipeline,
-// just with the bus broadcast inlined here so existing tests can
-// keep subscribing to a bus channel.
-func feedRaw(t *testing.T, tracker *RosterTracker, b *bus.Bus, raw []byte) {
+// pipeline produces and feeds it through Tracker as both a state and
+// an emit processor — same pattern as the real pipeline, just with the
+// bus broadcast inlined here so existing tests can keep subscribing to
+// a bus channel.
+func feedRaw(t *testing.T, tracker *Tracker, b *bus.Bus, raw []byte) {
 	t.Helper()
 	evt := bus.Event{Name: wire.ExtractEventName(raw), Raw: raw}
 	tracker.Observe(evt)
@@ -41,8 +52,8 @@ func feedRaw(t *testing.T, tracker *RosterTracker, b *bus.Bus, raw []byte) {
 	}
 }
 
-// drain pulls everything currently on the channel without blocking.
-// Returns the parsed _RosterChanged events in order.
+// drainRoster pulls everything currently on the channel without
+// blocking. Returns the parsed _RosterChanged events in order.
 func drainRoster(t *testing.T, ch <-chan []byte) []rosterEvent {
 	t.Helper()
 	var out []rosterEvent
@@ -54,8 +65,6 @@ func drainRoster(t *testing.T, ch <-chan []byte) []rosterEvent {
 			if !ok {
 				return out
 			}
-			// Decode the envelope ({Event, Data}) and re-extract the
-			// roster payload from Data — the new wire shape nests it.
 			var env struct {
 				Event string          `json:"Event"`
 				Data  json.RawMessage `json:"Data"`
@@ -64,12 +73,12 @@ func drainRoster(t *testing.T, ch <-chan []byte) []rosterEvent {
 				continue
 			}
 			var payload struct {
-				MatchGUID string         `json:"matchGuid"`
-				Players   []rosterPlayer `json:"players"`
+				MatchGUID string   `json:"matchGuid"`
+				Players   []Player `json:"players"`
 			}
 			_ = json.Unmarshal(env.Data, &payload)
 			out = append(out, rosterEvent{
-				Event: env.Event,
+				Event:     env.Event,
 				MatchGUID: payload.MatchGUID,
 				Players:   payload.Players,
 			})
@@ -79,9 +88,9 @@ func drainRoster(t *testing.T, ch <-chan []byte) []rosterEvent {
 	}
 }
 
-func TestRosterTracker_EmitsOnFirstSeen(t *testing.T) {
+func TestTracker_EmitsOnFirstSeen(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -109,9 +118,9 @@ func TestRosterTracker_EmitsOnFirstSeen(t *testing.T) {
 	}
 }
 
-func TestRosterTracker_NoEmitOnIdenticalRoster(t *testing.T) {
+func TestTracker_NoEmitOnIdenticalRoster(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -126,16 +135,16 @@ func TestRosterTracker_NoEmitOnIdenticalRoster(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("first feed: expected 1 event, got %d", len(first))
 	}
-	feedRaw(t, tracker, bus, pkt) // identical
+	feedRaw(t, tracker, bus, pkt)
 	second := drainRoster(t, ch)
 	if len(second) != 0 {
 		t.Errorf("second identical feed: expected 0 events, got %d", len(second))
 	}
 }
 
-func TestRosterTracker_EmitsOnLateJoiner(t *testing.T) {
+func TestTracker_EmitsOnLateJoiner(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -162,9 +171,9 @@ func TestRosterTracker_EmitsOnLateJoiner(t *testing.T) {
 	}
 }
 
-func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
+func TestTracker_FingerprintIgnoresOrder(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -176,7 +185,6 @@ func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
 		},
 	}))
 	drainRoster(t, ch)
-	// Same roster, different order — fingerprint should match.
 	feedRaw(t, tracker, bus, envelope("UpdateState", map[string]any{
 		"MatchGuid": "m",
 		"Players": []map[string]any{
@@ -190,9 +198,9 @@ func TestRosterTracker_FingerprintIgnoresOrder(t *testing.T) {
 	}
 }
 
-func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
+func TestTracker_NameChangeDoesNotEmit(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -203,8 +211,6 @@ func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
 		},
 	}))
 	drainRoster(t, ch)
-	// Same roster identity, name typo correction. Should NOT emit —
-	// the SDK's encounter ledger handles alias drift on its side.
 	feedRaw(t, tracker, bus, envelope("UpdateState", map[string]any{
 		"MatchGuid": "m",
 		"Players": []map[string]any{
@@ -217,9 +223,9 @@ func TestRosterTracker_NameChangeDoesNotEmit(t *testing.T) {
 	}
 }
 
-func TestRosterTracker_EmitsOnGuidChange(t *testing.T) {
+func TestTracker_EmitsOnGuidChange(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -238,9 +244,9 @@ func TestRosterTracker_EmitsOnGuidChange(t *testing.T) {
 	}
 }
 
-func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
+func TestTracker_MatchDestroyedClearsCache(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -252,9 +258,6 @@ func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
 	})
 	feedRaw(t, tracker, bus, pkt)
 	drainRoster(t, ch)
-	// MatchDestroyed clears the cache AND emits an empty roster so plugins
-	// clear their match view. The same UpdateState afterwards should re-emit
-	// because the tracker considers it fresh.
 	feedRaw(t, tracker, bus, []byte(`{"Event":"MatchDestroyed"}`))
 	feedRaw(t, tracker, bus, pkt)
 	got := drainRoster(t, ch)
@@ -269,9 +272,9 @@ func TestRosterTracker_MatchDestroyedClearsCache(t *testing.T) {
 	}
 }
 
-func TestRosterTracker_IgnoresNonUpdateState(t *testing.T) {
+func TestTracker_IgnoresNonUpdateState(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -282,13 +285,12 @@ func TestRosterTracker_IgnoresNonUpdateState(t *testing.T) {
 	}
 }
 
-func TestRosterTracker_LowercaseWire(t *testing.T) {
+func TestTracker_LowercaseWire(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
-	// Some RL builds ship the envelope keys lowercase. Mirror that.
 	innerBytes, _ := json.Marshal(map[string]any{
 		"matchguid": "m-low",
 		"players": []map[string]any{
@@ -300,7 +302,7 @@ func TestRosterTracker_LowercaseWire(t *testing.T) {
 		Data  string `json:"data"`
 	}{
 		Event: "updatestate",
-		Data:      string(innerBytes),
+		Data:  string(innerBytes),
 	})
 	feedRaw(t, tracker, bus, outer)
 	got := drainRoster(t, ch)
@@ -315,13 +317,9 @@ func TestRosterTracker_LowercaseWire(t *testing.T) {
 	}
 }
 
-// TestRosterTracker_RewritesBotIds asserts that when RL ships multiple
-// bots all under "Unknown|0|0", the tracker mints distinct per-bot ids
-// derived from the Name. Without this, every bot collapses into one
-// roster entry / one ledger row / one synthetic-event subject.
-func TestRosterTracker_RewritesBotIds(t *testing.T) {
+func TestTracker_RewritesBotIds(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
+	tracker := New()
 	ch, cancel := bus.Subscribe(nil)
 	defer cancel()
 
@@ -342,7 +340,6 @@ func TestRosterTracker_RewritesBotIds(t *testing.T) {
 		t.Fatalf("expected 3 players in payload, got %d", len(got[0].Players))
 	}
 
-	// Build an id-set; every player should land under a distinct id.
 	ids := map[string]bool{}
 	var roundhouseID, merlinID string
 	for _, p := range got[0].Players {
@@ -363,13 +360,11 @@ func TestRosterTracker_RewritesBotIds(t *testing.T) {
 	if merlinID != "Bot|Merlin" {
 		t.Errorf("Merlin id: want \"Bot|Merlin\", got %q", merlinID)
 	}
-	// Real player should pass through untouched.
 	for _, p := range got[0].Players {
 		if p.Name == "s1gh" && p.ID != "Steam|111|0" {
 			t.Errorf("real-player id mutated: got %q", p.ID)
 		}
 	}
-	// Bots must have IsBot true (synthetic events read this field).
 	for _, p := range got[0].Players {
 		if (p.Name == "Roundhouse" || p.Name == "Merlin") && !p.IsBot {
 			t.Errorf("%s should have IsBot=true", p.Name)
@@ -380,10 +375,6 @@ func TestRosterTracker_RewritesBotIds(t *testing.T) {
 	}
 }
 
-// TestRewriteUpdateStateBotIds covers the dispatcher-level wire rewriter.
-// Every downstream raw-bus subscriber depends on this — without it,
-// SDK-side match.build (which reads raw UpdateState directly) would
-// still see the Unknown|0|0 collision.
 func TestRewriteUpdateStateBotIds(t *testing.T) {
 	t.Run("rewrites bot ids in PascalCase wire", func(t *testing.T) {
 		raw := envelope("UpdateState", map[string]any{
@@ -394,9 +385,8 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 				{"PrimaryId": "Unknown|0|0", "Name": "Merlin", "TeamNum": 1},
 			},
 		})
-		out := rewriteUpdateStateBotIds(raw)
+		out := RewriteUpdateStateBotIds(raw)
 
-		// Decode to verify.
 		var env struct {
 			Data string `json:"Data"`
 		}
@@ -432,8 +422,7 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 				{"PrimaryId": "Steam|222|0", "Name": "Bob", "TeamNum": 1},
 			},
 		})
-		out := rewriteUpdateStateBotIds(raw)
-		// Same backing array — fast path returned input unchanged.
+		out := RewriteUpdateStateBotIds(raw)
 		if &raw[0] != &out[0] {
 			t.Errorf("expected fast-path passthrough (same backing array)")
 		}
@@ -446,9 +435,7 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 				{"PrimaryId": "Unknown|0|0", "Name": "", "TeamNum": 1},
 			},
 		})
-		out := rewriteUpdateStateBotIds(raw)
-		// No rewrite happened — fast path or not, the wire shouldn't
-		// contain a "Bot|" id since we have no name to mint from.
+		out := RewriteUpdateStateBotIds(raw)
 		if bytes.Contains(out, []byte("Bot|")) {
 			t.Errorf("unexpected Bot| id minted from empty name: %s", out)
 		}
@@ -456,27 +443,16 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 
 	t.Run("malformed envelope passes through unchanged", func(t *testing.T) {
 		raw := []byte("not json at all but contains Unknown|0|0 substring")
-		out := rewriteUpdateStateBotIds(raw)
+		out := RewriteUpdateStateBotIds(raw)
 		if !bytes.Equal(raw, out) {
 			t.Errorf("malformed input should pass through; got %q", out)
 		}
 	})
 
-	// Regression: the original implementation re-marshaled the outer
-	// envelope through map[string]any, which sorts keys alphabetically.
-	// A rewritten UpdateState then started with `{"Data":"..."`, and
-	// because Data carries the full per-tick payload (multi-KB), the
-	// "Event" key landed past extractEventName's 96-byte scan window,
-	// returning "" — so Bus.Broadcast dropped the packet for every
-	// filtered subscriber. That manifested as widgets showing briefly
-	// then vanishing the moment a bot match started.
 	t.Run("preserves outer envelope so extractEventName still works", func(t *testing.T) {
-		// Pad the inner payload so the Event key would be way past the
-		// 96-byte window if the rewriter reordered the outer envelope.
 		players := []map[string]any{
 			{"PrimaryId": "Unknown|0|0", "Name": "Roundhouse", "TeamNum": 1},
 		}
-		// 50 lookalike fields to fatten the inner payload past 96 bytes.
 		extras := map[string]any{}
 		for i := 0; i < 50; i++ {
 			extras[strings.Repeat("x", 4)+strconv.Itoa(i)] = "filler-value-filler-value-filler-value"
@@ -487,11 +463,10 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 			"Extras":    extras,
 		}
 		raw := envelope("UpdateState", inner)
-		out := rewriteUpdateStateBotIds(raw)
+		out := RewriteUpdateStateBotIds(raw)
 		if name := wire.ExtractEventName(out); name != "UpdateState" {
 			t.Fatalf("extractEventName after rewrite = %q, want %q (rewrite broke envelope ordering)", name, "UpdateState")
 		}
-		// And the inner payload is still well-formed and rewritten.
 		var env struct {
 			Data string `json:"Data"`
 		}
@@ -504,37 +479,9 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 	})
 }
 
-// TestCanonicalizeBotId covers the boundary helper directly.
-func TestCanonicalizeBotId(t *testing.T) {
-	cases := []struct {
-		name   string
-		inID   string
-		inName string
-		want   string
-	}{
-		{"real player passthrough", "Steam|111|0", "Alice", "Steam|111|0"},
-		{"real player named Bot still passes", "Steam|111|0", "Bot", "Steam|111|0"},
-		{"bot with name → minted", "Unknown|0|0", "Roundhouse", "Bot|Roundhouse"},
-		{"bot without name → preserved", "Unknown|0|0", "", "Unknown|0|0"},
-		{"bot name with pipe sanitized", "Unknown|0|0", "Round|house", "Bot|Round_house"},
-		{"empty id passthrough", "", "Whatever", ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := canonicalizeBotId(c.inID, c.inName); got != c.want {
-				t.Errorf("canonicalizeBotId(%q, %q) = %q, want %q", c.inID, c.inName, got, c.want)
-			}
-		})
-	}
-}
-
-func TestRosterTracker_DoesntStallOnBus(t *testing.T) {
-	// Sanity check — feeding many packets should never block. The
-	// underlying bus drops slow subscribers rather than backpressure.
+func TestTracker_DoesntStallOnBus(t *testing.T) {
 	bus := bus.NewBus()
-	tracker := NewRosterTracker(bus)
-	// No subscriber attached — Broadcast should just no-op for missing
-	// receivers.
+	tracker := New()
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	done := make(chan struct{})

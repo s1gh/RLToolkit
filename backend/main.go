@@ -135,7 +135,7 @@ func runServe() {
 	if err != nil {
 		log.Fatalf("[server] %v", err)
 	}
-	roster.AttachIdentity(identity)
+	AttachIdentityStore(roster, identity)
 	identity.Notify = func(id *Identity) {
 		body, err := json.Marshal(id)
 		if err != nil {
