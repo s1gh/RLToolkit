@@ -76,7 +76,7 @@
     'display:flex;align-items:center;gap:12px;padding:0 14px;' +
     'background:rgba(15,19,32,0.95);border-bottom:1px solid #232a44;' +
     'color:#a9b0cf;font:600 11px Inter,system-ui,sans-serif;' +
-    'letter-spacing:.05em;z-index:100';
+    'letter-spacing:.05em;z-index:100;transition:opacity .1s';
   topbar.innerHTML =
     '<span style="color:#22d3ee;text-transform:uppercase">Overlay editor</span>' +
     '<span style="opacity:.6">Drag to position · Drop to save</span>' +
@@ -393,6 +393,7 @@
     try {
       target.setPointerCapture(pointerId);
     } catch (_) {}
+    setChromeFaded(true);
 
     // Token used to detect a stale rollback: if a second drag starts on
     // this widget before this drag's save resolves, w._dragToken changes,
@@ -425,6 +426,7 @@
       try {
         target.releasePointerCapture(pointerId);
       } catch (_) {}
+      setChromeFaded(false);
 
       // Snap on release (unless Shift held), then persist.
       if (!ev.shiftKey) {
@@ -480,6 +482,7 @@
     try {
       target.setPointerCapture(pointerId);
     } catch (_) {}
+    setChromeFaded(true);
     w._resizeToken = (w._resizeToken | 0) + 1;
     const token = w._resizeToken;
 
@@ -510,6 +513,7 @@
       try {
         target.releasePointerCapture(pointerId);
       } catch (_) {}
+      setChromeFaded(false);
 
       if (!ev.shiftKey) {
         w.overlay.width = Math.round(w.overlay.width / SNAP) * SNAP;
@@ -542,6 +546,19 @@
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
+  }
+
+  // Fade chrome (topbar + properties panel) during drag/resize so they
+  // don't block the canvas corners the user is trying to reach. Both
+  // stop intercepting pointer events while faded so a drag-onto-them
+  // can't be hijacked.
+  function setChromeFaded(faded) {
+    const op = faded ? '0.15' : '';
+    const pe = faded ? 'none' : '';
+    topbar.style.opacity = op;
+    topbar.style.pointerEvents = pe;
+    panel.style.opacity = op;
+    panel.style.pointerEvents = pe;
   }
 
   // ─── Persistence ──────────────────────────────────────────
@@ -688,7 +705,7 @@
     'position:fixed;top:48px;right:16px;width:240px;' +
     'background:#161b2c;border:1px solid #232a44;border-radius:10px;' +
     'padding:14px;color:#e6e9f5;font:500 12px Inter,system-ui,sans-serif;' +
-    'box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:50;display:none';
+    'box-shadow:0 8px 30px rgba(0,0,0,.4);z-index:50;display:none;transition:opacity .1s';
   document.body.appendChild(panel);
 
   function renderPanel() {
