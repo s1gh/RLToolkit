@@ -272,6 +272,39 @@ func TestTracker_MatchDestroyedClearsCache(t *testing.T) {
 	}
 }
 
+// _ConnectionStatus while the roster was already empty (e.g. boot:
+// backend connects to RL before the user has been in any match) used
+// to emit a spurious _RosterChanged{players: null}. Plugins sitting at
+// the menu would see "the roster changed" when nothing observable had.
+// Now suppressed: only emit on the actual had-roster → none transition.
+func TestTracker_ConnectionStatusOnEmptyRosterStaysQuiet(t *testing.T) {
+	bus := bus.NewBus()
+	tracker := New()
+	ch, cancel := bus.Subscribe(nil)
+	defer cancel()
+
+	feedRaw(t, tracker, bus, []byte(`{"Event":"_ConnectionStatus","Status":"connected"}`))
+	got := drainRoster(t, ch)
+	if len(got) != 0 {
+		t.Errorf("expected 0 events from _ConnectionStatus on empty roster, got %d", len(got))
+	}
+}
+
+// Same idea on the MatchDestroyed path: if we never had a roster,
+// MatchDestroyed shouldn't conjure a synthetic empty one.
+func TestTracker_MatchDestroyedOnEmptyRosterStaysQuiet(t *testing.T) {
+	bus := bus.NewBus()
+	tracker := New()
+	ch, cancel := bus.Subscribe(nil)
+	defer cancel()
+
+	feedRaw(t, tracker, bus, []byte(`{"Event":"MatchDestroyed"}`))
+	got := drainRoster(t, ch)
+	if len(got) != 0 {
+		t.Errorf("expected 0 events from MatchDestroyed on empty roster, got %d", len(got))
+	}
+}
+
 func TestTracker_IgnoresNonUpdateState(t *testing.T) {
 	bus := bus.NewBus()
 	tracker := New()

@@ -130,11 +130,17 @@ func (t *Tracker) Observe(evt bus.Event) {
 		t.onUpdateState(evt.Raw)
 	case "MatchDestroyed", "_ConnectionStatus":
 		t.mu.Lock()
+		hadRoster := len(t.lastRoster) > 0
 		t.lastFp = ""
 		t.lastGUID = ""
 		t.lastRoster = nil
 		t.mu.Unlock()
-		t.queueEmission("", nil)
+		// Only emit on the actual transition (had-roster → none).
+		// Suppresses the boot-time / idle-reconnect noise where the
+		// roster was already empty and nothing observably changed.
+		if hadRoster {
+			t.queueEmission("", nil)
+		}
 	}
 }
 
