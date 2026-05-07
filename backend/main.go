@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/emit"
 	"rl-toolkit/internal/scaffold"
 	"strings"
 	"syscall"
@@ -90,7 +91,7 @@ func runServe() {
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
 	ownGoal := NewOwnGoalEmitter(matchState, tickStore, correlation)
 	statfeed := NewStatfeedEmitter(roster, correlation, discoveries, ownGoal)
-	demos := NewDemosEmitter(tickStore)
+	demos := emit.NewDemos(tickStore)
 	goalEmit := NewGoalEmitter(roster, correlation, tickStore, statfeed, ownGoal)
 	tickDiff := NewTickDiffEmitter(matchState, tickStore, correlation, statfeed)
 	matchEnded := NewMatchEndedEmitter(tickStore)
@@ -115,7 +116,7 @@ func runServe() {
 	// Wire-spec republishers: enrich raw RL events with resolved
 	// players and pre-decoded fields.
 	pipe.AddEmit(NewBallHitEmitter(roster, matchState, correlation))
-	pipe.AddEmit(NewCrossbarEmitter(roster, tickStore))
+	pipe.AddEmit(emit.NewCrossbar(roster, tickStore))
 	pipe.AddEmit(goalEmit)
 	pipe.AddEmit(matchEnded)
 
@@ -127,8 +128,8 @@ func runServe() {
 
 	// Per-match milestones consume upstream emissions (_BallHit /
 	// _GoalScored).
-	pipe.AddEmit(NewFastestShotEmitter())
-	pipe.AddEmit(NewFirstBloodEmitter())
+	pipe.AddEmit(emit.NewFastestShot())
+	pipe.AddEmit(emit.NewFirstBlood())
 
 	identity, err := NewIdentityStore(cfg.DataDir)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"rl-toolkit/internal/bootid"
 	"rl-toolkit/internal/bus"
 	"rl-toolkit/internal/datastore"
+	"rl-toolkit/internal/emit"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +25,7 @@ type Server struct {
 	source      *RLSource
 	matchState  *MatchState
 	roster      *RosterTracker
-	demos       *DemosEmitter
+	demos       *emit.Demos
 	overrides   *OverridesStore
 	discoveries *StatfeedDiscoveryStore
 	identity    *IdentityStore
