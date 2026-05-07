@@ -1,4 +1,8 @@
-package backend
+// Package plugins scans the plugin directory and serves manifest
+// listings. Results are cached and only re-scanned when an entry's
+// manifest.json mtime changes — a dashboard refresh storm collapses
+// to a few stat()s instead of full re-reads.
+package plugins
 
 import (
 	"encoding/json"
@@ -8,7 +12,7 @@ import (
 	"sync"
 )
 
-type PluginManifest struct {
+type Manifest struct {
 	Name        string        `json:"name"`
 	Title       string        `json:"title"`
 	Version     string        `json:"version"`
@@ -50,11 +54,8 @@ type OverlayConfig struct {
 	ShowDuringPhase []string `json:"show_during_phase,omitempty"`
 }
 
-// PluginManager scans the plugin directory and serves manifest listings.
-// Results are cached and only re-scanned when an entry's manifest.json
-// mtime changes — a dashboard refresh storm collapses to a few stat()s
-// instead of full re-reads.
-type PluginManager struct {
+// Manager scans the plugin directory and serves manifest listings.
+type Manager struct {
 	dir string
 
 	mu     sync.Mutex
@@ -64,19 +65,21 @@ type PluginManager struct {
 
 type cachedManifest struct {
 	mtime    int64
-	manifest *PluginManifest
+	manifest *Manifest
 }
 
-func NewPluginManager(dir string) *PluginManager {
+// New creates a Manager rooted at dir. The directory is created if
+// missing; the initial List call surfaces what's present at startup.
+func New(dir string) *Manager {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		log.Printf("[plugins] Cannot create plugin dir %q: %v", dir, err)
 	}
-	pm := &PluginManager{
+	pm := &Manager{
 		dir:    dir,
 		cache:  make(map[string]*cachedManifest),
 		loaded: make(map[string]string),
 	}
-	pm.List() // initial scan, surfaces what's present at startup
+	pm.List()
 	return pm
 }
 
@@ -88,7 +91,7 @@ func NewPluginManager(dir string) *PluginManager {
 // Triggers a refresh of the manifest cache (cheap when nothing
 // changed) so a freshly-fixed manifest takes effect on the next
 // request without a server restart.
-func (pm *PluginManager) Has(name string) bool {
+func (pm *Manager) Has(name string) bool {
 	for _, m := range pm.List() {
 		if m != nil && m.Name == name {
 			return true
@@ -102,7 +105,7 @@ func (pm *PluginManager) Has(name string) bool {
 //
 // The mtime cache means repeated calls don't re-parse unchanged manifests,
 // and removed folders are detected by absence from the directory listing.
-func (pm *PluginManager) List() []*PluginManifest {
+func (pm *Manager) List() []*Manifest {
 	entries, err := os.ReadDir(pm.dir)
 	if err != nil {
 		log.Printf("[plugins] Cannot read plugin dir %q: %v", pm.dir, err)
@@ -112,7 +115,7 @@ func (pm *PluginManager) List() []*PluginManifest {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	out := make([]*PluginManifest, 0, len(entries))
+	out := make([]*Manifest, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	var logLines []string
 
@@ -134,7 +137,7 @@ func (pm *PluginManager) List() []*PluginManifest {
 			if err != nil {
 				continue
 			}
-			var m PluginManifest
+			var m Manifest
 			if err := json.Unmarshal(data, &m); err != nil {
 				log.Printf("[plugins] Bad manifest in %s: %v", name, err)
 				continue
