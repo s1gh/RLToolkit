@@ -544,8 +544,8 @@
         if (RLT.match && typeof RLT.match.onLifecycle === 'function') {
           RLT.match.onLifecycle((phase) => { phaseEl.textContent = phase || '—'; });
         }
-        if (RLT.match && RLT.match.lifecycle && RLT.match.lifecycle.phase) {
-          phaseEl.textContent = RLT.match.lifecycle.phase;
+        if (RLT.match && RLT.match.state && RLT.match.state.phase) {
+          phaseEl.textContent = RLT.match.state.phase;
         }
       })();
     </script>

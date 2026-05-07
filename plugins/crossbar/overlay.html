@@ -408,7 +408,7 @@
                 const cfg = await readConfig();
                 if (
                   !cfg.playInReplays &&
-                  RLT.match.lifecycle.phase === "replay"
+                  RLT.match.state.phase === "replay"
                 )
                   return;
                 playSound(cfg);
