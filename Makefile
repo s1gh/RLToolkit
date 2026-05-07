@@ -46,14 +46,14 @@ all: release
 ifeq ($(HOST_OS),windows)
 backend:
 	@$(call MKDIR,$(OUT_DIR))
-	cd backend && set "CGO_ENABLED=0" && set "GOOS=$(GOOS_VAL)" && set "GOARCH=amd64" && go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o ../$(OUT_DIR)/$(BINARY)$(EXE) .
+	set "CGO_ENABLED=0" && set "GOOS=$(GOOS_VAL)" && set "GOARCH=amd64" && go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o $(OUT_DIR)/$(BINARY)$(EXE) ./cmd/rl-toolkit
 	@echo -- $(OUT_DIR)/$(BINARY)$(EXE)
 else
 backend:
 	@$(call MKDIR,$(OUT_DIR))
-	cd backend && CGO_ENABLED=0 GOOS=$(GOOS_VAL) GOARCH=amd64 \
+	CGO_ENABLED=0 GOOS=$(GOOS_VAL) GOARCH=amd64 \
 		go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
-		-o ../$(OUT_DIR)/$(BINARY)$(EXE) .
+		-o $(OUT_DIR)/$(BINARY)$(EXE) ./cmd/rl-toolkit
 	@echo "→ $(OUT_DIR)/$(BINARY)$(EXE)"
 endif
 
@@ -89,9 +89,9 @@ launcher:
 	@$(call MKDIR,$(OUT_DIR))
 	@for /f "tokens=2" %%i in ('rustc -vV ^| findstr /B "host:"') do @( \
 	  echo host triple: %%i && \
-	  cd backend && go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
-	    -o ../$(TAURI_DIR)/binaries/rl-toolkit-%%i.exe . && \
-	  cd ../$(subst /,\,$(TAURI_DIR)) && \
+	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
+	    -o $(TAURI_DIR)/binaries/rl-toolkit-%%i.exe ./cmd/rl-toolkit && \
+	  cd $(subst /,\,$(TAURI_DIR)) && \
 	  cargo tauri build --no-bundle --config tauri.launcher.json \
 	)
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(LAUNCHER)$(EXE))
@@ -105,9 +105,9 @@ launcher:
 	@$(call MKDIR,$(OUT_DIR))
 	@triple=$$(rustc -vV | sed -n 's/host: //p'); \
 	  echo "host triple: $$triple"; \
-	  cd backend && go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
-	    -o ../$(TAURI_DIR)/binaries/rl-toolkit-$$triple . && \
-	  cd ../$(TAURI_DIR) && \
+	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
+	    -o $(TAURI_DIR)/binaries/rl-toolkit-$$triple ./cmd/rl-toolkit && \
+	  cd $(TAURI_DIR) && \
 	  cargo tauri build --no-bundle --config tauri.launcher.json
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(LAUNCHER)$(EXE))
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(WIDGET_BIN)$(EXE))

@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"bytes"
@@ -18,7 +18,10 @@ import (
 	"time"
 )
 
-func main() {
+// Main is the entry point invoked from cmd/rl-toolkit. It dispatches
+// subcommands and runs the server. Kept exported so the cmd binary
+// can stay a one-line shim.
+func Main() {
 	// Subcommand dispatch: anything that isn't `serve` (or empty) is a tool.
 	// `serve` is also the implicit default so a bare `rl-toolkit` keeps
 	// behaving like before.

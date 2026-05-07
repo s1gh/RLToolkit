@@ -1,4 +1,4 @@
-package main
+package backend
 
 // Correlation-buffer record types and shared wire fragments. Lives in
 // its own file because multiple emit processors (BallHit writes,

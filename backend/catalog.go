@@ -1,4 +1,4 @@
-package main
+package backend
 
 // EventCatalog documents every event the SDK emits to plugins. It is
 // served at /api/events for discoverability — plugin authors curl that
