@@ -397,6 +397,7 @@ func (s *Server) handleDataWrite(w http.ResponseWriter, r *http.Request, plugin,
 		httpError(w, "set", err, http.StatusInternalServerError)
 		return
 	}
+	s.broadcastStoreChanged(plugin, key, "set")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -409,7 +410,30 @@ func (s *Server) handleDataDelete(w http.ResponseWriter, plugin, key string) {
 		httpError(w, "delete", err, http.StatusInternalServerError)
 		return
 	}
+	s.broadcastStoreChanged(plugin, key, "delete")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// broadcastStoreChanged emits _StoreChanged so other live SDK contexts
+// (overlay, dashboard preview, settings panel) can react when a key in
+// their namespace is written from somewhere else. The SDK filters by
+// namespace inside RLT.store.onChange so plugins only see their own
+// changes — but we broadcast unfiltered because any subscriber could
+// own any namespace, and the per-namespace filter is cheap on the JS
+// side.
+func (s *Server) broadcastStoreChanged(namespace, key, op string) {
+	if s.deps.Bus == nil {
+		return
+	}
+	body, err := json.Marshal(struct {
+		Namespace string `json:"namespace"`
+		Key       string `json:"key"`
+		Op        string `json:"op"`
+	}{Namespace: namespace, Key: key, Op: op})
+	if err != nil {
+		return
+	}
+	s.deps.Bus.Broadcast(bus.Event{Name: "_StoreChanged", Data: body})
 }
 
 func (s *Server) handlePlugins(w http.ResponseWriter, _ *http.Request) {

@@ -8,7 +8,7 @@
          the toolkit and declared in /sdk.css. No network round-trip,
          no FOUT reflow when the web font swaps in. -->
     <link rel="stylesheet" href="/sdk.css" />
-    <script src="/sdk.js" data-plugin="demos"></script>
+    <script src="/sdk.js" data-plugin="demos" data-view="overlay"></script>
 
     <!--
       ─────────────────────────────────────────────────────────────────────
@@ -1090,7 +1090,7 @@
         'use strict';
 
         const $ = (id) => document.getElementById(id);
-        const isOverlay = new URLSearchParams(location.search).has('overlay');
+        const isOverlay = RLT.isOverlay;
 
         // ─── Combo tiers ────────────────────────────────────────────
         // Streak counts map to a tier (word + visual class). The first

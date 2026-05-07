@@ -18,7 +18,7 @@
 // (HTTP fetches, bus.on subscriptions, observers) execute as soon as
 // they're imported; the order here mirrors the legacy monolith's
 // top-down evaluation so subscription order is preserved.
-import { pluginName, isSettingsView, hostedBus, urlParams } from './env.js';
+import { pluginName, view, isOverlay, isDashboard, isSettingsView, hostedBus, urlParams } from './env.js';
 import './overlay-mode.js';
 import { bus, addEvent, getStatus, closeEventSource, clearReconnectWatchdog, connect, dispatchEnvelope, postToHost, subscribedEvents } from './bus.js';
 import { identity } from './identity.js';
@@ -39,11 +39,13 @@ import { util } from './util.js';
 import { settings } from './settings.js';
 import { getManifest, onManifest } from './manifest.js';
 import { setStampDeps } from './stamps.js';
+import { setStoreBusDeps } from './store.js';
 
 // Wire late-bound deps that would otherwise create import cycles.
 // Must run before any SSE event is dispatched (we kick off connect()
 // at the end of this file, which is after these singletons exist).
 setStampDeps(identity, encounters);
+setStoreBusDeps(bus.on.bind(bus), addEvent);
 
 // ─── Public API ────────────────────────────────────────────
 window.RLT = {
@@ -76,6 +78,13 @@ window.RLT = {
   stats,
   widget,
   focus,
+
+  // Render-context discriminators. `view` is the canonical one
+  // ('overlay' | 'dashboard' | 'settings'); the booleans are
+  // shorthands for the common branches.
+  view,
+  isOverlay,
+  isDashboard,
   isSettingsView,
   settings,
 };

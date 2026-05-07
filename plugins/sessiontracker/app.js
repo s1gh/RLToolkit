@@ -3,8 +3,8 @@
 
 (function () {
   const STORE_KEY = 'session';
-  const isOverlay  = new URLSearchParams(location.search).has('overlay');
-  const isSettings = new URLSearchParams(location.search).has('settings');
+  const isOverlay  = RLT.isOverlay;
+  const isSettings = RLT.isSettingsView;
 
   function emptyTotals() {
     return {

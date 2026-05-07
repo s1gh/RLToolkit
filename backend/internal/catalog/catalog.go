@@ -103,6 +103,10 @@ var Entries = []Entry{
 	{Name: "_BootId", Category: "lifecycle", Shape: "boot-id", LivePhases: anyPhase, Desc: "Process-lifetime random ID. Pushed as the first SSE frame on every connect so plugins can detect a backend restart (boot-id changed since their last bucket) and reset per-session state. Framing-bypass.", Stability: "stable", Since: "1.0"},
 	{Name: "_MatchState", Category: "lifecycle", Shape: "match-state", LivePhases: anyPhase, Desc: "Authoritative gameplay state. matchActive (am I in a match) and phase (lobby/countdown/live/paused/replay/ended/podium/none) on every transition, with previousPhase, phaseDurationSeconds, and trigger so subscribers see what changed and why. Replaces the legacy _Lifecycle and _LifecyclePhaseChanged events.", Stability: "stable", Since: "2.0"},
 	{Name: "_IdentityChanged", Category: "lifecycle", Shape: "identity", LivePhases: anyPhase, Desc: "Backend-stored Identity (PrimaryID + Name) was Set or Cleared. Framing-bypass: every subscriber receives this regardless of the events filter so the SDK can hydrate RLT.me without a separate fetch.", Stability: "provisional", Since: "2.0"},
+	// _StoreChanged is intentionally NOT in the catalog. It's SDK
+	// plumbing — plugins subscribe via RLT.store.onChange (which
+	// filters by their own namespace). The catalog documents gameplay
+	// events; cross-context store fan-out doesn't belong there.
 	{Name: "_GoalReplayStarted", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on the bReplay rising edge (start of a goal replay) with the full _GoalScored payload (scorer, assister, ballLastTouch, goalSpeed, goalTime, impactLocation, isOwnGoal, modifiers), so plugins know which goal the replay is for without correlating themselves. Edge-detected on UpdateState because recent RL builds skip the discrete GoalReplayStart event.", Stability: "provisional", Since: "1.1"},
 
 	// ─── Discoverability (Phase 6) ────────────────────────────

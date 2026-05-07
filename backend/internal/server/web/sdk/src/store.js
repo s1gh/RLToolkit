@@ -6,6 +6,20 @@ import { isOverlay, isSettingsView } from './env.js';
 // settings views can write to the backend store; dashboard views are
 // read-only by default. Plugins opt their dashboard view into writes
 // via { allowWrites: true } passed to register or makeNamespacedStore.
+//
+// onChange subscribes to _StoreChanged (broadcast by the backend on
+// every successful write/delete), filtered to a specific namespace.
+// Bus + addEvent are wired in via setStoreBusDeps from index.js to
+// avoid a static import cycle (bus.js → stamps.js → identity.js →
+// store.js would reorder evaluation and break boot).
+
+let _busOn = null;
+let _addEvent = null;
+
+export function setStoreBusDeps(busOn, addEvent) {
+  _busOn = busOn;
+  _addEvent = addEvent;
+}
 
 export async function storeGet(ns, key) {
   try {
@@ -73,6 +87,29 @@ export function makeNamespacedStore(ns, opts) {
     delete(key) {
       if (!allowWrites) return readOnlyNoOp('delete');
       return storeDelete(ns, key);
+    },
+    // Subscribe to writes that hit this namespace from any context
+    // (overlay, dashboard preview, settings panel — all share the
+    // backend store). Handler is called with {key, op: 'set'|'delete'}.
+    // If `key` is given, only fires for that key. Returns an
+    // unsubscribe function. No-op if the bus deps weren't wired (e.g.
+    // pre-init unit tests).
+    onChange(filterKey, fn) {
+      if (typeof filterKey === 'function') {
+        fn = filterKey;
+        filterKey = null;
+      }
+      if (!_busOn || typeof fn !== 'function') return () => {};
+      _addEvent('_StoreChanged');
+      return _busOn('_StoreChanged', (payload) => {
+        if (!payload || payload.namespace !== ns) return;
+        if (filterKey && payload.key !== filterKey) return;
+        try {
+          fn({ key: payload.key, op: payload.op });
+        } catch (e) {
+          console.error('[RLT] store.onChange handler threw:', e);
+        }
+      });
     },
   };
 }

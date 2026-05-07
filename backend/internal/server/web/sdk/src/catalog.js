@@ -402,6 +402,9 @@ const catalogData = [
     '2.0',
     'Backend-stored Identity (PrimaryID + Name) was Set or Cleared.',
   ],
+  // _StoreChanged is intentionally NOT in the catalog — it's SDK
+  // plumbing (consumed via RLT.store.onChange, namespace-filtered),
+  // not a gameplay event plugins discover by browsing the catalog.
   [
     '_UnknownStatfeed',
     'stat',

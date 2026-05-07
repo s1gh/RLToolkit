@@ -3,7 +3,7 @@
 //
 // Each view is a small singleton on `DV.<name>` exposing { render, [bind] }.
 // app.js owns:
-//   - which view to mount (control page vs. transparent overlay)
+//   - which view to mount (overlay vs. dashboard)
 //   - rAF-batched render scheduling
 //   - mapping SDK events to render() / invalidate() calls
 
@@ -12,32 +12,25 @@
 'use strict';
 
 (function () {
-  // The SDK auto-adds body.overlay-mode whenever ?overlay=1, so we only
-  // read the flag here to pick which views to mount.
-  const isOverlay = new URLSearchParams(location.search).has('overlay');
+  // RLT.view comes from the <script data-view="…"> tag on each entry
+  // file. dashboard.html mounts match + leaderboard; overlay.html
+  // mounts only the transparent overlay view.
+  const isOverlay = RLT.isOverlay;
   const views = isOverlay ? [DV.overlay] : [DV.match, DV.leaderboard];
 
   const scheduleRender = RLT.util.rafBatcher(() => {
     for (const v of views) v.render();
   });
 
-  // Plugin metadata (name, version, author) comes from manifest.json —
-  // see RLT.plugin.register's docs. We only declare runtime behaviour
-  // here.
   RLT.plugin.register({
     init() {
-      RLT.ui.bindStatusPill('conn');
+      if (!isOverlay) RLT.ui.bindStatusPill('conn');
 
       // Grow the widget's width to fit a long player name. fitWidth is
       // monotonic — it only widens, never shrinks — so the manifest's
-      // 320px is treated as a minimum. The 'extra' covers the right-side
-      // glow padding on returning rows; the 600px cap stops a pathological
-      // name from blowing up the surface.
-      //
-      // (We tried RLT.widget.autoSize earlier for full content tracking.
-      // The layer-shell ↔ webview ↔ GTK chain shrunk-then-clipped instead
-      // of shrunk-then-redrew, so we picked grow-only fitWidth as the
-      // narrower contract that actually behaves.)
+      // 320px is treated as a minimum. 'extra' covers the right-side
+      // glow padding on returning rows; the 600px cap stops a
+      // pathological name from blowing up the surface.
       if (isOverlay && RLT.widget.isHosted()) {
         RLT.widget.fitWidth({
           target: '.ov',
@@ -48,14 +41,15 @@
     },
 
     ready() {
-      // Once the encounter ledger and identity have loaded, do the first
-      // paint so the page isn't blank before the first SSE event lands.
+      // Once the encounter ledger and identity have loaded, do the
+      // first paint so the page isn't blank before the first SSE
+      // event lands.
       let booted = false;
       function bootstrap() {
         if (booted) return;
         booted = true;
         for (const v of views) v.bind?.();
-        // "This is me" buttons on match/leaderboard rows.
+        // "This is me" buttons on dashboard rows.
         if (!isOverlay) {
           document.addEventListener('click', async (e) => {
             const btn = e.target.closest('[data-claim-id]');
@@ -68,12 +62,9 @@
         scheduleRender();
       }
       window.addEventListener('DOMContentLoaded', bootstrap, { once: true });
-      // If DOM is already ready (script ran late), bind + render now.
       if (document.readyState !== 'loading') bootstrap();
     },
 
-    // Identity changes invalidate the match scaffold so player rows re-class
-    // for the YOU tag. Other view changes can ride a normal render.
     onIdentity() {
       DV.match?.invalidate?.();
       scheduleRender();
@@ -81,20 +72,14 @@
     onEncounters: scheduleRender,
     // onRoster fires only when the player list itself moves (join,
     // leave, team-switch, match guid flip) — typically a handful of
-    // events per match. dejavu reads roster identity (id, name, team,
-    // platform, encounterCount), not per-frame physics state, so the
-    // 60-120Hz UpdateState stream we'd pull via onMatch is wasted
-    // bandwidth. onRoster is built on the toolkit's synthetic
-    // _RosterChanged event (see backend/roster_tracker.go) and does
-    // not subscribe to UpdateState.
+    // events per match. dejavu reads roster identity, not per-frame
+    // physics state, so the 60-120Hz UpdateState stream we'd pull via
+    // onMatch is wasted bandwidth. Built on the toolkit's synthetic
+    // _RosterChanged event.
     onRoster: scheduleRender,
-    // The THIS MATCH pill label reflects lifecycle.phase
-    // (idle/lobby/countdown/live/replay/podium/ended), so a phase
+    // The THIS MATCH pill label reflects state.phase, so a phase
     // transition without a roster move (countdown → live, live →
-    // replay, etc.) still needs a repaint. onLifecycle bypasses
-    // whilePhase gating in the SDK by design — exactly what we want
-    // here so the pill keeps tracking through phases the plugin
-    // doesn't otherwise act on.
-    onLifecycle: scheduleRender,
+    // replay, etc.) still needs a repaint.
+    onState: scheduleRender,
   });
 })();

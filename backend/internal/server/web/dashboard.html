@@ -543,7 +543,13 @@ function renderPlugins() {
   }
 
   c.innerHTML = plugins.map(p => {
-    const overlay = p.overlay?.file
+    // Per-view URLs. Each view is a separate file declared in the
+    // manifest. dashboard + settings are optional; overlay is always
+    // present (the manifest validator enforces it).
+    const dashboardURL = p.dashboard?.file
+      ? '/plugins/' + p.name + '/' + p.dashboard.file
+      : null;
+    const overlayURL = p.overlay?.file
       ? '/plugins/' + p.name + '/' + p.overlay.file
       : null;
     const initials = (p.title || p.name || '?').replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '◇';
@@ -551,6 +557,12 @@ function renderPlugins() {
       ? esc(p.description)
       : '<span style="color:var(--txt-3);font-style:italic">No description provided.</span>';
     const enabled = isEnabled(p.name);
+
+    // "Open" button preference: dashboard view if the plugin has one
+    // (the rich, full-page UI), else fall back to opening the overlay
+    // in a browser tab (useful for debugging without launching Tauri).
+    const openURL = dashboardURL || overlayURL;
+    const openLabel = dashboardURL ? 'Open Dashboard' : 'Open Overlay';
 
     return '<article class="card' + (enabled ? '' : ' disabled') + '" data-plugin="' + esc(p.name) + '">'
       + '<div class="card-head">'
@@ -569,8 +581,8 @@ function renderPlugins() {
       + '</div>'
       + '<p class="card-desc">' + desc + '</p>'
       + '<div class="card-actions">'
-        + (overlay ? '<a class="btn primary" href="' + overlay + '" target="_blank">Open <span class="arrow">→</span></a>' : '')
-        + (p.settings ? '<button class="btn" data-role="settings" type="button">Settings</button>' : '')
+        + (openURL ? '<a class="btn primary" href="' + openURL + '" target="_blank">' + openLabel + ' <span class="arrow">→</span></a>' : '')
+        + (p.settings?.file ? '<button class="btn" data-role="settings" type="button">Settings</button>' : '')
       + '</div>'
     + '</article>';
   }).join('');
@@ -617,11 +629,9 @@ const settingsModalFrame = document.getElementById('settings-modal-frame');
 
 function openSettingsModal(pluginName) {
   const p = plugins.find(x => x.name === pluginName);
-  if (!p?.settings) return;
-  const customTitle = (typeof p.settings === 'object' && p.settings.title) ? p.settings.title : null;
-  settingsModalTitle.textContent = customTitle || ((p.title || p.name) + ' — Settings');
-  const overlayFile = p.overlay?.file || 'overlay.html';
-  settingsModalFrame.src = '/plugins/' + encodeURIComponent(p.name) + '/' + overlayFile + '?settings=1';
+  if (!p?.settings?.file) return;
+  settingsModalTitle.textContent = (p.title || p.name) + ' — Settings';
+  settingsModalFrame.src = '/plugins/' + encodeURIComponent(p.name) + '/' + p.settings.file;
   settingsModal.classList.add('open');
   settingsModal.setAttribute('aria-hidden', 'false');
 }

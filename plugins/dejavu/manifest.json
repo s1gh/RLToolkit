@@ -15,5 +15,6 @@
     "click_through": true,
     "hide_when_unfocused": true,
     "show_during_phase": ["countdown", "live", "paused", "replay", "ended"]
-  }
+  },
+  "dashboard": { "file": "dashboard.html" }
 }

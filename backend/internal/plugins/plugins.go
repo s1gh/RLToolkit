@@ -18,14 +18,31 @@ type Manifest struct {
 	Version     string        `json:"version"`
 	Author      string        `json:"author"`
 	Description string        `json:"description,omitempty"`
-	Overlay     OverlayConfig `json:"overlay"`
-	// Settings, when truthy, opts the plugin into the dashboard's
-	// per-plugin Settings button. The plugin's overlay.html is loaded
-	// in an iframe with `?settings=1` and is responsible for rendering
-	// its own settings UI. Accepts either `true` or an object form for
-	// forward compatibility (e.g. `{"title":"..."}`); the dashboard
-	// reads the field as a generic JSON value.
-	Settings json.RawMessage `json:"settings,omitempty"`
+
+	// Overlay is the only required view: it's what the Tauri widget
+	// renders on top of the game. Carries sizing/anchoring/visibility
+	// gates because that's where they belong (Tauri-only concerns).
+	Overlay OverlayConfig `json:"overlay"`
+
+	// Dashboard is an optional full-page browser view. Linked to from
+	// the dashboard's per-plugin card; opens in a new tab. Use it for
+	// rich UIs that don't fit a transparent overlay (history tables,
+	// charts, leaderboards, configuration that's too heavy for a
+	// settings panel).
+	Dashboard *ViewConfig `json:"dashboard,omitempty"`
+
+	// Settings is an optional iframe-rendered configuration panel. The
+	// dashboard exposes a per-plugin "Settings" button when this is
+	// set; clicking it opens the file in a modal iframe. The view is
+	// responsible for its own layout + RLT.settings.close() wiring.
+	Settings *ViewConfig `json:"settings,omitempty"`
+}
+
+// ViewConfig points at an HTML file inside the plugin folder. Object
+// form (rather than a bare string) so we have room for per-view
+// options later without another breaking change.
+type ViewConfig struct {
+	File string `json:"file"`
 }
 
 type OverlayConfig struct {

@@ -269,7 +269,7 @@
       // should run in hosted-bus mode (no own EventSource; receive
       // events via postMessage from this aggregator).
       let src = '/plugins/' + plugin.name + '/' + overlay.file +
-                '?overlay=1&__rlt_hosted=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
+                '?__rlt_hosted=1&anchor=' + encodeURIComponent(overlay.anchor || 'top-right');
       if (overlay.hide_when_unfocused) src += '&hide_when_unfocused=1';
       if (Array.isArray(overlay.show_during_phase) && overlay.show_during_phase.length) {
         src += '&phases=' + encodeURIComponent(overlay.show_during_phase.join(','));

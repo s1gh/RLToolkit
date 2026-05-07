@@ -4,7 +4,6 @@
   "version": "0.1.0",
   "author": "rl-toolkit",
   "description": "Tracks wins, losses, and stats for your current launcher session.",
-  "settings": true,
   "overlay": {
     "file": "overlay.html",
     "width": 280,
@@ -16,5 +15,7 @@
     "click_through": true,
     "hide_when_unfocused": true,
     "show_during_phase": ["lobby", "countdown", "live", "replay", "paused"]
-  }
+  },
+  "dashboard": { "file": "dashboard.html" },
+  "settings": { "file": "settings.html" }
 }

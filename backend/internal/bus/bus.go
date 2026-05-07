@@ -133,7 +133,7 @@ func isFramingSignal(eventName string) bool {
 // upstream connection.
 //
 // Subscribers with an event filter only receive matching events. The
-// event name is extracted once per Broadcast so the 60-120Hz hot path
+// event name is extracted once per Broadcast so the 1-120Hz hot path
 // stays JSON-decode-free.
 //
 // Wire shape: when evt.Raw is non-nil (the event arrived over the RL

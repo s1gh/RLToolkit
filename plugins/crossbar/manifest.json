@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "author": "rl-toolkit",
   "description": "Plays a sound effect every time the ball hits a crossbar.",
-  "settings": true,
   "overlay": {
     "file": "overlay.html",
     "width": 1,
@@ -15,5 +14,6 @@
     "opacity": 0,
     "click_through": true,
     "hide_when_unfocused": false
-  }
+  },
+  "settings": { "file": "settings.html" }
 }

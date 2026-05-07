@@ -3,67 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <title>Déjà Vu</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
-    <!-- Fonts (Saira Condensed, Inter, JetBrains Mono) are bundled into
-         the toolkit and declared in /sdk.css. No network round-trip,
-         no FOUT reflow when the web font swaps in. -->
     <link href="/sdk.css" rel="stylesheet" />
     <link href="/plugins/dejavu/styles.css" rel="stylesheet" />
-    <script src="/sdk.js" data-plugin="dejavu"></script>
+    <script src="/sdk.js" data-plugin="dejavu" data-view="overlay"></script>
   </head>
   <body>
-    <!-- ═════════════════════ CONTROL PAGE ═════════════════════ -->
-    <main class="page" id="page">
-      <header class="topbar">
-        <div class="brand">
-          <div class="logo">DV</div>
-          <div>
-            <h1>Déjà Vu</h1>
-            <div class="tag">Have we played before?</div>
-          </div>
-        </div>
-        <div class="topbar-right">
-          <span class="conn-pill" id="conn" data-status="disconnected"
-            >offline</span
-          >
-          <button
-            type="button"
-            class="icon-btn"
-            id="open-overlay"
-            title="Open overlay"
-            onclick="window.open('?overlay=1', '_blank')"
-          >
-            ⧉
-          </button>
-        </div>
-      </header>
-
-      <!-- Two-column grid: live match (left) | most-met leaderboard (right) -->
-      <div class="grid">
-        <section class="card col-match">
-          <div class="card-head">
-            <h2>This match</h2>
-            <span class="badge" id="match-badge">offline</span>
-          </div>
-          <div id="match-host">
-            <div class="card-empty">
-              <div class="em-icon">◇</div>
-              queue up — waiting for a match
-            </div>
-          </div>
-        </section>
-
-        <section class="card col-leader">
-          <div class="card-head">
-            <h2>Most met</h2>
-            <span class="badge mono"><span id="lb-count">0</span> shown</span>
-          </div>
-          <div id="lb-host"></div>
-        </section>
-      </div>
-    </main>
-
-    <!-- ═════════════════════ OVERLAY ═════════════════════ -->
     <div class="ov" id="ov">
       <div class="ov-card" id="ov-card">
         <div id="ov-body">
@@ -72,16 +16,12 @@
       </div>
     </div>
 
-    <div class="toast" id="toast"></div>
-
-    <!-- Plugin modules. Order matters: lib → views → app.
-         lib/* are leaf utilities (no SDK calls); views/* read from RLT
-         and render; app.js wires SDK callbacks → views. -->
+    <!-- Overlay only needs the overlay view + shared libs; match.js
+         and leaderboard.js render the dashboard cards and are not
+         loaded here. -->
     <script src="/plugins/dejavu/lib/dom.js"></script>
     <script src="/plugins/dejavu/lib/constants.js"></script>
     <script src="/plugins/dejavu/lib/returners.js"></script>
-    <script src="/plugins/dejavu/views/match.js"></script>
-    <script src="/plugins/dejavu/views/leaderboard.js"></script>
     <script src="/plugins/dejavu/views/overlay.js"></script>
     <script src="/plugins/dejavu/app.js"></script>
   </body>

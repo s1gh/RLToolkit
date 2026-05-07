@@ -1,8 +1,16 @@
 import { urlParams, isOverlay } from './env.js';
 
 // Overlay sizing + anchor honoring + body class toggle. Run once at
-// boot. The exported gates (hideWhenUnfocused, phaseGate) are read
-// later by visibility.js to wire the focus/phase repaint loop.
+// boot.
+//
+// Only fires when the SDK is loaded as the overlay view (the script
+// tag carries data-view="overlay"). The unified-overlay aggregator and
+// the Tauri widget supervisor pass anchor/hide_when_unfocused/phases
+// as URL params at mount time (parameterized runtime values the
+// manifest can't provide on its own); we read them here.
+//
+// The exported gates (hideWhenUnfocused, phaseGate) are read later
+// by visibility.js to wire the focus/phase repaint loop.
 
 export let overlayHideWhenUnfocused = false;
 export let overlayPhaseGate = null;

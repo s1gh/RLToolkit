@@ -138,8 +138,11 @@ fn fetch_manifest(toolkit: &str, plugin: &str) -> Result<OverlayCfg, String> {
 
 fn plugin_url(toolkit: &str, plugin: &str, file: &str, anchor: &str) -> String {
     let f = if file.is_empty() { "overlay.html" } else { file };
+    // The view discriminator now lives on the <script data-view="overlay">
+    // tag inside the file; the URL only carries parameterized runtime
+    // info the SDK can't derive on its own (anchor for body alignment).
     format!(
-        "{}/plugins/{}/{}?overlay=1&anchor={}",
+        "{}/plugins/{}/{}?anchor={}",
         toolkit.trim_end_matches('/'),
         plugin,
         f,

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Crossbar Sound — Settings</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <link rel="stylesheet" href="./settings.css" />
+    <script src="/sdk.js" data-plugin="crossbar" data-view="settings"></script>
+  </head>
+  <body>
+    <section class="settings">
+      <h2>Crossbar sound</h2>
+
+      <div class="field">
+        <span class="field-label">Sound source</span>
+        <div class="radio-row" id="src-row">
+          <label><input type="radio" name="src" value="preset:bonk" /> Bonk</label>
+          <label><input type="radio" name="src" value="preset:clang" /> Clang</label>
+          <label><input type="radio" name="src" value="preset:airhorn" /> Airhorn</label>
+          <label><input type="radio" name="src" value="custom" /> Custom upload</label>
+        </div>
+      </div>
+
+      <div class="field" id="custom-field" hidden>
+        <span class="field-label">Custom file</span>
+        <div class="upload-row">
+          <input type="file" id="upload" accept="audio/*" />
+          <button type="button" class="upload-btn" id="upload-trigger">Choose file</button>
+          <span class="filename" id="custom-name">No file selected</span>
+        </div>
+        <div class="err" id="upload-err" hidden></div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Volume</span>
+        <div class="slider-row">
+          <input type="range" id="volume" min="0" max="100" step="1" />
+          <span class="slider-val" id="volume-val">70%</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="check-row">
+          <input type="checkbox" id="play-in-replays" />
+          <span>Play during goal replays</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="test" type="button">Test sound</button>
+        <button class="btn primary" id="done" type="button">Done</button>
+      </div>
+    </section>
+
+    <script src="./shared.js"></script>
+    <script>
+      RLT.plugin.register({
+        name: 'crossbar',
+        async init() {
+          const radios = document.querySelectorAll('input[name="src"]');
+          const customField = document.querySelector('#custom-field');
+          const customNameEl = document.querySelector('#custom-name');
+          const uploadErr = document.querySelector('#upload-err');
+          const volume = document.querySelector('#volume');
+          const volumeVal = document.querySelector('#volume-val');
+          const playInReplays = document.querySelector('#play-in-replays');
+          const upload = document.querySelector('#upload');
+
+          let cfg = await Crossbar.readConfig();
+
+          radios.forEach((r) => {
+            r.checked = r.value === cfg.selected;
+          });
+          volume.value = String(Math.round((cfg.volume ?? 0.7) * 100));
+          volumeVal.textContent = volume.value + '%';
+          customField.hidden = cfg.selected !== 'custom';
+          customNameEl.textContent = cfg.customName || 'No file selected';
+          playInReplays.checked = cfg.playInReplays !== false;
+
+          radios.forEach((r) => {
+            r.addEventListener('change', async () => {
+              if (!r.checked) return;
+              cfg = await Crossbar.writeConfig({ selected: r.value });
+              customField.hidden = cfg.selected !== 'custom';
+            });
+          });
+
+          volume.addEventListener('input', () => {
+            volumeVal.textContent = volume.value + '%';
+          });
+          volume.addEventListener('change', async () => {
+            cfg = await Crossbar.writeConfig({ volume: Number(volume.value) / 100 });
+          });
+
+          playInReplays.addEventListener('change', async () => {
+            cfg = await Crossbar.writeConfig({ playInReplays: playInReplays.checked });
+          });
+
+          document.querySelector('#upload-trigger').addEventListener('click', () => {
+            upload.click();
+          });
+          upload.addEventListener('change', () => {
+            uploadErr.hidden = true;
+            uploadErr.textContent = '';
+            const file = upload.files?.[0];
+            if (!file) return;
+            if (file.size > Crossbar.MAX_CUSTOM_BYTES) {
+              uploadErr.hidden = false;
+              uploadErr.textContent = 'File too large (max 500 KB).';
+              upload.value = '';
+              return;
+            }
+            const reader = new FileReader();
+            reader.onerror = () => {
+              uploadErr.hidden = false;
+              uploadErr.textContent = 'Could not read file.';
+            };
+            reader.onload = async () => {
+              const dataUrl = String(reader.result || '');
+              if (dataUrl.length > Crossbar.MAX_CUSTOM_BYTES * 2) {
+                uploadErr.hidden = false;
+                uploadErr.textContent = 'Encoded file exceeds limit.';
+                return;
+              }
+              cfg = await Crossbar.writeConfig({
+                selected: 'custom',
+                customDataUrl: dataUrl,
+                customName: file.name,
+              });
+              customNameEl.textContent = cfg.customName;
+              radios.forEach((r) => {
+                r.checked = r.value === 'custom';
+              });
+              customField.hidden = false;
+            };
+            reader.readAsDataURL(file);
+          });
+
+          document.querySelector('#test').addEventListener('click', async () => {
+            cfg = await Crossbar.readConfig();
+            Crossbar.playSound(cfg);
+          });
+
+          document.querySelector('#done').addEventListener('click', () => {
+            RLT.settings.close();
+          });
+        },
+      });
+    </script>
+  </body>
+</html>
