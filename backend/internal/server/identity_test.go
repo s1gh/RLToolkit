@@ -1,4 +1,4 @@
-package backend
+package server
 
 import (
 	"bufio"
@@ -6,26 +6,28 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/identity"
+	"rl-toolkit/backend/internal/source"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestSSE_InitialIdentitySnapshot(t *testing.T) {
-	identity, err := NewIdentityStore(t.TempDir())
+	store, err := identity.New(t.TempDir())
 	if err != nil {
 		t.Fatalf("new identity: %v", err)
 	}
-	if err := identity.Set(Identity{PrimaryID: "Steam|7|0", Name: "Ada"}); err != nil {
+	if err := store.Set(identity.Identity{PrimaryID: "Steam|7|0", Name: "Ada"}); err != nil {
 		t.Fatal(err)
 	}
 
-	srv := &Server{
-		bus:      bus.NewBus(),
-		source:   NewRLSource("127.0.0.1:0"),
-		identity: identity,
-	}
-	ts := httptest.NewServer(srv.routes())
+	srv := New(Deps{
+		Bus:      bus.NewBus(),
+		Source:   source.NewRL("127.0.0.1:0"),
+		Identity: store,
+	})
+	ts := httptest.NewServer(srv.Routes())
 	defer ts.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

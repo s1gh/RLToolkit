@@ -16,6 +16,7 @@ import (
 	"rl-toolkit/backend/internal/bus"
 	"rl-toolkit/backend/internal/emit"
 	"rl-toolkit/backend/internal/scaffold"
+	"rl-toolkit/backend/internal/server"
 	"strings"
 	"syscall"
 	"time"
@@ -158,7 +159,7 @@ func runServe() {
 		// this snapshot — meaning what we publish reflects the latest
 		// state, not necessarily the write that fired us. Latest-wins
 		// is the right semantics for live reflow.
-		if env := marshalOverridesChanged(overrides.GetAll()); env != nil {
+		if env := server.MarshalOverridesChanged(overrides.GetAll()); env != nil {
 			eventBus.Broadcast(bus.Event{Name: "_OverridesChanged", Raw: env})
 		}
 	}
@@ -166,7 +167,19 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := &Server{bus: eventBus, store: store, plugins: pm, source: source, matchState: matchState, roster: roster, demos: demos, overrides: overrides, discoveries: discoveries, identity: identity, config: cfg}
+	srv := server.New(server.Deps{
+		Bus:         eventBus,
+		Store:       store,
+		Plugins:     pm,
+		Source:      source,
+		MatchState:  matchState,
+		Roster:      roster,
+		Demos:       demos,
+		Overrides:   overrides,
+		Discoveries: discoveries,
+		Identity:    identity,
+		PluginDir:   cfg.PluginDir,
+	})
 	go source.Run(ctx)
 	go pipe.Run(ctx, source, eventBus)
 	go matchState.Run(ctx)
@@ -191,7 +204,7 @@ func runServe() {
 
 	hs := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler: srv.routes(),
+		Handler: srv.Routes(),
 		// BaseContext makes every request's r.Context() a child of the
 		// app's lifetime ctx. On shutdown we cancel ctx first so
 		// long-lived handlers (notably the SSE stream) wake up via

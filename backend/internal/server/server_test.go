@@ -1,4 +1,4 @@
-package backend
+package server
 
 import (
 	"bufio"
@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"rl-toolkit/backend/internal/bootid"
 	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/source"
 	"strings"
 	"testing"
 	"time"
@@ -14,14 +15,15 @@ import (
 
 func newBootIDTestServer(t *testing.T) *Server {
 	t.Helper()
-	bus := bus.NewBus()
-	source := NewRLSource("127.0.0.1:0")
-	return &Server{bus: bus, source: source}
+	return New(Deps{
+		Bus:    bus.NewBus(),
+		Source: source.NewRL("127.0.0.1:0"),
+	})
 }
 
 func TestSSEFirstFrameIncludesBootID(t *testing.T) {
 	srv := newBootIDTestServer(t)
-	ts := httptest.NewServer(srv.routes())
+	ts := httptest.NewServer(srv.Routes())
 	defer ts.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -35,7 +37,6 @@ func TestSSEFirstFrameIncludesBootID(t *testing.T) {
 	defer resp.Body.Close()
 
 	rd := bufio.NewReader(resp.Body)
-	// First non-empty data line must be the _BootId frame.
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
 		line, err := rd.ReadString('\n')

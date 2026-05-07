@@ -1,4 +1,8 @@
-package backend
+// Package server wires HTTP handlers + SSE fan-out to the Bus,
+// DataStore, PluginManager, and RLSource. Long-lived per-request
+// goroutines (notably handleSSE) listen on r.Context(); the package
+// itself owns no goroutines.
+package server
 
 import (
 	"bytes"
@@ -8,32 +12,64 @@ import (
 	"net/http"
 	"rl-toolkit/backend/internal/bootid"
 	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/catalog"
 	"rl-toolkit/backend/internal/datastore"
+	"rl-toolkit/backend/internal/discoveries"
 	"rl-toolkit/backend/internal/emit"
+	"rl-toolkit/backend/internal/identity"
+	"rl-toolkit/backend/internal/overrides"
+	"rl-toolkit/backend/internal/plugins"
+	"rl-toolkit/backend/internal/roster"
 	"rl-toolkit/backend/internal/source"
+	"rl-toolkit/backend/internal/state"
+	"rl-toolkit/backend/internal/types"
 	"strings"
 	"sync"
 	"time"
 )
 
-// Server wires HTTP handlers to the Bus, DataStore, PluginManager,
-// and RLSource. It owns no goroutines of its own; long-lived per-request
-// goroutines (notably handleSSE) listen on r.Context().
-type Server struct {
-	bus         *bus.Bus
-	store       *DataStore
-	plugins     *PluginManager
-	source      *RLSource
-	matchState  *MatchState
-	roster      *RosterTracker
-	demos       *emit.Demos
-	overrides   *OverridesStore
-	discoveries *StatfeedDiscoveryStore
-	identity    *IdentityStore
-	config      Config
+// Tunables. The numbers are load-bearing: a stalled SSE write
+// eventually fills the bus's per-subscriber slot, and on Linux/Proton
+// that backpressure can reach RL's send() and freeze the game thread.
+// Better to disconnect a stuck client than to let any link in the
+// chain block.
+const (
+	sseHeartbeat     = 15 * time.Second
+	sseWriteDeadline = 2 * time.Second
+
+	// MaxPluginValueBytes caps a single Set body to keep a misbehaving
+	// plugin from filling memory or disk.
+	MaxPluginValueBytes = 10 << 20 // 10 MiB
+)
+
+// Deps bundles every long-lived dependency the server reads from. Made
+// a struct (instead of positional args) so the call site stays
+// readable as the list grows.
+type Deps struct {
+	Bus         *bus.Bus
+	Store       *datastore.Store
+	Plugins     *plugins.Manager
+	Source      *source.RL
+	MatchState  *state.MatchState
+	Roster      *roster.Tracker
+	Demos       *emit.Demos
+	Overrides   *overrides.Store
+	Discoveries *discoveries.Store
+	Identity    *identity.Store
+	PluginDir   string
 }
 
-func (s *Server) routes() http.Handler {
+// Server holds the wiring between HTTP routes and the live runtime
+// objects. Construct with New; serve via Routes().
+type Server struct {
+	deps Deps
+}
+
+// New returns a Server bound to deps.
+func New(deps Deps) *Server { return &Server{deps: deps} }
+
+// Routes returns the configured http.Handler with CORS applied.
+func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/events", s.handleSSE)
@@ -54,8 +90,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/fonts/", s.handleFont)
 	mux.HandleFunc("/overlay-editor.js", s.handleOverlayEditorJS)
 	mux.HandleFunc("/favicon.ico", s.handleFavicon)
-	// Plugin assets are served straight from disk so iterating on a plugin
-	// is one-edit-then-refresh. Two layers of middleware sit in front:
+	// Plugin assets are served straight from disk so iterating on a
+	// plugin is one-edit-then-refresh. Two layers of middleware sit in
+	// front:
 	//
 	//   - requireManifest gates every request on the plugin having a
 	//     valid manifest.json. A folder without (or with a malformed)
@@ -72,7 +109,7 @@ func (s *Server) routes() http.Handler {
 	//     development. "no-cache" means "always revalidate", not
 	//     "don't cache" — unchanged files still come back cheaply as
 	//     a 304.
-	pluginFS := http.FileServer(http.Dir(s.config.PluginDir))
+	pluginFS := http.FileServer(http.Dir(s.deps.PluginDir))
 	mux.Handle("/plugins/", http.StripPrefix("/plugins/",
 		s.requireManifest(noCache(pluginFS))))
 	mux.HandleFunc("/", s.handleDashboard)
@@ -82,9 +119,9 @@ func (s *Server) routes() http.Handler {
 
 // noCache wraps a handler so its responses always carry
 // `Cache-Control: no-cache`. Used for files that change as the user
-// iterates (plugin assets) and for the embedded HTML shells. Despite the
-// name, "no-cache" doesn't disable caching — it forces revalidation, so
-// unchanged files still come back cheaply as a 304.
+// iterates (plugin assets) and for the embedded HTML shells. Despite
+// the name, "no-cache" doesn't disable caching — it forces
+// revalidation, so unchanged files still come back cheaply as a 304.
 func noCache(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
@@ -97,22 +134,11 @@ func noCache(h http.Handler) http.Handler {
 // at module-load time and on each List() call, and surfaces parse
 // errors via "[plugins] Bad manifest in <name>: ..." log lines. We
 // gate the file server on the same liveness check so a broken plugin
-// can't half-load — better a clean 404 the dev sees in the network
-// tab than a webview that mostly works but isn't reachable through
-// the dashboard.
-//
-// The first path segment after `/plugins/` is the plugin folder name;
-// requests like `/plugins/<name>/manifest.json` itself are allowed
-// through (they're how the toolkit lists plugins) but the gate also
-// applies here, so a malformed manifest blocks reads of itself —
-// fixing the file lifts the block immediately.
+// can't half-load.
 func (s *Server) requireManifest(inner http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// r.URL.Path here has the "/plugins/" prefix already stripped by
-		// http.StripPrefix in the route table — it starts with the plugin
-		// folder, e.g. "dejavu/overlay.html".
 		name, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
-		if name == "" || !s.plugins.Has(name) {
+		if name == "" || !s.deps.Plugins.Has(name) {
 			http.NotFound(w, r)
 			return
 		}
@@ -121,8 +147,8 @@ func (s *Server) requireManifest(inner http.Handler) http.Handler {
 }
 
 // cors permits any origin: the server is meant to be reached from
-// arbitrary local pages (overlays in OBS, dashboard, plugin dev servers)
-// and is loopback-bound in practice.
+// arbitrary local pages (overlays in OBS, dashboard, plugin dev
+// servers) and is loopback-bound in practice.
 func cors(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -145,8 +171,6 @@ func writeJSON(w http.ResponseWriter, v any) {
 	}
 }
 
-// writeAsset writes a precomputed byte slice with the given content type
-// and (optional) cache control header.
 func writeAsset(w http.ResponseWriter, contentType, cacheControl string, body []byte) {
 	w.Header().Set("Content-Type", contentType)
 	if cacheControl != "" {
@@ -164,7 +188,6 @@ func httpError(w http.ResponseWriter, ctx string, err error, status int) {
 
 // ── SSE ─────────────────────────────────────────────────────
 
-// SSE wire-format byte slices reused per write.
 var (
 	sseDataPrefix = []byte("data: ")
 	sseRecordEnd  = []byte("\n\n")
@@ -172,9 +195,9 @@ var (
 	sseFramePool  = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, 0, 512)) }}
 )
 
-// parseEventsFilter turns a comma-separated `?events=A,B,C` query value
-// into a set the bus can check per-publish. Empty input → nil (no
-// filter, all events delivered). Whitespace and empty entries are
+// parseEventsFilter turns a comma-separated `?events=A,B,C` query
+// value into a set the bus can check per-publish. Empty input → nil
+// (no filter, all events delivered). Whitespace and empty entries are
 // trimmed; the synthetic "_*" framing events bypass the filter on the
 // bus side, so callers don't need to add them.
 func parseEventsFilter(raw string) map[string]struct{} {
@@ -202,16 +225,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	filter := parseEventsFilter(r.URL.Query().Get("events"))
-	ch, cancel := s.bus.Subscribe(filter)
+	ch, cancel := s.deps.Bus.Subscribe(filter)
 	defer cancel()
-	// wantsEvent gates the per-match replay blocks below: nil filter
-	// means "deliver everything", otherwise check the explicit set.
-	// Synthetic _-prefixed events that aren't framing signals
-	// (_RosterChanged, _Lifecycle, _ConnectionStatus,
-	// _LifecyclePhaseChanged) need an explicit opt-in by the
-	// subscriber, same as RL events — so we honor the filter on
-	// replay too instead of pushing _PlayerDemolished history to
-	// plugins that didn't ask for it.
 	wantsEvent := func(name string) bool {
 		if filter == nil {
 			return true
@@ -220,10 +235,6 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return ok
 	}
 
-	// Per-write deadline: an Fprintf can block indefinitely against a
-	// stalled client TCP buffer (hidden tab, frozen OBS browser source,
-	// dead network). We force a deadline so a dead client surfaces as a
-	// write error → handler returns → cancel() runs → bus slot freed.
 	rc := http.NewResponseController(w)
 	writeFrame := func(prefix, body, suffix []byte) bool {
 		_ = rc.SetWriteDeadline(time.Now().Add(sseWriteDeadline))
@@ -245,22 +256,19 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// First-frame: ship the process boot ID so plugins can detect a
-	// launcher restart and reset per-session state. Framing-bypass —
-	// every subscriber receives this regardless of the events filter.
+	// launcher restart and reset per-session state.
 	{
 		bootFrame := []byte(`{"Event":"_BootId","bootId":"` + bootid.Get() + `"}`)
 		if !writeFrame(sseDataPrefix, bootFrame, sseRecordEnd) {
 			return
 		}
 	}
-	if !writeFrame(sseDataPrefix, source.StatusEventBytes(s.source.Status()), sseRecordEnd) {
+	if !writeFrame(sseDataPrefix, source.StatusEventBytes(s.deps.Source.Status()), sseRecordEnd) {
 		return
 	}
-	// Initial match-state snapshot so the SDK doesn't have to wait for
-	// the next state change to know what's going on. Same convention as
-	// _ConnectionStatus — push current state on connect.
-	if s.matchState != nil {
-		snap := s.matchState.Snapshot()
+	// Initial match-state snapshot.
+	if s.deps.MatchState != nil {
+		snap := s.deps.MatchState.Snapshot()
 		body, mErr := json.Marshal(snap)
 		if mErr == nil {
 			envelope, eErr := json.Marshal(struct {
@@ -274,12 +282,9 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Initial identity snapshot so the SDK doesn't need a separate GET
-	// /api/identity round-trip on boot. The local identity cache hydrates
-	// from this echo, so plugins reading RLT.me.id during ready() see
-	// the persisted value immediately. Same convention as _MatchState.
-	if s.identity != nil {
-		body, err := json.Marshal(s.identity.Get())
+	// Initial identity snapshot.
+	if s.deps.Identity != nil {
+		body, err := json.Marshal(s.deps.Identity.Get())
 		if err == nil {
 			envelope, err := json.Marshal(struct {
 				Event string          `json:"Event"`
@@ -294,27 +299,17 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 	// Replay the cached roster so a plugin refreshing mid-match (or
 	// connecting after the most recent roster delta) sees the current
-	// player list immediately, without having to wait for the next
-	// roster-identity change. _RosterChanged is a framing signal — it
-	// bypasses the per-subscriber filter on the bus, so every subscriber
-	// expects to receive it; the SSE entry-point is the only place that
-	// can give a freshly-connected client what it missed.
-	if s.roster != nil {
-		if init := s.roster.Snapshot(); init != nil {
+	// player list immediately.
+	if s.deps.Roster != nil {
+		if init := s.deps.Roster.Snapshot(); init != nil {
 			if !writeFrame(sseDataPrefix, init, sseRecordEnd) {
 				return
 			}
 		}
 	}
-	// Replay this match's _PlayerDemolished history. Lets the demos
-	// plugin (and any plugin that aggregates demos) repopulate its
-	// per-match state on a page refresh without each plugin needing
-	// its own persistence layer. The log clears on MatchCreated /
-	// MatchDestroyed, so a fresh match starts clean. Skipped when the
-	// subscriber didn't ask for _PlayerDemolished — replay shouldn't
-	// expand the wire surface beyond the negotiated filter.
-	if s.demos != nil && wantsEvent("_PlayerDemolished") {
-		for _, raw := range s.demos.DemolishLog() {
+	// Replay this match's _PlayerDemolished history.
+	if s.deps.Demos != nil && wantsEvent("_PlayerDemolished") {
+		for _, raw := range s.deps.Demos.DemolishLog() {
 			if !writeFrame(sseDataPrefix, raw, sseRecordEnd) {
 				return
 			}
@@ -328,7 +323,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case msg, ok := <-ch:
 			if !ok {
-				return // bus dropped us (slow consumer) or canceled
+				return
 			}
 			if !writeFrame(sseDataPrefix, msg, sseRecordEnd) {
 				return
@@ -367,7 +362,7 @@ func (s *Server) handleData(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDataGet(w http.ResponseWriter, plugin, key string) {
 	if key == "" {
-		all, err := s.store.LoadAll(plugin)
+		all, err := s.deps.Store.LoadAll(plugin)
 		if err != nil {
 			httpError(w, "load all", err, http.StatusInternalServerError)
 			return
@@ -375,7 +370,7 @@ func (s *Server) handleDataGet(w http.ResponseWriter, plugin, key string) {
 		writeJSON(w, all)
 		return
 	}
-	val, ok, err := s.store.Get(plugin, key)
+	val, ok, err := s.deps.Store.Get(plugin, key)
 	if err != nil {
 		httpError(w, "get", err, http.StatusInternalServerError)
 		return
@@ -393,12 +388,12 @@ func (s *Server) handleDataWrite(w http.ResponseWriter, r *http.Request, plugin,
 		http.Error(w, "key required", http.StatusBadRequest)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxPluginValueBytes))
+	body, err := io.ReadAll(io.LimitReader(r.Body, MaxPluginValueBytes))
 	if err != nil {
 		httpError(w, "read body", err, http.StatusInternalServerError)
 		return
 	}
-	if err := s.store.Set(plugin, key, json.RawMessage(body)); err != nil {
+	if err := s.deps.Store.Set(plugin, key, json.RawMessage(body)); err != nil {
 		httpError(w, "set", err, http.StatusInternalServerError)
 		return
 	}
@@ -410,7 +405,7 @@ func (s *Server) handleDataDelete(w http.ResponseWriter, plugin, key string) {
 		http.Error(w, "key required", http.StatusBadRequest)
 		return
 	}
-	if err := s.store.Delete(plugin, key); err != nil {
+	if err := s.deps.Store.Delete(plugin, key); err != nil {
 		httpError(w, "delete", err, http.StatusInternalServerError)
 		return
 	}
@@ -418,15 +413,15 @@ func (s *Server) handleDataDelete(w http.ResponseWriter, plugin, key string) {
 }
 
 func (s *Server) handlePlugins(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, s.plugins.List())
+	writeJSON(w, s.deps.Plugins.List())
 }
 
 func (s *Server) handleEventCatalog(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, EventCatalog)
+	writeJSON(w, catalog.Entries)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]RLStatus{"rl_api": s.source.Status()})
+	writeJSON(w, map[string]source.Status{"rl_api": s.deps.Source.Status()})
 }
 
 // handleMatchState returns the current authoritative MatchState
@@ -434,38 +429,34 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 // SSE — dashboards, eww/ags widgets, the desktop widget supervisor,
 // etc.
 func (s *Server) handleMatchState(w http.ResponseWriter, _ *http.Request) {
-	if s.matchState == nil {
-		writeJSON(w, MatchStateSnapshot{Phase: PhaseNone, PreviousPhase: PhaseNone, Since: time.Now(), Trigger: "initial"})
+	if s.deps.MatchState == nil {
+		writeJSON(w, state.Snapshot{Phase: types.PhaseNone, PreviousPhase: types.PhaseNone, Since: time.Now(), Trigger: "initial"})
 		return
 	}
-	writeJSON(w, s.matchState.Snapshot())
+	writeJSON(w, s.deps.MatchState.Snapshot())
 }
 
 // handleStatfeedDiscoveries serves the persistent registry of unknown
 // Statfeed event names so curl users can browse what RL has emitted
-// that isn't in the verified registry yet. Empty list when the
-// synthesizer wasn't started with a discovery store.
+// that isn't in the verified registry yet.
 func (s *Server) handleStatfeedDiscoveries(w http.ResponseWriter, _ *http.Request) {
-	if s.discoveries == nil {
-		writeJSON(w, []*StatfeedDiscovery{})
+	if s.deps.Discoveries == nil {
+		writeJSON(w, []*discoveries.Entry{})
 		return
 	}
-	writeJSON(w, s.discoveries.All())
+	writeJSON(w, s.deps.Discoveries.All())
 }
 
 // handleMetrics exposes the event-bus telemetry: subscriber count,
 // publish/delivery counters, eviction count, throughput, and publish
-// latency percentiles over a recent window. Cheap to call (single
-// snapshot read + small sort); fine for /api/metrics-style polling.
+// latency percentiles over a recent window.
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, s.bus.Metrics())
+	writeJSON(w, s.deps.Bus.Metrics())
 }
 
 // ── Static / embedded assets ────────────────────────────────
 
 func (s *Server) handleOverlay(w http.ResponseWriter, _ *http.Request) {
-	// no-cache so the iframe shell picks up edits immediately during
-	// plugin development; the page is tiny and revalidation is cheap.
 	writeAsset(w, "text/html; charset=utf-8", "no-cache", overlayHTML)
 }
 
@@ -477,12 +468,12 @@ func (s *Server) handleSDKCSS(w http.ResponseWriter, _ *http.Request) {
 	writeAsset(w, "text/css; charset=utf-8", "no-cache", sdkCSSBytes)
 }
 
-// handleFont serves bundled woff2 font files from the embed FS. Path is
-// /fonts/<name>.woff2; only that exact suffix is allowed so a path like
-// /fonts/../sdk.js can't escape into other embedded assets. Long
-// Cache-Control because the bytes are content-addressed (file names map
-// to specific Google Fonts revisions); a font swap would land via a
-// rename, busting the cache.
+// handleFont serves bundled woff2 font files from the embed FS. Path
+// is /fonts/<name>.woff2; only that exact suffix is allowed so a path
+// like /fonts/../sdk.js can't escape into other embedded assets. Long
+// Cache-Control because the bytes are content-addressed (file names
+// map to specific Google Fonts revisions); a font swap would land via
+// a rename, busting the cache.
 func (s *Server) handleFont(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/fonts/")
 	if name == "" || strings.ContainsAny(name, "/\\") || !strings.HasSuffix(name, ".woff2") {
@@ -515,22 +506,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 // ── Overlay overrides API ───────────────────────────────────
 
-// handleOverlayOverridesAll serves the full overrides map. Used by both
-// the editor (to seed UI state) and the production /overlay page (to
-// merge per-plugin overrides over manifest defaults).
 func (s *Server) handleOverlayOverridesAll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, s.overrides.GetAll())
+	writeJSON(w, s.deps.Overrides.GetAll())
 }
 
-// handleOverlayOverridesOne handles PUT (merge a partial override onto an
-// existing entry) and DELETE (reset that plugin to manifest defaults).
-// The plugin name comes from the URL tail and must match a known plugin
-// — we don't allow writes for nonexistent plugins, otherwise stale
-// entries pile up forever.
 func (s *Server) handleOverlayOverridesOne(w http.ResponseWriter, r *http.Request) {
 	plugin := strings.TrimPrefix(r.URL.Path, "/api/overlay/overrides/")
 	if plugin == "" || strings.Contains(plugin, "/") {
@@ -550,7 +533,7 @@ func (s *Server) handleOverlayOverridesOne(w http.ResponseWriter, r *http.Reques
 	case http.MethodPut:
 		s.handleOverridePut(w, r, plugin)
 	case http.MethodDelete:
-		if err := s.overrides.Delete(plugin); err != nil {
+		if err := s.deps.Overrides.Delete(plugin); err != nil {
 			httpError(w, "delete override", err, http.StatusInternalServerError)
 			return
 		}
@@ -560,9 +543,6 @@ func (s *Server) handleOverlayOverridesOne(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// handleOverridePut decodes the body strictly (rejects unknown fields so
-// the on-disk schema stays clean), validates it via the store, and
-// returns the merged entry.
 func (s *Server) handleOverridePut(w http.ResponseWriter, r *http.Request, plugin string) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
 	if err != nil {
@@ -571,21 +551,16 @@ func (s *Server) handleOverridePut(w http.ResponseWriter, r *http.Request, plugi
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
-	var partial OverlayOverride
+	var partial overrides.Override
 	if err := dec.Decode(&partial); err != nil {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Pre-validate so a request-side error becomes 400 with the
-	// validation message. Anything that fails inside MergeOne after
-	// this point is either a corrupt-on-disk merged value or a persist
-	// failure — both deserve 500 + a generic message via httpError so
-	// filesystem paths and disk errors don't leak to the client.
 	if err := partial.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	merged, err := s.overrides.MergeOne(plugin, partial)
+	merged, err := s.deps.Overrides.MergeOne(plugin, partial)
 	if err != nil {
 		httpError(w, "save override", err, http.StatusInternalServerError)
 		return
@@ -593,11 +568,8 @@ func (s *Server) handleOverridePut(w http.ResponseWriter, r *http.Request, plugi
 	writeJSON(w, merged)
 }
 
-// knownPlugin returns true if `name` is in the current plugin catalog.
-// The catalog re-scans on its own, so this reflects the live set —
-// disabling/removing a plugin folder makes its overrides PUTs return 404.
 func (s *Server) knownPlugin(name string) bool {
-	for _, p := range s.plugins.List() {
+	for _, p := range s.deps.Plugins.List() {
 		if p.Name == name {
 			return true
 		}
@@ -609,17 +581,18 @@ func (s *Server) knownPlugin(name string) bool {
 // overrides map changes. The shape mirrors the GET endpoint so
 // subscribers can reuse merge code unchanged.
 type overridesChangedEnvelope struct {
-	Event string                     `json:"Event"`
-	Data  map[string]OverlayOverride `json:"Data"`
+	Event string                       `json:"Event"`
+	Data  map[string]overrides.Override `json:"Data"`
 }
 
-// marshalOverridesChanged builds the JSON envelope for an
-// _OverridesChanged event. Returns nil bytes on marshal failure (logged
-// and treated as "no event published") rather than panicking.
-func marshalOverridesChanged(data map[string]OverlayOverride) []byte {
+// MarshalOverridesChanged builds the JSON envelope for an
+// _OverridesChanged event. Returns nil bytes on marshal failure (which
+// the caller treats as "no event published") rather than panicking.
+// Exported so main can publish without owning the envelope shape.
+func MarshalOverridesChanged(data map[string]overrides.Override) []byte {
 	b, err := json.Marshal(overridesChangedEnvelope{
 		Event: "_OverridesChanged",
-		Data:      data,
+		Data:  data,
 	})
 	if err != nil {
 		log.Printf("[overrides] marshal _OverridesChanged: %v", err)
@@ -631,42 +604,40 @@ func marshalOverridesChanged(data map[string]OverlayOverride) []byte {
 // handleBootID returns the process-lifetime boot ID. Plugins read this
 // on load to detect a backend restart (i.e. a fresh launcher session)
 // and reset their per-session state.
-func (s *Server) handleBootID(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleBootID(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"bootId":"` + bootid.Get() + `"}`))
 }
 
-// handleIdentity exposes the persisted "who am I" identity. GET
-// returns the stored Identity (or null), PUT sets it and broadcasts
+// handleIdentity exposes the persisted "who am I" identity. GET returns
+// the stored Identity (or null), PUT sets it and broadcasts
 // _IdentityChanged via the store's Notify hook, DELETE clears it.
-// Bot picker UIs in the dashboard write to this endpoint; the
-// resolver consults the store to stamp EnrichedPlayer.IsMe.
 func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
-	if s.identity == nil {
+	if s.deps.Identity == nil {
 		http.Error(w, "identity store unavailable", http.StatusInternalServerError)
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, s.identity.Get())
+		writeJSON(w, s.deps.Identity.Get())
 	case http.MethodPut:
 		body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
 		if err != nil {
 			httpError(w, "read body", err, http.StatusInternalServerError)
 			return
 		}
-		var id Identity
+		var id identity.Identity
 		if err := json.Unmarshal(body, &id); err != nil {
 			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := s.identity.Set(id); err != nil {
+		if err := s.deps.Identity.Set(id); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
-		if err := s.identity.Clear(); err != nil {
+		if err := s.deps.Identity.Clear(); err != nil {
 			httpError(w, "clear identity", err, http.StatusInternalServerError)
 			return
 		}

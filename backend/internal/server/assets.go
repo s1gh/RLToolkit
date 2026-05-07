@@ -1,4 +1,4 @@
-package backend
+package server
 
 import (
 	"bytes"
@@ -21,8 +21,8 @@ import (
 //go:embed web/fonts/*.woff2
 var webFS embed.FS
 
-// faviconSVG mirrors the dashboard's logo gradient so the browser tab and
-// the dashboard's "RL" tile feel like the same brand.
+// faviconSVG mirrors the dashboard's logo gradient so the browser tab
+// and the dashboard's "RL" tile feel like the same brand.
 const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
@@ -37,13 +37,13 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 </svg>`
 
 // Precomputed byte slices for assets we serve verbatim. Avoids a fresh
-// allocation+copy on every request. The sdkJSBytes / sdkCSSBytes names
-// are preserved so server.go's handlers don't need to change.
+// allocation+copy on every request.
 //
-// sdkJSBytes is rendered once at startup with the types.VerifiedStatfeedNames
-// registry inlined where the source has the `/*__RLT_STATS__*/{}`
-// placeholder. That gives plugins a synchronous `RLT.stats.DEMOLISH`
-// while keeping the registry in one place (statfeed_discoveries.go).
+// sdkJSBytes is rendered once at startup with the
+// types.VerifiedStatfeedNames registry inlined where the source has
+// the `/*__RLT_STATS__*/{}` placeholder. That gives plugins a
+// synchronous `RLT.stats.DEMOLISH` while keeping the registry in one
+// place (internal/types/statfeed.go).
 var (
 	sdkJSBytes      = renderSDKJS(mustReadEmbed("web/sdk.js"))
 	sdkCSSBytes     = mustReadEmbed("web/sdk.css")
@@ -67,12 +67,12 @@ func mustReadEmbed(path string) []byte {
 // fails — the SDK still parses, plugins just see RLT.stats == {}.
 var statsPlaceholder = []byte("/*__RLT_STATS__*/ {}")
 
-// renderSDKJS substitutes the types.VerifiedStatfeedNames registry into the
-// SDK source at startup. Result is cached for the lifetime of the
-// process (the registry is a compile-time constant; nothing changes
-// at runtime). Panics if the placeholder isn't present — that would
-// leave RLT.stats permanently empty, which is a build-time bug worth
-// failing fast on.
+// renderSDKJS substitutes the types.VerifiedStatfeedNames registry
+// into the SDK source at startup. Result is cached for the lifetime of
+// the process (the registry is a compile-time constant; nothing
+// changes at runtime). Panics if the placeholder isn't present — that
+// would leave RLT.stats permanently empty, which is a build-time bug
+// worth failing fast on.
 func renderSDKJS(src []byte) []byte {
 	if !bytes.Contains(src, statsPlaceholder) {
 		panic("sdk.js missing " + string(statsPlaceholder) + " placeholder")
@@ -81,8 +81,8 @@ func renderSDKJS(src []byte) []byte {
 }
 
 // buildStatsLiteral renders types.VerifiedStatfeedNames as a JS object
-// literal with SCREAMING_SNAKE keys mapping to the original
-// PascalCase names. Sorted by key for deterministic byte output.
+// literal with SCREAMING_SNAKE keys mapping to the original PascalCase
+// names. Sorted by key for deterministic byte output.
 func buildStatsLiteral() []byte {
 	type entry struct{ key, val string }
 	rows := make([]entry, 0, len(types.VerifiedStatfeedNames))
@@ -121,11 +121,7 @@ func pascalToScreamingSnake(s string) string {
 			prev := runes[i-1]
 			isUpper := r >= 'A' && r <= 'Z'
 			prevIsLower := prev >= 'a' && prev <= 'z'
-			// "aerialG" → "aerial_G": lowercase followed by uppercase.
 			boundary := isUpper && prevIsLower
-			// "MVPGoal" → "MVP_Goal": acronym ending where the next
-			// uppercase starts a new capitalized word (i.e. is followed
-			// by a lowercase letter). Without this we'd emit "MVPGOAL".
 			if isUpper && !prevIsLower && i+1 < len(runes) {
 				next := runes[i+1]
 				if next >= 'a' && next <= 'z' {
