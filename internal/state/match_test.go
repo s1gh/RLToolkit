@@ -1,21 +1,22 @@
-package backend
+package state
 
 import (
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
 	"testing"
 	"time"
 )
 
 func TestMatchState_InitialSnapshot(t *testing.T) {
-	ms := NewMatchState()
+	ms := New()
 	snap := ms.Snapshot()
 	if snap.MatchActive {
 		t.Error("expected matchActive=false at init")
 	}
-	if snap.Phase != PhaseNone {
+	if snap.Phase != types.PhaseNone {
 		t.Errorf("expected phase=none at init, got %q", snap.Phase)
 	}
-	if snap.PreviousPhase != PhaseNone {
+	if snap.PreviousPhase != types.PhaseNone {
 		t.Errorf("expected previousPhase=none at init, got %q", snap.PreviousPhase)
 	}
 	if snap.Trigger != "initial" {
@@ -30,7 +31,7 @@ func TestMatchState_InitialSnapshot(t *testing.T) {
 }
 
 func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
-	ms := NewMatchState()
+	ms := New()
 
 	feed := func(name, data string) []bus.Event {
 		evt := bus.Event{Name: name, Data: []byte(data), Raw: []byte(`{"Event":"` + name + `","Data":` + data + `}`)}
@@ -41,18 +42,18 @@ func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
 	cases := []struct {
 		name    string
 		data    string
-		want    Phase
+		want    types.Phase
 		emit    bool
 		trigger string
 	}{
-		{"MatchCreated", `"{\"MatchGuid\":\"abc\"}"`, PhaseLobby, true, "MatchCreated"},
-		{"CountdownBegin", `""`, PhaseCountdown, true, "CountdownBegin"},
-		{"RoundStarted", `""`, PhaseLive, true, "RoundStarted"},
-		{"MatchPaused", `""`, PhasePaused, true, "MatchPaused"},
-		{"MatchUnpaused", `""`, PhaseLive, true, "MatchUnpaused"},
-		{"MatchEnded", `""`, PhaseEnded, true, "MatchEnded"},
-		{"PodiumStart", `""`, PhasePodium, true, "PodiumStart"},
-		{"MatchDestroyed", `""`, PhaseNone, true, "MatchDestroyed"},
+		{"MatchCreated", `"{\"MatchGuid\":\"abc\"}"`, types.PhaseLobby, true, "MatchCreated"},
+		{"CountdownBegin", `""`, types.PhaseCountdown, true, "CountdownBegin"},
+		{"RoundStarted", `""`, types.PhaseLive, true, "RoundStarted"},
+		{"MatchPaused", `""`, types.PhasePaused, true, "MatchPaused"},
+		{"MatchUnpaused", `""`, types.PhaseLive, true, "MatchUnpaused"},
+		{"MatchEnded", `""`, types.PhaseEnded, true, "MatchEnded"},
+		{"PodiumStart", `""`, types.PhasePodium, true, "PodiumStart"},
+		{"MatchDestroyed", `""`, types.PhaseNone, true, "MatchDestroyed"},
 	}
 
 	for _, c := range cases {
@@ -71,7 +72,7 @@ func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
 }
 
 func TestMatchState_NoEmissionOnIdentityTransition(t *testing.T) {
-	ms := NewMatchState()
+	ms := New()
 	feed := func(name string) []bus.Event {
 		evt := bus.Event{Name: name, Data: []byte(`""`)}
 		ms.Observe(evt)
@@ -87,7 +88,7 @@ func TestMatchState_NoEmissionOnIdentityTransition(t *testing.T) {
 }
 
 func TestMatchState_WatchdogFlipsInactive(t *testing.T) {
-	ms := NewMatchState()
+	ms := New()
 	ms.timeout = 50 * time.Millisecond
 
 	// Drive into a live state via UpdateState.
@@ -111,7 +112,7 @@ func TestMatchState_WatchdogFlipsInactive(t *testing.T) {
 	if snap.MatchActive {
 		t.Error("expected matchActive=false after watchdog")
 	}
-	if snap.Phase != PhaseNone {
+	if snap.Phase != types.PhaseNone {
 		t.Errorf("expected phase=none after watchdog, got %q", snap.Phase)
 	}
 	if snap.Trigger != "watchdogTimeout" {

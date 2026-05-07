@@ -1,4 +1,8 @@
-package backend
+// Package state owns MatchState — the unified gameplay-phase
+// machine. Implements both StateProcessor (Observe) and EmitProcessor
+// (Process) for the pipeline; the watchdog goroutine (Run) flips
+// matchActive=false on UpdateState silence.
+package state
 
 import (
 	"context"
@@ -11,49 +15,42 @@ import (
 	"time"
 )
 
-// Phase is aliased from internal/types so emit/server can reference
-// PhaseLive et al. without importing this file. The constants are
-// re-exported below at the same names.
-type Phase = types.Phase
-
-const (
-	PhaseNone      = types.PhaseNone
-	PhaseLobby     = types.PhaseLobby
-	PhaseCountdown = types.PhaseCountdown
-	PhaseLive      = types.PhaseLive
-	PhasePaused    = types.PhasePaused
-	PhaseReplay    = types.PhaseReplay
-	PhaseEnded     = types.PhaseEnded
-	PhasePodium    = types.PhasePodium
-)
-
-// MatchStateSnapshot is the wire-shaped payload published as
-// _MatchState (and exposed by /api/match-state).
-type MatchStateSnapshot struct {
-	MatchActive          bool      `json:"matchActive"`
-	Phase                Phase     `json:"phase"`
-	PreviousPhase        Phase     `json:"previousPhase"`
-	MatchGuid            string    `json:"matchGuid,omitempty"`
-	Since                time.Time `json:"since"`
-	PhaseDurationSeconds float64   `json:"phaseDurationSeconds"`
-	Trigger              string    `json:"trigger"`
+// Snapshot is the wire-shaped payload published as _MatchState (and
+// exposed by /api/match-state).
+type Snapshot struct {
+	MatchActive          bool        `json:"matchActive"`
+	Phase                types.Phase `json:"phase"`
+	PreviousPhase        types.Phase `json:"previousPhase"`
+	MatchGuid            string      `json:"matchGuid,omitempty"`
+	Since                time.Time   `json:"since"`
+	PhaseDurationSeconds float64     `json:"phaseDurationSeconds"`
+	Trigger              string      `json:"trigger"`
 }
 
-// matchActiveTimeoutNew is how long we tolerate silence on the
-// UpdateState stream before declaring matchActive=false. Same value as
-// the legacy tracker; renamed to avoid a collision during the
-// parallel-running stage.
-const matchActiveTimeoutNew = 5 * time.Second
+// matchActiveTimeout is how long we tolerate silence on the
+// UpdateState stream before declaring matchActive=false.
+const matchActiveTimeout = 5 * time.Second
 
-// MatchState is the unified gameplay-state machine. Replaces
-// LifecycleTracker and PhaseMachine. Implements both StateProcessor
-// (Observe) and EmitProcessor (Process) — the same code knows what
-// changed and emits _MatchState only on real transitions.
+// connectedStatus is the literal wire string that _ConnectionStatus
+// carries when the RL TCP socket is healthy. Anything else (including
+// the explicit empty value) means "lost connection" and clears
+// matchActive — same effect the source's setStatus produces.
+const connectedStatus = "connected"
+
+// Broadcaster is the slim interface the watchdog uses when it has to
+// publish a _MatchState frame outside the normal dispatcher flow.
+type Broadcaster interface {
+	Broadcast(evt bus.Event)
+}
+
+// MatchState is the unified gameplay-state machine. The same code
+// observes events, decides whether anything changed, and emits a
+// _MatchState frame on real transitions only.
 type MatchState struct {
 	mu      sync.RWMutex
-	cur     MatchStateSnapshot
-	emit    bool               // set by Observe when state changed; consumed by Process
-	pending MatchStateSnapshot // the snapshot to emit on the next Process call
+	cur     Snapshot
+	emit    bool     // set by Observe when state changed; consumed by Process
+	pending Snapshot // the snapshot to emit on the next Process call
 
 	matchActive atomic.Bool
 	inReplay    atomic.Bool
@@ -66,23 +63,26 @@ type MatchState struct {
 	bus Broadcaster // optional; if set, the watchdog publishes directly
 }
 
+// AttachBroadcaster wires a publisher into the watchdog so timeout
+// frames reach subscribers even when no events are flowing through
+// the dispatcher.
 func (m *MatchState) AttachBroadcaster(b Broadcaster) { m.bus = b }
 
-func NewMatchState() *MatchState {
+func New() *MatchState {
 	now := time.Now()
 	return &MatchState{
-		cur: MatchStateSnapshot{
+		cur: Snapshot{
 			MatchActive:   false,
-			Phase:         PhaseNone,
-			PreviousPhase: PhaseNone,
+			Phase:         types.PhaseNone,
+			PreviousPhase: types.PhaseNone,
 			Since:         now,
 			Trigger:       "initial",
 		},
-		timeout: matchActiveTimeoutNew,
+		timeout: matchActiveTimeout,
 	}
 }
 
-func (m *MatchState) Snapshot() MatchStateSnapshot {
+func (m *MatchState) Snapshot() Snapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cur
@@ -105,50 +105,50 @@ func (m *MatchState) Observe(evt bus.Event) {
 		if nowReplay != wasReplay {
 			m.inReplay.Store(nowReplay)
 			if nowReplay {
-				m.transitionIf(PhaseReplay, "bReplayEdge", "", func(cur Phase) bool {
-					return cur == PhaseLive || cur == PhaseCountdown || cur == PhasePaused
+				m.transitionIf(types.PhaseReplay, "bReplayEdge", "", func(cur types.Phase) bool {
+					return cur == types.PhaseLive || cur == types.PhaseCountdown || cur == types.PhasePaused
 				})
 			} else {
-				m.transitionIf(PhaseLive, "bReplayEdge", "", func(cur Phase) bool {
-					return cur == PhaseReplay
+				m.transitionIf(types.PhaseLive, "bReplayEdge", "", func(cur types.Phase) bool {
+					return cur == types.PhaseReplay
 				})
 			}
 		}
 
 		if !m.matchActive.Load() {
 			guid := wire.ExtractMatchGUID(evt.Raw)
-			m.transitionTo(PhaseLive, "UpdateState", guid, true)
+			m.transitionTo(types.PhaseLive, "UpdateState", guid, true)
 		}
 		return
 	}
 
 	switch evt.Name {
 	case "MatchCreated":
-		m.transitionTo(PhaseLobby, "MatchCreated", wire.GUIDFromData(evt.Data), true)
+		m.transitionTo(types.PhaseLobby, "MatchCreated", wire.GUIDFromData(evt.Data), true)
 	case "CountdownBegin":
-		m.transitionTo(PhaseCountdown, "CountdownBegin", "", true)
+		m.transitionTo(types.PhaseCountdown, "CountdownBegin", "", true)
 	case "RoundStarted":
-		m.transitionTo(PhaseLive, "RoundStarted", "", true)
+		m.transitionTo(types.PhaseLive, "RoundStarted", "", true)
 	case "MatchPaused":
-		m.transitionTo(PhasePaused, "MatchPaused", "", true)
+		m.transitionTo(types.PhasePaused, "MatchPaused", "", true)
 	case "MatchUnpaused":
-		m.transitionTo(PhaseLive, "MatchUnpaused", "", true)
+		m.transitionTo(types.PhaseLive, "MatchUnpaused", "", true)
 	case "MatchEnded":
 		m.inReplay.Store(false)
-		m.transitionTo(PhaseEnded, "MatchEnded", "", true)
+		m.transitionTo(types.PhaseEnded, "MatchEnded", "", true)
 	case "PodiumStart":
 		m.inReplay.Store(false)
-		m.transitionTo(PhasePodium, "PodiumStart", "", true)
+		m.transitionTo(types.PhasePodium, "PodiumStart", "", true)
 	case "MatchDestroyed":
 		m.inReplay.Store(false)
-		m.transitionTo(PhaseNone, "MatchDestroyed", "clear", false)
+		m.transitionTo(types.PhaseNone, "MatchDestroyed", "clear", false)
 	case "_ConnectionStatus":
 		var env struct {
 			Status string `json:"Status"`
 		}
-		if err := json.Unmarshal(evt.Raw, &env); err == nil && env.Status != "" && env.Status != string(StatusConnected) {
+		if err := json.Unmarshal(evt.Raw, &env); err == nil && env.Status != "" && env.Status != connectedStatus {
 			m.inReplay.Store(false)
-			m.transitionTo(PhaseNone, "connectionLost", "clear", false)
+			m.transitionTo(types.PhaseNone, "connectionLost", "clear", false)
 		}
 	}
 }
@@ -158,7 +158,7 @@ func (m *MatchState) Observe(evt bus.Event) {
 // matchActive=false and (when guid=="clear") clears the matchGuid.
 // Stages a pending _MatchState snapshot whenever the snapshot
 // actually changes.
-func (m *MatchState) transitionTo(phase Phase, trigger, guid string, keepActive bool) {
+func (m *MatchState) transitionTo(phase types.Phase, trigger, guid string, keepActive bool) {
 	m.mu.Lock()
 	prev := m.cur
 	next := prev
@@ -189,7 +189,7 @@ func (m *MatchState) transitionTo(phase Phase, trigger, guid string, keepActive 
 // transitionIf only transitions when the predicate accepts the current
 // phase. Used for replay-edge transitions that must not clobber a
 // same-tick CountdownBegin or override post-match phases.
-func (m *MatchState) transitionIf(phase Phase, trigger, guid string, allow func(cur Phase) bool) {
+func (m *MatchState) transitionIf(phase types.Phase, trigger, guid string, allow func(cur types.Phase) bool) {
 	m.mu.Lock()
 	if !allow(m.cur.Phase) {
 		m.mu.Unlock()
@@ -263,7 +263,7 @@ func (m *MatchState) checkTimeout() {
 	if last.IsZero() || time.Since(last) < m.timeout {
 		return
 	}
-	m.transitionTo(PhaseNone, "watchdogTimeout", "clear", false)
+	m.transitionTo(types.PhaseNone, "watchdogTimeout", "clear", false)
 
 	// Publish directly so subscribers learn about the timeout even
 	// when no events are flowing through the dispatcher.
