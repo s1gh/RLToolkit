@@ -707,11 +707,6 @@ fn build_overlay_window(
 
     let window = builder.build()?;
 
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = window.set_ignore_cursor_events(true);
-    }
-
     #[cfg(target_os = "windows")]
     apply_windows_no_border(&window);
 
@@ -736,6 +731,17 @@ fn build_overlay_window(
             #[cfg(not(target_os = "linux"))]
             apply_fullscreen_position(&window, toolkit);
         }
+    }
+
+    // Apply click-through AFTER set_fullscreen on Windows: winit's fullscreen
+    // transition rewrites the window's extended styles via SetWindowLongPtr,
+    // which clears the WS_EX_TRANSPARENT bit set_ignore_cursor_events installed.
+    // Without this, the always-on-top fullscreen overlay swallows clicks meant
+    // for the launcher window underneath — title-bar caption buttons still work
+    // (DWM hit-tests those), but the launcher's webview content becomes dead.
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = window.set_ignore_cursor_events(true);
     }
 
     window.show()?;
