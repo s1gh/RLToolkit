@@ -17,15 +17,6 @@ pub struct Args {
     #[arg(long, default_value = "http://localhost:49200")]
     pub toolkit: String,
 
-    /// Global hotkey to quit the overlay. Format follows Tauri's
-    /// shortcut syntax — e.g. "Ctrl+Shift+Q", "Alt+F4", "CmdOrCtrl+W".
-    /// Required: the overlay window is unfocusable, undecorated, and
-    /// click-through, so the hotkey is the user's guaranteed exit.
-    /// If registration fails (already taken by another app), startup
-    /// aborts so the user picks something else.
-    #[arg(long, default_value = "Ctrl+Shift+Q")]
-    pub quit_hotkey: String,
-
     /// Window-title substring (Linux/macOS) or exe basename (Windows) that
     /// identifies the game window. Defaults are platform-specific:
     /// "RocketLeague.exe" on Windows, "Rocket League" on Linux/macOS.

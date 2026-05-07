@@ -22,7 +22,6 @@ fn round_trip_writes_and_reads() {
         window_w: Some(720),
         window_h: Some(640),
         backend_port: None,
-        quit_hotkey: None,
         ..LauncherSettings::default()
     };
     store.save(&s).unwrap();

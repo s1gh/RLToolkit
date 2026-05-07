@@ -68,14 +68,9 @@ non-host OS still has to be built on that OS — wry can't cross-compile.
 ### Stopping the widget
 
 The overlay window is click-through, undecorated, and skip-taskbar — by
-design, you can't reach it with the mouse or alt-tab. Two exit paths:
-
-- **Global hotkey** (default `Ctrl+Shift+Q`). Always available; if the
-  default conflicts with another app, override with
-  `--quit-hotkey=<COMBO>` (Tauri shortcut syntax — e.g. `Alt+F4`,
-  `CmdOrCtrl+W`).
-- **Tray icon** — right-click → *Quit*. Best-effort; some minimal
-  desktops can't host a tray.
+design, you can't reach it with the mouse or alt-tab. Exit via the
+**tray icon** (right-click → *Quit*). On minimal desktops that can't
+host a tray, kill the `rl-widget` process.
 
 ---
 

@@ -8,12 +8,11 @@
 //
 // Because the window is click-through + skip-taskbar + undecorated +
 // unfocused, it cannot be closed by clicking, alt-tabbing, or any
-// in-window UI. Two exit paths are wired at startup:
-//   - global hotkey (default Ctrl+Shift+Q, --quit-hotkey to override)
-//     — REQUIRED. If registration fails (collision with another app),
-//     startup aborts; the user picks a different combo.
-//   - tray icon with a Quit menu item — best-effort. Logged-and-ignored
-//     if the desktop environment can't host one (rare).
+// in-window UI. Exit happens via the tray icon's Quit item — best-
+// effort; logged-and-ignored if the desktop environment can't host
+// one. (A global-hotkey approach was tried earlier; both
+// tauri-plugin-global-shortcut on Windows and the Linux paths failed
+// to register cleanly, so it's been removed.)
 //
 // Per-platform overlay primitive:
 //   Linux/Wayland: wlr-layer-shell (overlay layer + anchored margins). The
@@ -37,7 +36,7 @@
 // (RLT.widget.* in the SDK) — see the `widget_*` handlers below.
 //
 // CLI:
-//   rl-widget [--plugin=<name>] [--toolkit=URL] [--quit-hotkey=COMBO]
+//   rl-widget [--plugin=<name>] [--toolkit=URL]
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -57,7 +56,6 @@ use tauri::AppHandle;
 #[cfg(not(target_os = "linux"))]
 use tauri::{LogicalPosition, Manager};
 use tauri::{LogicalSize, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 #[derive(Deserialize, Debug, Clone, Default)]
 struct OverlayCfg {
@@ -581,27 +579,6 @@ fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Register the global quit hotkey. REQUIRED — see the Args::quit_hotkey
-/// doc comment for why. Returns Err on parse failure or if the OS reports
-/// the combo is already taken; the caller turns that into a startup
-/// abort with a stderr message telling the user to pick another combo.
-fn setup_hotkey(app: &AppHandle, combo: &str) -> Result<(), String> {
-    let shortcut: Shortcut = combo
-        .parse()
-        .map_err(|e| format!("could not parse quit hotkey {combo:?}: {e}"))?;
-
-    let app_for_handler = app.clone();
-    let shortcut_for_handler = shortcut;
-
-    app.global_shortcut()
-        .on_shortcut(shortcut, move |_app, sc, _event| {
-            if *sc == shortcut_for_handler {
-                app_for_handler.exit(0);
-            }
-        })
-        .map_err(|e| format!("could not register quit hotkey {combo:?}: {e}"))?;
-    Ok(())
-}
 
 fn launcher_mode_active(args: &Args) -> bool {
     if args.no_launcher {
@@ -790,12 +767,10 @@ fn main_overlay(args: Args) {
     };
 
     let mode_for_setup = mode.clone();
-    let quit_hotkey = args.quit_hotkey.clone();
     let tray_tooltip = title.clone();
     let args_for_setup = args.clone();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(Mutex::new(widget_state))
         .manage(mode.clone())
         .invoke_handler(tauri::generate_handler![
@@ -806,23 +781,10 @@ fn main_overlay(args: Args) {
             widget_visible,
         ])
         .setup(move |app| {
-            // Register the quit hotkey FIRST. If it can't be claimed,
-            // bail before opening the window — without this combo the
-            // user has no in-app exit path.
-            if let Err(e) = setup_hotkey(app.handle(), &quit_hotkey) {
-                eprintln!("[rl-widget] {}", e);
-                eprintln!("[rl-widget] pick a different combo with --quit-hotkey=<COMBO>");
-                std::process::exit(1);
-            }
-            eprintln!("[rl-widget] quit hotkey: {}", quit_hotkey);
-
             // Tray is best-effort. Some minimal Linux desktops can't
-            // host one; the hotkey still works.
+            // host one; the user falls back to killing the process.
             if let Err(e) = setup_tray(app.handle(), &tray_tooltip) {
-                eprintln!(
-                    "[rl-widget] tray icon failed to register ({}); use {} to quit",
-                    e, quit_hotkey
-                );
+                eprintln!("[rl-widget] tray icon failed to register: {e}");
             }
 
             // Build the overlay window via the shared helper.
