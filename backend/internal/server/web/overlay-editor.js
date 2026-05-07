@@ -91,6 +91,24 @@
   document.body.appendChild(topbar);
   const topbarTarget = topbar.querySelector('[data-role="target-label"]');
 
+  // Resolve manifest defaults for a plugin so reset paths can send a
+  // deterministic PUT body. ctx.plugins is the raw /api/plugins array;
+  // each entry's `overlay` block holds the manifest values before any
+  // user override is layered on. Falls back to safe defaults so a
+  // manifest missing fields doesn't crash the reset flow.
+  function manifestDefaultsFor(plugin) {
+    const p = ctx.plugins.find((p) => p.name === plugin.name);
+    const o = p?.overlay || {};
+    return {
+      anchor: o.anchor || 'top-right',
+      offset_x: o.offset_x | 0,
+      offset_y: o.offset_y | 0,
+      width: o.width | 0 || 320,
+      height: o.height | 0 || 120,
+      opacity: o.opacity == null ? 1 : o.opacity,
+    };
+  }
+
   topbar.querySelector('[data-role="reset-all"]').addEventListener('click', async () => {
     const ok = await confirmModal({
       title: 'Reset all widgets?',
@@ -102,11 +120,25 @@
     });
     if (!ok) return;
     try {
-      // Sequential DELETEs — N is small (one per plugin) so a parallel
-      // burst gains nothing and would muddle error reporting.
+      // Sequential PUTs — N is small (one per plugin) so a parallel
+      // burst gains nothing and would muddle error reporting. PUT
+      // (not DELETE) so production /overlay still sees enabled:true
+      // and keeps each iframe mounted.
       for (const w of widgets) {
+        const m = manifestDefaultsFor(w.plugin);
+        const body = {
+          enabled: true,
+          anchor: m.anchor,
+          offset_x: m.offset_x,
+          offset_y: m.offset_y,
+          width: m.width,
+          height: m.height,
+          opacity: m.opacity,
+        };
         const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(w.plugin.name), {
-          method: 'DELETE',
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
         });
         if (!r.ok) throw new Error(w.plugin.name + ' → HTTP ' + r.status);
       }
@@ -817,9 +849,21 @@
   }
 
   async function resetWidget(w) {
+    const m = manifestDefaultsFor(w.plugin);
+    const body = {
+      enabled: true,
+      anchor: m.anchor,
+      offset_x: m.offset_x,
+      offset_y: m.offset_y,
+      width: m.width,
+      height: m.height,
+      opacity: m.opacity,
+    };
     try {
       const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(w.plugin.name), {
-        method: 'DELETE',
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
     } catch (err) {
