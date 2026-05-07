@@ -664,32 +664,18 @@ fn build_overlay_window(
 ) -> tauri::Result<()> {
     let parsed = url::Url::parse(url).map_err(tauri::Error::InvalidUrl)?;
 
-    // Build the overlay window VISIBLE from the start. Constructing it
-    // with visible(false) and calling window.show() afterward deadlocks
-    // WebView2 on Windows: build() never returns, every IPC call from
-    // the launcher webview hangs forever, and the user's only recovery
-    // is to kill the process from Task Manager. Bisected via incremental
-    // flag re-add — `visible(false)` is the sole culprit; transparent,
-    // always_on_top, skip_taskbar, decorations, focused, and incognito
-    // are all safe.
-    //
-    // Trade-off: the window may briefly flash at its default size/
-    // position before apply_fullscreen_position resizes it. Acceptable
-    // for a frameless transparent overlay; the alternative is a
-    // permanently frozen launcher.
+    // BISECT step 6: still freezes with focused(false) + incognito(true)
+    // even after dropping visible(false). Drop both to confirm whether
+    // either is also a deadlock culprit.
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(title)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
         .skip_taskbar(true)
-        .resizable(false)
-        .focused(false);
+        .resizable(false);
 
-    if !persist_cache {
-        builder = builder.incognito(true);
-    }
-
+    let _ = persist_cache;
     if let Mode::Plugin { manifest } = mode {
         builder = builder.inner_size(manifest.width as f64, manifest.height as f64);
     }
