@@ -1,4 +1,4 @@
-package backend
+package bootid
 
 import (
 	"crypto/rand"
@@ -7,16 +7,16 @@ import (
 )
 
 var (
-	bootIDOnce sync.Once
-	bootID     string
+	once sync.Once
+	id   string
 )
 
-// BootID returns a stable 16-char lowercase-hex identifier for this
+// Get returns a stable 16-char lowercase-hex identifier for this
 // process. Generated once on first call from crypto/rand. Plugins use
 // this to detect backend restarts (i.e. launcher restarts) and reset
 // per-session state.
-func BootID() string {
-	bootIDOnce.Do(func() {
+func Get() string {
+	once.Do(func() {
 		var b [8]byte
 		if _, err := rand.Read(b[:]); err != nil {
 			// crypto/rand failure on a desktop launcher process is
@@ -24,7 +24,7 @@ func BootID() string {
 			// invent a deterministic ID that defeats the purpose.
 			panic("bootid: crypto/rand failed: " + err.Error())
 		}
-		bootID = hex.EncodeToString(b[:])
+		id = hex.EncodeToString(b[:])
 	})
-	return bootID
+	return id
 }

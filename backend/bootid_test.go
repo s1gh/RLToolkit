@@ -5,7 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
+	"rl-toolkit/internal/bootid"
 	"rl-toolkit/internal/bus"
 	"strings"
 	"testing"
@@ -47,28 +47,13 @@ func TestSSEFirstFrameIncludesBootID(t *testing.T) {
 		}
 		body := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
 		wantSnippet := `"Event":"_BootId"`
-		wantID := `"bootId":"` + BootID() + `"`
+		wantID := `"bootId":"` + bootid.Get() + `"`
 		if !strings.Contains(body, wantSnippet) || !strings.Contains(body, wantID) {
 			t.Fatalf("first data frame did not contain _BootId; got: %s", body)
 		}
 		return
 	}
 	t.Fatalf("timed out waiting for first data frame")
-}
-
-func TestBootIDIsSixteenLowerHex(t *testing.T) {
-	id := BootID()
-	if !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(id) {
-		t.Fatalf("BootID() = %q; want 16 lowercase hex chars", id)
-	}
-}
-
-func TestBootIDIsStableWithinProcess(t *testing.T) {
-	a := BootID()
-	b := BootID()
-	if a != b {
-		t.Fatalf("BootID() returned different values within a process: %q vs %q", a, b)
-	}
 }
 
 func TestHandleBootIDReturnsJSON(t *testing.T) {
@@ -83,7 +68,7 @@ func TestHandleBootIDReturnsJSON(t *testing.T) {
 	if got, want := rec.Header().Get("Content-Type"), "application/json"; got != want {
 		t.Fatalf("Content-Type = %q; want %q", got, want)
 	}
-	want := `{"bootId":"` + BootID() + `"}`
+	want := `{"bootId":"` + bootid.Get() + `"}`
 	if got := rec.Body.String(); got != want {
 		t.Fatalf("body = %q; want %q", got, want)
 	}

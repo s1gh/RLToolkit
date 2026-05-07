@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"rl-toolkit/internal/bootid"
 	"rl-toolkit/internal/bus"
 	"strings"
 	"sync"
@@ -244,7 +245,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// launcher restart and reset per-session state. Framing-bypass —
 	// every subscriber receives this regardless of the events filter.
 	{
-		bootFrame := []byte(`{"Event":"_BootId","bootId":"` + BootID() + `"}`)
+		bootFrame := []byte(`{"Event":"_BootId","bootId":"` + bootid.Get() + `"}`)
 		if !writeFrame(sseDataPrefix, bootFrame, sseRecordEnd) {
 			return
 		}
@@ -629,7 +630,7 @@ func marshalOverridesChanged(data map[string]OverlayOverride) []byte {
 // and reset their per-session state.
 func (s *Server) handleBootID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"bootId":"` + BootID() + `"}`))
+	_, _ = w.Write([]byte(`{"bootId":"` + bootid.Get() + `"}`))
 }
 
 // handleIdentity exposes the persisted "who am I" identity. GET
