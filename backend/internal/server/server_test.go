@@ -1,9 +1,13 @@
 package server
 
 import (
+	"archive/zip"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -179,5 +183,80 @@ func TestServePluginAsset_NotFoundForUnknownPlugin(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestSideload_InstallsRltp(t *testing.T) {
+	pluginsDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	// Build a tiny .rltp in memory and post it.
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	mf, _ := zw.Create("manifest.json")
+	mf.Write([]byte(`{"name":"alpha","version":"0.1.0","overlay":{"file":"overlay.html"}}`))
+	hf, _ := zw.Create("overlay.html")
+	hf.Write([]byte("<html></html>"))
+	zw.Close()
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	fw, _ := mw.CreateFormFile("file", "alpha-0.1.0.rltp")
+	io.Copy(fw, &zipBuf)
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/sideload", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(pluginsDir, "alpha", "manifest.json")); err != nil {
+		t.Errorf("plugin not installed: %v", err)
+	}
+}
+
+func TestSideload_RejectsWrongExtension(t *testing.T) {
+	pluginsDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	fw, _ := mw.CreateFormFile("file", "totally-not-a-plugin.zip")
+	fw.Write([]byte("PK"))
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/sideload", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSideload_RejectsBadArchive(t *testing.T) {
+	pluginsDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	fw, _ := mw.CreateFormFile("file", "bad.rltp")
+	fw.Write([]byte("not a zip"))
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/sideload", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
 	}
 }

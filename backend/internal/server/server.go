@@ -10,6 +10,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"rl-toolkit/backend/internal/bootid"
 	"rl-toolkit/backend/internal/bus"
 	"rl-toolkit/backend/internal/catalog"
@@ -17,13 +19,13 @@ import (
 	"rl-toolkit/backend/internal/discoveries"
 	"rl-toolkit/backend/internal/emit"
 	"rl-toolkit/backend/internal/identity"
+	"rl-toolkit/backend/internal/install"
 	"rl-toolkit/backend/internal/overrides"
 	"rl-toolkit/backend/internal/plugins"
 	"rl-toolkit/backend/internal/roster"
 	"rl-toolkit/backend/internal/source"
 	"rl-toolkit/backend/internal/state"
 	"rl-toolkit/backend/internal/types"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -85,6 +87,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/identity", s.handleIdentity)
 	mux.HandleFunc("/api/overlay/overrides", s.handleOverlayOverridesAll)
 	mux.HandleFunc("/api/overlay/overrides/", s.handleOverlayOverridesOne)
+	mux.HandleFunc("/api/sideload", s.handleSideload)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -173,6 +176,62 @@ func (s *Server) servePluginAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.serveFromRoot(w, r, filepath.Join(root, name), rest)
+}
+
+// handleSideload accepts a multipart upload of a .rltp file under the
+// form field "file" and installs it via install.Install. Used by the
+// dashboard's drag-drop UI; also reachable via curl for testing.
+//
+// Cap on body size is intentional: a runaway upload should fail fast,
+// not consume disk and memory until OOM. 64 MiB is generous for plugin
+// archives (today's largest in-tree plugin is well under 100 KiB).
+func (s *Server) handleSideload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	const maxBytes = 64 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "bad multipart: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "missing 'file' field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	if !strings.HasSuffix(strings.ToLower(hdr.Filename), ".rltp") {
+		http.Error(w, "file must end in .rltp", http.StatusBadRequest)
+		return
+	}
+
+	tmp, err := os.CreateTemp("", "sideload-*.rltp")
+	if err != nil {
+		http.Error(w, "tmp file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmp, file); err != nil {
+		tmp.Close()
+		http.Error(w, "write tmp: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		http.Error(w, "close tmp: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	name, err := install.Install(tmpPath, s.deps.PluginDir)
+	if err != nil {
+		http.Error(w, "install: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"name": name})
 }
 
 // serveFromRoot serves `rest` from `root`, refusing path traversal and
