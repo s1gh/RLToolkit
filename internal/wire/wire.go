@@ -1,27 +1,49 @@
-package backend
+// Package wire decodes the RL Stats API envelope: pulling event
+// names, MatchGuid values, and bReplay flags out of raw JSON without
+// allocating the multi-KB inner Data payload.
+//
+// The canonical-name lookup table lives outside this package because
+// it's derived from the event catalog (which is part of the backend
+// package). Call RegisterAliases at init time to seed it; until that
+// happens, Canonical falls back to returning the input unchanged.
+package wire
 
 import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"sync/atomic"
 )
 
-// extractEventName pulls the event name from an RL-shaped JSON
+var aliasTable atomic.Pointer[map[string]string]
+
+// RegisterAliases installs the lowercase-to-PascalCase lookup table
+// used by Canonical. Safe to call multiple times — last write wins.
+// In practice the backend calls it exactly once during package init.
+func RegisterAliases(m map[string]string) {
+	cp := make(map[string]string, len(m))
+	for k, v := range m {
+		cp[strings.ToLower(k)] = v
+	}
+	aliasTable.Store(&cp)
+}
+
+// ExtractEventName pulls the event name from an RL-shaped JSON
 // envelope without a full Unmarshal. Returns "" if the field is
 // absent or malformed.
 //
 // RL emits the envelope key + values in lowercase ("event":"goalscored")
 // on this build of the Stats API; older docs use PascalCase
 // ("Event":"GoalScored"). We accept both keys and normalize the value
-// to canonical PascalCase via canonicalEventName so every downstream
-// comparison stays PascalCase.
+// to canonical PascalCase via Canonical so every downstream comparison
+// stays PascalCase.
 //
 // Implementation: decode the envelope's two name keys via the JSON
 // parser. The Data field is captured as a json.RawMessage and thrown
 // away — no allocation for the multi-KB inner payload, and field
 // order in the envelope no longer matters (a previous substring-scan
 // implementation broke whenever Data appeared before Event).
-func extractEventName(raw []byte) string {
+func ExtractEventName(raw []byte) string {
 	var env struct {
 		EventPascal string `json:"Event"`
 		EventLower  string `json:"event"`
@@ -36,47 +58,35 @@ func extractEventName(raw []byte) string {
 	if name == "" {
 		return ""
 	}
-	return canonicalEventName([]byte(name))
+	return Canonical([]byte(name))
 }
 
-// canonicalEventName maps an extracted name to its PascalCase form. The
-// fast path is a direct map lookup for known events (covers everything
-// in catalog.go plus the synthetic _-prefixed events). Unknown names
-// fall through unchanged so newly-added RL events still flow.
-func canonicalEventName(b []byte) string {
+// Canonical maps an extracted name to its PascalCase form. The fast
+// path is a direct map lookup for known events. Unknown names fall
+// through unchanged so newly-added RL events still flow.
+func Canonical(b []byte) string {
 	// Synthetic events from our own server (_Lifecycle, _ConnectionStatus)
 	// never need normalization — we emit them in canonical form.
 	if len(b) > 0 && b[0] == '_' {
 		return string(b)
 	}
-	if name, ok := lowerToCanonical[string(b)]; ok {
+	tablePtr := aliasTable.Load()
+	if tablePtr == nil {
+		return string(b)
+	}
+	table := *tablePtr
+	if name, ok := table[string(b)]; ok {
 		return name
 	}
 	// Common case on this RL build: input is already lowercase. Try the
-	// lowered form before giving up so a name change in catalog.go
+	// lowered form before giving up so a name change in the catalog
 	// doesn't silently break things.
 	lower := bytes.ToLower(b)
-	if name, ok := lowerToCanonical[string(lower)]; ok {
+	if name, ok := table[string(lower)]; ok {
 		return name
 	}
 	return string(b)
 }
-
-// lowerToCanonical maps lowercased event names to their PascalCase form.
-// Built from EventCatalog at init time so the two stay in sync, plus a
-// few wire-level aliases where the RL Stats API uses a name that
-// doesn't lowercase to the catalog form.
-var lowerToCanonical = func() map[string]string {
-	m := make(map[string]string, len(EventCatalog)+2)
-	for _, e := range EventCatalog {
-		m[strings.ToLower(e.Name)] = e.Name
-	}
-	// Observed on this RL build: the wire ships `replaywillend` (no
-	// `goal` prefix). Treat it as the catalog's GoalReplayWillEnd so
-	// plugins subscribing to the documented name still get events.
-	m["replaywillend"] = "GoalReplayWillEnd"
-	return m
-}()
 
 // bReplayTrueMarkers are the four casings/escape-forms of
 // `"bReplay":true` we may see in an UpdateState payload. The flag
@@ -92,9 +102,9 @@ var bReplayTrueMarkers = [][]byte{
 	[]byte(`"breplay":true`),
 }
 
-// scanBReplay returns whether the UpdateState payload reports an
+// ScanBReplay returns whether the UpdateState payload reports an
 // active goal replay. Absence of any true-marker is treated as false.
-func scanBReplay(raw []byte) bool {
+func ScanBReplay(raw []byte) bool {
 	for _, m := range bReplayTrueMarkers {
 		if bytes.Contains(raw, m) {
 			return true
@@ -116,9 +126,9 @@ var matchGuidMarkers = [][]byte{
 	[]byte(`"matchguid":"`),
 }
 
-// extractMatchGUID pulls MatchGuid out of a payload without a full
+// ExtractMatchGUID pulls MatchGuid out of a payload without a full
 // Unmarshal. Returns "" if absent or malformed.
-func extractMatchGUID(raw []byte) string {
+func ExtractMatchGUID(raw []byte) string {
 	for _, m := range matchGuidMarkers {
 		i := bytes.Index(raw, m)
 		if i < 0 {
@@ -140,10 +150,10 @@ func extractMatchGUID(raw []byte) string {
 	return ""
 }
 
-// guidFromData reads MatchGuid from a typed event's Data payload. RL
+// GUIDFromData reads MatchGuid from a typed event's Data payload. RL
 // ships Data as a JSON-encoded *string* containing JSON, hence the
 // double decode.
-func guidFromData(data json.RawMessage) string {
+func GUIDFromData(data json.RawMessage) string {
 	if len(data) == 0 {
 		return ""
 	}
@@ -151,5 +161,5 @@ func guidFromData(data json.RawMessage) string {
 	if err := json.Unmarshal(data, &inner); err != nil {
 		return ""
 	}
-	return extractMatchGUID([]byte(inner))
+	return ExtractMatchGUID([]byte(inner))
 }

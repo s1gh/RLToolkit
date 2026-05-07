@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/wire"
 	"strings"
 	"sync"
 	"time"
@@ -122,7 +123,7 @@ func (s *RLSource) enqueue(msg []byte) {
 	if rawName == "" {
 		rawName = env.EventLower
 	}
-	name := canonicalEventName([]byte(rawName))
+	name := wire.Canonical([]byte(rawName))
 	if name == "UpdateState" {
 		msg = rewriteUpdateStateBotIds(msg)
 		// rewriteUpdateStateBotIds may rebuild the envelope; re-pull

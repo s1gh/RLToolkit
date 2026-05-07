@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/wire"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -99,7 +100,7 @@ func (m *MatchState) Observe(evt bus.Event) {
 		m.lastTickMu.Unlock()
 
 		wasReplay := m.inReplay.Load()
-		nowReplay := scanBReplay(evt.Raw)
+		nowReplay := wire.ScanBReplay(evt.Raw)
 		if nowReplay != wasReplay {
 			m.inReplay.Store(nowReplay)
 			if nowReplay {
@@ -114,7 +115,7 @@ func (m *MatchState) Observe(evt bus.Event) {
 		}
 
 		if !m.matchActive.Load() {
-			guid := extractMatchGUID(evt.Raw)
+			guid := wire.ExtractMatchGUID(evt.Raw)
 			m.transitionTo(PhaseLive, "UpdateState", guid, true)
 		}
 		return
@@ -122,7 +123,7 @@ func (m *MatchState) Observe(evt bus.Event) {
 
 	switch evt.Name {
 	case "MatchCreated":
-		m.transitionTo(PhaseLobby, "MatchCreated", guidFromData(evt.Data), true)
+		m.transitionTo(PhaseLobby, "MatchCreated", wire.GUIDFromData(evt.Data), true)
 	case "CountdownBegin":
 		m.transitionTo(PhaseCountdown, "CountdownBegin", "", true)
 	case "RoundStarted":

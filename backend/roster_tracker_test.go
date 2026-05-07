@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/wire"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,7 +34,7 @@ func envelope(eventName string, inner any) []byte {
 // keep subscribing to a bus channel.
 func feedRaw(t *testing.T, tracker *RosterTracker, b *bus.Bus, raw []byte) {
 	t.Helper()
-	evt := bus.Event{Name: extractEventName(raw), Raw: raw}
+	evt := bus.Event{Name: wire.ExtractEventName(raw), Raw: raw}
 	tracker.Observe(evt)
 	for _, out := range tracker.Process(evt) {
 		b.Broadcast(out)
@@ -487,7 +488,7 @@ func TestRewriteUpdateStateBotIds(t *testing.T) {
 		}
 		raw := envelope("UpdateState", inner)
 		out := rewriteUpdateStateBotIds(raw)
-		if name := extractEventName(out); name != "UpdateState" {
+		if name := wire.ExtractEventName(out); name != "UpdateState" {
 			t.Fatalf("extractEventName after rewrite = %q, want %q (rewrite broke envelope ordering)", name, "UpdateState")
 		}
 		// And the inner payload is still well-formed and rewritten.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/wire"
 	"testing"
 	"time"
 )
@@ -56,7 +57,7 @@ func captureSynthetic(t *testing.T, b *bus.Bus, matchState *MatchState, roster *
 	defer cancel()
 
 	feed := func(raw []byte) {
-		name := extractEventName(raw)
+		name := wire.ExtractEventName(raw)
 		var env struct {
 			Data      json.RawMessage `json:"Data,omitempty"`
 			DataLower json.RawMessage `json:"data,omitempty"`
@@ -102,7 +103,7 @@ func captureSynthetic(t *testing.T, b *bus.Bus, matchState *MatchState, roster *
 				done = true
 				break
 			}
-			name := extractEventName(raw)
+			name := wire.ExtractEventName(raw)
 			if len(name) == 0 || name[0] != '_' {
 				continue
 			}

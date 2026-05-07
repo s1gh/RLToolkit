@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/wire"
 )
 
 // FixtureSource replays a JSONL file as a stream of Events. One JSON
@@ -37,7 +38,7 @@ func (s *FixtureSource) Events(ctx context.Context) <-chan bus.Event {
 			}
 			raw := make([]byte, len(line))
 			copy(raw, line)
-			name := extractEventName(raw)
+			name := wire.ExtractEventName(raw)
 			var env struct {
 				Data      json.RawMessage `json:"Data,omitempty"`
 				DataLower json.RawMessage `json:"data,omitempty"`
