@@ -10,12 +10,8 @@
         whilePhase: ["live", "replay", "countdown", "paused"],
 
         events: {
-          _GoalScored(p) {
-            console.log("goal scored!", p);
-            console.log(p.modifiers);
-          },
-          RoundStarted(d) {
-            console.log("round started!", d);
+          _Shot(p) {
+            console.log("Shot", p);
           },
         },
       });
