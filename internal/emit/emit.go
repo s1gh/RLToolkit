@@ -35,6 +35,36 @@ type TeamReader interface {
 	TeamByNum(num int) *types.TeamRef
 }
 
+// PhaseGate is the slim view emitters need into MatchState for
+// gameplay-only suppression: query the current phase and gate emission
+// on PhaseLive / PhaseCountdown / PhasePaused. Returning the full
+// Snapshot would couple emit/ to internal/state, so we just hand back
+// the Phase string.
+type PhaseGate interface {
+	CurrentPhase() types.Phase
+}
+
+// Correlator is the slim view emitters need into the shared
+// CorrelationBuffer: stash a typed entry (ballHitRecord, goalRecord,
+// statfeedRecord, etc.) under a string key, look it back up via Recent
+// or FindWithin. Backend's CorrelationBuffer satisfies this.
+type Correlator interface {
+	Record(name string, payload interface{})
+	Recent(name string, n int) []interface{}
+	FindWithin(name string, lookback int, predicate func(interface{}) bool) interface{}
+	RemoveByName(name string, predicate func(interface{}) bool)
+}
+
+// liveGameplayPhases gates BallHit / OwnGoal / Statfeed emitters that
+// must not fire during goal replays or post-match screens.
+func liveGameplayPhases(g PhaseGate) bool {
+	if g == nil {
+		return true
+	}
+	ph := g.CurrentPhase()
+	return ph == types.PhaseLive || ph == types.PhaseCountdown || ph == types.PhasePaused
+}
+
 // payloadBytes returns the JSON object the upstream emitter produced.
 // During the synth-bridged transition the legacy producer ships flat
 // raw JSON (with "Event" at the top level inline with the fields), so

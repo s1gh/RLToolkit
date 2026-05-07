@@ -74,3 +74,21 @@ type MatchEndedData struct {
 	WinnerTeamNum *int   `json:"WinnerTeamNum"`
 	WinnerTeamLow *int   `json:"winnerteamnum"`
 }
+
+// BallHitData mirrors the wire shape of a BallHit envelope. RL ships
+// either PascalCase or all-lowercase keys depending on build, hence
+// each field appearing twice.
+type BallHitData struct {
+	MatchGUID    string        `json:"MatchGuid"`
+	MatchGUIDLow string        `json:"matchguid"`
+	Players      []ShortcutRef `json:"Players"`
+	PlayersLow   []ShortcutRef `json:"players"`
+	Ball         *BallHitInner `json:"Ball"`
+	BallLow      *BallHitInner `json:"ball"`
+}
+
+type BallHitInner struct {
+	PreHitSpeed  *float64 `json:"PreHitSpeed"`
+	PostHitSpeed *float64 `json:"PostHitSpeed"`
+	Location     *Vec3    `json:"Location"`
+}

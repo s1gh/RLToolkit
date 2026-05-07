@@ -139,20 +139,8 @@ type ballRef struct {
 	Location     *vec3    `json:"Location,omitempty"`
 }
 
-type ballHitData struct {
-	MatchGUID    string        `json:"MatchGuid"`
-	MatchGUIDLow string        `json:"matchguid"`
-	Players      []ShortcutRef `json:"Players"`
-	PlayersLow   []ShortcutRef `json:"players"`
-	Ball         *ballHitInner `json:"Ball"`
-	BallLow      *ballHitInner `json:"ball"`
-}
-
-type ballHitInner struct {
-	PreHitSpeed  *float64 `json:"PreHitSpeed"`
-	PostHitSpeed *float64 `json:"PostHitSpeed"`
-	Location     *vec3    `json:"Location"`
-}
+type ballHitData = types.BallHitData
+type ballHitInner = types.BallHitInner
 
 type crossbarHitData = types.CrossbarHitData
 type ballLastTouch = types.BallLastTouch

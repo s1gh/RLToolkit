@@ -88,6 +88,15 @@ func (m *MatchState) Snapshot() Snapshot {
 	return m.cur
 }
 
+// CurrentPhase returns just the current Phase. Convenience over
+// Snapshot().Phase for emit processors that only need the gate, kept
+// short so the read lock is held for the minimum.
+func (m *MatchState) CurrentPhase() types.Phase {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cur.Phase
+}
+
 // Observe is the StateProcessor entry point. It updates internal state
 // based on the event. If the state actually changed, it stages a
 // pending snapshot that the next Process call will return.

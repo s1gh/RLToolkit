@@ -115,7 +115,7 @@ func runServe() {
 
 	// Wire-spec republishers: enrich raw RL events with resolved
 	// players and pre-decoded fields.
-	pipe.AddEmit(NewBallHitEmitter(roster, matchState, correlation))
+	pipe.AddEmit(emit.NewBallHit(roster, matchState, correlation))
 	pipe.AddEmit(emit.NewCrossbar(roster, tickStore))
 	pipe.AddEmit(goalEmit)
 	pipe.AddEmit(matchEnded)
