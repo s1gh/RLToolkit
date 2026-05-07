@@ -101,3 +101,128 @@ func TestManager_SkipsBadManifest(t *testing.T) {
 		t.Errorf("got %v, want only 'good'", got)
 	}
 }
+
+func TestManager_DevPluginShadowsInstalled(t *testing.T) {
+	installed := t.TempDir()
+	dev := t.TempDir()
+
+	// Installed: name=alpha, version=1.0.0
+	writeManifest(t, installed, "alpha", Manifest{
+		Name: "alpha", Title: "Alpha (installed)", Version: "1.0.0",
+		Overlay: OverlayConfig{File: "overlay.html", Width: 100, Height: 100, Anchor: "top-left"},
+	})
+
+	// Dev: same name, different version, different folder.
+	devPluginRoot := filepath.Join(dev, "alpha-dev")
+	if err := os.MkdirAll(devPluginRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	devManifest := Manifest{
+		Name: "alpha", Title: "Alpha (dev)", Version: "9.9.9",
+		Overlay: OverlayConfig{File: "overlay.html", Width: 100, Height: 100, Anchor: "top-left"},
+	}
+	body, _ := json.Marshal(devManifest)
+	if err := os.WriteFile(filepath.Join(devPluginRoot, "manifest.json"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := New(installed)
+	if err := pm.RegisterDev("alpha", devPluginRoot); err != nil {
+		t.Fatalf("RegisterDev: %v", err)
+	}
+
+	got := pm.List()
+	if len(got) != 1 {
+		t.Fatalf("got %d manifests, want 1; have %+v", len(got), got)
+	}
+	if got[0].Version != "9.9.9" {
+		t.Errorf("dev override not applied; got version %q, want 9.9.9", got[0].Version)
+	}
+	if got[0].Title != "Alpha (dev)" {
+		t.Errorf("dev override title not applied; got %q", got[0].Title)
+	}
+}
+
+func TestManager_DevPluginUnregisterRevealsInstalled(t *testing.T) {
+	installed := t.TempDir()
+	dev := t.TempDir()
+
+	writeManifest(t, installed, "alpha", Manifest{Name: "alpha", Title: "Alpha", Version: "1.0.0", Overlay: OverlayConfig{File: "overlay.html", Anchor: "top-left"}})
+
+	devRoot := filepath.Join(dev, "alpha")
+	if err := os.MkdirAll(devRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dm := Manifest{Name: "alpha", Title: "Dev", Version: "9.9.9", Overlay: OverlayConfig{File: "overlay.html", Anchor: "top-left"}}
+	body, _ := json.Marshal(dm)
+	if err := os.WriteFile(filepath.Join(devRoot, "manifest.json"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := New(installed)
+	if err := pm.RegisterDev("alpha", devRoot); err != nil {
+		t.Fatal(err)
+	}
+	pm.UnregisterDev("alpha")
+
+	got := pm.List()
+	if len(got) != 1 || got[0].Version != "1.0.0" {
+		t.Errorf("after UnregisterDev, want installed alpha v1.0.0; got %+v", got)
+	}
+}
+
+func TestManager_RegisterDevValidatesPath(t *testing.T) {
+	pm := New(t.TempDir())
+	if err := pm.RegisterDev("alpha", t.TempDir()); err == nil {
+		t.Error("RegisterDev should fail when path has no manifest.json")
+	}
+}
+
+func TestManager_DevPluginAppearsWhenNoInstalledCounterpart(t *testing.T) {
+	installed := t.TempDir() // empty
+	dev := t.TempDir()
+
+	devRoot := filepath.Join(dev, "ghost")
+	if err := os.MkdirAll(devRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dm := Manifest{Name: "ghost", Title: "Ghost", Version: "0.1.0", Overlay: OverlayConfig{File: "overlay.html", Anchor: "top-left"}}
+	body, _ := json.Marshal(dm)
+	if err := os.WriteFile(filepath.Join(devRoot, "manifest.json"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := New(installed)
+	if err := pm.RegisterDev("ghost", devRoot); err != nil {
+		t.Fatal(err)
+	}
+	got := pm.List()
+	if len(got) != 1 || got[0].Name != "ghost" {
+		t.Errorf("dev-only plugin not surfaced; got %+v", got)
+	}
+}
+
+func TestManager_DevPathReturnsAbsoluteRegisteredPath(t *testing.T) {
+	dev := t.TempDir()
+	devRoot := filepath.Join(dev, "alpha")
+	if err := os.MkdirAll(devRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dm := Manifest{Name: "alpha", Version: "0.1.0", Overlay: OverlayConfig{File: "overlay.html", Anchor: "top-left"}}
+	body, _ := json.Marshal(dm)
+	if err := os.WriteFile(filepath.Join(devRoot, "manifest.json"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := New(t.TempDir())
+	if got := pm.DevPath("alpha"); got != "" {
+		t.Errorf("DevPath before register = %q, want empty", got)
+	}
+	if err := pm.RegisterDev("alpha", devRoot); err != nil {
+		t.Fatal(err)
+	}
+	abs, _ := filepath.Abs(devRoot)
+	if got := pm.DevPath("alpha"); got != abs {
+		t.Errorf("DevPath after register = %q, want %q", got, abs)
+	}
+}

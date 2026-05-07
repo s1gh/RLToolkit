@@ -72,12 +72,26 @@ type OverlayConfig struct {
 }
 
 // Manager scans the plugin directory and serves manifest listings.
+//
+// Dev plugins are an in-memory registration of <name → absolute folder
+// path>. When List() runs, each registered dev plugin is parsed
+// (mtime-cached like installed plugins) and shadows any installed
+// plugin of the same name in the returned slice. This is how
+// `rl-toolkit dev` hot-loads a plugin without disturbing what's on
+// disk.
 type Manager struct {
 	dir string
 
 	mu     sync.Mutex
-	cache  map[string]*cachedManifest // key: plugin folder name
+	cache  map[string]*cachedManifest // key: plugin folder name (installed only)
 	loaded map[string]string          // name@version, for log-once tracking
+
+	// Dev plugins: name → absolute folder path.
+	dev map[string]string
+	// Mtime cache for dev manifests, keyed by absolute folder path so
+	// re-registering the same path under a different name doesn't lose
+	// the cache.
+	devCache map[string]*cachedManifest
 }
 
 type cachedManifest struct {
@@ -92,9 +106,11 @@ func New(dir string) *Manager {
 		log.Printf("[plugins] Cannot create plugin dir %q: %v", dir, err)
 	}
 	pm := &Manager{
-		dir:    dir,
-		cache:  make(map[string]*cachedManifest),
-		loaded: make(map[string]string),
+		dir:      dir,
+		cache:    make(map[string]*cachedManifest),
+		loaded:   make(map[string]string),
+		dev:      make(map[string]string),
+		devCache: make(map[string]*cachedManifest),
 	}
 	pm.List()
 	return pm
@@ -179,6 +195,57 @@ func (pm *Manager) List() []*Manifest {
 		}
 	}
 
+	// Dev-plugin overlay: parse each registered dev folder's manifest
+	// and shadow any installed plugin with the same name. We hold
+	// pm.mu (acquired above), so reading pm.dev directly is safe.
+	for name, path := range pm.dev {
+		manifestPath := filepath.Join(path, "manifest.json")
+		st, err := os.Stat(manifestPath)
+		if err != nil {
+			log.Printf("[plugins] Dev %s: cannot stat manifest at %s: %v", name, manifestPath, err)
+			continue
+		}
+		mtime := st.ModTime().UnixNano()
+		cached, ok := pm.devCache[path]
+		if !ok || cached.mtime != mtime {
+			data, err := os.ReadFile(manifestPath)
+			if err != nil {
+				continue
+			}
+			var m Manifest
+			if err := json.Unmarshal(data, &m); err != nil {
+				log.Printf("[plugins] Dev %s: bad manifest: %v", name, err)
+				continue
+			}
+			if m.Overlay.Opacity == 0 {
+				m.Overlay.Opacity = 1.0
+			}
+			cached = &cachedManifest{mtime: mtime, manifest: &m}
+			pm.devCache[path] = cached
+		}
+
+		// Replace if same name already in `out`, else append.
+		replaced := false
+		for i, existing := range out {
+			if existing != nil && existing.Name == cached.manifest.Name {
+				out[i] = cached.manifest
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = append(out, cached.manifest)
+		}
+		seen[cached.manifest.Name] = struct{}{}
+
+		key := "dev:" + cached.manifest.Name + "@" + cached.manifest.Version
+		if pm.loaded[cached.manifest.Name] != key {
+			logLines = append(logLines,
+				"[plugins] Dev loaded: "+cached.manifest.Title+" v"+cached.manifest.Version+" ("+cached.manifest.Name+") from "+path)
+			pm.loaded[cached.manifest.Name] = key
+		}
+	}
+
 	// Detect plugins removed since the last scan and forget their cache.
 	for name := range pm.loaded {
 		if _, still := seen[name]; !still {
@@ -196,4 +263,48 @@ func (pm *Manager) List() []*Manifest {
 		log.Println(line)
 	}
 	return out
+}
+
+// RegisterDev marks `path` as the active source for plugin `name`. The
+// path must contain a parseable manifest.json; if not, the call fails
+// and no registration is recorded. A subsequent List() call will
+// surface this plugin in place of any installed plugin with the same
+// name. Re-registering the same name replaces the previous path.
+func (pm *Manager) RegisterDev(name, path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	manifestPath := filepath.Join(abs, "manifest.json")
+	if _, err := os.Stat(manifestPath); err != nil {
+		return err
+	}
+
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.dev[name] = abs
+	delete(pm.devCache, abs) // force re-parse on next List()
+	return nil
+}
+
+// UnregisterDev removes the dev registration for `name`. Subsequent
+// List() calls will revert to whatever installed plugin (if any) sits
+// at <pluginsDir>/<name>/.
+func (pm *Manager) UnregisterDev(name string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if path, ok := pm.dev[name]; ok {
+		delete(pm.devCache, path)
+		delete(pm.dev, name)
+	}
+}
+
+// DevPath returns the absolute folder path for a dev-registered plugin
+// name, or "" if no dev registration exists. Used by the file-server
+// middleware so requests for /plugins/<name>/foo.js read from the dev
+// folder when one is registered.
+func (pm *Manager) DevPath(name string) string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.dev[name]
 }
