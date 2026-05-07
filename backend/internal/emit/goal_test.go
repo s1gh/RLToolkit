@@ -89,11 +89,14 @@ func TestGoal_OwnGoalSkipsRealGoalBump(t *testing.T) {
 	}
 }
 
-func TestGoal_SoloOwnGoal(t *testing.T) {
-	// Solo / no-opponents private match: RL credits the deflector
-	// themselves as Scorer. lastToucher.Team == scorer.Team. The
-	// emitter should still flag it and flip the scoring/conceding
-	// teams to match the actual score change.
+func TestGoal_SameTeamLastTouchNotFlagged(t *testing.T) {
+	// Scorer == last toucher on the same team is the shape of a
+	// normal goal (you took your own shot). It's also the shape of a
+	// solo own goal in a no-opponent private match, but the two are
+	// indistinguishable from team/ID alone — flagging would false-
+	// positive every regular goal. _GoalScored.isOwnGoal stays false
+	// here; the verified _OwnGoal event handles solo own goals via
+	// score-delta.
 	roster := goalRoster(t, &types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0})
 	corr := correlation.New(8)
 	corr.Record("BallHit", &types.BallHitRecord{
@@ -114,17 +117,17 @@ func TestGoal_SoloOwnGoal(t *testing.T) {
 	if err := json.Unmarshal(out[0].Data, &payload); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if !payload.IsOwnGoal {
-		t.Fatalf("solo own goal should flag isOwnGoal=true")
+	if payload.IsOwnGoal {
+		t.Fatalf("scorer == lastToucher on same team must not flag isOwnGoal (false-positives every normal goal)")
 	}
-	if payload.ScoringTeam == nil || *payload.ScoringTeam != 1 {
-		t.Errorf("scoringTeam should flip to 1 (the team that gained the score), got %v", payload.ScoringTeam)
+	if payload.ScoringTeam == nil || *payload.ScoringTeam != 0 {
+		t.Errorf("scoringTeam should match scorer.Team=0, got %v", payload.ScoringTeam)
 	}
-	if payload.ConcedingTeam == nil || *payload.ConcedingTeam != 0 {
-		t.Errorf("concedingTeam should be 0 (the deflector's team), got %v", payload.ConcedingTeam)
+	if payload.ConcedingTeam == nil || *payload.ConcedingTeam != 1 {
+		t.Errorf("concedingTeam should be 1, got %v", payload.ConcedingTeam)
 	}
-	if gc.RealGoals("Steam|1|0") != 0 {
-		t.Errorf("solo own goal should not bump real-goal counter, got %d", gc.RealGoals("Steam|1|0"))
+	if gc.RealGoals("Steam|1|0") != 1 {
+		t.Errorf("clean goal should bump real-goal counter, got %d", gc.RealGoals("Steam|1|0"))
 	}
 }
 
