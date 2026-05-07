@@ -23,6 +23,7 @@ import (
 	"rl-toolkit/backend/internal/source"
 	"rl-toolkit/backend/internal/state"
 	"rl-toolkit/backend/internal/types"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -109,9 +110,8 @@ func (s *Server) Routes() http.Handler {
 	//     development. "no-cache" means "always revalidate", not
 	//     "don't cache" — unchanged files still come back cheaply as
 	//     a 304.
-	pluginFS := http.FileServer(http.Dir(s.deps.PluginDir))
 	mux.Handle("/plugins/", http.StripPrefix("/plugins/",
-		s.requireManifest(noCache(pluginFS))))
+		s.requireManifest(noCache(http.HandlerFunc(s.servePluginAsset)))))
 	mux.HandleFunc("/", s.handleDashboard)
 
 	return cors(mux)
@@ -144,6 +144,57 @@ func (s *Server) requireManifest(inner http.Handler) http.Handler {
 		}
 		inner.ServeHTTP(w, r)
 	})
+}
+
+// servePluginAsset serves /plugins/<name>/<rest> from the dev folder
+// if a dev plugin named <name> is registered, otherwise from the
+// installed plugins directory. The leading /plugins/ has already been
+// stripped by the time this handler runs, so r.URL.Path looks like
+// "<name>" or "<name>/<rest>".
+//
+// We can't use http.FileServer here because the directory root is
+// per-request: a dev plugin's assets live in an arbitrary folder on
+// the developer's machine, while installed plugins live under
+// s.deps.PluginDir.
+func (s *Server) servePluginAsset(w http.ResponseWriter, r *http.Request) {
+	rel := strings.TrimPrefix(r.URL.Path, "/")
+	name, rest, _ := strings.Cut(rel, "/")
+	if name == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	root := s.deps.PluginDir
+	if devPath := s.deps.Plugins.DevPath(name); devPath != "" {
+		// Dev plugin registered: serve from the dev folder. The folder
+		// already contains manifest.json + assets at its root, so we
+		// only need the part after <name>/.
+		s.serveFromRoot(w, r, devPath, rest)
+		return
+	}
+	s.serveFromRoot(w, r, filepath.Join(root, name), rest)
+}
+
+// serveFromRoot serves `rest` from `root`, refusing path traversal and
+// directory listings. Empty `rest` is treated as a 404 — plugin asset
+// requests are always for a specific file, never a directory listing.
+func (s *Server) serveFromRoot(w http.ResponseWriter, r *http.Request, root, rest string) {
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
+	cleaned := filepath.Clean(rest)
+	if cleaned == "." || strings.HasPrefix(cleaned, "..") || strings.Contains(cleaned, ".."+string(filepath.Separator)) {
+		http.NotFound(w, r)
+		return
+	}
+	abs := filepath.Join(root, cleaned)
+	relCheck, err := filepath.Rel(root, abs)
+	if err != nil || strings.HasPrefix(relCheck, "..") {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, abs)
 }
 
 // cors permits any origin: the server is meant to be reached from

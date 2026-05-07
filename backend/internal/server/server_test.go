@@ -3,10 +3,14 @@ package server
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"rl-toolkit/backend/internal/bootid"
 	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/plugins"
 	"rl-toolkit/backend/internal/source"
 	"strings"
 	"testing"
@@ -72,5 +76,108 @@ func TestHandleBootIDReturnsJSON(t *testing.T) {
 	want := `{"bootId":"` + bootid.Get() + `"}`
 	if got := rec.Body.String(); got != want {
 		t.Fatalf("body = %q; want %q", got, want)
+	}
+}
+
+func writePlugin(t *testing.T, root, name, body string) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]any{
+		"name":    name,
+		"version": "0.1.0",
+		"overlay": map[string]any{"file": "overlay.html", "anchor": "top-left"},
+	}
+	mb, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), mb, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "overlay.html"), []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServePluginAsset_ServesInstalled(t *testing.T) {
+	pluginsDir := t.TempDir()
+	writePlugin(t, pluginsDir, "alpha", "<html>installed</html>")
+
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	req := httptest.NewRequest("GET", "/plugins/alpha/overlay.html", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "<html>installed</html>" {
+		t.Errorf("body = %q, want installed asset", got)
+	}
+}
+
+func TestServePluginAsset_DevOverridesInstalled(t *testing.T) {
+	pluginsDir := t.TempDir()
+	writePlugin(t, pluginsDir, "alpha", "<html>installed</html>")
+
+	devRoot := t.TempDir()
+	writePlugin(t, devRoot, "alpha", "<html>dev</html>")
+
+	pm := plugins.New(pluginsDir)
+	if err := pm.RegisterDev("alpha", filepath.Join(devRoot, "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	req := httptest.NewRequest("GET", "/plugins/alpha/overlay.html", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "<html>dev</html>" {
+		t.Errorf("body = %q, want dev asset", got)
+	}
+}
+
+func TestServePluginAsset_RejectsTraversal(t *testing.T) {
+	pluginsDir := t.TempDir()
+	writePlugin(t, pluginsDir, "alpha", "<html>installed</html>")
+	// Drop a sensitive file outside the plugin dir to ensure we don't reach it.
+	secretPath := filepath.Join(pluginsDir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("nope"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	req := httptest.NewRequest("GET", "/plugins/alpha/../secret.txt", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	// net/http.ServeMux calls cleanPath, which collapses
+	// /plugins/alpha/../secret.txt → /plugins/secret.txt and issues a
+	// 301 redirect. Either a redirect or a 404 is acceptable — both mean
+	// the raw secret.txt bytes were never returned.
+	if rec.Code == http.StatusOK {
+		t.Errorf("traversal succeeded; status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServePluginAsset_NotFoundForUnknownPlugin(t *testing.T) {
+	pluginsDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	req := httptest.NewRequest("GET", "/plugins/ghost/overlay.html", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }
