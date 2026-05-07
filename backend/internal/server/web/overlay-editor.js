@@ -152,6 +152,7 @@
     canvas.style.left = offX + 'px';
     canvas.style.top = offY + 'px';
     updateTopbarLabel();
+    flagOffCanvasWidgets();
   }
 
   function updateTopbarLabel() {
@@ -159,6 +160,30 @@
     const H = surface.effective.height;
     const pct = Math.round(canvasScale * 100);
     topbarTarget.textContent = 'Target: ' + W + ' × ' + H + ' @ ' + pct + '%';
+  }
+
+  // Highlight widgets whose current offset+size puts them outside the
+  // canvas. Common after the user shrinks the target — silent auto-move
+  // would be worse than the visible warning. The clamp on drag still
+  // applies, so any user-initiated move pulls the widget back into bounds.
+  function flagOffCanvasWidgets() {
+    const W = surface.effective.width;
+    const H = surface.effective.height;
+    for (const w of widgets) {
+      const ox = w.overlay.offset_x | 0;
+      const oy = w.overlay.offset_y | 0;
+      const wW = w.overlay.width | 0;
+      const wH = w.overlay.height | 0;
+      const off = ox < 0 || oy < 0 || ox + wW > W || oy + wH > H;
+      // Use a different outline color for off-canvas widgets, persisting
+      // across the selected/unselected outline updates by checking here
+      // whenever we re-layout.
+      if (off) {
+        w.el.style.outline = '2px dashed #f97316'; // orange
+      } else if (w !== selected) {
+        w.el.style.outline = '1px solid rgba(34, 211, 238, 0.4)';
+      }
+    }
   }
 
   // Per-widget state. `el` is the wrapper div that owns positioning;
@@ -290,6 +315,7 @@
       selected.el.style.outline = '2px solid rgba(34, 211, 238, 1)';
       selected.resize.style.display = 'block';
     }
+    flagOffCanvasWidgets();
     renderPanel();
   }
 
