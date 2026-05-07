@@ -5,7 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"rl-toolkit/internal/bus"
+	"rl-toolkit/backend/internal/bus"
 	"strings"
 	"testing"
 	"time"

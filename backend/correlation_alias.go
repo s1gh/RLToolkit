@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/correlation"
+import "rl-toolkit/backend/internal/correlation"
 
 // CorrelationBuffer is a thin alias over the extracted ring buffer in
 // internal/correlation. Kept under the original name so downstream

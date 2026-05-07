@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/datastore"
+import "rl-toolkit/backend/internal/datastore"
 
 // DataStore is an alias over internal/datastore.Store. NewDataStore
 // preserves the original constructor name so main.go's wiring stays

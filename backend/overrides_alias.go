@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/overrides"
+import "rl-toolkit/backend/internal/overrides"
 
 // OverridesStore + OverlayOverride are aliased over internal/overrides
 // so existing main/server call-sites and JSON struct types stay

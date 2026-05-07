@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/state"
+import "rl-toolkit/backend/internal/state"
 
 // MatchState + MatchStateSnapshot alias internal/state so emit, server,
 // and main keep working unchanged. NewMatchState preserves the original

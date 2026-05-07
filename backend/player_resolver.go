@@ -1,7 +1,7 @@
 package backend
 
 import (
-	"rl-toolkit/internal/types"
+	"rl-toolkit/backend/internal/types"
 )
 
 // ShortcutRef and EnrichedPlayer alias internal/types so existing

@@ -2,7 +2,7 @@ package backend
 
 import (
 	"encoding/json"
-	"rl-toolkit/internal/bus"
+	"rl-toolkit/backend/internal/bus"
 	"testing"
 )
 

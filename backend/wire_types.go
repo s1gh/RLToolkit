@@ -1,8 +1,8 @@
 package backend
 
 import (
-	"rl-toolkit/internal/types"
-	"rl-toolkit/internal/wire"
+	"rl-toolkit/backend/internal/types"
+	"rl-toolkit/backend/internal/wire"
 )
 
 // Aliases over internal/types for the wire shapes shared with the

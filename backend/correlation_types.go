@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/types"
+import "rl-toolkit/backend/internal/types"
 
 // Correlation-buffer record types now live in internal/types so emit
 // subpackages can read/write them without depending on backend.

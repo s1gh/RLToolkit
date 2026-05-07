@@ -1,8 +1,8 @@
 package backend
 
 import (
-	"rl-toolkit/internal/tick"
-	"rl-toolkit/internal/types"
+	"rl-toolkit/backend/internal/tick"
+	"rl-toolkit/backend/internal/types"
 )
 
 // TickStore aliases internal/tick.Store. NewTickStore preserves the

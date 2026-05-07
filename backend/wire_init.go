@@ -1,7 +1,7 @@
 package backend
 
 import (
-	"rl-toolkit/internal/wire"
+	"rl-toolkit/backend/internal/wire"
 	"strings"
 )
 

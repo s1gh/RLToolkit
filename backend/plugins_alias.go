@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/plugins"
+import "rl-toolkit/backend/internal/plugins"
 
 // PluginManager + companion types are aliased over internal/plugins so
 // existing main.go (NewPluginManager) and server.go (s.plugins type)

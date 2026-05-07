@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/identity"
+import "rl-toolkit/backend/internal/identity"
 
 // IdentityStore + Identity alias internal/identity so server, main,
 // roster_tracker, and player_resolver keep their existing references.

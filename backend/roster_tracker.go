@@ -1,9 +1,9 @@
 package backend
 
 import (
-	"rl-toolkit/internal/bus"
-	"rl-toolkit/internal/identity"
-	"rl-toolkit/internal/roster"
+	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/identity"
+	"rl-toolkit/backend/internal/roster"
 )
 
 // RosterTracker is the backend-package alias for roster.Tracker. The

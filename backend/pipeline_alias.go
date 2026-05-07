@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/pipeline"
+import "rl-toolkit/backend/internal/pipeline"
 
 // Pipeline is an alias over the extracted pipeline orchestrator. The
 // processor interfaces are satisfied structurally — no need to alias

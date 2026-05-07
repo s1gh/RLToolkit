@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
-	"rl-toolkit/internal/bus"
-	"rl-toolkit/internal/wire"
+	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/wire"
 	"testing"
 	"time"
 )

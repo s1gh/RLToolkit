@@ -1,6 +1,6 @@
 package backend
 
-import "rl-toolkit/internal/types"
+import "rl-toolkit/backend/internal/types"
 
 // Phase + the eight phase constants alias internal/types so emit,
 // catalog, server, and main keep their existing PhaseLive/PhaseLobby

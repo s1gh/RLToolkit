@@ -46,14 +46,14 @@ all: release
 ifeq ($(HOST_OS),windows)
 backend:
 	@$(call MKDIR,$(OUT_DIR))
-	set "CGO_ENABLED=0" && set "GOOS=$(GOOS_VAL)" && set "GOARCH=amd64" && go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o $(OUT_DIR)/$(BINARY)$(EXE) ./cmd/rl-toolkit
+	set "CGO_ENABLED=0" && set "GOOS=$(GOOS_VAL)" && set "GOARCH=amd64" && go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" -o $(OUT_DIR)/$(BINARY)$(EXE) ./backend/cmd/rl-toolkit
 	@echo -- $(OUT_DIR)/$(BINARY)$(EXE)
 else
 backend:
 	@$(call MKDIR,$(OUT_DIR))
 	CGO_ENABLED=0 GOOS=$(GOOS_VAL) GOARCH=amd64 \
 		go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
-		-o $(OUT_DIR)/$(BINARY)$(EXE) ./cmd/rl-toolkit
+		-o $(OUT_DIR)/$(BINARY)$(EXE) ./backend/cmd/rl-toolkit
 	@echo "→ $(OUT_DIR)/$(BINARY)$(EXE)"
 endif
 
@@ -90,7 +90,7 @@ launcher:
 	@for /f "tokens=2" %%i in ('rustc -vV ^| findstr /B "host:"') do @( \
 	  echo host triple: %%i && \
 	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
-	    -o $(TAURI_DIR)/binaries/rl-toolkit-%%i.exe ./cmd/rl-toolkit && \
+	    -o $(TAURI_DIR)/binaries/rl-toolkit-%%i.exe ./backend/cmd/rl-toolkit && \
 	  cd $(subst /,\,$(TAURI_DIR)) && \
 	  cargo tauri build --no-bundle --config tauri.launcher.json \
 	)
@@ -106,7 +106,7 @@ launcher:
 	@triple=$$(rustc -vV | sed -n 's/host: //p'); \
 	  echo "host triple: $$triple"; \
 	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
-	    -o $(TAURI_DIR)/binaries/rl-toolkit-$$triple ./cmd/rl-toolkit && \
+	    -o $(TAURI_DIR)/binaries/rl-toolkit-$$triple ./backend/cmd/rl-toolkit && \
 	  cd $(TAURI_DIR) && \
 	  cargo tauri build --no-bundle --config tauri.launcher.json
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(LAUNCHER)$(EXE))
