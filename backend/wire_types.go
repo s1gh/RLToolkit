@@ -25,26 +25,8 @@ var pickStr = wire.PickStr
 var pickFloat = wire.PickFloat
 var teamScore = types.TeamScore
 
-// statfeedEnvelope mirrors the StatfeedEvent envelope shape. RL
-// ships either PascalCase or all-lowercase keys depending on build.
-// Stays in backend until StatfeedEmitter migrates.
-type statfeedEnvelope struct {
-	Data    string `json:"Data"`
-	DataLow string `json:"data"`
-}
-
-type statfeedData struct {
-	MatchGUID       string       `json:"MatchGuid"`
-	MatchGUIDLow    string       `json:"matchguid"`
-	EventName       string       `json:"EventName"`
-	EventNameLow    string       `json:"eventname"`
-	Type            string       `json:"Type"`
-	TypeLow         string       `json:"type"`
-	MainTarget      *ShortcutRef `json:"MainTarget"`
-	MainTargetLow   *ShortcutRef `json:"maintarget"`
-	SecondaryTarget *ShortcutRef `json:"SecondaryTarget"`
-	SecondTargetLow *ShortcutRef `json:"secondarytarget"`
-}
+type statfeedEnvelope = types.StatfeedEnvelope
+type statfeedData = types.StatfeedData
 
 // ballRef is the ball location/speed block found on BallHit and
 // CrossbarHit. Kept here only for any in-backend code referencing it

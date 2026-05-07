@@ -71,6 +71,24 @@ type FlipResetClearer interface {
 	ClearFlipResetArm(playerID string)
 }
 
+// RealGoalsLookup is the slim view Statfeed needs from OwnGoal: how
+// many honest (non-own-goal) goals the player has scored this match.
+// Used to suppress _HatTrick when RL counted own goals toward the
+// threshold.
+type RealGoalsLookup interface {
+	RealGoals(playerID string) int
+}
+
+// DiscoveryRecorder is the slim view Statfeed needs from the
+// statfeed-discoveries store: stash a newly-seen EventName so
+// authors can confirm it before adding to the verified registry.
+// The bool return reports whether the observation was the first
+// time this name was seen; emit doesn't use it but the production
+// store reports it for log throttling.
+type DiscoveryRecorder interface {
+	Record(name string) bool
+}
+
 // liveGameplayPhases gates BallHit / OwnGoal / Statfeed emitters that
 // must not fire during goal replays or post-match screens.
 func liveGameplayPhases(g PhaseGate) bool {

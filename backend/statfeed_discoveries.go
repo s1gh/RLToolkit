@@ -4,64 +4,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"rl-toolkit/internal/types"
 	"sort"
 	"sync"
 	"time"
 )
 
-// verifiedStatfeedNames is the registry of StatfeedEvent.EventName
-// values the toolkit knows about. Anything NOT in this set is treated
-// as "discovered" — the synthesizer publishes _UnknownStatfeed and
-// (optionally) the discovery store records first/last-seen + count.
-//
-// This is broader than the SDK's `RLT.stats` object (which exposes
-// only the 10 most-used names as ergonomic constants for plugin
-// authors). The two don't have to match: the SDK set is plugin-facing
-// API surface, this set is the "we already know about this name"
-// filter for the discovery channel.
-var verifiedStatfeedNames = map[string]struct{}{
-	// Promoted variants — each has its own _-prefixed synthetic event
-	// alongside the catch-all _StatfeedEvent. The list below mirrors
-	// the case branches in emitStatfeedVariant (synthesizer.go).
-	"Shot":       {},
-	"HatTrick":   {},
-	"Save":       {},
-	"EpicSave":   {},
-	"Demolish":   {},
-	"FlipReset":  {},
-	"Assist":     {},
-	"Center":     {},
-	"Clear":      {},
-	"BicycleHit": {},
-	// Goal modifiers — collected onto _GoalScored.modifiers (see
-	// modifierStatfeedNames in synthesizer.go) but the catch-all
-	// _StatfeedEvent also ships them, so they belong here. The list
-	// mirrors modifierStatfeedNames exactly.
-	"AerialGoal":     {},
-	"BackwardsGoal":  {},
-	"BicycleGoal":    {},
-	"LongGoal":       {},
-	"TurtleGoal":     {},
-	"OvertimeGoal":   {},
-	"PoolShot":       {},
-	"HoopsSwishGoal": {},
-	// Stat events without a dedicated synthetic envelope. Catch-all
-	// _StatfeedEvent still fires; we list them here so RL emitting
-	// them doesn't trip _UnknownStatfeed. The first seven match the
-	// "intentionally untracked" set called out in emitStatfeedVariant's
-	// comment; the rest are observed in-game and have no synthetic
-	// equivalent yet.
-	"Goal":       {},
-	"Win":        {},
-	"MVP":        {},
-	"Playmaker":  {},
-	"Savior":     {},
-	"LowFive":    {},
-	"HighFive":   {},
-	"FirstTouch": {},
-	"Demolition": {},
-	"OwnGoal":    {},
-}
+// verifiedStatfeedNames now lives in internal/types so emit and
+// assets can both reference it without depending on this file.
+var verifiedStatfeedNames = types.VerifiedStatfeedNames
 
 // StatfeedDiscovery is one entry in the persisted discoveries map. It
 // tracks how often an unknown name has been seen and when. Plugin

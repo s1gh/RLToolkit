@@ -144,3 +144,25 @@ type OwnGoalScoreAfter struct {
 	Blue   int `json:"blue"`
 	Orange int `json:"orange"`
 }
+
+// StatfeedEnvelope mirrors the StatfeedEvent envelope shape. RL ships
+// either PascalCase or all-lowercase keys depending on build, hence
+// each field appearing twice.
+type StatfeedEnvelope struct {
+	Data    string `json:"Data"`
+	DataLow string `json:"data"`
+}
+
+// StatfeedData is the inner payload shape of StatfeedEvent.
+type StatfeedData struct {
+	MatchGUID       string       `json:"MatchGuid"`
+	MatchGUIDLow    string       `json:"matchguid"`
+	EventName       string       `json:"EventName"`
+	EventNameLow    string       `json:"eventname"`
+	Type            string       `json:"Type"`
+	TypeLow         string       `json:"type"`
+	MainTarget      *ShortcutRef `json:"MainTarget"`
+	MainTargetLow   *ShortcutRef `json:"maintarget"`
+	SecondaryTarget *ShortcutRef `json:"SecondaryTarget"`
+	SecondTargetLow *ShortcutRef `json:"secondarytarget"`
+}

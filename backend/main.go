@@ -90,7 +90,7 @@ func runServe() {
 	tickStore := NewTickStore()
 	discoveries := NewStatfeedDiscoveryStore(cfg.DataDir)
 	ownGoal := emit.NewOwnGoal(matchState, tickStore, correlation)
-	statfeed := NewStatfeedEmitter(roster, correlation, discoveries, ownGoal)
+	statfeed := emit.NewStatfeed(roster, correlation, discoveries, ownGoal)
 	demos := emit.NewDemos(tickStore)
 	goalEmit := NewGoalEmitter(roster, correlation, tickStore, statfeed, ownGoal)
 	tickDiff := emit.NewTickDiff(matchState, tickStore, correlation, statfeed)
