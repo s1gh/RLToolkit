@@ -579,7 +579,7 @@ func (s *Server) handleOverridePut(w http.ResponseWriter, r *http.Request, plugi
 	// this point is either a corrupt-on-disk merged value or a persist
 	// failure — both deserve 500 + a generic message via httpError so
 	// filesystem paths and disk errors don't leak to the client.
-	if err := partial.validate(); err != nil {
+	if err := partial.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

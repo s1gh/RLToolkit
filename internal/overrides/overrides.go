@@ -1,4 +1,8 @@
-package backend
+// Package overrides owns data/overlay-overrides.json — the per-user
+// override layer for plugin manifest overlay blocks. Loaded at
+// startup, held in memory, persisted via atomic temp+rename on every
+// merge or delete.
+package overrides
 
 import (
 	"encoding/json"
@@ -9,13 +13,13 @@ import (
 	"sync"
 )
 
-// OverlayOverride is the per-user override of a plugin manifest's overlay
-// block. Every field is optional — a partial override layers cleanly over
-// the manifest defaults via shallow merge on the JS side. Pointers let us
-// distinguish "field not set in override" (nil; manifest wins) from "field
-// set to its zero value" (e.g., explicit OffsetX=0 still wins over a
-// non-zero manifest default).
-type OverlayOverride struct {
+// Override is the per-user override of a plugin manifest's overlay
+// block. Every field is optional — a partial override layers cleanly
+// over the manifest defaults via shallow merge on the JS side. Pointers
+// let us distinguish "field not set in override" (nil; manifest wins)
+// from "field set to its zero value" (e.g., explicit OffsetX=0 still
+// wins over a non-zero manifest default).
+type Override struct {
 	Anchor  *string  `json:"anchor,omitempty"`
 	OffsetX *int     `json:"offset_x,omitempty"`
 	OffsetY *int     `json:"offset_y,omitempty"`
@@ -45,10 +49,10 @@ var validAnchors = map[string]struct{}{
 // unrecoverable from the editor UI.
 const maxOverlayPixel = 8192
 
-// validate returns an error if any present field carries a disallowed
+// Validate returns an error if any present field carries a disallowed
 // value. Absent fields (nil pointers) are always allowed — they mean
 // "fall back to the manifest."
-func (o *OverlayOverride) validate() error {
+func (o *Override) Validate() error {
 	if o.Anchor != nil {
 		if _, ok := validAnchors[*o.Anchor]; !ok {
 			return fmt.Errorf("anchor %q must be top-left, top-right, bottom-left, or bottom-right", *o.Anchor)
@@ -75,7 +79,7 @@ func (o *OverlayOverride) validate() error {
 // merge layers `partial` on top of `o`, leaving `o`'s fields intact when
 // the partial omits them. Returns a new value rather than mutating in
 // place so callers can't accidentally hold a half-updated reference.
-func (o OverlayOverride) merge(partial OverlayOverride) OverlayOverride {
+func (o Override) merge(partial Override) Override {
 	if partial.Anchor != nil {
 		o.Anchor = partial.Anchor
 	}
@@ -100,16 +104,16 @@ func (o OverlayOverride) merge(partial OverlayOverride) OverlayOverride {
 	return o
 }
 
-// OverridesStore owns data/overlay-overrides.json. The file is loaded once
-// at startup and held in memory; writes go through a single mutex and
+// Store owns data/overlay-overrides.json. The file is loaded once at
+// startup and held in memory; writes go through a single mutex and
 // flush the whole map back to disk. The file is small (one entry per
-// plugin) so a full rewrite per change is fine — no need for an append
-// log or per-key fsync.
-type OverridesStore struct {
+// plugin) so a full rewrite per change is fine — no need for an
+// append log or per-key fsync.
+type Store struct {
 	path string
 
 	mu   sync.RWMutex
-	data map[string]OverlayOverride
+	data map[string]Override
 
 	// Notify, if set, is called on the goroutine performing the write
 	// after every successful persist (MergeOne and Delete). Wired by
@@ -119,18 +123,17 @@ type OverridesStore struct {
 	Notify func()
 }
 
-// NewOverridesStore loads the existing file (or starts with an empty map
-// when the file doesn't exist). On parse failure the corrupt file is
-// quarantined to <path>.broken and the store starts empty — the server
-// always starts, the user's broken file is preserved for investigation,
-// and the editor's first save creates a fresh valid file. Mirrors the
-// spec's "production overlay falls back to manifests on corruption"
-// guarantee.
-func NewOverridesStore(dir string) (*OverridesStore, error) {
+// New loads the existing file (or starts with an empty map when the
+// file doesn't exist). On parse failure the corrupt file is
+// quarantined to <path>.broken and the store starts empty — the
+// server always starts, the user's broken file is preserved for
+// investigation, and the editor's first save creates a fresh valid
+// file.
+func New(dir string) (*Store, error) {
 	path := filepath.Join(dir, "overlay-overrides.json")
-	s := &OverridesStore{
+	s := &Store{
 		path: path,
-		data: map[string]OverlayOverride{},
+		data: map[string]Override{},
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -149,17 +152,17 @@ func NewOverridesStore(dir string) (*OverridesStore, error) {
 		} else {
 			log.Printf("[overrides] %s is corrupt (%v); moved to %s — starting empty", path, err, broken)
 		}
-		s.data = map[string]OverlayOverride{}
+		s.data = map[string]Override{}
 	}
 	return s, nil
 }
 
 // GetAll returns a shallow copy of the overrides map so callers can
 // iterate without holding the lock or worrying about concurrent mutation.
-func (s *OverridesStore) GetAll() map[string]OverlayOverride {
+func (s *Store) GetAll() map[string]Override {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make(map[string]OverlayOverride, len(s.data))
+	out := make(map[string]Override, len(s.data))
 	for k, v := range s.data {
 		out[k] = v
 	}
@@ -170,9 +173,9 @@ func (s *OverridesStore) GetAll() map[string]OverlayOverride {
 // `plugin` (or onto a zero value if absent), persists, and returns the
 // merged result. Returns the validation error directly so HTTP handlers
 // can map it to 400.
-func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (OverlayOverride, error) {
-	if err := partial.validate(); err != nil {
-		return OverlayOverride{}, err
+func (s *Store) MergeOne(plugin string, partial Override) (Override, error) {
+	if err := partial.Validate(); err != nil {
+		return Override{}, err
 	}
 	s.mu.Lock()
 	prev, hadPrev := s.data[plugin]
@@ -181,9 +184,9 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 	// landed an out-of-range value in s.data that the partial doesn't
 	// touch, and we don't want a "successful" PUT to confirm a value
 	// the editor never set.
-	if err := merged.validate(); err != nil {
+	if err := merged.Validate(); err != nil {
 		s.mu.Unlock()
-		return OverlayOverride{}, err
+		return Override{}, err
 	}
 	s.data[plugin] = merged
 	if err := s.persistLocked(); err != nil {
@@ -195,7 +198,7 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 			delete(s.data, plugin)
 		}
 		s.mu.Unlock()
-		return OverlayOverride{}, err
+		return Override{}, err
 	}
 	notify := s.Notify
 	s.mu.Unlock()
@@ -205,7 +208,7 @@ func (s *OverridesStore) MergeOne(plugin string, partial OverlayOverride) (Overl
 
 // Delete removes the entry for `plugin`. Idempotent: deleting a missing
 // entry is not an error.
-func (s *OverridesStore) Delete(plugin string) error {
+func (s *Store) Delete(plugin string) error {
 	s.mu.Lock()
 	prev, ok := s.data[plugin]
 	if !ok {
@@ -229,7 +232,7 @@ func (s *OverridesStore) Delete(plugin string) error {
 // buggy subscriber can't tear down the HTTP handler that triggered the
 // write — at that point the persist has already committed to disk and
 // the client deserves a clean response, not a torn connection.
-func (s *OverridesStore) fireNotify(notify func()) {
+func (s *Store) fireNotify(notify func()) {
 	if notify == nil {
 		return
 	}
@@ -245,7 +248,7 @@ func (s *OverridesStore) fireNotify(notify func()) {
 // Writes to a temp file and renames to make the swap atomic — a crash
 // mid-write leaves the prior file intact rather than producing a
 // truncated half-file.
-func (s *OverridesStore) persistLocked() error {
+func (s *Store) persistLocked() error {
 	raw, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal overrides: %w", err)
