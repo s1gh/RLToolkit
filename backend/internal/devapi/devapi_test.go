@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"rl-toolkit/backend/internal/paths"
 )
 
 // stubPlugins implements the Plugins interface used by devapi.
@@ -220,15 +222,21 @@ func TestDevAPI_HonorsDiscoveryEnvOverride(t *testing.T) {
 	}
 }
 
-func TestDevAPI_DefaultDiscoveryDirUnderUserConfig(t *testing.T) {
+func TestDevAPI_DefaultDiscoveryDirIsAppDir(t *testing.T) {
 	t.Setenv("RLT_DEV_DISCOVERY_DIR", "")
 	got, err := DiscoveryDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, _ := os.UserConfigDir()
-	want := filepath.Join(base, "rl-toolkit")
+	want, err := paths.AppDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != want {
 		t.Errorf("DiscoveryDir() default = %q, want %q", got, want)
 	}
+	// Silence the unused-import warning if filepath/os ever get
+	// removed from the rest of this file.
+	_ = filepath.Separator
+	_ = os.PathSeparator
 }

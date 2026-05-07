@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"rl-toolkit/backend/internal/paths"
 )
 
 // Plugins is the subset of the plugin manager that devapi calls into.
@@ -43,12 +45,13 @@ type Server struct {
 	stopOnce sync.Once
 }
 
-// DiscoveryDir returns the directory where dev.port lives. The
-// location is platform-canonical (os.UserConfigDir + "/rl-toolkit"):
+// DiscoveryDir returns the directory where dev.port lives — the same
+// per-OS RLToolkit application directory the launcher and bundled
+// backend use for everything else (see backend/internal/paths):
 //
-//	Linux:   $XDG_CONFIG_HOME/rl-toolkit  (or ~/.config/rl-toolkit)
-//	macOS:   ~/Library/Application Support/rl-toolkit
-//	Windows: %APPDATA%\rl-toolkit
+//	Linux:   $XDG_DATA_HOME/RLToolkit  (or ~/.local/share/RLToolkit)
+//	macOS:   ~/Library/Application Support/RLToolkit
+//	Windows: %LOCALAPPDATA%\RLToolkit
 //
 // Set RLT_DEV_DISCOVERY_DIR to override (used by tests and by advanced
 // users running multiple instances on the same machine).
@@ -56,11 +59,11 @@ func DiscoveryDir() (string, error) {
 	if env := os.Getenv("RLT_DEV_DISCOVERY_DIR"); env != "" {
 		return env, nil
 	}
-	base, err := os.UserConfigDir()
+	dir, err := paths.AppDir()
 	if err != nil {
-		return "", fmt.Errorf("user config dir: %w", err)
+		return "", fmt.Errorf("app dir: %w", err)
 	}
-	return filepath.Join(base, "rl-toolkit"), nil
+	return dir, nil
 }
 
 // Start binds a listener on 127.0.0.1:0 and serves the dev API. Blocks

@@ -4,14 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"rl-toolkit/backend/internal/install"
 )
 
 func runInstall(args []string) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	pluginDir := fs.String("plugins", filepath.Join(exeDirOrDot(), "plugins"), "Plugin directory")
+	pluginDir := fs.String("plugins", defaultPluginDir(), "Plugin directory")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: rl-toolkit install <file.rltp> [-plugins <dir>]\n\n")
 		fs.PrintDefaults()
@@ -37,7 +36,7 @@ func runInstall(args []string) int {
 
 func runUninstall(args []string) int {
 	fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
-	pluginDir := fs.String("plugins", filepath.Join(exeDirOrDot(), "plugins"), "Plugin directory")
+	pluginDir := fs.String("plugins", defaultPluginDir(), "Plugin directory")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: rl-toolkit uninstall <name> [-plugins <dir>]\n\n")
 		fs.PrintDefaults()
@@ -59,10 +58,3 @@ func runUninstall(args []string) int {
 	return 0
 }
 
-func exeDirOrDot() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "."
-	}
-	return filepath.Dir(exe)
-}

@@ -146,10 +146,7 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
         if let Some(mut owned) = slot.take() {
             owned.terminate(std::time::Duration::from_secs(2));
         }
-        let log_path = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("data")
-            .join("launcher.log");
+        let log_path = crate::paths::launcher_log_path();
         match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => {
                 *slot = Some(new_owned);
@@ -205,10 +202,7 @@ pub fn start_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), 
         if let Some(mut owned) = slot.take() {
             owned.terminate(std::time::Duration::from_secs(2));
         }
-        let log_path = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("data")
-            .join("launcher.log");
+        let log_path = crate::paths::launcher_log_path();
         match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => {
                 *slot = Some(new_owned);
@@ -225,7 +219,8 @@ pub fn start_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), 
 pub fn open_data_folder(app: AppHandle, state: State<LauncherState>) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
 
-    // Prefer the user's configured data_dir; fall back to <cwd>/data.
+    // Prefer the user's configured data_dir; fall back to the OS-standard
+    // data location used elsewhere in the app.
     let configured = {
         let ctx = state.lock().unwrap();
         ctx.settings.load().data_dir
@@ -233,9 +228,7 @@ pub fn open_data_folder(app: AppHandle, state: State<LauncherState>) -> Result<(
 
     let path = match configured.filter(|s| !s.trim().is_empty()) {
         Some(s) => std::path::PathBuf::from(s),
-        None => std::env::current_dir()
-            .map(|p| p.join("data"))
-            .map_err(|e| e.to_string())?,
+        None => crate::paths::default_data_dir(),
     };
 
     // Make sure the directory exists; the OS file manager errors out
@@ -282,6 +275,12 @@ pub struct LauncherSettingsView {
     pub plugins_dir: Option<String>,
     pub data_dir: Option<String>,
     pub rl_addr: Option<String>,
+    /// Resolved default paths shown as placeholders in the Settings UI
+    /// when the user hasn't overridden them. Computed once per call so
+    /// the dialog can show e.g. "C:\Users\Foo\AppData\Local\RLToolkit\plugins"
+    /// instead of a vague "default" string.
+    pub default_plugins_dir: String,
+    pub default_data_dir: String,
 }
 
 #[tauri::command]
@@ -292,6 +291,12 @@ pub fn get_settings(state: State<LauncherState>) -> LauncherSettingsView {
         plugins_dir: s.plugins_dir,
         data_dir: s.data_dir,
         rl_addr: s.rl_addr,
+        default_plugins_dir: crate::paths::default_plugins_dir()
+            .to_string_lossy()
+            .into_owned(),
+        default_data_dir: crate::paths::default_data_dir()
+            .to_string_lossy()
+            .into_owned(),
     }
 }
 
@@ -328,10 +333,7 @@ pub fn save_settings(
         if let Some(mut owned) = slot.take() {
             owned.terminate(std::time::Duration::from_secs(2));
         }
-        let log_path = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("data")
-            .join("launcher.log");
+        let log_path = crate::paths::launcher_log_path();
         match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => *slot = Some(new_owned),
             Err(e) => return Err(e),

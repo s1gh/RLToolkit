@@ -146,6 +146,10 @@ async function openSettings() {
     pluginsDirInput.value = s.plugins_dir || "";
     dataDirInput.value = s.data_dir || "";
     rlAddrInput.value = s.rl_addr || "";
+    // Show the resolved OS-standard defaults as placeholders so the user
+    // can see where files would go if they leave the field blank.
+    if (s.default_plugins_dir) pluginsDirInput.placeholder = s.default_plugins_dir;
+    if (s.default_data_dir) dataDirInput.placeholder = s.default_data_dir;
   } catch (_) {
     pluginsDirInput.value = "";
     dataDirInput.value = "";

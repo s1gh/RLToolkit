@@ -29,11 +29,7 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
 }
 
 pub fn run(args: Args) {
-    let settings_path = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("RLToolkit")
-        .join("launcher.json");
-    let settings_store = SettingsStore::new(settings_path);
+    let settings_store = SettingsStore::new(crate::paths::launcher_settings_path());
     let initial = settings_store.load();
 
     let ctx = LauncherCtx {
@@ -104,10 +100,7 @@ pub fn run(args: Args) {
             let app_for_probe = handle.clone();
             std::thread::spawn(move || {
                 use crate::launcher::backend::{probe_status, spawn_sidecar, BackendOwnership, ProbeOutcome};
-                let log_path = std::env::current_dir()
-                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                    .join("data")
-                    .join("launcher.log");
+                let log_path = crate::paths::launcher_log_path();
                 let (plugins_dir, data_dir, rl_addr) = {
                     use tauri::Manager;
                     let state: tauri::State<LauncherState> = app_for_probe.state();

@@ -24,6 +24,7 @@ import (
 	"rl-toolkit/backend/internal/emit"
 	"rl-toolkit/backend/internal/identity"
 	"rl-toolkit/backend/internal/overrides"
+	"rl-toolkit/backend/internal/paths"
 	"rl-toolkit/backend/internal/pipeline"
 	"rl-toolkit/backend/internal/plugins"
 	"rl-toolkit/backend/internal/roster"
@@ -99,8 +100,8 @@ Usage:
 Server flags (serve):
   -rl-addr  host:port for RL Stats API (default 127.0.0.1:49123)
   -port     HTTP port (default 49200)
-  -plugins  plugin directory (default <exe-dir>/plugins)
-  -data     data directory (default <exe-dir>/data)
+  -plugins  plugin directory (default <user-data>/RLToolkit/plugins)
+  -data     data directory (default <user-data>/RLToolkit/data)
 `)
 }
 
@@ -303,9 +304,8 @@ func runServe() {
 // patterns all work — Go's stdlib flag package stops at the first
 // non-flag.
 func runNew(args []string) int {
-	exeDir := executableDir()
 	fs := flag.NewFlagSet("new", flag.ExitOnError)
-	pluginDir := fs.String("plugins", filepath.Join(exeDir, "plugins"), "Plugin directory path")
+	pluginDir := fs.String("plugins", defaultPluginDir(), "Plugin directory path")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: rl-toolkit new <name> [-plugins <dir>]\n\n")
 		fs.PrintDefaults()
@@ -349,15 +349,16 @@ func splitFlagsAndPositional(args []string) (flags, positional []string) {
 	return
 }
 
-// parseFlags reads server CLI flags and resolves directories relative
-// to the executable (not the cwd) so double-click-from-anywhere "just
-// works".
+// parseFlags reads server CLI flags and resolves directories to the
+// per-OS user application data dir (see backend/internal/paths) so the
+// backend's state lives in the same place whether it's run via the
+// launcher sidecar or invoked directly. Falls back to the executable
+// dir if the OS path can't be resolved.
 func parseFlags() Config {
-	exeDir := executableDir()
 	rlAddr := flag.String("rl-addr", "127.0.0.1:49123", "RL Stats API address (host:port)")
 	httpPort := flag.Int("port", 49200, "HTTP server port")
-	pluginDir := flag.String("plugins", filepath.Join(exeDir, "plugins"), "Plugin directory path")
-	dataDir := flag.String("data", filepath.Join(exeDir, "data"), "Data directory path")
+	pluginDir := flag.String("plugins", defaultPluginDir(), "Plugin directory path")
+	dataDir := flag.String("data", defaultDataDir(), "Data directory path")
 	flag.Parse()
 	return Config{
 		RLAddr:    *rlAddr,
@@ -372,6 +373,24 @@ func executableDir() string {
 		return filepath.Dir(exe)
 	}
 	return "."
+}
+
+// defaultPluginDir returns the per-OS plugins location, falling back to
+// <exe-dir>/plugins when the OS dir can't be resolved.
+func defaultPluginDir() string {
+	if dir, err := paths.PluginsDir(); err == nil {
+		return dir
+	}
+	return filepath.Join(executableDir(), "plugins")
+}
+
+// defaultDataDir returns the per-OS data location, falling back to
+// <exe-dir>/data when the OS dir can't be resolved.
+func defaultDataDir() string {
+	if dir, err := paths.DataDir(); err == nil {
+		return dir
+	}
+	return filepath.Join(executableDir(), "data")
 }
 
 // awaitSignal blocks until SIGINT/SIGTERM. After the first signal it

@@ -178,17 +178,26 @@ pub fn spawn_sidecar(
         .sidecar("rl-toolkit")
         .map_err(|e| format!("locate sidecar: {e}"))?;
 
-    // Resolve unset dirs against the launcher's cwd so the sidecar uses
-    // ./plugins and ./data from where the user launched the app, instead
-    // of the backend's own exe-relative defaults (which point inside the
-    // launcher's bundle).
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    // Resolve unset dirs against the OS-standard application data dir
+    // (see crate::paths) so the sidecar's state lives in the same place
+    // regardless of where the launcher was started from. The launcher's
+    // own settings file is already there; data and plugins join it.
+    // The backend's exe-relative default would otherwise point inside
+    // the launcher's bundle, which is read-only on packaged installs.
     let plugins = plugins_dir
         .filter(|p| !p.trim().is_empty())
-        .unwrap_or_else(|| cwd.join("plugins").to_string_lossy().into_owned());
+        .unwrap_or_else(|| {
+            crate::paths::default_plugins_dir()
+                .to_string_lossy()
+                .into_owned()
+        });
     let data = data_dir
         .filter(|p| !p.trim().is_empty())
-        .unwrap_or_else(|| cwd.join("data").to_string_lossy().into_owned());
+        .unwrap_or_else(|| {
+            crate::paths::default_data_dir()
+                .to_string_lossy()
+                .into_owned()
+        });
     cmd = cmd.args([
         "-plugins".to_string(),
         plugins,

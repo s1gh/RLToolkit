@@ -5,3 +5,4 @@ pub mod cli;
 pub mod focus_watcher;
 pub mod launcher;
 pub mod overlay_bridge;
+pub mod paths;
