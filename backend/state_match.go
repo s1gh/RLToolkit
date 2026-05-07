@@ -4,26 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
 	"rl-toolkit/internal/wire"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// Phase is the canonical gameplay-phase vocabulary used by MatchState
-// and the _MatchState synthetic event. Distinct from the (now-legacy)
-// LifecyclePhase so the two systems can coexist during the migration.
-type Phase string
+// Phase is aliased from internal/types so emit/server can reference
+// PhaseLive et al. without importing this file. The constants are
+// re-exported below at the same names.
+type Phase = types.Phase
 
 const (
-	PhaseNone      Phase = "none"
-	PhaseLobby     Phase = "lobby"
-	PhaseCountdown Phase = "countdown"
-	PhaseLive      Phase = "live"
-	PhasePaused    Phase = "paused"
-	PhaseReplay    Phase = "replay"
-	PhaseEnded     Phase = "ended"
-	PhasePodium    Phase = "podium"
+	PhaseNone      = types.PhaseNone
+	PhaseLobby     = types.PhaseLobby
+	PhaseCountdown = types.PhaseCountdown
+	PhaseLive      = types.PhaseLive
+	PhasePaused    = types.PhasePaused
+	PhaseReplay    = types.PhaseReplay
+	PhaseEnded     = types.PhaseEnded
+	PhasePodium    = types.PhasePodium
 )
 
 // MatchStateSnapshot is the wire-shaped payload published as
