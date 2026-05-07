@@ -621,49 +621,45 @@ fn launcher_mode_active(args: &Args) -> bool {
 /// is always shown when toggled on, regardless of game window.
 fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
     use tauri::Manager;
-    let app = app.clone();
 
-    // GTK window creation must happen on the main thread. The launcher
-    // calls us from a background probe thread, so dispatch to main.
+    // Call WebviewWindowBuilder::build() from the caller's thread (a Tauri
+    // command worker on Linux, the launcher's startup probe thread on
+    // autostart). The wry runtime internally dispatches the real window
+    // creation to the main event loop and blocks the caller until done.
+    //
+    // We MUST NOT wrap this in run_on_main_thread on Windows: that posts
+    // the build closure into the main pump, but build()'s internal
+    // main-thread dispatch then re-enters the same pump and deadlocks —
+    // every IPC call from the launcher webview hangs forever because the
+    // pump is stuck. Linux's GTK pathway also tolerates building from a
+    // worker thread for the same reason.
     eprintln!("[overlay-build] enter build_overlay_for_launcher");
-    app.clone()
-        .run_on_main_thread(move || {
-            eprintln!("[overlay-build] main-thread closure start");
-            if let Some(w) = app.get_webview_window("main") {
-                eprintln!("[overlay-build] window 'main' already exists, showing");
-                let _ = w.show();
-                return;
-            }
+    if let Some(w) = app.get_webview_window("main") {
+        eprintln!("[overlay-build] window 'main' already exists, showing");
+        let _ = w.show();
+        return Ok(());
+    }
 
-            let toolkit_url =
-                if let Some(state) = app.try_state::<crate::launcher::ipc::LauncherState>() {
-                    state.lock().unwrap().toolkit_url.clone()
-                } else {
-                    "http://localhost:49200".to_string()
-                };
+    let toolkit_url = if let Some(state) = app.try_state::<crate::launcher::ipc::LauncherState>() {
+        state.lock().unwrap().toolkit_url.clone()
+    } else {
+        "http://localhost:49200".to_string()
+    };
 
-            let url = unified_url(&toolkit_url);
-            let title = "RL Toolkit – Overlay".to_string();
+    let url = unified_url(&toolkit_url);
+    let title = "RL Toolkit – Overlay".to_string();
 
-            eprintln!("[overlay-build] calling build_overlay_window url={url}");
-            match build_overlay_window(
-                &app,
-                &Mode::Unified,
-                &url,
-                &title,
-                false,
-                None,
-                &toolkit_url,
-            ) {
-                Ok(()) => eprintln!("[overlay-build] build_overlay_window returned Ok"),
-                Err(e) => {
-                    eprintln!("[launcher] build_overlay_window failed: {e}");
-                    return;
-                }
-            }
-            eprintln!("[overlay-build] main-thread closure end");
-        })
-        .map_err(|e| e.to_string())
+    eprintln!("[overlay-build] calling build_overlay_window url={url}");
+    match build_overlay_window(app, &Mode::Unified, &url, &title, false, None, &toolkit_url) {
+        Ok(()) => {
+            eprintln!("[overlay-build] build_overlay_window returned Ok");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("[launcher] build_overlay_window failed: {e}");
+            Err(e.to_string())
+        }
+    }
 }
 
 /// Construct the overlay webview window inside the given app.
