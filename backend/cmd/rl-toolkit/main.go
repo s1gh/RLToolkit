@@ -63,6 +63,10 @@ func main() {
 			os.Exit(runNew(os.Args[2:]))
 		case "pack":
 			os.Exit(runPack(os.Args[2:]))
+		case "install":
+			os.Exit(runInstall(os.Args[2:]))
+		case "uninstall":
+			os.Exit(runUninstall(os.Args[2:]))
 		case "help", "-h", "--help":
 			printUsage(os.Stdout)
 			return
@@ -84,6 +88,8 @@ Usage:
   rl-toolkit [serve] [flags]   Run the server (default).
   rl-toolkit new <name>        Scaffold a new plugin in plugins/<name>.
   rl-toolkit pack [path]       Zip a plugin folder into <name>-<version>.rltp.
+  rl-toolkit install <file>    Install a .rltp into the plugins directory.
+  rl-toolkit uninstall <name>  Remove an installed plugin.
   rl-toolkit help              Show this message.
 
 Server flags (serve):
