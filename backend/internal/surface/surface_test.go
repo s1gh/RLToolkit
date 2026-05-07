@@ -135,3 +135,25 @@ func TestNew_QuarantinesCorruptFile(t *testing.T) {
 		t.Errorf("corrupt file not quarantined: %v", err)
 	}
 }
+
+func TestNew_QuarantinesInvalidValueFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "overlay-surface.json")
+	// Parses cleanly but fails Validate (negative width).
+	if err := os.WriteFile(path, []byte(`{"width":-1,"height":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(dir)
+	if err != nil {
+		t.Fatalf("New on invalid: %v", err)
+	}
+	if got := s.Get(); got != nil {
+		t.Errorf("expected nil configured after quarantine, got %+v", got)
+	}
+	if _, err := os.Stat(path + ".broken"); err != nil {
+		t.Errorf("invalid file not quarantined: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("original file should be gone, got: %v", err)
+	}
+}

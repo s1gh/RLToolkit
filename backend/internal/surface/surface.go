@@ -96,7 +96,12 @@ func New(dir string) (*Store, error) {
 		return s, nil
 	}
 	if err := sz.Validate(); err != nil {
-		log.Printf("[surface] %s holds invalid value (%v) — ignoring", path, err)
+		broken := path + ".broken"
+		if rnErr := os.Rename(path, broken); rnErr != nil {
+			log.Printf("[surface] %s holds invalid value (%v); also failed to quarantine to %s: %v — starting empty", path, err, broken, rnErr)
+		} else {
+			log.Printf("[surface] %s holds invalid value (%v); moved to %s — starting empty", path, err, broken)
+		}
 		return s, nil
 	}
 	s.configured = &sz
