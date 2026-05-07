@@ -206,6 +206,21 @@ button{font-family:inherit}
 }
 .btn .arrow{ font-size:11px; transition:transform .2s ease; }
 .btn.primary:hover .arrow{ transform:translateX(2px); }
+/* Square icon button — opts out of the row's flex:1 stretch so the
+   gear sits as a fixed-size secondary action next to the wide Open
+   button. Disabled state signals "this plugin has no settings panel"
+   without hiding the affordance, so users learn where settings live. */
+.btn.icon{
+  flex:0 0 auto;
+  width:38px; padding:0;
+  color:var(--txt-2);
+}
+.btn.icon svg{ width:16px; height:16px; display:block; }
+.btn:disabled{
+  cursor:not-allowed;
+  opacity:0.4;
+}
+.btn:disabled:hover{ border-color:var(--line); color:var(--txt-2); }
 
 /* ─── Per-plugin toggle ────────────────────────────────────── */
 /* Toggle in the card head, opposite the icon. Visually obvious so
@@ -616,8 +631,11 @@ function renderPlugins() {
     // "Open" button preference: dashboard view if the plugin has one
     // (the rich, full-page UI), else fall back to opening the overlay
     // in a browser tab (useful for debugging without launching Tauri).
+    // Label stays "Open" either way — the user doesn't care which view
+    // file the plugin author happened to ship, and varying the label
+    // per plugin made the row of cards look inconsistent.
     const openURL = dashboardURL || overlayURL;
-    const openLabel = dashboardURL ? 'Open Dashboard' : 'Open Overlay';
+    const hasSettings = !!p.settings?.file;
 
     return '<article class="card' + (enabled ? '' : ' disabled') + '" data-plugin="' + esc(p.name) + '">'
       + '<div class="card-head">'
@@ -636,8 +654,17 @@ function renderPlugins() {
       + '</div>'
       + '<p class="card-desc">' + desc + '</p>'
       + '<div class="card-actions">'
-        + (openURL ? '<a class="btn primary" href="' + openURL + '" target="_blank">' + openLabel + ' <span class="arrow">→</span></a>' : '')
-        + (p.settings?.file ? '<button class="btn" data-role="settings" type="button">Settings</button>' : '')
+        + (openURL ? '<a class="btn primary" href="' + openURL + '" target="_blank">Open <span class="arrow">→</span></a>' : '')
+        + '<button class="btn icon" data-role="settings" type="button"'
+          + ' aria-label="Settings"'
+          + ' title="' + (hasSettings ? 'Settings' : 'No settings for this plugin') + '"'
+          + (hasSettings ? '' : ' disabled')
+          + '>'
+          + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            + '<circle cx="12" cy="12" r="3"/>'
+            + '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
+          + '</svg>'
+        + '</button>'
       + '</div>'
     + '</article>';
   }).join('');
