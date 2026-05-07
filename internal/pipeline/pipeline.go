@@ -1,4 +1,8 @@
-package backend
+// Package pipeline orchestrates the two-phase event flow used by the
+// backend: every event is first Observed by all StateProcessors, then
+// Processed by all EmitProcessors. Synthetic emissions feed downstream
+// emit processors in registration order — see Run + runEmit.
+package pipeline
 
 import (
 	"context"
@@ -38,7 +42,9 @@ type Pipeline struct {
 	emit  []EmitProcessor
 }
 
-func NewPipeline() *Pipeline {
+// New creates an empty pipeline. Register processors via AddState and
+// AddEmit; call Run to start.
+func New() *Pipeline {
 	return &Pipeline{}
 }
 

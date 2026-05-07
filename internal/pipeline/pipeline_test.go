@@ -1,4 +1,4 @@
-package backend
+package pipeline
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func TestPipeline_RunsStateBeforeEmit(t *testing.T) {
 	state := &recordingState{}
 	emit := &echoEmit{}
 
-	p := NewPipeline()
+	p := New()
 	p.AddState(state)
 	p.AddEmit(emit)
 
@@ -111,7 +111,7 @@ func TestPipeline_EmissionsFeedDownstreamEmitters(t *testing.T) {
 	first := &prefixEmit{prefix: "_one"}
 	second := &prefixEmit{prefix: "_two"}
 
-	p := NewPipeline()
+	p := New()
 	p.AddEmit(first)
 	p.AddEmit(second)
 	p.Run(context.Background(), src, dst)
@@ -140,7 +140,7 @@ func TestPipeline_EarlierEmittersDoNotSeeLaterEmissions(t *testing.T) {
 	first := &prefixEmit{prefix: "_one"}
 	second := &prefixEmit{prefix: "_two"}
 
-	p := NewPipeline()
+	p := New()
 	p.AddEmit(first)
 	p.AddEmit(second)
 	p.Run(context.Background(), src, dst)
