@@ -5,6 +5,7 @@
 /backend/rl-toolkit.exe
 /release/
 *.exe
+*.rltp
 
 # SDK bundle (built by `make sdk` from sdk/src/)
 /backend/internal/server/web/sdk/dist/
