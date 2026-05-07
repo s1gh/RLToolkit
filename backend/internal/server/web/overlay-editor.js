@@ -234,7 +234,7 @@
   // the editor naturally (the SSE-driven reflow only affects the
   // production /overlay page, not this editor session).
   const widgets = ctx.merged
-    .filter(({ overlay }) => overlay.enabled !== false)
+    .filter(({ overlay }) => overlay.enabled === true)
     .map(({ plugin, overlay }) => buildWidget(plugin, overlay));
 
   // Declared before the first applyCanvasLayout() so flagOffCanvasWidgets
