@@ -246,7 +246,16 @@ func (e *TickDiffEmitter) playerScoreChanged(guid string, prev, curr *tickPlayer
 // baseline), which happens when prev.boost is nil (non-spectator
 // blackout).
 func (e *TickDiffEmitter) boostPickup(guid string, prev, curr *tickPlayer) *Event {
-	if prev.boost == nil || curr.boost == nil || *curr.boost <= *prev.boost {
+	if curr.boost == nil {
+		return nil
+	}
+	// RL omits Boost when it's 0; treat nil as 0 so pickups from empty
+	// boost are still detected.
+	prevBoost := 0
+	if prev.boost != nil {
+		prevBoost = *prev.boost
+	}
+	if *curr.boost <= prevBoost {
 		return nil
 	}
 	if prev.demolished && !curr.demolished {
@@ -269,9 +278,9 @@ func (e *TickDiffEmitter) boostPickup(guid string, prev, curr *tickPlayer) *Even
 	}{
 		MatchGUID:   guid,
 		Player:      enriched,
-		BoostBefore: *prev.boost,
+		BoostBefore: prevBoost,
 		BoostAfter:  *curr.boost,
-		Delta:       *curr.boost - *prev.boost,
+		Delta:       *curr.boost - prevBoost,
 	})
 	if err != nil {
 		return nil
