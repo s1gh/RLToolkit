@@ -3,38 +3,17 @@ package backend
 import (
 	"bytes"
 	"encoding/json"
+	"rl-toolkit/internal/types"
 	"strings"
 )
 
-// ShortcutRef is the minimal player reference found in raw RL event
-// payloads (e.g., Scorer, MainTarget, BallLastTouch.Player). Shortcut
-// is RL's per-match player slot index (0..N), shipped as a JSON
-// number on the wire — not a string. Decoding it as a string used to
-// silently fail the whole inner Decode of any event carrying a
-// ShortcutRef (StatfeedEvent, GoalScored, BallHit), which is why
-// every downstream synthetic event (_PlayerDemolished, _GoalScored,
-// _BallHit) stopped firing the moment an event carried one.
-type ShortcutRef struct {
-	Name     string `json:"Name"`
-	Shortcut int    `json:"Shortcut"`
-	TeamNum  int    `json:"TeamNum"`
-}
-
-// EnrichedPlayer is the fully-resolved player shape shipped on synthetic
-// events. It mirrors what the SDK's resolvePlayer produces, but built
-// server-side so every subscriber gets the same enrichment regardless of
-// mode (hosted bus or direct SSE).
-type EnrichedPlayer struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Team     int    `json:"team"`
-	Platform string `json:"platform,omitempty"`
-	IsBot    bool   `json:"isBot"`
-	IsMe     bool   `json:"isMe,omitempty"` // backend stamps via IdentityStore; SDK keeps client-side fallback
-	// Encounter (per-user "have I seen this player before?") is the
-	// SDK's concern — it has the persistence layer for the ledger.
-	// The backend doesn't try to populate it.
-}
+// EnrichedPlayer + ShortcutRef are aliases over internal/types so the
+// canonical wire shapes live in one place. The methods below
+// (ResolveByShortcut etc.) hang off RosterTracker, which still lives
+// in this package — the aliases let downstream emitters import the
+// types without dragging the resolver along.
+type ShortcutRef = types.ShortcutRef
+type EnrichedPlayer = types.EnrichedPlayer
 
 // RosterSnapshot returns the most recent roster seen by the tracker.
 // Safe for concurrent use; returns a copy of the internal slice.
