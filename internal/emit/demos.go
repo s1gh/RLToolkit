@@ -1,17 +1,26 @@
-package backend
+package emit
 
 import (
 	"encoding/json"
 	"rl-toolkit/internal/bus"
+	"rl-toolkit/internal/types"
 	"sync"
 	"time"
 )
+
+// TickReader is the slim view DemosEmitter needs into the tick-decoding
+// store: just the per-player scalars (speed + supersonic flag) it
+// pulls in to enrich _PlayerDemolished payloads. Defined here so the
+// emit package stays free of any concrete tick-store dependency.
+type TickReader interface {
+	PlayerScalars(id string) (*float64, bool)
+}
 
 // demoChainEntry pairs a demo timestamp with the resolved victim so
 // _DemoChain can report `victims[]` for the chain so far.
 type demoChainEntry struct {
 	at     time.Time
-	victim *EnrichedPlayer
+	victim *types.EnrichedPlayer
 }
 
 // demoChainWindow is the sliding window within which back-to-back
@@ -20,11 +29,11 @@ type demoChainEntry struct {
 // next match's first demo doesn't extend a stale chain.
 const demoChainWindow = 5 * time.Second
 
-// DemosEmitter consumes the typed `_Demolish` events StatfeedEmitter
-// publishes and emits the richer wire-facing pair:
+// Demos consumes the typed `_Demolish` events StatfeedEmitter publishes
+// and emits the richer wire-facing pair:
 //
 //   - `_PlayerDemolished` with attackerSpeed / attackerWasSupersonic
-//     (pulled from TickStore for SPECTATOR-only ticks) and the
+//     (pulled from TickReader for SPECTATOR-only ticks) and the
 //     isSelfDemo / isTeamDemo flags.
 //   - `_DemoChain` when the same attacker has registered ≥2 demos
 //     within demoChainWindow.
@@ -36,8 +45,8 @@ const demoChainWindow = 5 * time.Second
 //   - demoChainByID: per-attacker rolling demo timestamps.
 //
 // Both reset on MatchCreated / MatchDestroyed.
-type DemosEmitter struct {
-	ticks *TickStore
+type Demos struct {
+	ticks TickReader
 
 	demolishMu  sync.Mutex
 	demolishLog [][]byte
@@ -46,8 +55,8 @@ type DemosEmitter struct {
 	demoChainByID map[string][]demoChainEntry
 }
 
-func NewDemosEmitter(ticks *TickStore) *DemosEmitter {
-	return &DemosEmitter{
+func NewDemos(ticks TickReader) *Demos {
+	return &Demos{
 		ticks:         ticks,
 		demoChainByID: make(map[string][]demoChainEntry),
 	}
@@ -56,7 +65,7 @@ func NewDemosEmitter(ticks *TickStore) *DemosEmitter {
 // DemolishLog returns a snapshot of every _PlayerDemolished envelope
 // published since the current match started, in wire-shape (ready
 // for an SSE handler to write directly).
-func (e *DemosEmitter) DemolishLog() [][]byte {
+func (e *Demos) DemolishLog() [][]byte {
 	e.demolishMu.Lock()
 	defer e.demolishMu.Unlock()
 	if len(e.demolishLog) == 0 {
@@ -67,7 +76,7 @@ func (e *DemosEmitter) DemolishLog() [][]byte {
 	return out
 }
 
-func (e *DemosEmitter) Process(evt bus.Event) []bus.Event {
+func (e *Demos) Process(evt bus.Event) []bus.Event {
 	switch evt.Name {
 	case "MatchCreated", "MatchDestroyed":
 		e.reset()
@@ -78,7 +87,7 @@ func (e *DemosEmitter) Process(evt bus.Event) []bus.Event {
 	return nil
 }
 
-func (e *DemosEmitter) reset() {
+func (e *Demos) reset() {
 	e.demolishMu.Lock()
 	e.demolishLog = nil
 	e.demolishMu.Unlock()
@@ -90,11 +99,11 @@ func (e *DemosEmitter) reset() {
 	e.chainMu.Unlock()
 }
 
-func (e *DemosEmitter) processDemolish(evt bus.Event) []bus.Event {
+func (e *Demos) processDemolish(evt bus.Event) []bus.Event {
 	var d struct {
-		MatchGUID string          `json:"matchGuid"`
-		Attacker  *EnrichedPlayer `json:"attacker"`
-		Victim    *EnrichedPlayer `json:"victim"`
+		MatchGUID string                `json:"matchGuid"`
+		Attacker  *types.EnrichedPlayer `json:"attacker"`
+		Victim    *types.EnrichedPlayer `json:"victim"`
 	}
 	if err := json.Unmarshal(payloadBytes(evt), &d); err != nil {
 		return nil
@@ -105,13 +114,13 @@ func (e *DemosEmitter) processDemolish(evt bus.Event) []bus.Event {
 
 	attackerSpeed, attackerSupersonic := e.ticks.PlayerScalars(d.Attacker.ID)
 	payload := struct {
-		MatchGUID             string          `json:"matchGuid,omitempty"`
-		Attacker              *EnrichedPlayer `json:"attacker"`
-		Victim                *EnrichedPlayer `json:"victim"`
-		IsSelfDemo            bool            `json:"isSelfDemo,omitempty"`
-		IsTeamDemo            bool            `json:"isTeamDemo,omitempty"`
-		AttackerSpeed         *float64        `json:"attackerSpeed,omitempty"`
-		AttackerWasSupersonic *bool           `json:"attackerWasSupersonic,omitempty"`
+		MatchGUID             string                `json:"matchGuid,omitempty"`
+		Attacker              *types.EnrichedPlayer `json:"attacker"`
+		Victim                *types.EnrichedPlayer `json:"victim"`
+		IsSelfDemo            bool                  `json:"isSelfDemo,omitempty"`
+		IsTeamDemo            bool                  `json:"isTeamDemo,omitempty"`
+		AttackerSpeed         *float64              `json:"attackerSpeed,omitempty"`
+		AttackerWasSupersonic *bool                 `json:"attackerWasSupersonic,omitempty"`
 	}{
 		MatchGUID:     d.MatchGUID,
 		Attacker:      d.Attacker,
@@ -159,7 +168,7 @@ func (e *DemosEmitter) processDemolish(evt bus.Event) []bus.Event {
 	return out
 }
 
-func (e *DemosEmitter) recordChain(guid string, attacker, victim *EnrichedPlayer) *bus.Event {
+func (e *Demos) recordChain(guid string, attacker, victim *types.EnrichedPlayer) *bus.Event {
 	now := time.Now()
 	cutoff := now.Add(-demoChainWindow)
 	e.chainMu.Lock()
@@ -173,7 +182,7 @@ func (e *DemosEmitter) recordChain(guid string, attacker, victim *EnrichedPlayer
 	trimmed = append(trimmed, demoChainEntry{at: now, victim: victim})
 	e.demoChainByID[attacker.ID] = trimmed
 	count := len(trimmed)
-	victims := make([]*EnrichedPlayer, 0, count)
+	victims := make([]*types.EnrichedPlayer, 0, count)
 	for _, h := range trimmed {
 		victims = append(victims, h.victim)
 	}
@@ -184,11 +193,11 @@ func (e *DemosEmitter) recordChain(guid string, attacker, victim *EnrichedPlayer
 		return nil
 	}
 	body, err := json.Marshal(struct {
-		MatchGUID     string            `json:"matchGuid,omitempty"`
-		Attacker      *EnrichedPlayer   `json:"attacker"`
-		Victims       []*EnrichedPlayer `json:"victims"`
-		Count         int               `json:"count"`
-		WindowSeconds float64           `json:"windowSeconds"`
+		MatchGUID     string                  `json:"matchGuid,omitempty"`
+		Attacker      *types.EnrichedPlayer   `json:"attacker"`
+		Victims       []*types.EnrichedPlayer `json:"victims"`
+		Count         int                     `json:"count"`
+		WindowSeconds float64                 `json:"windowSeconds"`
 	}{
 		MatchGUID:     guid,
 		Attacker:      attacker,
