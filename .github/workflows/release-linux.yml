@@ -33,10 +33,15 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout at the release tag
+      - name: Checkout
+        # Default branch (main). The Linux build needs the SAME source
+        # state the Windows artifacts were built from, but we can't
+        # reference the tag here — when the GitHub release is still a
+        # draft (which it is when this workflow is supposed to run),
+        # the tag doesn't exist as a git ref yet. Discipline: don't
+        # merge to main between `make release-windows` and clicking
+        # Run workflow.
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
 
       - name: Install build dependencies
         run: |
