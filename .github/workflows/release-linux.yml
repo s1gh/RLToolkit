@@ -1,0 +1,114 @@
+# Builds the Linux side of a release and assembles the multi-platform
+# latest.json manifest, then uploads everything to the GitHub release
+# the user has already populated with Windows artifacts.
+#
+# Trigger this manually after creating a draft GitHub release for the
+# tag and uploading the three Windows files (.exe, .sig, .zip) from
+# `make release-windows`. The workflow:
+#   1. Builds the AppImage and portable tar.gz on ubuntu-22.04 (oldest
+#      supported LTS → maximum glibc compatibility).
+#   2. Downloads the Windows .exe.sig from the release via gh.
+#   3. Generates latest.json referencing both platforms.
+#   4. Uploads the AppImage, .sig, .tar.gz, and latest.json to the
+#      release with --clobber.
+# After it finishes, mark the release as published.
+
+name: release-linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout at the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-layer-shell-dev \
+            libgtk-3-dev \
+            libfuse2 \
+            build-essential \
+            pkg-config
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: overlay/src-tauri -> target
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Install npm devDeps (esbuild + biome)
+        run: npm install
+
+      - name: Compute version (strip leading v)
+        id: ver
+        run: echo "version=$(echo '${{ inputs.tag }}' | sed 's/^v//')" >> $GITHUB_OUTPUT
+
+      - name: Build Linux release artefacts
+        run: |
+          make release-linux \
+            VERSION=${{ steps.ver.outputs.version }} \
+            RELEASE_OWNER=${{ github.repository_owner }}
+
+      - name: Download Windows .sig from the release
+        run: |
+          gh release download "${{ inputs.tag }}" \
+            --pattern '*setup.exe.sig' \
+            --dir release/linux/
+
+      - name: Generate multi-platform latest.json
+        run: |
+          VERSION=${{ steps.ver.outputs.version }}
+          OWNER=${{ github.repository_owner }}
+          NOTES=$(gh release view "${{ inputs.tag }}" --json body --jq .body)
+          go run ./backend/cmd/gen-update-manifest \
+            -version "$VERSION" \
+            -windows-sig "release/linux/RLToolkit_${VERSION}_x64-setup.exe.sig" \
+            -windows-url "https://github.com/${OWNER}/RLToolkit/releases/download/${{ inputs.tag }}/RLToolkit_${VERSION}_x64-setup.exe" \
+            -linux-sig   "release/linux/RLToolkit_${VERSION}_x86_64.AppImage.sig" \
+            -linux-url   "https://github.com/${OWNER}/RLToolkit/releases/download/${{ inputs.tag }}/RLToolkit_${VERSION}_x86_64.AppImage" \
+            -notes "$NOTES" \
+            -out  "release/linux/latest.json"
+
+      - name: Upload Linux artefacts and manifest to the release
+        run: |
+          VERSION=${{ steps.ver.outputs.version }}
+          gh release upload "${{ inputs.tag }}" \
+            "release/linux/RLToolkit_${VERSION}_x86_64.AppImage" \
+            "release/linux/RLToolkit_${VERSION}_x86_64.AppImage.sig" \
+            "release/linux/RLToolkit_${VERSION}_x86_64-portable.tar.gz" \
+            "release/linux/latest.json" \
+            --clobber
