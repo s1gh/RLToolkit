@@ -76,6 +76,12 @@ host a tray, kill the `rl-widget` process.
 
 ## Windows
 
+> **In flight:** the Windows packaging story is being rewritten. This
+> section reflects the old two-binary flow; the new flow (single NSIS
+> installer + portable zip + auto-update) lands once the first
+> Windows-built release is verified. Track via
+> `docs/superpowers/plans/2026-05-08-windows-packaging.md`.
+
 ### Prereqs
 
 1. **Rust** — install [rustup](https://rustup.rs). Default MSVC toolchain.
