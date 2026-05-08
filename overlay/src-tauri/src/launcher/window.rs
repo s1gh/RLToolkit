@@ -78,10 +78,18 @@ pub fn build_launcher_window(
     .inner_size(w, h)
     .min_inner_size(initial_min.0, initial_min.1)
     .resizable(true)
-    .decorations(true)
-    // Force the dark immersive title bar on Windows so the OS-drawn
-    // chrome matches the launcher's dark UI instead of rendering as
-    // the default Windows light/grey. No-op on macOS/Linux.
+    // Frameless window — the launcher draws its own title bar inside
+    // launcher.html (the #strip element). Without this, Linux/GNOME
+    // and Windows paint a separate OS title bar above our strip,
+    // producing two stacked dark bars in different shades that read
+    // as visual clutter. Drag region is set on the strip via
+    // -webkit-app-region: drag; window controls (minimize / max /
+    // close) are HTML buttons that call into __TAURI__.window.
+    .decorations(false)
+    // Theme still drives the webview's prefers-color-scheme, plus on
+    // Windows it's how DWM picks the immersive accent on the
+    // window's shadow / resize border (decorations(false) on Win11
+    // still gives us a 1px accent edge that DWM colors).
     .theme(Some(Theme::Dark))
     .visible(true);
 

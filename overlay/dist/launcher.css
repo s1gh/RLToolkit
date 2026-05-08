@@ -13,20 +13,58 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
-  font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 13px; }
+/* Grayscale antialiasing: WebKitGTK on Linux defaults to subpixel
+   AA which fringes glyph edges with R/G/B sub-pixels — reads as
+   "ultra crisp" but harsh on a dark background at small sizes.
+   The two declarations below flip both Blink/WebKit and Gecko (in
+   case anyone runs the launcher under WebKitGTK with a different
+   build) to grayscale, matching the smoother rendering users see
+   in macOS apps and most modern web apps. */
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg); color: var(--fg);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
 
+/* Resize handles for the frameless window. Fixed-positioned, sit
+   above everything, transparent. Each carries a directional cursor
+   so the user gets the right resize affordance on hover. The
+   corner zones (10px square) are stacked at a higher z-index than
+   the edge zones (6px) so corner-resize wins when the cursor is in
+   the L-shaped overlap. */
+.resize-handles { position: fixed; inset: 0; pointer-events: none; z-index: 1000; }
+.rh { position: absolute; pointer-events: auto; }
+.rh-n  { top: 0; left: 10px; right: 10px; height: 6px;   cursor: n-resize; }
+.rh-s  { bottom: 0; left: 10px; right: 10px; height: 6px; cursor: s-resize; }
+.rh-w  { left: 0; top: 10px; bottom: 10px; width: 6px;   cursor: w-resize; }
+.rh-e  { right: 0; top: 10px; bottom: 10px; width: 6px;   cursor: e-resize; }
+.rh-nw { top: 0; left: 0; width: 10px; height: 10px; cursor: nw-resize; z-index: 1; }
+.rh-ne { top: 0; right: 0; width: 10px; height: 10px; cursor: ne-resize; z-index: 1; }
+.rh-sw { bottom: 0; left: 0; width: 10px; height: 10px; cursor: sw-resize; z-index: 1; }
+.rh-se { bottom: 0; right: 0; width: 10px; height: 10px; cursor: se-resize; z-index: 1; }
+
+/* The strip IS the title bar. Tauri's decorations(false) hides the
+   OS chrome, so this row replaces the GTK/DWM title bar — same dark
+   background as the body so they read as one continuous surface,
+   with a 1px hairline below as the seam. The wide drag-region in
+   the middle gives users somewhere to grab even when the visible
+   controls fill most of the strip. */
 #strip {
   height: var(--strip-h);
   display: flex;
   align-items: center;
   gap: var(--pad);
-  padding: 0 var(--pad);
+  padding: 0 0 0 var(--pad); /* zero right pad — wc-close hugs the edge */
   border-bottom: 1px solid #20232a;
-  background: var(--bg-soft);
-  -webkit-app-region: drag;   /* allow drag-window on the strip */
+  background: var(--bg);
 }
-#strip button, #strip .switch, #strip details { -webkit-app-region: no-drag; }
+#strip button, #strip .switch, #strip details, #strip .wc {
+  -webkit-app-region: no-drag;
+}
 
 #brand {
   font-weight: 800;
@@ -53,7 +91,25 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   background: #1a1d24; color: var(--muted); border: 1px solid #262a33;
 }
 
-.spacer { flex: 1; }
+/* Drag region: the wide stretch between the left status cluster and
+   the right controls. Carries the centered window title; clicking
+   anywhere outside the title moves the window via -webkit-app-region. */
+.drag-region {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  -webkit-app-region: drag;
+}
+.window-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+  user-select: none;
+  pointer-events: none; /* don't intercept drag on the title text */
+}
 
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
 .switch input { position: absolute; opacity: 0; pointer-events: none; }
@@ -93,6 +149,41 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 #overflow li button:hover { background: #1a1d24; }
 #overflow li button:disabled { color: var(--muted); cursor: not-allowed; background: transparent; }
 #overflow li.sep { height: 1px; background: #20232a; margin: 4px 0; }
+
+/* Window controls: minimize / toggle-maximize / close. Native-style
+   sized to the same vertical extent as the strip so they meet the
+   window edges flush — the close button uses Microsoft's accent red
+   on hover, matching what users see in every other Win/Linux app. */
+.window-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  margin-left: 4px;
+}
+.wc {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  transition: background 80ms ease, color 80ms ease;
+}
+.wc:hover { background: #1a1d24; color: var(--fg); }
+.wc:active { background: #22262f; }
+.wc-close:hover { background: #c42b1c; color: #fff; }
+.wc-close:active { background: #a82213; }
+.wc svg { display: block; }
+/* webkitgtk paints a 1px focus ring around buttons after click;
+   on these full-height title-bar controls it reads as a vertical
+   hairline between buttons. Title-bar window controls are
+   pointer-driven only — keyboard focus belongs in the dashboard
+   below — so removing the outline is the right call here, not in
+   the rest of the launcher UI. */
+.wc:focus, .wc:focus-visible { outline: none; }
 
 .banner {
   background: #2a1a1a; color: #f7c1c1; padding: 8px 12px;

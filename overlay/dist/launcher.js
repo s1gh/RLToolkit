@@ -541,6 +541,77 @@ document.querySelectorAll("[data-cmd]").forEach(btn => {
   });
 });
 
+// Window controls — minimize / toggle-maximize / close. With
+// decorations(false) we own the title bar, so these HTML buttons
+// drive the platform window via __TAURI__.window. Close goes
+// through the standard close path: the launcher's CloseRequested
+// handler hides to tray when one is available (same as the OS ×).
+// Maximize toggles between maximized and the prior windowed size.
+const winApi = window.__TAURI__?.window;
+document.querySelectorAll("[data-window-cmd]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (!winApi) return;
+    // Drop focus immediately so hover/active states settle cleanly
+    // and we don't keep painting any residual focus indicator.
+    btn.blur();
+    const cmd = btn.dataset.windowCmd;
+    try {
+      const w = winApi.getCurrentWindow();
+      if (cmd === "minimize") await w.minimize();
+      else if (cmd === "toggleMaximize") await w.toggleMaximize();
+      else if (cmd === "close") await w.close();
+    } catch (e) {
+      // The Tauri ops can race a hide-to-tray transition; swallow.
+      console.warn("window cmd failed", cmd, e);
+    }
+  });
+});
+
+// Native <details> doesn't close on outside-click; wire that here.
+// Capture phase so a click that hits any other interactive element
+// (window controls, dashboard iframe blur, splash buttons) still
+// dismisses the menu first. Pointerdown rather than click so the
+// dismissal beats the pointerup-based focus changes.
+document.addEventListener("pointerdown", (e) => {
+  const menu = document.getElementById("overflow");
+  if (!menu || !menu.hasAttribute("open")) return;
+  if (menu.contains(e.target)) return;
+  menu.removeAttribute("open");
+}, true);
+
+// Esc closes the menu too — matches every other dropdown convention.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const menu = document.getElementById("overflow");
+  if (menu?.hasAttribute("open")) menu.removeAttribute("open");
+});
+
+// Iframe-aware dismissal: the dashboard runs in its own document, so
+// pointerdown there never bubbles to this listener. When the user
+// clicks into the iframe the launcher window loses focus — that's
+// the signal we use to close the menu.
+window.addEventListener("blur", () => {
+  const menu = document.getElementById("overflow");
+  if (menu?.hasAttribute("open")) menu.removeAttribute("open");
+});
+
+// Frameless resize: each .rh zone calls startResizeDragging on
+// mousedown with its compass direction. Tauri's API takes the
+// direction as a string (e.g. "North", "SouthEast"); we stash it on
+// data-resize. preventDefault stops the webview from also kicking
+// off a text-selection drag in parallel.
+document.querySelectorAll("[data-resize]").forEach((zone) => {
+  zone.addEventListener("mousedown", (e) => {
+    if (!winApi || e.button !== 0) return;
+    e.preventDefault();
+    try {
+      winApi.getCurrentWindow().startResizeDragging(zone.dataset.resize);
+    } catch (err) {
+      console.warn("startResizeDragging failed", err);
+    }
+  });
+});
+
 async function openSettings() {
   try {
     const s = await invoke("get_settings");

@@ -6,13 +6,38 @@
   <link rel="stylesheet" href="launcher.css">
 </head>
 <body>
+  <!-- Frameless-window resize edges. With decorations(false), the
+       compositor no longer owns the window border so the user can't
+       drag-resize at the edges. These 6px hit zones live above the
+       page and call __TAURI__.window.startResizeDragging(direction)
+       on mousedown. Eight zones: 4 edges + 4 corners, with
+       corner-priority CSS so the L-shaped corner regions take
+       precedence over the edge bars. The zones are visually
+       invisible (transparent) but cursor-shaped per direction. -->
+  <div class="resize-handles" aria-hidden="true">
+    <div class="rh rh-n"  data-resize="North"></div>
+    <div class="rh rh-s"  data-resize="South"></div>
+    <div class="rh rh-w"  data-resize="West"></div>
+    <div class="rh rh-e"  data-resize="East"></div>
+    <div class="rh rh-nw" data-resize="NorthWest"></div>
+    <div class="rh rh-ne" data-resize="NorthEast"></div>
+    <div class="rh rh-sw" data-resize="SouthWest"></div>
+    <div class="rh rh-se" data-resize="SouthEast"></div>
+  </div>
+
   <header id="strip">
     <div id="brand">RL</div>
 
     <span id="conn" class="conn" data-status="connecting">connecting…</span>
     <span id="ownership-badge" class="badge" hidden>external</span>
 
-    <span class="spacer"></span>
+    <!-- Drag region: this fills the gap between the left status
+         cluster and the right controls. -webkit-app-region: drag is
+         set in CSS so click-drag on this empty stretch moves the
+         window. The title sits inside it as a non-interactive label. -->
+    <div class="drag-region">
+      <span class="window-title">RL Toolkit</span>
+    </div>
 
     <label class="switch">
       <input type="checkbox" id="overlay-toggle" />
@@ -22,17 +47,48 @@
 
     <details id="overflow">
       <summary>⋯</summary>
+      <!-- Grouped by purpose, top-to-bottom by descending
+           frequency-of-use: view first (everyday), configuration
+           (occasional), backend lifecycle (troubleshooting),
+           quit (terminal). Separators are visual only. -->
       <ul>
-        <li><button data-cmd="toggle_backend" id="toggle-backend-btn">Stop backend</button></li>
-        <li><button data-cmd="restart_backend" id="restart-btn">Restart backend</button></li>
-        <li><button data-cmd="open_data_folder">Open data folder</button></li>
         <li><button data-cmd="open_dashboard_in_browser">Open in browser</button></li>
+        <li><button data-cmd="open_data_folder">Open data folder</button></li>
+        <li class="sep"></li>
         <li><button data-cmd="open_settings" id="settings-btn">Settings</button></li>
         <li><button data-cmd="reclaim_identity" id="reclaim-btn">Change identity</button></li>
+        <li class="sep"></li>
+        <li><button data-cmd="restart_backend" id="restart-btn">Restart backend</button></li>
+        <li><button data-cmd="toggle_backend" id="toggle-backend-btn">Stop backend</button></li>
         <li class="sep"></li>
         <li><button data-cmd="quit">Quit</button></li>
       </ul>
     </details>
+
+    <!-- Window controls. We draw them right-aligned (Win/Linux
+         convention) regardless of platform; macOS users live with
+         the non-native side since the launcher is primarily Linux/
+         Windows. The buttons call into __TAURI__.window directly
+         (see launcher.js wireWindowControls). Close hits the
+         CloseRequested handler in launcher/mod.rs which hides to
+         tray when one is available, matching the OS × button. -->
+    <div class="window-controls" aria-label="Window controls">
+      <button class="wc" data-window-cmd="minimize" title="Minimize" aria-label="Minimize">
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+          <rect x="2" y="5.5" width="8" height="1" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="wc" data-window-cmd="toggleMaximize" title="Maximize" aria-label="Maximize">
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+          <rect x="2" y="2" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1"/>
+        </svg>
+      </button>
+      <button class="wc wc-close" data-window-cmd="close" title="Close" aria-label="Close">
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+          <path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
   <main id="body">
