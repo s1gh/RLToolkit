@@ -11,7 +11,8 @@
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
         "displayLanguageSelector": false,
-        "languages": ["English"]
+        "languages": ["English"],
+        "installerHooks": "installer-hooks.nsh"
       }
     }
   },

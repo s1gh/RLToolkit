@@ -719,6 +719,17 @@ setInterval(refreshStatus, 2000);
 refreshStatus();
 bootIdentityCheck();
 
+// Stamp the launcher version into the footer. Useful during smoke
+// tests and bug reports to see at a glance whether an upgrade
+// actually landed.
+(async () => {
+  try {
+    const v = await invoke("get_app_version");
+    const el = document.getElementById("version-footer");
+    if (el && v) el.textContent = `v${v}`;
+  } catch {}
+})();
+
 // ─── Updater banner ─────────────────────────────────────────
 //
 // Two paths into the banner:

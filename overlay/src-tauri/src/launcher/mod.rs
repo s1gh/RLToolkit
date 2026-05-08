@@ -69,6 +69,7 @@ pub fn run(args: Args) {
     let builder = builder.invoke_handler(tauri::generate_handler![
         ipc::get_status,
         ipc::get_toolkit_url,
+        ipc::get_app_version,
         ipc::toggle_overlay,
         ipc::restart_backend,
         ipc::stop_backend,
@@ -88,6 +89,7 @@ pub fn run(args: Args) {
     let builder = builder.invoke_handler(tauri::generate_handler![
         ipc::get_status,
         ipc::get_toolkit_url,
+        ipc::get_app_version,
         ipc::toggle_overlay,
         ipc::restart_backend,
         ipc::stop_backend,
