@@ -1,6 +1,6 @@
 //! Auto-update for the launcher.
 //!
-//! Compiled in only when the `installer-updater` Cargo feature is on
+//! Compiled in only when the `bundled-updater` Cargo feature is on
 //! (the NSIS installer build). The portable build omits both the
 //! plugin and this module's wiring, because tauri-plugin-updater
 //! deserializes its config eagerly and aborts the launcher when the
@@ -13,7 +13,7 @@
 //!     window is built. Emits `updater://available` to the frontend
 //!     when a newer version exists.
 
-#![cfg(feature = "installer-updater")]
+#![cfg(feature = "bundled-updater")]
 
 use serde::Serialize;
 use tauri::AppHandle;
