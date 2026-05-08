@@ -169,18 +169,22 @@ endif
 # --- launcher: alias for launcher-portable ----------------------------
 launcher: launcher-portable
 
-# --- release-windows: full Windows release set -------------------------
+# --- release-windows: Windows artifacts only -------------------------
 #
-# Produces:
+# Produces the three files needed to populate a draft GitHub release:
 #   release/windows/RLToolkit_<v>_x64-setup.exe       (NSIS, signed)
 #   release/windows/RLToolkit_<v>_x64-setup.exe.sig
 #   release/windows/RLToolkit_<v>_x64-portable.zip
-#   release/windows/latest.json
+#
+# Note: latest.json is NOT generated here. The Linux CI job (see
+# .github/workflows/release-linux.yml) downloads the Windows .sig
+# from the GitHub release and produces a single multi-platform
+# manifest after the AppImage is built. This avoids two manifests
+# competing on one release.
 #
 # Inputs (env or make var):
 #   VERSION              required; e.g. 0.2.0 (no leading v)
-#   RELEASE_OWNER        required; GitHub owner used in latest.json URL
-#   RELEASE_NOTES        optional; passed through to latest.json
+#   RELEASE_OWNER        required; GitHub owner used in the URL hint below
 #   TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]  required for signing
 
 ifeq ($(HOST_OS),windows)
@@ -192,7 +196,6 @@ release-windows: launcher-installer launcher-portable
 	@copy /y "$(subst /,\,$(TAURI_TARGET))\bundle\nsis\RLT-Launcher_$(VERSION)_x64-setup.exe" "$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-setup.exe" >nul
 	@copy /y "$(subst /,\,$(TAURI_TARGET))\bundle\nsis\RLT-Launcher_$(VERSION)_x64-setup.exe.sig" "$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-setup.exe.sig" >nul
 	@powershell -NoProfile -Command "Compress-Archive -Force -Path '$(subst /,\,$(OUT_DIR))\$(LAUNCHER)$(EXE)','$(subst /,\,$(OUT_DIR))\$(BINARY)$(EXE)' -DestinationPath '$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-portable.zip'"
-	@go run ./backend/cmd/gen-update-manifest -version $(VERSION) -sig $(OUT_DIR)/RLToolkit_$(VERSION)_x64-setup.exe.sig -url https://github.com/$(RELEASE_OWNER)/RLToolkit/releases/download/v$(VERSION)/RLToolkit_$(VERSION)_x64-setup.exe -notes "$(RELEASE_NOTES)" > $(OUT_DIR)/latest.json
 	@echo Release artefacts in $(OUT_DIR):
 	@dir /b $(subst /,\,$(OUT_DIR))
 else
