@@ -49,16 +49,6 @@
         if (booted) return;
         booted = true;
         for (const v of views) v.bind?.();
-        // "This is me" buttons on dashboard rows.
-        if (!isOverlay) {
-          document.addEventListener('click', async (e) => {
-            const btn = e.target.closest('[data-claim-id]');
-            if (!btn) return;
-            e.preventDefault();
-            await RLT.me.set(btn.getAttribute('data-claim-id'));
-            RLT.ui.toast('Identity claimed');
-          });
-        }
         scheduleRender();
       }
       window.addEventListener('DOMContentLoaded', bootstrap, { once: true });

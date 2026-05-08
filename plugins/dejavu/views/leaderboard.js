@@ -31,22 +31,15 @@ DV.leaderboard = (function () {
       .sort((a, b) => b.count - a.count || new Date(b.last) - new Date(a.last))
       .slice(0, TOP_N);
 
-    // Include claim state in the fingerprint so claim/unclaim transitions
-    // force a rebuild (claim-button visibility changes per row).
-    const unclaimed = !RLT.me.id;
-    const fp =
-      (unclaimed ? 'U|' : 'C|') +
-      rows
-        .map(
-          (p) =>
-            p.id + ':' + p.count + ':' + p.name + ':' + (p.last || '') + ':' + p.aliases.length,
-        )
-        .join('|');
+    const fp = rows
+      .map(
+        (p) =>
+          p.id + ':' + p.count + ':' + p.name + ':' + (p.last || '') + ':' + p.aliases.length,
+      )
+      .join('|');
     if (fp === lastFp) return;
     lastFp = fp;
 
-    // Host-level class adds the claim-button column only when relevant.
-    host.classList.toggle('lb-host-claimable', unclaimed);
     if (cnt) cnt.textContent = rows.length;
 
     if (rows.length === 0) {
@@ -67,10 +60,10 @@ DV.leaderboard = (function () {
       }
     }
 
-    host.innerHTML = rows.map(renderRow.bind(null, unclaimed)).join('');
+    host.innerHTML = rows.map(renderRow).join('');
   }
 
-  function renderRow(unclaimed, p) {
+  function renderRow(p) {
     const aliases = p.aliases.length
       ? '<div class="lb-aliases">also ' + p.aliases.slice(-2).map(RLT.ui.esc).join(' · ') + '</div>'
       : '';
@@ -83,14 +76,6 @@ DV.leaderboard = (function () {
     const platform = icon
       ? '<div class="lb-platform" title="' + platformTitle + '">' + icon + '</div>'
       : '<div class="lb-platform lb-platform-empty" title="' + platformTitle + '"></div>';
-
-    // Claim button when identity is unclaimed. Wired through the global
-    // data-claim-id handler in app.js — no extra binding here.
-    const claim = unclaimed
-      ? '<button class="claim-btn lb-claim" data-claim-id="' +
-        RLT.ui.escAttr(p.id) +
-        '" title="Claim as me">+</button>'
-      : '';
 
     return (
       '<div class="' +
@@ -109,7 +94,6 @@ DV.leaderboard = (function () {
       '<div class="lb-time">' +
       RLT.ui.timeAgo(p.last) +
       '</div>' +
-      claim +
       '</div>'
     );
   }

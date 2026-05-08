@@ -103,15 +103,10 @@ DV.match = (function () {
     const youTag = p.isMe ? '<span class="you-tag">YOU</span>' : '';
     const botTag = p.isBot ? '<span class="bot-tag">BOT</span>' : '';
 
-    // Claim button: only visible while identity is unclaimed and only on
-    // human, non-self rows. Once claimed the buttons vanish — the YOU
-    // tag is the affordance from then on.
-    const claim =
-      !RLT.me.id && p.id && !p.isMe && !p.isBot
-        ? '<button class="claim-btn" data-claim-id="' +
-          RLT.ui.escAttr(p.id) +
-          '" title="This is me">+</button>'
-        : '<span></span>';
+    // Trailing slot kept empty — preserves the row grid that previously
+    // held a claim button. Identity is guaranteed set by the launcher
+    // splash before this view ever renders.
+    const claim = '<span></span>';
 
     // playerIcon picks the right glyph: brand icon for humans, CPU icon
     // for bots. Empty placeholder only fires when neither is available —
