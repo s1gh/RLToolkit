@@ -165,6 +165,47 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 }
 .path-input button:hover { background: #20232a; }
 .hint { margin: 0 0 12px; font-size: 12px; color: var(--gold); }
+
+/* ─── Settings: overlay surface ───────────────────────────── */
+.field-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.field-head label { margin: 0; }
+.field-sub {
+  font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.surface-row {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.surface-dim {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin: 0;
+}
+.surface-dim input {
+  width: 86px;
+  background: #0c0d10; color: var(--fg);
+  border: 1px solid #262a33;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.surface-dim input:focus { outline: none; border-color: var(--accent); }
+.surface-row .btn-secondary { padding: 6px 10px; font-size: 12px; }
+.surface-row .btn-secondary[disabled] {
+  opacity: 0.5; cursor: not-allowed;
+}
+.surface-detail {
+  margin: 8px 0 0;
+  font-size: 11px; color: var(--muted);
+  min-height: 1.2em;
+}
+.surface-detail .mismatch { color: var(--gold); }
 .modal-actions {
   display: flex; gap: 8px;
   justify-content: flex-end;

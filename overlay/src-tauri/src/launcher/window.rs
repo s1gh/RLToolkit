@@ -49,7 +49,7 @@ fn primary_monitor_logical(app: &AppHandle) -> Option<(f64, f64)> {
     Some((size.width as f64 / scale, size.height as f64 / scale))
 }
 
-fn window_monitor_logical(win: &tauri::WebviewWindow) -> Option<(f64, f64)> {
+pub(crate) fn window_monitor_logical(win: &tauri::WebviewWindow) -> Option<(f64, f64)> {
     let monitor = win.current_monitor().ok().flatten()?;
     let size = monitor.size();
     let scale = monitor.scale_factor();

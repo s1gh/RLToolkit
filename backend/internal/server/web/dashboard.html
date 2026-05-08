@@ -370,42 +370,6 @@ button{font-family:inherit}
   border:0; display:block;
   background:var(--bg-0);
 }
-.surface-panel {
-  background: #131726;
-  border: 1px solid #232a44;
-  border-radius: 8px;
-  padding: 14px 16px;
-}
-.surface-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.surface-row label {
-  font: 600 11px Inter, sans-serif;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #a9b0cf;
-}
-.surface-row input[type='number'] {
-  width: 96px;
-  padding: 6px 8px;
-  background: #0f1320;
-  color: #e6e9f5;
-  border: 1px solid #232a44;
-  border-radius: 6px;
-  font: 500 12px JetBrains Mono, monospace;
-}
-.surface-detail {
-  margin-top: 10px;
-  font: 500 11px Inter, sans-serif;
-  color: #7f88ad;
-  letter-spacing: 0.02em;
-}
-.surface-detail .mismatch {
-  color: #f97316;
-}
 </style>
 </head>
 <body>
@@ -421,25 +385,6 @@ button{font-family:inherit}
       </div>
     </div>
   </header>
-
-  <section>
-    <div class="section-head">
-      <h2>Overlay surface</h2>
-      <span class="count" id="surface-effective-label">—</span>
-    </div>
-    <div class="surface-panel" id="surface-panel">
-      <div class="surface-row">
-        <label for="surface-w">Width</label>
-        <input type="number" id="surface-w" min="1" max="16384" />
-        <label for="surface-h">Height</label>
-        <input type="number" id="surface-h" min="1" max="16384" />
-        <button type="button" class="btn" id="surface-save">Save</button>
-        <button type="button" class="btn ghost" id="surface-use-detected" disabled>Use detected</button>
-        <button type="button" class="btn ghost" id="surface-clear">Clear</button>
-      </div>
-      <div class="surface-detail" id="surface-detail"></div>
-    </div>
-  </section>
 
   <section>
     <div class="section-head">
@@ -674,92 +619,5 @@ if (inLauncher) {
   });
 }
 
-// ─── Overlay surface settings ─────────────────────────────
-const surfWInput = document.getElementById('surface-w');
-const surfHInput = document.getElementById('surface-h');
-const surfSaveBtn = document.getElementById('surface-save');
-const surfDetectedBtn = document.getElementById('surface-use-detected');
-const surfClearBtn = document.getElementById('surface-clear');
-const surfEffLabel = document.getElementById('surface-effective-label');
-const surfDetail = document.getElementById('surface-detail');
-
-let surfaceState = null;
-
-async function loadSurfaceSettings() {
-  try {
-    const r = await fetch('/api/overlay/surface');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    surfaceState = await r.json();
-  } catch (err) {
-    console.warn('[dashboard] surface fetch failed', err);
-    surfaceState = { configured: null, detected: null, effective: { width: 1920, height: 1080 } };
-  }
-  renderSurfaceSettings();
-}
-
-function renderSurfaceSettings() {
-  const cfg = surfaceState.configured;
-  const det = surfaceState.detected;
-  const eff = surfaceState.effective;
-  surfWInput.value = cfg ? cfg.width : eff.width;
-  surfHInput.value = cfg ? cfg.height : eff.height;
-  surfEffLabel.textContent = eff.width + ' × ' + eff.height;
-  surfDetectedBtn.disabled = !det;
-  let detail = '';
-  if (det) detail += 'Detected: ' + det.width + ' × ' + det.height + '. ';
-  if (cfg && det && (cfg.width !== det.width || cfg.height !== det.height)) {
-    detail += '<span class="mismatch">Configured differs from detected.</span>';
-  } else if (!cfg) {
-    detail += 'No configured size — using ' + (det ? 'detected' : 'fallback') + '.';
-  }
-  surfDetail.innerHTML = detail;
-}
-
-async function putSurface(body) {
-  const r = await fetch('/api/overlay/surface', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const msg = (await r.text()).trim();
-    throw new Error('HTTP ' + r.status + ': ' + msg);
-  }
-  surfaceState = await r.json();
-  renderSurfaceSettings();
-}
-
-surfSaveBtn.addEventListener('click', async () => {
-  const w = parseInt(surfWInput.value, 10);
-  const h = parseInt(surfHInput.value, 10);
-  if (!w || !h) {
-    alert('Width and height must be positive integers.');
-    return;
-  }
-  try {
-    await putSurface({ width: w, height: h });
-  } catch (err) {
-    alert('Save failed: ' + err.message);
-  }
-});
-
-surfDetectedBtn.addEventListener('click', async () => {
-  if (!surfaceState.detected) return;
-  try {
-    await putSurface({ width: surfaceState.detected.width, height: surfaceState.detected.height });
-  } catch (err) {
-    alert('Save failed: ' + err.message);
-  }
-});
-
-surfClearBtn.addEventListener('click', async () => {
-  try {
-    await putSurface(null);
-  } catch (err) {
-    alert('Clear failed: ' + err.message);
-  }
-});
-
-loadSurfaceSettings();
 </script>
 </body></html>

@@ -57,6 +57,7 @@ pub fn run(args: Args) {
             ipc::quit,
             ipc::get_settings,
             ipc::save_settings,
+            ipc::get_launcher_monitor_size,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -146,6 +147,26 @@ pub fn run(args: Args) {
                 }
                 clear_starting(&app_for_probe);
 
+                // Report the launcher window's monitor logical size as the
+                // detected overlay surface. The overlay window may not be
+                // mounted yet (or ever, this session) — without this report
+                // the backend has no idea what resolution the user actually
+                // runs, and falls back to 1920×1080 in the Settings UI.
+                // The overlay's own report (when it does mount) will
+                // overwrite this with its own monitor's size, which is the
+                // right behavior if the user pinned the overlay to a
+                // specific display.
+                if matches!(owned, BackendOwnership::Attached
+                    | BackendOwnership::SpawnedSidecar(_)
+                    | BackendOwnership::SpawnedRaw(_))
+                {
+                    if let Some(win) = app_for_probe.get_webview_window("launcher") {
+                        if let Some((w, h)) = window::window_monitor_logical(&win) {
+                            report_detected_surface(&toolkit_url, w, h);
+                        }
+                    }
+                }
+
                 // Autostart the overlay if overlay_enabled was set.
                 // The overlay window was already built (hidden) during
                 // setup(); just reveal it.
@@ -213,5 +234,28 @@ fn clear_starting(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<LauncherState>() {
         let mut ctx = state.lock().unwrap();
         ctx.starting = false;
+    }
+}
+
+/// Best-effort POST of the launcher window's bound monitor logical size
+/// to /api/overlay/surface/detected. Mirrors the rl-widget overlay's
+/// detection report so the backend has a sane "detected" value even
+/// when the overlay isn't mounted. Failures are logged but never
+/// propagated — the backend may not be ready at this exact moment, and
+/// the UI still works without a detected value (fallback to 1920×1080).
+fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
+    let base = toolkit.trim_end_matches('/');
+    let url = format!("{}/api/overlay/surface/detected", base);
+    let body = format!(
+        r#"{{"width":{},"height":{}}}"#,
+        w.round() as i64,
+        h.round() as i64,
+    );
+    let result = ureq::post(&url)
+        .timeout(std::time::Duration::from_secs(2))
+        .set("Content-Type", "application/json")
+        .send_string(&body);
+    if let Err(e) = result {
+        eprintln!("[launcher] detected-surface report failed: {e}");
     }
 }

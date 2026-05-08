@@ -270,6 +270,28 @@ pub fn quit(app: AppHandle) {
     app.exit(0);
 }
 
+/// Returns the launcher window's bound monitor logical size.
+/// Used by the Settings modal to (re-)post the detected surface to
+/// the backend each time the modal opens — keeps `detected` fresh
+/// even after the user clicked "Clear", and picks up monitor
+/// changes between sessions.
+#[derive(serde::Serialize)]
+pub struct MonitorSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[tauri::command]
+pub fn get_launcher_monitor_size(app: AppHandle) -> Option<MonitorSize> {
+    use tauri::Manager;
+    let win = app.get_webview_window("launcher")?;
+    let (w, h) = crate::launcher::window::window_monitor_logical(&win)?;
+    Some(MonitorSize {
+        width: w.round() as u32,
+        height: h.round() as u32,
+    })
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct LauncherSettingsView {
     pub plugins_dir: Option<String>,

@@ -17,6 +17,13 @@ const settingsHint = document.getElementById("settings-hint");
 const pluginsDirInput = document.getElementById("plugins-dir");
 const dataDirInput = document.getElementById("data-dir");
 const rlAddrInput = document.getElementById("rl-addr");
+const surfWInput = document.getElementById("surface-w");
+const surfHInput = document.getElementById("surface-h");
+const surfSaveBtn = document.getElementById("surface-save");
+const surfDetectedBtn = document.getElementById("surface-use-detected");
+const surfClearBtn = document.getElementById("surface-clear");
+const surfEffLabel = document.getElementById("surface-effective-label");
+const surfDetail = document.getElementById("surface-detail");
 
 // ─── Identity client ──────────────────────────────────────────
 // Resolves the toolkit URL once and caches it. The launcher hits
@@ -56,6 +63,116 @@ async function clearIdentity() {
   const r = await fetch(base + "/api/identity", { method: "DELETE" });
   if (!r.ok && r.status !== 204) throw new Error("clear identity: " + r.status);
 }
+
+// ─── Overlay surface client ──────────────────────────────────
+// Same shape the dashboard used to ship — three endpoints:
+//   GET  /api/overlay/surface          { configured, detected, effective }
+//   PUT  /api/overlay/surface          body: {width,height} or null to clear
+// `surfaceState` is cached between renders so the buttons can read
+// `detected` without a round-trip.
+let surfaceState = null;
+
+async function loadSurface() {
+  try {
+    const base = await toolkitUrl();
+    // Refresh "detected" before reading state. The launcher window
+    // always knows its monitor; posting it here keeps the value
+    // current even after the user clicks Clear (which only nukes
+    // `configured`, not `detected`, but a stale detected from
+    // session start would still be wrong if the user moved monitors
+    // or unplugged a display in between).
+    try {
+      const mon = await invoke("get_launcher_monitor_size");
+      if (mon && mon.width && mon.height) {
+        await fetch(base + "/api/overlay/surface/detected", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ width: mon.width, height: mon.height }),
+        });
+      }
+    } catch (e) {
+      // Detection is best-effort — backend may be down, monitor info
+      // unavailable on this platform, etc. Fall through to the GET.
+      console.warn("[launcher] detected-surface refresh failed", e);
+    }
+    const r = await fetch(base + "/api/overlay/surface");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    surfaceState = await r.json();
+  } catch (err) {
+    console.warn("[launcher] surface fetch failed", err);
+    surfaceState = { configured: null, detected: null, effective: { width: 1920, height: 1080 } };
+  }
+  renderSurface();
+}
+
+function renderSurface() {
+  if (!surfaceState) return;
+  const cfg = surfaceState.configured;
+  const det = surfaceState.detected;
+  const eff = surfaceState.effective;
+  surfWInput.value = cfg ? cfg.width : eff.width;
+  surfHInput.value = cfg ? cfg.height : eff.height;
+  surfEffLabel.textContent = eff.width + " × " + eff.height;
+  surfDetectedBtn.disabled = !det;
+  let detail = "";
+  if (det) detail += "Detected: " + det.width + " × " + det.height + ". ";
+  if (cfg && det && (cfg.width !== det.width || cfg.height !== det.height)) {
+    detail += '<span class="mismatch">Configured differs from detected.</span>';
+  } else if (!cfg) {
+    detail += "No configured size — using " + (det ? "detected" : "fallback") + ".";
+  }
+  surfDetail.innerHTML = detail;
+}
+
+async function putSurface(body) {
+  const base = await toolkitUrl();
+  const r = await fetch(base + "/api/overlay/surface", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const msg = (await r.text()).trim();
+    throw new Error("HTTP " + r.status + ": " + msg);
+  }
+  surfaceState = await r.json();
+  renderSurface();
+}
+
+surfSaveBtn.addEventListener("click", async () => {
+  const w = parseInt(surfWInput.value, 10);
+  const h = parseInt(surfHInput.value, 10);
+  if (!w || !h) {
+    settingsHint.textContent = "Surface width and height must be positive integers.";
+    settingsHint.hidden = false;
+    return;
+  }
+  try {
+    await putSurface({ width: w, height: h });
+  } catch (err) {
+    settingsHint.textContent = "Save surface failed: " + (err?.message || err);
+    settingsHint.hidden = false;
+  }
+});
+
+surfDetectedBtn.addEventListener("click", async () => {
+  if (!surfaceState?.detected) return;
+  try {
+    await putSurface({ width: surfaceState.detected.width, height: surfaceState.detected.height });
+  } catch (err) {
+    settingsHint.textContent = "Save surface failed: " + (err?.message || err);
+    settingsHint.hidden = false;
+  }
+});
+
+surfClearBtn.addEventListener("click", async () => {
+  try {
+    await putSurface(null);
+  } catch (err) {
+    settingsHint.textContent = "Clear surface failed: " + (err?.message || err);
+    settingsHint.hidden = false;
+  }
+});
 
 // ─── Splash state machine ────────────────────────────────────
 const splash = document.getElementById("splash");
@@ -434,6 +551,11 @@ async function openSettings() {
   settingsHint.hidden = true;
   settingsHint.textContent = "";
   settingsModal.hidden = false;
+  // Surface fields read from the backend (not invoke), so they take a
+  // round-trip — fire-and-forget; renderSurface() updates the modal in
+  // place when the response lands. Errors fall back to a "1920×1080"
+  // placeholder so the inputs are never empty.
+  loadSurface();
 }
 
 function closeSettings() {

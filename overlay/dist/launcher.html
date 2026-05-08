@@ -95,6 +95,26 @@
           <input type="text" id="rl-addr" placeholder="127.0.0.1:49123 (default)">
         </div>
       </div>
+      <div class="field">
+        <div class="field-head">
+          <label>Overlay surface</label>
+          <span class="field-sub" id="surface-effective-label">—</span>
+        </div>
+        <div class="surface-row">
+          <label class="surface-dim">
+            <span>W</span>
+            <input type="number" id="surface-w" min="1" max="16384">
+          </label>
+          <label class="surface-dim">
+            <span>H</span>
+            <input type="number" id="surface-h" min="1" max="16384">
+          </label>
+          <button type="button" id="surface-save" class="btn-secondary">Save</button>
+          <button type="button" id="surface-use-detected" class="btn-secondary" disabled>Use detected</button>
+          <button type="button" id="surface-clear" class="btn-secondary">Clear</button>
+        </div>
+        <p class="surface-detail" id="surface-detail"></p>
+      </div>
       <p class="hint" id="settings-hint" hidden></p>
       <div class="modal-actions">
         <button id="settings-cancel" class="btn-secondary">Cancel</button>
