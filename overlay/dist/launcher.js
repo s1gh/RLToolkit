@@ -403,6 +403,15 @@ document.querySelectorAll("[data-cmd]").forEach(btn => {
       invoke(cmd).catch(() => {});
       return;
     }
+    if (btn.dataset.cmd === "reclaim_identity") {
+      try {
+        await clearIdentity();
+        await enterSplash();
+      } catch (e) {
+        console.error("reclaim failed", e);
+      }
+      return;
+    }
     invoke(btn.dataset.cmd).catch(() => {});
   });
 });
