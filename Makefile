@@ -231,7 +231,7 @@ release-linux: sdk
 	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
 	    -o $(TAURI_DIR)/binaries/$(BINARY)-$$triple ./backend/cmd/rl-toolkit && \
 	  cd $(TAURI_DIR) && \
-	  cargo tauri build --features bundled-updater --config tauri.launcher.json
+	  NO_STRIP=1 cargo tauri build --features bundled-updater --config tauri.launcher.json
 	@# AppImage rename: Tauri emits <productName>_<v>_amd64.AppImage; we want our canonical name.
 	@cp -f $(TAURI_TARGET)/bundle/appimage/$(LAUNCHER)_$(VERSION)_amd64.AppImage      $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage
 	@cp -f $(TAURI_TARGET)/bundle/appimage/$(LAUNCHER)_$(VERSION)_amd64.AppImage.sig  $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage.sig
