@@ -36,7 +36,7 @@ endif
 OUT_DIR := $(RELEASE_DIR)/$(HOST_OS)
 
 .PHONY: all backend widget launcher launcher-portable launcher-installer \
-        release release-windows run clean release-clean \
+        release release-windows release-linux run clean release-clean \
         fmt fmt-check lint check sdk
 
 # --- SDK bundle: esbuild the modular sources into sdk/dist/sdk.js ------
@@ -202,6 +202,59 @@ else
 .PHONY: release-windows
 release-windows:
 	@echo "release-windows is Windows-only — run on a Windows host" && false
+endif
+
+# --- release-linux: Linux artifacts only -----------------------------
+#
+# Produces the three files for the Linux side of a release:
+#   release/linux/RLToolkit_<v>_x86_64.AppImage           (signed)
+#   release/linux/RLToolkit_<v>_x86_64.AppImage.sig
+#   release/linux/RLToolkit_<v>_x86_64-portable.tar.gz
+#
+# Like release-windows, latest.json is NOT generated here. The CI
+# workflow combines the Windows .sig (downloaded from the release)
+# and this build's .sig into a single multi-platform manifest.
+#
+# Inputs (env or make var):
+#   VERSION              required; e.g. 0.2.0 (no leading v)
+#   RELEASE_OWNER        required; GitHub owner used in URLs (informational)
+#   TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]  required for signing
+
+ifeq ($(HOST_OS),linux)
+.PHONY: release-linux
+release-linux: sdk
+	@if [ -z "$(VERSION)" ]; then echo "VERSION required"; exit 1; fi
+	@if [ -z "$(RELEASE_OWNER)" ]; then echo "RELEASE_OWNER required"; exit 1; fi
+	@$(call MKDIR,$(OUT_DIR))
+	@triple=$$(rustc -vV | sed -n 's/host: //p'); \
+	  echo "host triple: $$triple"; \
+	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
+	    -o $(TAURI_DIR)/binaries/$(BINARY)-$$triple ./backend/cmd/rl-toolkit && \
+	  cd $(TAURI_DIR) && \
+	  cargo tauri build --features bundled-updater --config tauri.launcher.json
+	@# AppImage rename: Tauri emits <productName>_<v>_amd64.AppImage; we want our canonical name.
+	@cp -f $(TAURI_TARGET)/bundle/appimage/$(LAUNCHER)_$(VERSION)_amd64.AppImage      $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage
+	@cp -f $(TAURI_TARGET)/bundle/appimage/$(LAUNCHER)_$(VERSION)_amd64.AppImage.sig  $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage.sig
+	@chmod +x $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage
+	@# Portable tarball: stage the launcher binary (renamed from rl-widget to RLT-Launcher,
+	@# matching the Windows convention) and the rl-toolkit sidecar in a temp dir, then tar it.
+	@# We re-stage rather than reusing the AppImage's internals because the AppImage's
+	@# layered FS isn't a flat directory and unpacking it would be slower than re-copying.
+	@tmp=$$(mktemp -d); \
+	  staged="$$tmp/RLToolkit_$(VERSION)_x86_64-portable"; \
+	  mkdir -p "$$staged"; \
+	  cp -f $(TAURI_TARGET)/$(WIDGET_BIN) "$$staged/$(LAUNCHER)"; \
+	  cp -f $(TAURI_TARGET)/$(BINARY)     "$$staged/$(BINARY)"; \
+	  chmod +x "$$staged/$(LAUNCHER)" "$$staged/$(BINARY)"; \
+	  tar -C "$$tmp" -czf $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64-portable.tar.gz \
+	    "RLToolkit_$(VERSION)_x86_64-portable"; \
+	  rm -rf "$$tmp"
+	@echo "Release artefacts in $(OUT_DIR):"
+	@ls -1 $(OUT_DIR)
+else
+.PHONY: release-linux
+release-linux:
+	@echo "release-linux is Linux-only — run on a Linux host (or in CI)" && false
 endif
 
 # --- release: full stack (backend + launcher, launcher emits widget too)
