@@ -189,14 +189,14 @@ func (b *Bus) broadcastRaw(eventName string, data []byte) {
 	b.publishMu.Unlock()
 
 	var slow []*subscriber
-	delivered, skipped := 0, 0
+	delivered, filterRejects := 0, 0
 	for _, s := range dst {
 		// Filter check — framing synthetics bypass to keep
 		// _ConnectionStatus / _MatchState / _RosterChanged /
 		// _IdentityChanged reliable as universal signals.
 		if !bypassFilter && s.events != nil {
 			if _, ok := s.events[eventName]; !ok {
-				skipped++
+				filterRejects++
 				continue
 			}
 		}
@@ -220,7 +220,7 @@ func (b *Bus) broadcastRaw(eventName string, data []byte) {
 	b.metrics.recordPublish(
 		time.Since(start).Nanoseconds(),
 		delivered,
-		skipped,
+		filterRejects,
 		len(slow),
 		delivered*len(data),
 	)
