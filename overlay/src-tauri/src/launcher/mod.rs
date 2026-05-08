@@ -20,6 +20,7 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("launcher") {
                 let _ = w.unminimize();
@@ -73,6 +74,8 @@ pub fn run(args: Args) {
             ipc::get_settings,
             ipc::save_settings,
             ipc::get_launcher_monitor_size,
+            updater::check_for_updates,
+            updater::apply_update,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -98,6 +101,13 @@ pub fn run(args: Args) {
             if let Err(e) = crate::overlay_bridge::ensure_overlay(&handle) {
                 crate::log_error!("[launcher] overlay pre-build failed: {e}");
             }
+
+            // Best-effort update check. No-op when the updater plugin
+            // has no `plugins.updater` config (portable build).
+            let handle_for_updater = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                updater::check_on_startup(handle_for_updater).await;
+            });
 
             // Drive real RL focus events into every webview the launcher
             // owns (the launcher window itself ignores them; the overlay
