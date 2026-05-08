@@ -528,3 +528,25 @@ html, body {
   font-size: 12px;
   color: var(--muted);
 }
+
+.updater-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #2b3140;
+  color: #e8ecf2;
+  border-bottom: 1px solid #1a1f2b;
+  font-size: 13px;
+}
+.updater-banner[hidden] { display: none; }
+.updater-banner .updater-text { flex: 1; }
+.updater-banner .updater-btn {
+  padding: 4px 12px;
+  background: #4f8cff;
+  color: white;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.updater-banner .updater-dismiss { background: transparent; color: #aab1bd; }

@@ -718,3 +718,42 @@ window.addEventListener("message", event => {
 setInterval(refreshStatus, 2000);
 refreshStatus();
 bootIdentityCheck();
+
+// ─── Updater banner ─────────────────────────────────────────
+(function initUpdaterBanner() {
+  const banner = document.getElementById("updater-banner");
+  if (!banner) return;
+  const text = banner.querySelector(".updater-text");
+  const installBtn = banner.querySelector(".updater-install");
+  const dismissBtn = banner.querySelector(".updater-dismiss");
+
+  const invoke = window.__TAURI__?.core?.invoke;
+  const listen = window.__TAURI__?.event?.listen;
+  if (!invoke || !listen) return;
+
+  function show(version) {
+    text.textContent = `Version ${version} is available.`;
+    banner.hidden = false;
+  }
+  function hide() {
+    banner.hidden = true;
+  }
+
+  listen("updater://available", (e) => show(String(e.payload || "")));
+
+  installBtn.addEventListener("click", async () => {
+    installBtn.disabled = true;
+    text.textContent = "Downloading update…";
+    try {
+      await invoke("apply_update");
+      // Tauri relaunches us. If we're still here, install errored.
+      text.textContent = "Update did not complete. See logs.";
+    } catch (err) {
+      text.textContent = `Update failed: ${err}`;
+    } finally {
+      installBtn.disabled = false;
+    }
+  });
+
+  dismissBtn.addEventListener("click", hide);
+})();
