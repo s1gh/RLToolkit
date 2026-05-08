@@ -3,8 +3,9 @@
 // Self and the aggregate-bot record are excluded; both still live in the
 // ledger but they're not interesting on a "who do I keep running into"
 // list. Rendering is fingerprint-gated so we only repaint when the
-// underlying ledger actually changed (the SDK calls onTick at ~60Hz, but
-// the leaderboard content only changes on `record`/`change`).
+// underlying ledger actually changed (the SDK calls onTick once per
+// UpdateState — i.e. at the user's PacketSendRate, 1..120 — but the
+// leaderboard content only changes on `record`/`change`).
 window.DV = window.DV || {};
 
 DV.leaderboard = (function () {

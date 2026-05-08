@@ -15,9 +15,13 @@ import (
 // send(). The TCP read loop and outbox prefer "drop" over "block" for
 // that reason.
 const (
-	// outboxBufSize ≈ 17s of 60Hz traffic between the TCP read loop and
-	// the bus dispatcher. Far more than any expected GC or downstream
-	// hiccup; if it ever fills, packets are dropped (not blocked).
+	// outboxBufSize is the ring between the TCP read loop and the bus
+	// dispatcher. The on-the-wire rate depends on RL's PacketSendRate
+	// (1..120, recommended 10), so this is a fixed slot count rather
+	// than a time window — at 10 Hz it's ~100 s of headroom, at 120 Hz
+	// roughly 8 s. Far more than any expected GC or downstream hiccup
+	// at any supported rate; if it ever fills, packets are dropped
+	// (not blocked).
 	outboxBufSize = 1024
 
 	// tcpReadBuffer increases kernel headroom so bursts don't backpressure
@@ -36,9 +40,9 @@ const (
 	idleLogInterval = 5 * time.Minute
 )
 
-// rateLimitedLogger emits at most one log line per `interval`. Used for
-// drop logging on the 60Hz hot path so we know dropping is happening
-// without spamming at the packet rate.
+// rateLimitedLogger emits at most one log line per `interval`. Used
+// for drop logging on the RL packet hot path (PacketSendRate Hz) so
+// we know dropping is happening without spamming at the packet rate.
 type rateLimitedLogger struct {
 	interval time.Duration
 	mu       sync.Mutex

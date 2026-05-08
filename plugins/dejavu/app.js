@@ -63,9 +63,9 @@
     // onRoster fires only when the player list itself moves (join,
     // leave, team-switch, match guid flip) — typically a handful of
     // events per match. dejavu reads roster identity, not per-frame
-    // physics state, so the 60-120Hz UpdateState stream we'd pull via
-    // onMatch is wasted bandwidth. Built on the toolkit's synthetic
-    // _RosterChanged event.
+    // physics state, so the UpdateState stream we'd pull via onMatch
+    // (firing at the user's PacketSendRate, 1..120) is wasted
+    // bandwidth. Built on the toolkit's synthetic _RosterChanged event.
     onRoster: scheduleRender,
     // The THIS MATCH pill label reflects state.phase, so a phase
     // transition without a roster move (countdown → live, live →

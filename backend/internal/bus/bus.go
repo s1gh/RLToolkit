@@ -7,9 +7,13 @@ import (
 	"time"
 )
 
-// subscriberBufSize ≈ 1s of 60Hz UpdateStates per SSE client. Big
-// enough to absorb GC pauses and browser repaint hitches, small enough
-// that a truly stalled consumer is evicted within ~1s.
+// subscriberBufSize is the per-subscriber channel depth. Sized to
+// absorb GC pauses and browser repaint hitches without dropping a
+// healthy consumer, while still evicting a genuinely stalled one
+// quickly. The on-the-wire event rate depends on RL's PacketSendRate
+// (1..120, recommended 10), so this is a fixed slot count rather
+// than a time window — at 10 Hz it's ~6 s of headroom, at 120 Hz
+// roughly 0.5 s.
 const subscriberBufSize = 64
 
 // Bus fans out raw RL messages to all SSE subscribers.
@@ -135,8 +139,8 @@ func isFramingSignal(eventName string) bool {
 // upstream connection.
 //
 // Subscribers with an event filter only receive matching events. The
-// event name is extracted once per Broadcast so the 1-120Hz hot path
-// stays JSON-decode-free.
+// event name is extracted once per Broadcast so the hot path stays
+// JSON-decode-free regardless of the user's PacketSendRate (1..120).
 //
 // Wire shape: when evt.Raw is non-nil (the event arrived over the RL
 // socket or a processor passed through bytes it already had), we ship

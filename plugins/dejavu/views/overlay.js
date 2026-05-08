@@ -95,9 +95,10 @@ DV.overlay = (function () {
   let lastBodyState = ''; // 'empty' | 'awaiting' | 'rows' | ''
   // Coarse roster fingerprint covering everything render() touches —
   // when this matches, the per-row diff walk would be a pure no-op so
-  // we can skip it. render() runs at 60Hz via onTick; most ticks during
-  // an active match flip nothing roster-shaped, so the early exit is
-  // the common case.
+  // we can skip it. render() runs once per UpdateState via onTick
+  // (the user's PacketSendRate, 1..120); most ticks during an active
+  // match flip nothing roster-shaped, so the early exit is the common
+  // case.
   let lastRosterFp = '';
 
   function unmountAll() {

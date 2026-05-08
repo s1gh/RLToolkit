@@ -5,7 +5,8 @@
 // Render strategy: the row scaffolding only depends on roster identity +
 // teams + identity claim, so we rebuild it via a `scaffoldKey` and otherwise
 // patch only the encounter count cell on every tick. That keeps DOM churn
-// low at the SDK's 60Hz onTick rate.
+// low — onTick fires per UpdateState envelope, i.e. at the user's RL
+// PacketSendRate (1..120, recommended 10).
 window.DV = window.DV || {};
 
 DV.match = (function () {

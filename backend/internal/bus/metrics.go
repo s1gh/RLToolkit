@@ -9,10 +9,12 @@ import (
 
 // metricsRingSize is how many recent publish durations we retain for
 // percentile estimates. The window is sample-count based, NOT
-// time-based: in a busy match (~120 Hz of UpdateState fanouts) it
-// covers ~5 seconds; in an idle session it can stretch to many
-// minutes. Big enough to smooth out a single slow publish; small
-// enough that a recent regression dominates the percentiles.
+// time-based: it covers however long it takes to accumulate 600
+// Broadcast calls. At RL's recommended PacketSendRate of 10 that's
+// roughly a minute of UpdateStates plus whatever derived events fire
+// alongside; on idle (no match) it can stretch to many minutes. Big
+// enough to smooth out a single slow publish; small enough that a
+// recent regression dominates the percentiles.
 const metricsRingSize = 600
 
 // busMetrics is process-wide telemetry for the event bus. Counters use

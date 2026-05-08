@@ -4,9 +4,10 @@
 // touch-variant emitters, the diff emitters, the synth's
 // _MatchSummary writer, etc.).
 //
-// Owns the parse so consumers don't each repeat the JSON decode at
-// 60-120Hz. Consumers read via the Latest / Previous accessors —
-// they're cheap (a single read lock + struct return).
+// Owns the parse so consumers don't each repeat the JSON decode on
+// every UpdateState (RL's PacketSendRate, 1..120). Consumers read
+// via the Latest / Previous accessors — they're cheap (a single read
+// lock + struct return).
 package tick
 
 import (

@@ -30,7 +30,8 @@ type IdentityLookup interface {
 // join, leave, team switch, or guid flip — a fresh match). Plugins
 // that only care about who's on the field (dejavu, anything similar)
 // can subscribe to _RosterChanged and skip UpdateState entirely,
-// which is the heaviest event by far (~1-3 KB at 60-120 Hz).
+// which is the heaviest event by far (~1-3 KB per packet, fanned
+// out at the user's PacketSendRate of 1..120).
 //
 // What counts as a "change": the roster fingerprint is the match guid
 // plus the sorted (PrimaryId, TeamNum) pairs. Score, position, boost,
