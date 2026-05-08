@@ -530,6 +530,11 @@ html, body {
 }
 
 .updater-banner {
+  position: fixed;
+  top: var(--strip-h);
+  left: 0;
+  right: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 12px;
