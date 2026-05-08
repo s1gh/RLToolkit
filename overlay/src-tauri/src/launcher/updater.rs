@@ -92,8 +92,32 @@ pub async fn apply_update(app: AppHandle) -> Result<(), String> {
         .download_and_install(|_, _| {}, || {})
         .await
         .map_err(|e| format!("install failed: {e}"))?;
-    // Tauri restarts the app once the installer relaunches it.
-    // Nothing more to do here.
+
+    // On Windows, Tauri spawns the new NSIS installer and the
+    // current process exits inside `download_and_install` (via
+    // on_before_exit + std::process::exit), so we never reach here
+    // on a successful update — the new installer relaunches us.
+    //
+    // On Linux, `download_and_install` just rewrites the AppImage
+    // file in place and returns Ok. There is no automatic exec —
+    // the caller is responsible for restarting. We do that here.
+    // app.restart() drains state, exec()s a fresh process pointing
+    // at the same path, and never returns. That path is the
+    // freshly-rewritten AppImage, so the new process loads the
+    // updated bundle.
+    #[cfg(target_os = "linux")]
+    {
+        crate::log_info!("[updater] install complete; restarting");
+        app.restart();
+        // app.restart() returns ! (never), so anything after it on
+        // Linux is unreachable. The Ok below is for non-Linux paths.
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    return Ok(());
+
+    #[cfg(target_os = "linux")]
+    #[allow(unreachable_code)]
     Ok(())
 }
 
