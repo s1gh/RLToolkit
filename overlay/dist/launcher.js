@@ -24,12 +24,14 @@ const rlAddrInput = document.getElementById("rl-addr");
 let _toolkitUrl = null;
 async function toolkitUrl() {
   if (_toolkitUrl) return _toolkitUrl;
+  let raw;
   try {
-    _toolkitUrl = (await invoke("get_toolkit_url")) || "http://localhost:49200";
+    raw = (await invoke("get_toolkit_url")) || "http://localhost:49200";
   } catch (_) {
-    _toolkitUrl = "http://localhost:49200";
+    raw = "http://localhost:49200";
   }
-  return _toolkitUrl.replace(/\/+$/, "");
+  _toolkitUrl = raw.replace(/\/+$/, "");
+  return _toolkitUrl;
 }
 
 async function getIdentity() {
