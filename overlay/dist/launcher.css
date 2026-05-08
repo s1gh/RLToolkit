@@ -342,6 +342,67 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   border-radius: var(--radius);
   font-size: 12px;
 }
+
+/* ─── Splash help disclosure ────────────────────────────── */
+/* Collapsed state hides the body; the summary stays visible as a
+   muted link-ish row so users with stats already enabled don't see
+   clutter. Expanded state shows the steps as a normal indented list. */
+.splash-help {
+  margin-top: 14px;
+  padding: 8px 12px;
+  background: #0c0d10;
+  border: 1px solid #20232a;
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--muted);
+}
+.splash-help[open] { color: var(--fg); }
+.splash-help summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: 500;
+  color: var(--muted);
+  /* Custom marker so we can color it with the accent on hover. */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.splash-help summary::-webkit-details-marker { display: none; }
+.splash-help summary::before {
+  content: "›";
+  display: inline-block;
+  width: 10px;
+  color: var(--accent);
+  transition: transform 120ms ease;
+}
+.splash-help[open] summary::before { transform: rotate(90deg); }
+.splash-help summary:hover { color: var(--fg); }
+
+.splash-help-steps {
+  margin: 10px 0 4px;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.55;
+  color: var(--fg);
+}
+.splash-help-steps code {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  background: #181a20;
+  border: 1px solid #262a33;
+  border-radius: 4px;
+  color: var(--accent);
+  /* Long config paths shouldn't blow out the splash card width. */
+  word-break: break-all;
+}
+.splash-help-steps strong {
+  color: var(--fg);
+  font-weight: 600;
+}
 .splash-error[hidden] { display: none; }
 
 .splash-confirm {

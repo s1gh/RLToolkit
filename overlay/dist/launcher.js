@@ -393,8 +393,13 @@ const DISCONNECT_DEBOUNCE = 2; // consecutive failed polls before showing discon
 // The Go RL client cycles its TCP connection every rlIdleTimeout (30s) when
 // RL is idle, so rl_api briefly drops to "connecting"/"disconnected" during
 // the ~0.5–5s reconnect window. Hold the last "connected" verdict across a
-// few polls so the badge doesn't flap on every idle cycle.
+// few polls so the badge doesn't flap on every idle cycle. The hold only
+// kicks in AFTER we've actually seen a "connected" — without this gate
+// the cold-start case (RL not running, rl_api never connected) would
+// briefly show "connected" before flipping to "game disconnected" once
+// the miss counter caught up.
 let rlApiMisses = 0;
+let rlApiEverConnected = false;
 const RL_API_DEBOUNCE = 3;
 
 async function refreshStatus() {
@@ -415,10 +420,13 @@ async function refreshStatus() {
 
   if (s.rl_api === "connected") {
     rlApiMisses = 0;
+    rlApiEverConnected = true;
   } else {
     rlApiMisses++;
   }
-  const rlApiConnected = s.rl_api === "connected" || rlApiMisses < RL_API_DEBOUNCE;
+  const rlApiConnected =
+    s.rl_api === "connected" ||
+    (rlApiEverConnected && rlApiMisses < RL_API_DEBOUNCE);
 
   if (!displayConnected) {
     conn.dataset.status = s.starting ? "connecting" : "disconnected";

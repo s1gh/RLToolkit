@@ -61,6 +61,26 @@
       <div class="splash-status" id="splash-status">Waiting for the backend…</div>
       <div class="splash-roster" id="splash-roster"></div>
       <p class="splash-error" id="splash-error" hidden></p>
+      <details class="splash-help">
+        <summary>Don't see your name? Set up the Stats API</summary>
+        <ol class="splash-help-steps">
+          <li>Close Rocket League if it's running.</li>
+          <li>
+            Open
+            <code>&lt;RL install dir&gt;\TAGame\Config\DefaultStatsAPI.ini</code>
+            in a text editor.
+          </li>
+          <li>
+            Set <code>PacketSendRate=10</code>. Any value greater than zero
+            enables the websocket; 10 is plenty for an overlay.
+          </li>
+          <li>
+            Confirm <code>Port=49123</code> matches the port in
+            <strong>Settings → Rocket League Stats API address</strong>.
+          </li>
+          <li>Save the file, restart Rocket League, queue a private match.</li>
+        </ol>
+      </details>
     </div>
     <div class="splash-confirm" id="splash-confirm" hidden>
       <div class="splash-confirm-card">
