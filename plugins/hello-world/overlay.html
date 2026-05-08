@@ -78,6 +78,9 @@
               lastGoalEl.textContent = `${scorer} — ${speed} km/h${tag}`;
               lastGoalEl.classList.remove("empty");
             },
+            ReplayCreated() {
+              console.log("ReplayCreated");
+            },
           },
         });
       })();
