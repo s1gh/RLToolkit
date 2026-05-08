@@ -249,7 +249,7 @@ release-linux: sdk
 	  printf '#! /usr/bin/env bash\n# Hook neutered: original forced GDK_BACKEND=x11 which breaks\n# Wayland transparency / layer-shell. Bundled libs init fine\n# without env tweaks (host backend auto-detected by GDK).\n:\n' \
 	    > "$$tmp/squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh"; \
 	  chmod +x "$$tmp/squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh"; \
-	  appimagetool=$$(find /tmp -maxdepth 4 -path '*/appimagetool-prefix/usr/bin/appimagetool' 2>/dev/null | head -1); \
+	  appimagetool=$$(find /tmp -maxdepth 4 -path '*/appimage_extracted_*/usr/bin/appimagetool' 2>/dev/null | head -1); \
 	  if [ -z "$$appimagetool" ]; then appimagetool=$$(command -v appimagetool); fi; \
 	  if [ -z "$$appimagetool" ]; then echo "appimagetool not found; install appimagetool-bin or run cargo tauri build first to populate Tauri's cache" && exit 1; fi; \
 	  echo "using appimagetool: $$appimagetool"; \
