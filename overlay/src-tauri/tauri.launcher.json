@@ -4,6 +4,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "externalBin": ["binaries/rl-toolkit"],
     "windows": {
       "nsis": {
