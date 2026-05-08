@@ -84,6 +84,23 @@ jobs:
         id: ver
         run: echo "version=$(echo '${{ inputs.tag }}' | sed 's/^v//')" >> $GITHUB_OUTPUT
 
+      - name: Sync source-tree version to the release tag
+        # Cargo embeds CARGO_PKG_VERSION at compile time and Tauri's
+        # AppImage bundler names files <productName>_<v>_<arch>.AppImage,
+        # so the source tree must match the requested VERSION before
+        # the build. For real releases the developer commits the bump
+        # to main first (this step becomes a no-op). For dry-runs and
+        # one-off tags that don't match what's on main, this sed makes
+        # the input authoritative. We don't commit the change — the
+        # checkout is throwaway.
+        run: |
+          VERSION=${{ steps.ver.outputs.version }}
+          sed -i -E "0,/^version = \"[^\"]*\"$/s//version = \"${VERSION}\"/" overlay/src-tauri/Cargo.toml
+          sed -i -E "s/(\"version\": \")[^\"]*(\")/\1${VERSION}\2/"          overlay/src-tauri/tauri.conf.json
+          echo "Synced source to ${VERSION}:"
+          grep '^version' overlay/src-tauri/Cargo.toml | head -1
+          grep '"version":' overlay/src-tauri/tauri.conf.json
+
       - name: Build Linux release artefacts
         run: |
           make release-linux \
