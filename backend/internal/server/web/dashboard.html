@@ -30,13 +30,20 @@
   --mono:'JetBrains Mono', ui-monospace, monospace;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%}
+/* html stays at full viewport height so the radial-gradient anchor
+   percentages (`-10%`, `110%`) resolve consistently. body uses
+   min-height instead of height — locking body to 100% would clip
+   the background to the viewport, leaving the scrolled-into area
+   (plugin grid below the fold when the launcher window is small)
+   showing the underlying iframe color, not the dashboard's. */
+html{height:100%}
 body{
   font-family:var(--ui); font-size:14px; color:var(--txt);
   background:
     radial-gradient(1400px 700px at 85% -10%, rgba(167,139,250,0.10), transparent 60%),
     radial-gradient(1100px 550px at -10% 110%, rgba(34,211,238,0.07), transparent 60%),
     var(--bg-0);
+  background-attachment:fixed;
   -webkit-font-smoothing:antialiased;
   text-rendering:optimizeLegibility;
   min-height:100vh;
@@ -46,8 +53,13 @@ a{color:inherit;text-decoration:none}
 button{font-family:inherit}
 
 /* ─── Layout ───────────────────────────────────────────────── */
+/* Shell width caps the content so prose doesn't get a luxurious
+   line length on ultrawide displays, but stays roomy enough that the
+   plugin grid (auto-fill minmax(320px, 1fr)) reaches 4 columns at
+   fullscreen on a 1440p+ monitor. Tightening to 1280px (the previous
+   value) left a ~600px empty band on each side at 2560-wide. */
 .shell{
-  max-width:1280px; margin:0 auto;
+  max-width:1600px; margin:0 auto;
   padding:24px 32px 40px;
 }
 @media (max-width:720px){ .shell{ padding:20px 18px 32px; } }
@@ -287,39 +299,131 @@ button{font-family:inherit}
   background:var(--bg-3); padding:1px 6px; border-radius:4px;
 }
 
-/* ─── Footer ribbon ────────────────────────────────────────── */
-.ribbon{
-  border-top:1px solid var(--line);
-  padding-top:16px; margin-top:8px;
-  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
-  font-size:11px; color:var(--txt-3);
-  font-family:var(--mono);
+/* ─── Browser sources ──────────────────────────────────────── */
+/* Two fixed columns at typical launcher widths, collapsing to one
+   below the dashboard's mobile breakpoint. Earlier this used an
+   auto-fill minmax grid like the plugin grid — but with only two
+   source cards, auto-fill would reserve extra empty tracks at wide
+   widths, pinning each card to its min size while empty space sat
+   beside them. The visible artifact was a "reflow" where the cards
+   appeared to shrink as the window grew. A fixed two-column track
+   keeps both cards stretched evenly across the available width at
+   every step above the breakpoint. */
+.sources{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+  margin-bottom:48px;
 }
-.ribbon .label{
-  text-transform:uppercase; letter-spacing:0.16em;
-  color:var(--txt-3);
-  font-family:var(--ui); font-weight:600;
-  margin-right:4px;
+@media (max-width:720px){
+  .sources{ grid-template-columns:1fr; }
+}
+.source-card{
+  background:linear-gradient(180deg, var(--bg-1), var(--bg-2) 110%);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:18px 20px 16px;
+  display:flex; flex-direction:column; gap:10px;
+}
+.source-card .source-head{
+  display:flex; align-items:baseline; justify-content:space-between;
+  gap:10px;
+}
+.source-card .source-title{
+  font-size:13px; font-weight:600; color:var(--txt);
+  letter-spacing:-0.01em;
+}
+.source-card .source-hint{
+  font-size:11px; color:var(--txt-3);
+}
+.source-card .source-url{
+  display:flex; align-items:center; gap:8px;
+  padding:8px 10px;
+  background:var(--bg-0);
+  border:1px solid var(--line);
+  border-radius:8px;
+  font-family:var(--mono); font-size:12px;
+  color:var(--txt-2);
+  /* Long URLs shouldn't push the buttons out — let the URL ellipsize. */
+  min-width:0;
+}
+.source-card .source-url-text{
+  flex:1; min-width:0;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  user-select:all; /* triple-click selects the whole URL */
+}
+.source-card .source-actions{
+  display:flex; gap:6px;
+}
+.source-card .source-btn{
+  background:var(--bg-3); color:var(--txt-2);
+  border:1px solid var(--line);
+  border-radius:6px;
+  padding:5px 10px;
+  font:600 11px var(--ui);
+  letter-spacing:0.04em;
+  cursor:pointer;
+  transition:border-color .15s ease, color .15s ease, background .15s ease;
+}
+.source-card .source-btn:hover{
+  border-color:var(--cyan); color:var(--cyan);
+}
+.source-card .source-btn.copied{
+  border-color:var(--cyan); color:var(--cyan); background:rgba(34,211,238,0.08);
 }
 
-.ribbon a{
+/* ─── Developer endpoints ──────────────────────────────────── */
+/* Collapsed by default. The summary reads as a quiet inline link
+   so end users don't think it's something they need. The body
+   reuses the .dot pill chrome the old footer ribbon had — these
+   really are diagnostic, not branded launcher features. */
+.dev-endpoints{
+  border-top:1px solid var(--line);
+  padding-top:14px; margin-top:8px;
+  font-size:12px; color:var(--txt-3);
+}
+.dev-endpoints summary{
+  cursor:pointer;
+  list-style:none;
+  display:inline-flex; align-items:center; gap:6px;
+  color:var(--txt-3);
+  font-family:var(--ui);
+  letter-spacing:0.04em;
+  user-select:none;
+}
+.dev-endpoints summary::-webkit-details-marker{ display:none; }
+.dev-endpoints summary::before{
+  content:"›";
+  display:inline-block;
+  color:var(--txt-3);
+  transition:transform .15s ease;
+}
+.dev-endpoints[open] summary::before{ transform:rotate(90deg); }
+.dev-endpoints summary:hover{ color:var(--txt-2); }
+.dev-endpoints-row{
+  display:flex; flex-wrap:wrap; gap:8px;
+  margin-top:12px;
+  font-family:var(--mono);
+}
+.dev-endpoints-row a{
   display:inline-flex; align-items:center; gap:6px;
   padding:4px 10px; border-radius:99px;
   border:1px solid var(--line);
   color:var(--txt-2);
-  transition:
-    border-color .15s ease,
-    color .15s ease;
+  font-size:11px;
+  transition:border-color .15s ease, color .15s ease;
 }
-.ribbon a:hover{
+.dev-endpoints-row a:hover{
   border-color:var(--cyan); color:var(--cyan);
 }
-.ribbon a .dot{
+.dev-endpoints-row a .dot{
   width:5px; height:5px; border-radius:50%;
   background:var(--txt-3);
   transition:background .15s ease;
 }
-.ribbon a:hover .dot{ background:var(--cyan); box-shadow:0 0 6px var(--cyan-glow); }
+.dev-endpoints-row a:hover .dot{
+  background:var(--cyan); box-shadow:0 0 6px var(--cyan-glow);
+}
 
 /* ─── Settings modal ───────────────────────────────────────── */
 .modal-backdrop{
@@ -388,23 +492,30 @@ button{font-family:inherit}
 
   <section>
     <div class="section-head">
+      <h2>Browser sources</h2>
+      <span class="count">OBS &amp; Streamlabs</span>
+    </div>
+    <div class="sources" id="sources"></div>
+  </section>
+
+  <section>
+    <div class="section-head">
       <h2>Plugins</h2>
       <span class="count" id="stat-count">0</span>
     </div>
     <div class="plugins" id="pl"></div>
   </section>
 
-  <footer class="ribbon">
-    <span class="label">Endpoints</span>
-    <a href="/overlay" target="_blank"><span class="dot"></span>/overlay</a>
-    <a href="/overlay?edit=1" target="_blank"><span class="dot"></span>/overlay?edit=1</a>
-    <a href="/events" target="_blank"><span class="dot"></span>/events</a>
-    <a href="/api/plugins" target="_blank"><span class="dot"></span>/api/plugins</a>
-    <a href="/api/status" target="_blank"><span class="dot"></span>/api/status</a>
-    <a href="/api/match-state" target="_blank"><span class="dot"></span>/api/match-state</a>
-    <a href="/api/metrics" target="_blank"><span class="dot"></span>/api/metrics</a>
-    <a href="/api/events" target="_blank"><span class="dot"></span>/api/events</a>
-  </footer>
+  <details class="dev-endpoints">
+    <summary>Developer endpoints</summary>
+    <div class="dev-endpoints-row">
+      <a href="/api/plugins" target="_blank"><span class="dot"></span>/api/plugins</a>
+      <a href="/api/status" target="_blank"><span class="dot"></span>/api/status</a>
+      <a href="/api/match-state" target="_blank"><span class="dot"></span>/api/match-state</a>
+      <a href="/api/metrics" target="_blank"><span class="dot"></span>/api/metrics</a>
+      <a href="/api/events" target="_blank"><span class="dot"></span>/api/events</a>
+    </div>
+  </details>
 
 </div>
 
@@ -430,17 +541,44 @@ button{font-family:inherit}
 // renders with the correct initial state. Subscribes to _OverridesChanged
 // (synthetic, bypasses the SSE filter) so toggling from another tab —
 // or from /overlay?edit=1 — re-renders the list in place.
+//
+// Plugin discovery is dynamic on the backend (the manager re-reads the
+// dir on every /api/plugins call), but this dashboard is iframe'd into
+// the launcher and would otherwise only fetch on page load. We refetch
+// on window focus + visibilitychange so manually adding or removing a
+// plugin folder is reflected the next time the user looks at the
+// launcher — no full reload needed. The fingerprint check below
+// suppresses no-op renders so cards don't flicker on every focus.
 let plugins = [];
 let overrides = {};
+let pluginsFp = '';
 
-Promise.all([
-  fetch('/api/plugins').then(r => r.json()).catch(() => []),
-  fetch('/api/overlay/overrides').then(r => r.json()).catch(() => ({})),
-]).then(([ps, ov]) => {
-  plugins = ps || [];
-  overrides = ov || {};
-  renderPlugins();
+function pluginsFingerprint(list) {
+  if (!Array.isArray(list)) return '';
+  return list
+    .map(p => (p && p.name) + '@' + (p && p.version || ''))
+    .sort()
+    .join('|');
+}
 
+async function refreshPluginList() {
+  try {
+    const [ps, ov] = await Promise.all([
+      fetch('/api/plugins').then(r => r.json()).catch(() => []),
+      fetch('/api/overlay/overrides').then(r => r.json()).catch(() => ({})),
+    ]);
+    const nextPlugins = ps || [];
+    const nextFp = pluginsFingerprint(nextPlugins);
+    overrides = ov || {};
+    if (nextFp !== pluginsFp) {
+      plugins = nextPlugins;
+      pluginsFp = nextFp;
+    }
+    renderPlugins();
+  } catch (_) { /* best-effort */ }
+}
+
+refreshPluginList().then(() => {
   const es = new EventSource('/events?events=__none__');
   es.onmessage = (e) => {
     let env;
@@ -450,6 +588,90 @@ Promise.all([
     renderPlugins();
   };
 });
+
+// Re-pull when the launcher window regains focus or the iframe becomes
+// visible — covers the "drop a folder into plugins/, then click back
+// to the launcher" workflow without polling on a timer.
+window.addEventListener('focus', refreshPluginList);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshPluginList();
+});
+
+// ─── Browser-source cards ──────────────────────────────────
+// Streamer-facing URLs the user pastes into OBS / Streamlabs as a
+// browser source. Resolved against location.origin so a streamer
+// running the toolkit on a non-default port (or on a different host
+// for remote setups) gets the right URL to copy. Click handlers use
+// the existing target="_blank" → postMessage bridge above for the
+// "Open" button, and navigator.clipboard for "Copy".
+const sources = [
+  {
+    title: 'Overlay',
+    hint: 'Add as a Browser Source in OBS',
+    path: '/overlay',
+  },
+  {
+    title: 'Overlay editor',
+    hint: 'Drag widgets to reposition and resize',
+    path: '/overlay?edit=1',
+  },
+];
+
+function renderSources() {
+  const root = document.getElementById('sources');
+  if (!root) return;
+  root.innerHTML = sources
+    .map((s, i) => {
+      const url = new URL(s.path, location.origin).toString();
+      return (
+        '<div class="source-card">' +
+        '<div class="source-head">' +
+        '<span class="source-title">' + esc(s.title) + '</span>' +
+        '<span class="source-hint">' + esc(s.hint) + '</span>' +
+        '</div>' +
+        '<div class="source-url">' +
+        '<span class="source-url-text" data-source-idx="' + i + '">' + esc(url) + '</span>' +
+        '</div>' +
+        '<div class="source-actions">' +
+        '<button class="source-btn" data-source-action="copy" data-source-idx="' + i + '">Copy</button>' +
+        '<a class="source-btn" href="' + esc(s.path) + '" target="_blank">Open</a>' +
+        '</div>' +
+        '</div>'
+      );
+    })
+    .join('');
+}
+
+document.getElementById('sources').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('[data-source-action="copy"]');
+  if (!btn) return;
+  const idx = Number(btn.dataset.sourceIdx);
+  const url = new URL(sources[idx].path, location.origin).toString();
+  // navigator.clipboard requires a secure context. Inside the launcher's
+  // tauri webview this works against http://localhost since localhost
+  // counts as secure; in a regular browser tab on http it would fail.
+  try {
+    await navigator.clipboard.writeText(url);
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copied');
+    }, 1400);
+  } catch (_) {
+    // Fall back to selecting the URL text so the user can ctrl+c.
+    const el = document.querySelector('[data-source-idx="' + idx + '"].source-url-text');
+    if (el) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+});
+
+renderSources();
 
 function isEnabled(name) {
   const ov = overrides[name];
