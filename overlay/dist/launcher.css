@@ -260,6 +260,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   border-radius: var(--radius);
   cursor: pointer;
   transition: border-color 120ms ease, background 120ms ease;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
 }
 .splash-row:hover { border-color: var(--accent); background: #181a20; }
 .splash-row.disabled {

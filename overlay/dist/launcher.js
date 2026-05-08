@@ -103,21 +103,24 @@ function renderRoster(players) {
     .map((p) => {
       const platform = (p.platform || p.id?.split("|")[0] || "?").toLowerCase();
       const cls = "splash-row" + (multi ? " disabled" : "");
+      const disabled = multi ? ' aria-disabled="true"' : "";
       return (
-        '<div class="' +
+        '<button type="button" class="' +
         cls +
         '" data-pid="' +
         escAttr(p.id) +
         '" data-pname="' +
         escAttr(p.name) +
-        '">' +
+        '"' +
+        disabled +
+        ">" +
         '<span class="splash-row-name">' +
         escHtml(p.name) +
         "</span>" +
         '<span class="splash-row-platform">' +
         escHtml(platform) +
         "</span>" +
-        "</div>"
+        "</button>"
       );
     })
     .join("");
@@ -169,6 +172,9 @@ async function openSse() {
     }
     // _IdentityChanged is informational here — state transitions are
     // driven by the explicit fetch results in claim/reclaim.
+  };
+  sseSource.onopen = () => {
+    syncSplashStatusFromTopbar();
   };
   sseSource.onerror = () => {
     setSplashStatus("Lost connection to the backend. Retrying…", "bad");
