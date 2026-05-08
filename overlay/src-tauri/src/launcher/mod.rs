@@ -2,6 +2,7 @@ pub mod backend;
 pub mod ipc;
 pub mod settings;
 pub mod tray;
+pub mod updater;
 pub mod window;
 
 #[cfg(test)]
