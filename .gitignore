@@ -4,6 +4,7 @@
 /backend/rl-toolkit
 /backend/rl-toolkit.exe
 /release/
+/dist/
 *.exe
 *.rltp
 
