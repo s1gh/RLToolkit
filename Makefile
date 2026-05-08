@@ -36,7 +36,7 @@ endif
 OUT_DIR := $(RELEASE_DIR)/$(HOST_OS)
 
 .PHONY: all backend widget launcher launcher-portable launcher-installer \
-        release release-windows run clean release-clean \
+        release release-windows release-linux run clean release-clean \
         fmt fmt-check lint check sdk
 
 # --- SDK bundle: esbuild the modular sources into sdk/dist/sdk.js ------
@@ -158,7 +158,7 @@ launcher-installer: sdk
 	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
 	    -o $(TAURI_DIR)/binaries/rl-toolkit-%%i.exe ./backend/cmd/rl-toolkit && \
 	  cd $(subst /,\,$(TAURI_DIR)) && \
-	  cargo tauri build --features installer-updater --config tauri.launcher.json \
+	  cargo tauri build --features bundled-updater --config tauri.launcher.json \
 	)
 	@echo NSIS bundle: $(TAURI_TARGET)\bundle\nsis
 else
@@ -169,18 +169,22 @@ endif
 # --- launcher: alias for launcher-portable ----------------------------
 launcher: launcher-portable
 
-# --- release-windows: full Windows release set -------------------------
+# --- release-windows: Windows artifacts only -------------------------
 #
-# Produces:
+# Produces the three files needed to populate a draft GitHub release:
 #   release/windows/RLToolkit_<v>_x64-setup.exe       (NSIS, signed)
 #   release/windows/RLToolkit_<v>_x64-setup.exe.sig
 #   release/windows/RLToolkit_<v>_x64-portable.zip
-#   release/windows/latest.json
+#
+# Note: latest.json is NOT generated here. The Linux CI job (see
+# .github/workflows/release-linux.yml) downloads the Windows .sig
+# from the GitHub release and produces a single multi-platform
+# manifest after the AppImage is built. This avoids two manifests
+# competing on one release.
 #
 # Inputs (env or make var):
 #   VERSION              required; e.g. 0.2.0 (no leading v)
-#   RELEASE_OWNER        required; GitHub owner used in latest.json URL
-#   RELEASE_NOTES        optional; passed through to latest.json
+#   RELEASE_OWNER        required; GitHub owner used in the URL hint below
 #   TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]  required for signing
 
 ifeq ($(HOST_OS),windows)
@@ -192,13 +196,87 @@ release-windows: launcher-installer launcher-portable
 	@copy /y "$(subst /,\,$(TAURI_TARGET))\bundle\nsis\RLT-Launcher_$(VERSION)_x64-setup.exe" "$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-setup.exe" >nul
 	@copy /y "$(subst /,\,$(TAURI_TARGET))\bundle\nsis\RLT-Launcher_$(VERSION)_x64-setup.exe.sig" "$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-setup.exe.sig" >nul
 	@powershell -NoProfile -Command "Compress-Archive -Force -Path '$(subst /,\,$(OUT_DIR))\$(LAUNCHER)$(EXE)','$(subst /,\,$(OUT_DIR))\$(BINARY)$(EXE)' -DestinationPath '$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-portable.zip'"
-	@go run ./backend/cmd/gen-update-manifest -version $(VERSION) -sig $(OUT_DIR)/RLToolkit_$(VERSION)_x64-setup.exe.sig -url https://github.com/$(RELEASE_OWNER)/RLToolkit/releases/download/v$(VERSION)/RLToolkit_$(VERSION)_x64-setup.exe -notes "$(RELEASE_NOTES)" > $(OUT_DIR)/latest.json
 	@echo Release artefacts in $(OUT_DIR):
 	@dir /b $(subst /,\,$(OUT_DIR))
 else
 .PHONY: release-windows
 release-windows:
 	@echo "release-windows is Windows-only — run on a Windows host" && false
+endif
+
+# --- release-linux: Linux artifacts only -----------------------------
+#
+# Produces the three files for the Linux side of a release:
+#   release/linux/RLToolkit_<v>_x86_64.AppImage           (signed)
+#   release/linux/RLToolkit_<v>_x86_64.AppImage.sig
+#   release/linux/RLToolkit_<v>_x86_64-portable.tar.gz
+#
+# Like release-windows, latest.json is NOT generated here. The CI
+# workflow combines the Windows .sig (downloaded from the release)
+# and this build's .sig into a single multi-platform manifest.
+#
+# Inputs (env or make var):
+#   VERSION              required; e.g. 0.2.0 (no leading v)
+#   RELEASE_OWNER        required; GitHub owner used in URLs (informational)
+#   TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]  required for signing
+
+ifeq ($(HOST_OS),linux)
+.PHONY: release-linux
+release-linux: sdk
+	@if [ -z "$(VERSION)" ]; then echo "VERSION required"; exit 1; fi
+	@if [ -z "$(RELEASE_OWNER)" ]; then echo "RELEASE_OWNER required"; exit 1; fi
+	@$(call MKDIR,$(OUT_DIR))
+	@triple=$$(rustc -vV | sed -n 's/host: //p'); \
+	  echo "host triple: $$triple"; \
+	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
+	    -o $(TAURI_DIR)/binaries/$(BINARY)-$$triple ./backend/cmd/rl-toolkit && \
+	  cd $(TAURI_DIR) && \
+	  NO_STRIP=1 cargo tauri build --features bundled-updater --config tauri.launcher.json
+	@# AppImage rename + GTK hook patch + re-sign. Tauri emits
+	@# <productName>_<v>_amd64.AppImage with linuxdeploy-plugin-gtk's
+	@# AppRun hook hard-coding GDK_BACKEND=x11. That kills overlay
+	@# transparency on Wayland (especially Hyprland's layer-shell).
+	@# We extract the AppImage, replace the hook with a no-op,
+	@# repack with appimagetool, and re-sign with `tauri signer sign`
+	@# so the Tauri-generated .sig matches the patched binary.
+	@# appimagetool comes from Tauri's own cache (it extracts one
+	@# during `cargo tauri build`); fall back to a host-installed
+	@# `appimagetool` on PATH if the cache is missing.
+	@tmp=$$(mktemp -d); \
+	  cp -f $(TAURI_TARGET)/bundle/appimage/$(LAUNCHER)_$(VERSION)_amd64.AppImage "$$tmp/in.AppImage"; \
+	  chmod +x "$$tmp/in.AppImage"; \
+	  cd "$$tmp" && ./in.AppImage --appimage-extract > /dev/null && cd - > /dev/null; \
+	  printf '#! /usr/bin/env bash\n# Hook neutered: original forced GDK_BACKEND=x11 which breaks\n# Wayland transparency / layer-shell. Bundled libs init fine\n# without env tweaks (host backend auto-detected by GDK).\n:\n' \
+	    > "$$tmp/squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh"; \
+	  chmod +x "$$tmp/squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh"; \
+	  appimagetool=$$(find /tmp -maxdepth 4 -path '*/appimage_extracted_*/usr/bin/appimagetool' 2>/dev/null | head -1); \
+	  if [ -z "$$appimagetool" ]; then appimagetool=$$(command -v appimagetool); fi; \
+	  if [ -z "$$appimagetool" ]; then echo "appimagetool not found; install appimagetool-bin or run cargo tauri build first to populate Tauri's cache" && exit 1; fi; \
+	  echo "using appimagetool: $$appimagetool"; \
+	  ARCH=x86_64 "$$appimagetool" "$$tmp/squashfs-root" "$(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage" 2>&1 | tail -3; \
+	  chmod +x "$(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage"; \
+	  rm -rf "$$tmp"
+	@cargo tauri signer sign "$(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage" > /dev/null
+	@# `tauri signer sign` writes <file>.sig next to the input — that's already at the canonical path.
+	@# Portable tarball: stage the launcher binary (renamed from rl-widget to RLT-Launcher,
+	@# matching the Windows convention) and the rl-toolkit sidecar in a temp dir, then tar it.
+	@# We re-stage rather than reusing the AppImage's internals because the AppImage's
+	@# layered FS isn't a flat directory and unpacking it would be slower than re-copying.
+	@tmp=$$(mktemp -d); \
+	  staged="$$tmp/RLToolkit_$(VERSION)_x86_64-portable"; \
+	  mkdir -p "$$staged"; \
+	  cp -f $(TAURI_TARGET)/$(WIDGET_BIN) "$$staged/$(LAUNCHER)"; \
+	  cp -f $(TAURI_TARGET)/$(BINARY)     "$$staged/$(BINARY)"; \
+	  chmod +x "$$staged/$(LAUNCHER)" "$$staged/$(BINARY)"; \
+	  tar -C "$$tmp" -czf $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64-portable.tar.gz \
+	    "RLToolkit_$(VERSION)_x86_64-portable"; \
+	  rm -rf "$$tmp"
+	@echo "Release artefacts in $(OUT_DIR):"
+	@ls -1 $(OUT_DIR)
+else
+.PHONY: release-linux
+release-linux:
+	@echo "release-linux is Linux-only — run on a Linux host (or in CI)" && false
 endif
 
 # --- release: full stack (backend + launcher, launcher emits widget too)

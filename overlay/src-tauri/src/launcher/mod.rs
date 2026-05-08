@@ -2,7 +2,7 @@ pub mod backend;
 pub mod ipc;
 pub mod settings;
 pub mod tray;
-#[cfg(feature = "installer-updater")]
+#[cfg(feature = "bundled-updater")]
 pub mod updater;
 pub mod window;
 
@@ -22,7 +22,7 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init());
 
-    #[cfg(feature = "installer-updater")]
+    #[cfg(feature = "bundled-updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
     builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -65,7 +65,7 @@ pub fn run(args: Args) {
     let builder = install_plugins(tauri::Builder::default())
         .manage::<LauncherState>(Mutex::new(ctx));
 
-    #[cfg(feature = "installer-updater")]
+    #[cfg(feature = "bundled-updater")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         ipc::get_status,
         ipc::get_toolkit_url,
@@ -85,7 +85,7 @@ pub fn run(args: Args) {
         updater::apply_update,
     ]);
 
-    #[cfg(not(feature = "installer-updater"))]
+    #[cfg(not(feature = "bundled-updater"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         ipc::get_status,
         ipc::get_toolkit_url,
@@ -133,7 +133,7 @@ pub fn run(args: Args) {
             // installer build — the portable build omits the updater
             // entirely (the plugin can't be left "configured but
             // inactive"; its setup deserializes config eagerly).
-            #[cfg(feature = "installer-updater")]
+            #[cfg(feature = "bundled-updater")]
             {
                 let handle_for_updater = handle.clone();
                 tauri::async_runtime::spawn(async move {

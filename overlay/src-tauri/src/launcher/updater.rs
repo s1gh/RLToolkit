@@ -1,10 +1,12 @@
 //! Auto-update for the launcher.
 //!
-//! Compiled in only when the `installer-updater` Cargo feature is on
-//! (the NSIS installer build). The portable build omits both the
-//! plugin and this module's wiring, because tauri-plugin-updater
-//! deserializes its config eagerly and aborts the launcher when the
-//! `plugins.updater` block is absent from the active Tauri config.
+//! Compiled in only when the `bundled-updater` Cargo feature is on
+//! (Windows NSIS installer, Linux AppImage). Portable builds (zip,
+//! tar.gz) omit both the plugin and this module's wiring because
+//! tauri-plugin-updater deserializes its config eagerly and aborts
+//! the launcher when the `plugins.updater` block is absent from the
+//! active Tauri config — the plugin can't be left "configured but
+//! inactive."
 //!
 //! Surface (when enabled):
 //!   - check_for_updates / apply_update: Tauri commands the frontend
@@ -13,7 +15,7 @@
 //!     window is built. Emits `updater://available` to the frontend
 //!     when a newer version exists.
 
-#![cfg(feature = "installer-updater")]
+#![cfg(feature = "bundled-updater")]
 
 use serde::Serialize;
 use tauri::AppHandle;
@@ -46,15 +48,19 @@ pub async fn check_for_updates(app: AppHandle) -> CheckResult {
 
 /// Frontend-callable: download and install the pending update.
 /// Tauri's updater handles signature verification, download, running
-/// the new NSIS installer silently, and relaunching. We surface only
+/// the new bundle's install step, and relaunching. We surface only
 /// success/failure here.
 ///
-/// The Windows updater spawns the new NSIS installer and then exits
-/// the launcher process. NSIS overwrites files in place (passive +
-/// `/UPDATE` flag, see installer.nsi) — but the bundled `rl-toolkit`
-/// sidecar is a separate child process the launcher owns, and Windows
-/// won't let NSIS overwrite a running .exe. We hook
-/// `on_before_exit` to drain the sidecar before the installer runs.
+/// The updater overwrites the running bundle file in place — the
+/// NSIS installer's `/UPDATE` flag on Windows, AppImage replacement
+/// on Linux. Both platforms have the same gotcha: the bundled
+/// `rl-toolkit` sidecar is a separate child process the launcher
+/// owns, and the OS won't let the new bundle clobber a running file.
+/// We hook `on_before_exit` to drain the sidecar before the install
+/// step runs. The hook also calls `app.cleanup_before_exit()` to
+/// preserve the plugin's default cleanup (tray icons, window
+/// resources) since overriding `on_before_exit` replaces the default
+/// entirely.
 #[tauri::command]
 pub async fn apply_update(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
@@ -86,8 +92,32 @@ pub async fn apply_update(app: AppHandle) -> Result<(), String> {
         .download_and_install(|_, _| {}, || {})
         .await
         .map_err(|e| format!("install failed: {e}"))?;
-    // Tauri restarts the app once the installer relaunches it.
-    // Nothing more to do here.
+
+    // On Windows, Tauri spawns the new NSIS installer and the
+    // current process exits inside `download_and_install` (via
+    // on_before_exit + std::process::exit), so we never reach here
+    // on a successful update — the new installer relaunches us.
+    //
+    // On Linux, `download_and_install` just rewrites the AppImage
+    // file in place and returns Ok. There is no automatic exec —
+    // the caller is responsible for restarting. We do that here.
+    // app.restart() drains state, exec()s a fresh process pointing
+    // at the same path, and never returns. That path is the
+    // freshly-rewritten AppImage, so the new process loads the
+    // updated bundle.
+    #[cfg(target_os = "linux")]
+    {
+        crate::log_info!("[updater] install complete; restarting");
+        app.restart();
+        // app.restart() returns ! (never), so anything after it on
+        // Linux is unreachable. The Ok below is for non-Linux paths.
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    return Ok(());
+
+    #[cfg(target_os = "linux")]
+    #[allow(unreachable_code)]
     Ok(())
 }
 

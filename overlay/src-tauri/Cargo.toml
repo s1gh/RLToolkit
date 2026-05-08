@@ -19,12 +19,12 @@ name = "rl_widget"
 path = "src/lib.rs"
 
 [features]
-# Enabled for the NSIS installer build (which has plugins.updater
-# configured in tauri.launcher.json). Off for the portable build —
-# tauri-plugin-updater's setup deserializes Config eagerly and aborts
-# the launcher when the config block is absent, so the plugin can't
-# simply be left "configured but inactive."
-installer-updater = ["dep:tauri-plugin-updater"]
+# Enabled for the auto-updating bundles (Windows NSIS installer,
+# Linux AppImage). Off for portable builds (Windows .zip, Linux
+# .tar.gz) because tauri-plugin-updater's setup deserializes Config
+# eagerly and aborts the launcher when the config block is absent —
+# the plugin can't simply be left "configured but inactive."
+bundled-updater = ["dep:tauri-plugin-updater"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
