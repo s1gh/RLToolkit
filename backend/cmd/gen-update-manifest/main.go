@@ -4,10 +4,15 @@
 //
 //	gen-update-manifest \
 //	  -version 0.2.0 \
-//	  -sig release/windows/RLToolkit_0.2.0_x64-setup.exe.sig \
-//	  -url https://github.com/owner/RLToolkit/releases/download/v0.2.0/RLToolkit_0.2.0_x64-setup.exe \
+//	  -windows-sig release/windows/RLToolkit_0.2.0_x64-setup.exe.sig \
+//	  -windows-url https://github.com/owner/RLToolkit/releases/download/v0.2.0/RLToolkit_0.2.0_x64-setup.exe \
+//	  -linux-sig   release/linux/RLToolkit_0.2.0_x86_64.AppImage.sig \
+//	  -linux-url   https://github.com/owner/RLToolkit/releases/download/v0.2.0/RLToolkit_0.2.0_x86_64.AppImage \
 //	  [-notes "Bug fixes"] \
-//	  -out release/windows/latest.json
+//	  -out latest.json
+//
+// At least one platform pair (-windows-sig/-url or -linux-sig/-url)
+// must be provided. Both sides of any provided pair must be set.
 //
 // Writes plain UTF-8 (no BOM). Prefer -out to redirection — Windows
 // PowerShell 5.x rewrites stdout redirects with a BOM, which some
@@ -36,34 +41,52 @@ type manifest struct {
 
 func main() {
 	version := flag.String("version", "", "release version, no leading v (required)")
-	sigPath := flag.String("sig", "", "path to .sig file produced by Tauri (required)")
-	url := flag.String("url", "", "download URL of the signed installer (required)")
+	winSig := flag.String("windows-sig", "", "path to the Windows .exe.sig (optional; pair with -windows-url)")
+	winURL := flag.String("windows-url", "", "download URL of the signed Windows .exe (optional; pair with -windows-sig)")
+	linSig := flag.String("linux-sig", "", "path to the Linux .AppImage.sig (optional; pair with -linux-url)")
+	linURL := flag.String("linux-url", "", "download URL of the signed Linux .AppImage (optional; pair with -linux-sig)")
 	notes := flag.String("notes", "", "release notes (optional)")
 	outPath := flag.String("out", "", "destination file (optional; stdout when empty)")
 	flag.Parse()
 
-	if *version == "" || *sigPath == "" || *url == "" {
-		fmt.Fprintln(os.Stderr, "missing required flag")
+	if *version == "" {
+		fmt.Fprintln(os.Stderr, "missing required flag: -version")
 		flag.Usage()
 		os.Exit(2)
 	}
 
-	sig, err := os.ReadFile(*sigPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "read sig: %v\n", err)
-		os.Exit(1)
+	platforms := map[string]platform{}
+
+	addPlatform := func(name, sigPath, url string) {
+		// Both sides of a pair must be set or both omitted.
+		switch {
+		case sigPath == "" && url == "":
+			return
+		case sigPath == "" || url == "":
+			fmt.Fprintf(os.Stderr, "platform %s: -sig and -url must be paired (got sig=%q, url=%q)\n", name, sigPath, url)
+			os.Exit(2)
+		}
+		sig, err := os.ReadFile(sigPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "read %s sig: %v\n", name, err)
+			os.Exit(1)
+		}
+		platforms[name] = platform{Signature: string(sig), URL: url}
+	}
+
+	addPlatform("windows-x86_64", *winSig, *winURL)
+	addPlatform("linux-x86_64", *linSig, *linURL)
+
+	if len(platforms) == 0 {
+		fmt.Fprintln(os.Stderr, "no platform pairs provided (need at least one of -windows-sig/-url or -linux-sig/-url)")
+		os.Exit(2)
 	}
 
 	m := manifest{
-		Version: *version,
-		Notes:   *notes,
-		PubDate: time.Now().UTC().Format(time.RFC3339),
-		Platforms: map[string]platform{
-			"windows-x86_64": {
-				Signature: string(sig),
-				URL:       *url,
-			},
-		},
+		Version:   *version,
+		Notes:    *notes,
+		PubDate:   time.Now().UTC().Format(time.RFC3339),
+		Platforms: platforms,
 	}
 
 	out, err := json.MarshalIndent(m, "", "  ")
