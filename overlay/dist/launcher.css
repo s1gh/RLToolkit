@@ -534,16 +534,15 @@ html, body {
   top: var(--strip-h);
   left: 0;
   right: 0;
-  z-index: 9999;
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
-  background: #ff0000;
-  color: #ffffff;
-  border: 5px solid yellow;
+  background: #2b3140;
+  color: #e8ecf2;
+  border-bottom: 1px solid #1a1f2b;
   font-size: 13px;
-  font-weight: bold;
 }
 .updater-banner[hidden] { display: none; }
 .updater-banner .updater-text { flex: 1; }
