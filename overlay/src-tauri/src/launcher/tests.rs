@@ -82,9 +82,15 @@ fn spawn_test_server(body: &'static [u8], status: u16) -> (String, std::thread::
 
 #[test]
 fn probe_returns_attached_for_toolkit_response() {
-    let (url, _h) = spawn_test_server(b"{\"rl_api\":{\"connected\":true}}", 200);
+    // Real /api/status payload shape: rl_api is a string ("connected" /
+    // "disconnected") — see backend/internal/server/server.go where
+    // writeJSON serializes map[string]source.Status, and source.Status
+    // is `type Status string`. The earlier test envelope used a nested
+    // object which never deserialized into StatusEnvelope { rl_api: String },
+    // so the probe always returned Unrelated and the assertion lied.
+    let (url, _h) = spawn_test_server(b"{\"rl_api\":\"connected\"}", 200);
     match probe_status(&url, std::time::Duration::from_millis(500)) {
-        ProbeOutcome::Toolkit => {}
+        ProbeOutcome::Toolkit { rl_api } => assert_eq!(rl_api, "connected"),
         other => panic!("expected Toolkit, got {:?}", other),
     }
 }
