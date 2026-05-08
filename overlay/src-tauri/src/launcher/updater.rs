@@ -48,9 +48,36 @@ pub async fn check_for_updates(app: AppHandle) -> CheckResult {
 /// Tauri's updater handles signature verification, download, running
 /// the new NSIS installer silently, and relaunching. We surface only
 /// success/failure here.
+///
+/// The Windows updater spawns the new NSIS installer and then exits
+/// the launcher process. NSIS overwrites files in place (passive +
+/// `/UPDATE` flag, see installer.nsi) — but the bundled `rl-toolkit`
+/// sidecar is a separate child process the launcher owns, and Windows
+/// won't let NSIS overwrite a running .exe. We hook
+/// `on_before_exit` to drain the sidecar before the installer runs.
 #[tauri::command]
 pub async fn apply_update(app: AppHandle) -> Result<(), String> {
-    let updater = app.updater().map_err(|e| format!("updater unavailable: {e}"))?;
+    use tauri_plugin_updater::UpdaterExt;
+
+    let app_for_hook = app.clone();
+    let updater = app
+        .updater_builder()
+        .on_before_exit(move || {
+            // Drain the sidecar so NSIS can overwrite rl-toolkit.exe.
+            // Then run Tauri's standard cleanup (tray icons, window
+            // resources) — same as the plugin's default hook, since
+            // overriding on_before_exit replaces it entirely.
+            use tauri::Manager;
+            if let Some(state) = app_for_hook.try_state::<crate::launcher::BackendHandle>() {
+                if let Some(mut owned) = state.0.lock().unwrap().take() {
+                    crate::log_info!("[updater] terminating sidecar before installer runs");
+                    owned.terminate(std::time::Duration::from_secs(2));
+                }
+            }
+            app_for_hook.cleanup_before_exit();
+        })
+        .build()
+        .map_err(|e| format!("updater unavailable: {e}"))?;
     let update = updater.check().await.map_err(|e| format!("check failed: {e}"))?;
     let Some(update) = update else {
         return Err("no update available".to_string());
