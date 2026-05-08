@@ -35,7 +35,8 @@ endif
 
 OUT_DIR := $(RELEASE_DIR)/$(HOST_OS)
 
-.PHONY: all backend widget launcher release run clean release-clean \
+.PHONY: all backend widget launcher launcher-portable launcher-installer \
+        release release-windows run clean release-clean \
         fmt fmt-check lint check sdk
 
 # --- SDK bundle: esbuild the modular sources into sdk/dist/sdk.js ------
@@ -103,48 +104,101 @@ widget:
 	@echo "→ $(OUT_DIR)/$(WIDGET_BIN)$(EXE)"
 endif
 
-# --- launcher: combined installer (Tauri bundle + Go sidecar) ----------
+# --- launcher-portable: standalone launcher exe (no installer) ---------
 #
 # Tauri's [[bin]] name (rl-widget) is the executable filename; the
-# productName override in tauri.launcher.json only renames the bundles
-# (.deb / .rpm / .AppImage / .msi). We copy the binary out as
-# RLT-Launcher and the bundles stay under target/release/bundle/.
+# productName override in the launcher configs renames the bundle. We
+# copy the binary out as RLT-Launcher and the bundles stay under
+# target/release/bundle/.
 #
 # --no-bundle produces just the exe; the sidecar (rl-toolkit) lands
 # next to it in target/release/. Both are copied to OUT_DIR so the
 # launcher can locate the sidecar at runtime.
 
 ifeq ($(HOST_OS),windows)
-launcher: sdk
+launcher-portable: sdk
 	@$(call MKDIR,$(OUT_DIR))
 	@for /f "tokens=2" %%i in ('rustc -vV ^| findstr /B "host:"') do @( \
 	  echo host triple: %%i && \
 	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
 	    -o $(TAURI_DIR)/binaries/rl-toolkit-%%i.exe ./backend/cmd/rl-toolkit && \
 	  cd $(subst /,\,$(TAURI_DIR)) && \
-	  cargo tauri build --no-bundle --config tauri.launcher.json \
+	  cargo tauri build --no-bundle --config tauri.launcher-portable.json \
 	)
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(LAUNCHER)$(EXE))
-	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(WIDGET_BIN)$(EXE))
 	$(call CP,$(TAURI_TARGET)/$(BINARY)$(EXE),$(OUT_DIR)/$(BINARY)$(EXE))
 	@echo -- $(OUT_DIR)/$(LAUNCHER)$(EXE)
-	@echo -- $(OUT_DIR)/$(WIDGET_BIN)$(EXE)
 	@echo -- $(OUT_DIR)/$(BINARY)$(EXE) (sidecar)
 else
-launcher: sdk
+launcher-portable: sdk
 	@$(call MKDIR,$(OUT_DIR))
 	@triple=$$(rustc -vV | sed -n 's/host: //p'); \
 	  echo "host triple: $$triple"; \
 	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
 	    -o $(TAURI_DIR)/binaries/rl-toolkit-$$triple ./backend/cmd/rl-toolkit && \
 	  cd $(TAURI_DIR) && \
-	  cargo tauri build --no-bundle --config tauri.launcher.json
+	  cargo tauri build --no-bundle --config tauri.launcher-portable.json
 	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(LAUNCHER)$(EXE))
-	$(call CP,$(TAURI_TARGET)/$(WIDGET_BIN)$(EXE),$(OUT_DIR)/$(WIDGET_BIN)$(EXE))
 	$(call CP,$(TAURI_TARGET)/$(BINARY)$(EXE),$(OUT_DIR)/$(BINARY)$(EXE))
 	@echo "→ $(OUT_DIR)/$(LAUNCHER)$(EXE)"
-	@echo "→ $(OUT_DIR)/$(WIDGET_BIN)$(EXE)"
 	@echo "→ $(OUT_DIR)/$(BINARY)$(EXE) (sidecar)"
+endif
+
+# --- launcher-installer (Windows only): NSIS installer with updater --
+#
+# Requires TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# env vars to produce a signed update. Without them Tauri builds the
+# NSIS but skips the .sig file, which is useless for the updater.
+
+ifeq ($(HOST_OS),windows)
+launcher-installer: sdk
+	@$(call MKDIR,$(OUT_DIR))
+	@for /f "tokens=2" %%i in ('rustc -vV ^| findstr /B "host:"') do @( \
+	  echo host triple: %%i && \
+	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
+	    -o $(TAURI_DIR)/binaries/rl-toolkit-%%i.exe ./backend/cmd/rl-toolkit && \
+	  cd $(subst /,\,$(TAURI_DIR)) && \
+	  cargo tauri build --config tauri.launcher.json \
+	)
+	@echo NSIS bundle: $(TAURI_TARGET)\bundle\nsis
+else
+launcher-installer:
+	@echo "launcher-installer is Windows-only — run on a Windows host" && false
+endif
+
+# --- launcher: alias for launcher-portable ----------------------------
+launcher: launcher-portable
+
+# --- release-windows: full Windows release set -------------------------
+#
+# Produces:
+#   release/windows/RLToolkit_<v>_x64-setup.exe       (NSIS, signed)
+#   release/windows/RLToolkit_<v>_x64-setup.exe.sig
+#   release/windows/RLToolkit_<v>_x64-portable.zip
+#   release/windows/latest.json
+#
+# Inputs (env or make var):
+#   VERSION              required; e.g. 0.2.0 (no leading v)
+#   RELEASE_OWNER        required; GitHub owner used in latest.json URL
+#   RELEASE_NOTES        optional; passed through to latest.json
+#   TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]  required for signing
+
+ifeq ($(HOST_OS),windows)
+.PHONY: release-windows
+release-windows: launcher-installer launcher-portable
+	@if "$(VERSION)"=="" ( echo VERSION required & exit 1 )
+	@if "$(RELEASE_OWNER)"=="" ( echo RELEASE_OWNER required & exit 1 )
+	@$(call MKDIR,$(OUT_DIR))
+	@copy /y "$(subst /,\,$(TAURI_TARGET))\bundle\nsis\RLT-Launcher_$(VERSION)_x64-setup.exe" "$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-setup.exe" >nul
+	@copy /y "$(subst /,\,$(TAURI_TARGET))\bundle\nsis\RLT-Launcher_$(VERSION)_x64-setup.exe.sig" "$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-setup.exe.sig" >nul
+	@powershell -NoProfile -Command "Compress-Archive -Force -Path '$(subst /,\,$(OUT_DIR))\$(LAUNCHER)$(EXE)','$(subst /,\,$(OUT_DIR))\$(BINARY)$(EXE)' -DestinationPath '$(subst /,\,$(OUT_DIR))\RLToolkit_$(VERSION)_x64-portable.zip'"
+	@go run ./backend/cmd/gen-update-manifest -version $(VERSION) -sig $(OUT_DIR)/RLToolkit_$(VERSION)_x64-setup.exe.sig -url https://github.com/$(RELEASE_OWNER)/RLToolkit/releases/download/v$(VERSION)/RLToolkit_$(VERSION)_x64-setup.exe -notes "$(RELEASE_NOTES)" > $(OUT_DIR)/latest.json
+	@echo Release artefacts in $(OUT_DIR):
+	@dir /b $(subst /,\,$(OUT_DIR))
+else
+.PHONY: release-windows
+release-windows:
+	@echo "release-windows is Windows-only — run on a Windows host" && false
 endif
 
 # --- release: full stack (backend + launcher, launcher emits widget too)
