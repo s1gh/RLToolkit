@@ -44,6 +44,13 @@ set_version() {
 build_appimage() {
   local ver="$1"
   echo "==> building ${ver}"
+  # `env!("CARGO_PKG_VERSION")` is resolved at compile time; cargo's
+  # incremental cache doesn't invalidate on Cargo.toml-version-only
+  # changes, so a back-to-back 0.1.0 → 0.2.0 build inside this script
+  # would leave the second binary with the first one's embedded
+  # version. Clean only our crate (deps stay cached, ~30s rebuild
+  # vs ~10min full clean) to force a fresh compile.
+  (cd overlay/src-tauri && cargo clean -p rl-widget --release 2>/dev/null || true)
   make release-linux VERSION="${ver}" RELEASE_OWNER="${OWNER}"
 
   local stage="${STAGE_ROOT}/${ver}"
