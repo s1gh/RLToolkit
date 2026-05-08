@@ -91,6 +91,12 @@
     </div>
   </header>
 
+  <div id="updater-banner" class="updater-banner" hidden>
+    <span class="updater-text"></span>
+    <button class="updater-btn updater-install" type="button">Update &amp; restart</button>
+    <button class="updater-btn updater-dismiss" type="button">Later</button>
+  </div>
+
   <main id="body">
     <div id="tray-banner" class="banner" hidden>
       Tray unavailable — closing this window will quit the app.
@@ -198,6 +204,8 @@
       </div>
     </div>
   </div>
+
+  <div id="version-footer" class="version-footer" aria-label="Launcher version"></div>
 
   <script src="launcher.js" defer></script>
 </body>

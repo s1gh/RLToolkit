@@ -18,6 +18,14 @@ path = "tests/fixtures/fake_backend.rs"
 name = "rl_widget"
 path = "src/lib.rs"
 
+[features]
+# Enabled for the NSIS installer build (which has plugins.updater
+# configured in tauri.launcher.json). Off for the portable build —
+# tauri-plugin-updater's setup deserializes Config eagerly and aborts
+# the launcher when the config block is absent, so the plugin can't
+# simply be left "configured but inactive."
+installer-updater = ["dep:tauri-plugin-updater"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -33,6 +41,7 @@ tauri-plugin-shell = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = { version = "2", optional = true }
 url = "2"
 
 # Linux-only: layer-shell so the widget lives on the overlay layer

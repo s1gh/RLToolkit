@@ -528,3 +528,47 @@ html, body {
   font-size: 12px;
   color: var(--muted);
 }
+
+.updater-banner {
+  position: fixed;
+  top: var(--strip-h);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #2b3140;
+  color: #e8ecf2;
+  border-bottom: 1px solid #1a1f2b;
+  font-size: 13px;
+}
+.updater-banner[hidden] { display: none; }
+.updater-banner .updater-text { flex: 1; }
+.updater-banner .updater-btn {
+  padding: 4px 12px;
+  background: #4f8cff;
+  color: white;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.updater-banner .updater-dismiss { background: transparent; color: #aab1bd; }
+
+.version-footer {
+  position: fixed;
+  right: 8px;
+  bottom: 6px;
+  z-index: 5;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(20, 24, 32, 0.55);
+  color: #8a93a3;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
+}
+.version-footer:empty { display: none; }

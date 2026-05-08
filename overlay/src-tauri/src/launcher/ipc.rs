@@ -50,6 +50,11 @@ pub fn get_toolkit_url(state: State<LauncherState>) -> String {
 }
 
 #[tauri::command]
+pub fn get_app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[tauri::command]
 pub fn get_status(state: State<LauncherState>) -> StatusView {
     let ctx = state.lock().unwrap();
     let outcome = probe_status(

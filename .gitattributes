@@ -1,0 +1,27 @@
+# Normalize text files to LF in the index, regardless of host OS.
+# Rust + Go + Tauri tooling all expect LF; CRLF causes occasional
+# breakage in macros, embedded resources, and build scripts. Windows
+# scripts (.bat / .cmd / .ps1) keep CRLF so they run from Explorer
+# and from cmd.exe without surprise.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Keep binary file types out of git's text handling entirely.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.bmp binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.pdf binary

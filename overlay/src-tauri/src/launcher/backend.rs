@@ -10,6 +10,21 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Returns true when the named env var is set to a recognized truthy
+/// value. Accepts the usual suspects so a developer doesn't have to
+/// remember which spelling we picked. Anything else (unset, empty,
+/// "0", "false", etc.) is false.
+fn env_truthy(name: &str) -> bool {
+    matches!(
+        std::env::var(name)
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 /// Path to today's sidecar capture log. The Go backend now owns its
 /// own structured `backend-YYYY-MM-DD.log` (see backend/internal/logging),
 /// so this file is purely a safety net for stdout/stderr that bypasses
@@ -218,6 +233,14 @@ pub fn spawn_sidecar(
     ]);
     if let Some(addr) = rl_addr.filter(|a| !a.trim().is_empty()) {
         cmd = cmd.args(["-rl-addr".to_string(), addr]);
+    }
+    // Plugin hot-reload via `rl-toolkit dev <path>` requires the
+    // sidecar's localhost dev API. It's off by default in production;
+    // a developer running `make launcher-portable` can opt in by
+    // setting RLT_DEV=1 before launching the launcher, which we
+    // propagate to the sidecar as `-dev`.
+    if env_truthy("RLT_DEV") {
+        cmd = cmd.args(["-dev".to_string()]);
     }
 
     let (mut rx, child) = cmd.spawn().map_err(|e| format!("spawn sidecar: {e}"))?;

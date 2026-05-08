@@ -46,6 +46,7 @@ type Config struct {
 	HTTPPort  int
 	PluginDir string
 	DataDir   string
+	Dev       bool
 }
 
 // httpShutdown bounds how long http.Shutdown waits for in-flight
@@ -150,12 +151,21 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	devSrv, err := devapi.Start(ctx, pm)
-	if err != nil {
-		log.Fatalf("[server] devapi start: %v", err)
+	// The dev API is a localhost listener used by `rl-toolkit dev` to
+	// register and hot-reload plugin folders. It is opt-in: production
+	// runs (the default) leave this surface off entirely. Developers
+	// pass -dev (or set RLT_DEV=1 if launched via the launcher) to
+	// enable it.
+	if cfg.Dev {
+		devSrv, err := devapi.Start(ctx, pm)
+		if err != nil {
+			log.Fatalf("[server] devapi start: %v", err)
+		}
+		defer devSrv.Stop()
+		log.Printf("[devapi] listening on %s (port file in user config dir; set RLT_DEV_DISCOVERY_DIR to override)", devSrv.Addr())
+	} else {
+		log.Printf("[devapi] disabled (pass -dev to enable plugin hot-reload)")
 	}
-	defer devSrv.Stop()
-	log.Printf("[devapi] listening on %s (port file in user config dir; set RLT_DEV_DISCOVERY_DIR to override)", devSrv.Addr())
 
 	src := source.NewRL(cfg.RLAddr)
 	rt := roster.New()
@@ -367,12 +377,14 @@ func parseFlags() Config {
 	httpPort := flag.Int("port", 49200, "HTTP server port")
 	pluginDir := flag.String("plugins", defaultPluginDir(), "Plugin directory path")
 	dataDir := flag.String("data", defaultDataDir(), "Data directory path")
+	dev := flag.Bool("dev", false, "Enable the localhost dev API used by `rl-toolkit dev` for plugin hot-reload")
 	flag.Parse()
 	return Config{
 		RLAddr:    *rlAddr,
 		HTTPPort:  *httpPort,
 		PluginDir: *pluginDir,
 		DataDir:   *dataDir,
+		Dev:       *dev,
 	}
 }
 

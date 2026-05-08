@@ -36,7 +36,7 @@ func (c *devClient) baseURL() (string, error) {
 	}
 	body, err := os.ReadFile(filepath.Join(dir, "dev.port"))
 	if err != nil {
-		return "", fmt.Errorf("read dev.port (is the overlay running?): %w", err)
+		return "", fmt.Errorf("read dev.port: %w (is rl-toolkit running with -dev, or the launcher with RLT_DEV=1?)", err)
 	}
 	port := strings.TrimSpace(string(body))
 	if port == "" {

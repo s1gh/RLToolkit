@@ -718,3 +718,75 @@ window.addEventListener("message", event => {
 setInterval(refreshStatus, 2000);
 refreshStatus();
 bootIdentityCheck();
+
+// Stamp the launcher version into the footer. Useful during smoke
+// tests and bug reports to see at a glance whether an upgrade
+// actually landed.
+(async () => {
+  try {
+    const v = await invoke("get_app_version");
+    const el = document.getElementById("version-footer");
+    if (el && v) el.textContent = `v${v}`;
+  } catch {}
+})();
+
+// ─── Updater banner ─────────────────────────────────────────
+//
+// Two paths into the banner:
+//   1. Rust's startup check emits `updater://available` once the
+//      manifest is fetched. Fast path when the network is quick.
+//   2. The frontend itself asks `check_for_updates` on load. Reliable
+//      path — the Rust event can race the webview load and arrive
+//      before this listener exists, in which case the event is lost
+//      and only this query surfaces the banner.
+(function initUpdaterBanner() {
+  const banner = document.getElementById("updater-banner");
+  if (!banner) return;
+  const text = banner.querySelector(".updater-text");
+  const installBtn = banner.querySelector(".updater-install");
+  const dismissBtn = banner.querySelector(".updater-dismiss");
+
+  const invoke = window.__TAURI__?.core?.invoke;
+  const listen = window.__TAURI__?.event?.listen;
+  if (!invoke || !listen) return;
+
+  function show(version) {
+    text.textContent = `Version ${version} is available.`;
+    banner.hidden = false;
+  }
+  function hide() {
+    banner.hidden = true;
+  }
+
+  listen("updater://available", (e) => show(String(e.payload || "")));
+
+  // Reliable path. Run once at load — Rust's check_for_updates is
+  // cheap to call (it does the same network round-trip the startup
+  // check did, so within seconds it returns the same answer).
+  invoke("check_for_updates")
+    .then((res) => {
+      if (res && res.kind === "available") {
+        show(res.version);
+      }
+    })
+    .catch(() => {
+      // Command unavailable on portable builds (no updater feature).
+      // Banner stays hidden, which is the right behaviour.
+    });
+
+  installBtn.addEventListener("click", async () => {
+    installBtn.disabled = true;
+    text.textContent = "Downloading update…";
+    try {
+      await invoke("apply_update");
+      // Tauri relaunches us. If we're still here, install errored.
+      text.textContent = "Update did not complete. See logs.";
+    } catch (err) {
+      text.textContent = `Update failed: ${err}`;
+    } finally {
+      installBtn.disabled = false;
+    }
+  });
+
+  dismissBtn.addEventListener("click", hide);
+})();
