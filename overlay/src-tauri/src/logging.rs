@@ -201,14 +201,19 @@ fn ymd_from_secs(secs: u64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
-/// Log macros. Three levels: info (normal events), warn (recoverable
-/// problems), error (something genuinely went wrong). All three write
-/// the same way — the level is just a tag in the line. Keeping the
-/// API shape close to `eprintln!` makes the rewrite mechanical.
+/// Log macros. Three user-facing levels:
+/// - `log_info!`  — normal events (startup, monitor binding). File-only.
+///   A clean launch should produce zero stderr output, so info lands
+///   in the log file but skips the terminal.
+/// - `log_warn!`  — recoverable problems (tray missing, surface report
+///   raced the backend). File + stderr.
+/// - `log_error!` — something genuinely went wrong. File + stderr.
+/// - `log_debug!` — chatty per-event lines. File-only, same as info
+///   today; the level tag is what distinguishes them in the log.
 #[macro_export]
 macro_rules! log_info {
     ($($arg:tt)*) => {{
-        $crate::logging::write_line(&format!("INFO  {}", format_args!($($arg)*)));
+        $crate::logging::write_line_file_only(&format!("INFO  {}", format_args!($($arg)*)));
     }};
 }
 
