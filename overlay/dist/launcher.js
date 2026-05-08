@@ -57,6 +57,212 @@ async function clearIdentity() {
   if (!r.ok && r.status !== 204) throw new Error("clear identity: " + r.status);
 }
 
+// ─── Splash state machine ────────────────────────────────────
+const splash = document.getElementById("splash");
+const splashStatus = document.getElementById("splash-status");
+const splashRoster = document.getElementById("splash-roster");
+const splashError = document.getElementById("splash-error");
+const splashConfirm = document.getElementById("splash-confirm");
+const splashConfirmName = document.getElementById("splash-confirm-name");
+const body = document.getElementById("body");
+
+// 'unknown' | 'splash' | 'confirming' | 'dashboard'
+let splashState = "unknown";
+let sseSource = null;
+let lastRoster = [];
+
+function setSplashStatus(text, level) {
+  splashStatus.textContent = text;
+  splashStatus.classList.remove("warn", "bad");
+  if (level === "warn") splashStatus.classList.add("warn");
+  if (level === "bad") splashStatus.classList.add("bad");
+}
+
+function showSplashError(msg) {
+  splashError.textContent = msg;
+  splashError.hidden = false;
+}
+
+function clearSplashError() {
+  splashError.hidden = true;
+  splashError.textContent = "";
+}
+
+function renderRoster(players) {
+  // Filter to humans only — bots can't be "you".
+  const humans = (players || []).filter((p) => !p.isBot);
+  const multi = humans.length > 1;
+
+  if (humans.length === 0) {
+    splashRoster.innerHTML =
+      '<div class="splash-status">Roster received but no humans detected — make sure you\'re in the match.</div>';
+    return;
+  }
+
+  const rows = humans
+    .map((p) => {
+      const platform = (p.platform || p.id?.split("|")[0] || "?").toLowerCase();
+      const cls = "splash-row" + (multi ? " disabled" : "");
+      return (
+        '<div class="' +
+        cls +
+        '" data-pid="' +
+        escAttr(p.id) +
+        '" data-pname="' +
+        escAttr(p.name) +
+        '">' +
+        '<span class="splash-row-name">' +
+        escHtml(p.name) +
+        "</span>" +
+        '<span class="splash-row-platform">' +
+        escHtml(platform) +
+        "</span>" +
+        "</div>"
+      );
+    })
+    .join("");
+
+  const hint = multi
+    ? '<div class="splash-status warn">Multiple humans detected — please queue solo so we can be sure which one is you.</div>'
+    : "";
+
+  splashRoster.innerHTML = hint + rows;
+}
+
+function escAttr(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[c]);
+}
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+  })[c]);
+}
+
+async function openSse() {
+  if (sseSource) return;
+  const base = await toolkitUrl();
+  // Subscribe just to the two events we care about. The backend's
+  // framing-bypass keeps _IdentityChanged / _RosterChanged flowing
+  // even with this filter.
+  sseSource = new EventSource(
+    base + "/events?events=_RosterChanged,_IdentityChanged",
+  );
+  sseSource.onmessage = (e) => {
+    let env;
+    try {
+      env = JSON.parse(e.data);
+    } catch (_) {
+      return;
+    }
+    if (!env || !env.Event) return;
+    if (env.Event === "_RosterChanged") {
+      lastRoster = (env.Data && env.Data.players) || [];
+      renderRoster(lastRoster);
+    }
+    // _IdentityChanged is informational here — state transitions are
+    // driven by the explicit fetch results in claim/reclaim.
+  };
+  sseSource.onerror = () => {
+    setSplashStatus("Lost connection to the backend. Retrying…", "bad");
+  };
+}
+
+function closeSse() {
+  if (sseSource) {
+    sseSource.close();
+    sseSource = null;
+  }
+}
+
+function syncSplashStatusFromTopbar() {
+  // Pull the same signal the topbar is showing. If the topbar conn
+  // says 'connected' and rl_api is connected, we're waiting on a
+  // roster. Otherwise mirror the launcher's existing wording.
+  const status = conn.dataset.status;
+  if (status === "connected") {
+    if (lastRoster.length === 0) {
+      setSplashStatus("RL connected · waiting for a roster…");
+    }
+  } else if (status === "warning") {
+    setSplashStatus(
+      "RL not detected — start Rocket League and queue a private match.",
+      "warn",
+    );
+  } else if (status === "connecting") {
+    setSplashStatus("Connecting to the backend…");
+  } else {
+    setSplashStatus("Backend not responding.", "bad");
+  }
+}
+
+async function enterSplash() {
+  splashState = "splash";
+  body.hidden = true;
+  splash.hidden = false;
+  splashConfirm.hidden = true;
+  clearSplashError();
+  splashRoster.innerHTML = "";
+  lastRoster = [];
+  syncSplashStatusFromTopbar();
+  await openSse();
+}
+
+function enterDashboard() {
+  splashState = "dashboard";
+  splash.hidden = true;
+  body.hidden = false;
+  closeSse();
+  loadDashboard();
+}
+
+async function bootIdentityCheck() {
+  try {
+    const id = await getIdentity();
+    if (id && id.primaryId) {
+      enterDashboard();
+    } else {
+      await enterSplash();
+    }
+  } catch (_) {
+    // Backend not responding yet. Stay 'unknown'; the status poll will
+    // retry on the next tick.
+    splashState = "unknown";
+  }
+}
+
+// Click handler for splash roster rows.
+splashRoster.addEventListener("click", async (e) => {
+  if (splashState !== "splash") return;
+  const row = e.target.closest(".splash-row");
+  if (!row || row.classList.contains("disabled")) return;
+  const pid = row.dataset.pid;
+  const pname = row.dataset.pname || "";
+  if (!pid) return;
+  clearSplashError();
+  try {
+    await setIdentity(pid, pname);
+  } catch (err) {
+    showSplashError("Couldn't save identity: " + (err?.message || err));
+    return;
+  }
+  // Confirming beat → dashboard.
+  splashState = "confirming";
+  closeSse();
+  splashConfirmName.textContent = pname || pid;
+  splashConfirm.hidden = false;
+  setTimeout(() => {
+    if (splashState === "confirming") enterDashboard();
+  }, 1500);
+});
+
 let lastConnected = false;
 let suppressReloadUntil = 0;
 let disconnectMisses = 0;
@@ -127,10 +333,26 @@ async function refreshStatus() {
   // restart-backend, external respawn) without a stale view. The
   // suppress window prevents a duplicate reload right after save_settings
   // already scheduled one.
-  if (s.connected && !lastConnected && Date.now() >= suppressReloadUntil) {
+  if (
+    splashState === "dashboard" &&
+    s.connected &&
+    !lastConnected &&
+    Date.now() >= suppressReloadUntil
+  ) {
     reloadDashboard();
   }
   lastConnected = s.connected;
+  // While in 'unknown' state, keep retrying the identity check until
+  // the backend answers. Once we know the answer we stay in splash or
+  // dashboard for the rest of the session.
+  if (splashState === "unknown" && s.connected) {
+    bootIdentityCheck();
+  }
+  // While the splash is up, mirror the topbar status into the splash
+  // status line (only if no roster is currently displayed).
+  if (splashState === "splash" && lastRoster.length === 0) {
+    syncSplashStatusFromTopbar();
+  }
 }
 
 async function reloadDashboard() {
@@ -271,4 +493,4 @@ window.addEventListener("message", event => {
 
 setInterval(refreshStatus, 2000);
 refreshStatus();
-loadDashboard();
+bootIdentityCheck();
