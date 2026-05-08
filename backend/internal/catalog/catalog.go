@@ -1,13 +1,28 @@
-// Package catalog documents every event the SDK emits to plugins. It
-// is served at /api/events for discoverability — plugin authors curl
-// that endpoint or browse it from the dashboard to see what's
-// available.
+// Package catalog documents every gameplay event the SDK emits to
+// plugins. It is served at /api/events for discoverability — plugin
+// authors curl that endpoint or browse it from the dashboard to see
+// what's available.
 //
-// IMPORTANT: keep Entries in sync with the JS-side `events.catalog` in
-// the SDK (search for "Event catalog"). The JS copy is what plugins
-// inspect at runtime via RLT.events.catalog; this Go copy is the
-// network-discoverable view. Both are intentionally static — events
-// don't appear/disappear, so a build-time mirror is fine.
+// IMPORTANT: keep Entries in sync with the JS-side `events.catalog`
+// in the SDK (search for "Event catalog"). The JS copy is what
+// plugins inspect at runtime via RLT.events.catalog; this Go copy is
+// the network-discoverable view. Both are intentionally static —
+// events don't appear/disappear, so a build-time mirror is fine.
+//
+// Intentionally NOT cataloged (plumbing / framing events that fire
+// regardless of any plugin's subscription, and aren't gameplay):
+//   - _ConnectionStatus  — RL TCP socket transitions. Framing-bypass.
+//   - _RosterChanged     — roster identity changed. Framing-bypass.
+//   - _IdentityChanged is cataloged (it carries user-visible state),
+//     but _RosterChanged isn't because it duplicates information
+//     plugins already see on the next UpdateState/_MatchState tick.
+//   - _DevPluginReload   — dev hot-reload signal. Framing-bypass.
+//   - _OverridesChanged  — overlay editor saved a per-plugin override.
+//   - _SurfaceChanged    — overlay surface size changed.
+//   - _StoreChanged      — SDK plumbing for RLT.store namespacing.
+//
+// (See backend/internal/bus/bus.go:framingSignals for the exact
+// bypass list.)
 package catalog
 
 // Entry is one row in the catalog.
@@ -17,7 +32,7 @@ type Entry struct {
 	Shape      string   `json:"shape"`
 	LivePhases []string `json:"live_phases"` // [] means "any phase" (the JS side uses "*")
 	Desc       string   `json:"desc"`
-	Stability  string   `json:"stability"` // "stable" | "provisional" | "experimental"
+	Stability  string   `json:"stability"` // "stable" | "provisional" (no event uses "experimental" today; reserved)
 	Since      string   `json:"since"`     // "1.0", "1.1", etc.
 	// SubscriptionGroup buckets events that overlap on the wire so
 	// plugin authors can see at a glance "if I subscribe to X, do I
@@ -103,10 +118,6 @@ var Entries = []Entry{
 	{Name: "_BootId", Category: "lifecycle", Shape: "boot-id", LivePhases: anyPhase, Desc: "Process-lifetime random ID. Pushed as the first SSE frame on every connect so plugins can detect a backend restart (boot-id changed since their last bucket) and reset per-session state. Framing-bypass.", Stability: "stable", Since: "1.0"},
 	{Name: "_MatchState", Category: "lifecycle", Shape: "match-state", LivePhases: anyPhase, Desc: "Authoritative gameplay state. matchActive (am I in a match) and phase (lobby/countdown/live/paused/replay/ended/podium/none) on every transition, with previousPhase, phaseDurationSeconds, and trigger so subscribers see what changed and why. Replaces the legacy _Lifecycle and _LifecyclePhaseChanged events.", Stability: "stable", Since: "2.0"},
 	{Name: "_IdentityChanged", Category: "lifecycle", Shape: "identity", LivePhases: anyPhase, Desc: "Backend-stored Identity (PrimaryID + Name) was Set or Cleared. Framing-bypass: every subscriber receives this regardless of the events filter so the SDK can hydrate RLT.me without a separate fetch.", Stability: "provisional", Since: "2.0"},
-	// _StoreChanged is intentionally NOT in the catalog. It's SDK
-	// plumbing — plugins subscribe via RLT.store.onChange (which
-	// filters by their own namespace). The catalog documents gameplay
-	// events; cross-context store fan-out doesn't belong there.
 	{Name: "_GoalReplayStarted", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on the bReplay rising edge (start of a goal replay) with the full _GoalScored payload (scorer, assister, ballLastTouch, goalSpeed, goalTime, impactLocation, isOwnGoal, modifiers), so plugins know which goal the replay is for without correlating themselves. Edge-detected on UpdateState because recent RL builds skip the discrete GoalReplayStart event.", Stability: "provisional", Since: "1.1"},
 
 	// ─── Discoverability (Phase 6) ────────────────────────────

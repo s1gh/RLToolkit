@@ -116,7 +116,7 @@ const catalogData = [
     LR,
     'provisional',
     '1.1',
-    'StatfeedEvent with MainTarget/SecondaryTarget pre-resolved.',
+    'StatfeedEvent with MainTarget/SecondaryTarget pre-resolved. NOTE: fires for every Statfeed variant including those with dedicated promoted events (_Save, _Shot, _PlayerDemolished, …). Subscribing to both this and a promoted event sees the same Statfeed twice.',
     'statfeed:catchall',
   ],
   [
@@ -173,7 +173,7 @@ const catalogData = [
     LR,
     'provisional',
     '1.1',
-    'Demolish with attacker/victim resolved + isSelfDemo/isTeamDemo flags.',
+    'Demolish with attacker/victim resolved + isSelfDemo/isTeamDemo flags + attackerSpeed/attackerWasSupersonic from the most recent UpdateState (SPECTATOR-only).',
     'statfeed:promoted',
   ],
   [
@@ -369,10 +369,10 @@ const catalogData = [
   [
     '_GoalReplayStarted',
     'replay',
-    'goal-replay-started',
+    'goal-replay-context',
     '*',
     'provisional',
-    '2.0',
+    '1.1',
     'Full _GoalScored payload on the bReplay rising edge.',
   ],
   [
@@ -402,9 +402,11 @@ const catalogData = [
     '2.0',
     'Backend-stored Identity (PrimaryID + Name) was Set or Cleared.',
   ],
-  // _StoreChanged is intentionally NOT in the catalog — it's SDK
-  // plumbing (consumed via RLT.store.onChange, namespace-filtered),
-  // not a gameplay event plugins discover by browsing the catalog.
+  // Plumbing / framing events intentionally NOT cataloged — they
+  // fire regardless of subscription filter and aren't gameplay:
+  // _ConnectionStatus, _RosterChanged, _DevPluginReload,
+  // _OverridesChanged, _SurfaceChanged, _StoreChanged. See the Go
+  // catalog package doc and bus/framingSignals for details.
   [
     '_UnknownStatfeed',
     'stat',
