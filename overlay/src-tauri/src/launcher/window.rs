@@ -4,7 +4,7 @@
 //! where `set_position`/`set_size` on child webviews silently no-op, so we
 //! use the iframe approach instead — one webview, native HTML layout.
 
-use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Theme, WebviewUrl, WebviewWindowBuilder};
 #[cfg(not(any(
     target_os = "linux",
     target_os = "dragonfly",
@@ -79,6 +79,10 @@ pub fn build_launcher_window(
     .min_inner_size(initial_min.0, initial_min.1)
     .resizable(true)
     .decorations(true)
+    // Force the dark immersive title bar on Windows so the OS-drawn
+    // chrome matches the launcher's dark UI instead of rendering as
+    // the default Windows light/grey. No-op on macOS/Linux.
+    .theme(Some(Theme::Dark))
     .visible(true);
 
     if let (Some(x), Some(y)) = (initial.window_x, initial.window_y) {
