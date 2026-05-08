@@ -18,6 +18,43 @@ const pluginsDirInput = document.getElementById("plugins-dir");
 const dataDirInput = document.getElementById("data-dir");
 const rlAddrInput = document.getElementById("rl-addr");
 
+// ─── Identity client ──────────────────────────────────────────
+// Resolves the toolkit URL once and caches it. The launcher hits
+// /api/identity directly (no SDK needed) — three small endpoints.
+let _toolkitUrl = null;
+async function toolkitUrl() {
+  if (_toolkitUrl) return _toolkitUrl;
+  try {
+    _toolkitUrl = (await invoke("get_toolkit_url")) || "http://localhost:49200";
+  } catch (_) {
+    _toolkitUrl = "http://localhost:49200";
+  }
+  return _toolkitUrl.replace(/\/+$/, "");
+}
+
+async function getIdentity() {
+  const base = await toolkitUrl();
+  const r = await fetch(base + "/api/identity");
+  if (!r.ok) return null;
+  return r.json().catch(() => null);
+}
+
+async function setIdentity(primaryId, name) {
+  const base = await toolkitUrl();
+  const r = await fetch(base + "/api/identity", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ primaryId, name: name || "" }),
+  });
+  if (!r.ok) throw new Error("set identity: " + r.status);
+}
+
+async function clearIdentity() {
+  const base = await toolkitUrl();
+  const r = await fetch(base + "/api/identity", { method: "DELETE" });
+  if (!r.ok && r.status !== 204) throw new Error("clear identity: " + r.status);
+}
+
 let lastConnected = false;
 let suppressReloadUntil = 0;
 let disconnectMisses = 0;
