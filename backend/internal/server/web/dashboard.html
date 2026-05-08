@@ -865,11 +865,13 @@ window.addEventListener('message', (e) => {
   async function save(id, name) {
     const trimmed = (id || '').trim();
     try {
-      const r = await fetch('/api/data/_rlt/identity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ my_id: trimmed }),
-      });
+      const r = trimmed
+        ? await fetch('/api/identity', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ primaryId: trimmed, name: name || '' }),
+          })
+        : await fetch('/api/identity', { method: 'DELETE' });
       if (r.ok) display(trimmed, name);
     } catch (_) { /* noop */ }
     closeEditor();
@@ -896,12 +898,12 @@ window.addEventListener('message', (e) => {
   async function load() {
     await loadEncounters();
     try {
-      const r = await fetch('/api/data/_rlt/identity');
+      const r = await fetch('/api/identity');
       if (r.ok) {
         const data = await r.json();
-        const id = data?.my_id || '';
+        const id = data?.primaryId || '';
         const p = players.find(x => x.id === id);
-        display(id, p?.name);
+        display(id, data?.name || p?.name);
       }
     } catch (_) { /* noop */ }
   }
