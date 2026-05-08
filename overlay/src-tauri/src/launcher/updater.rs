@@ -1,10 +1,12 @@
 //! Auto-update for the launcher.
 //!
 //! Compiled in only when the `bundled-updater` Cargo feature is on
-//! (the NSIS installer build). The portable build omits both the
-//! plugin and this module's wiring, because tauri-plugin-updater
-//! deserializes its config eagerly and aborts the launcher when the
-//! `plugins.updater` block is absent from the active Tauri config.
+//! (Windows NSIS installer, Linux AppImage). Portable builds (zip,
+//! tar.gz) omit both the plugin and this module's wiring because
+//! tauri-plugin-updater deserializes its config eagerly and aborts
+//! the launcher when the `plugins.updater` block is absent from the
+//! active Tauri config — the plugin can't be left "configured but
+//! inactive."
 //!
 //! Surface (when enabled):
 //!   - check_for_updates / apply_update: Tauri commands the frontend
@@ -46,15 +48,19 @@ pub async fn check_for_updates(app: AppHandle) -> CheckResult {
 
 /// Frontend-callable: download and install the pending update.
 /// Tauri's updater handles signature verification, download, running
-/// the new NSIS installer silently, and relaunching. We surface only
+/// the new bundle's install step, and relaunching. We surface only
 /// success/failure here.
 ///
-/// The Windows updater spawns the new NSIS installer and then exits
-/// the launcher process. NSIS overwrites files in place (passive +
-/// `/UPDATE` flag, see installer.nsi) — but the bundled `rl-toolkit`
-/// sidecar is a separate child process the launcher owns, and Windows
-/// won't let NSIS overwrite a running .exe. We hook
-/// `on_before_exit` to drain the sidecar before the installer runs.
+/// The updater overwrites the running bundle file in place — the
+/// NSIS installer's `/UPDATE` flag on Windows, AppImage replacement
+/// on Linux. Both platforms have the same gotcha: the bundled
+/// `rl-toolkit` sidecar is a separate child process the launcher
+/// owns, and the OS won't let the new bundle clobber a running file.
+/// We hook `on_before_exit` to drain the sidecar before the install
+/// step runs. The hook also calls `app.cleanup_before_exit()` to
+/// preserve the plugin's default cleanup (tray icons, window
+/// resources) since overriding `on_before_exit` replaces the default
+/// entirely.
 #[tauri::command]
 pub async fn apply_update(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
