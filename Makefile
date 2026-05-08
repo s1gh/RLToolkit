@@ -158,7 +158,7 @@ launcher-installer: sdk
 	  go build $(GO_FLAGS) -ldflags="$(LD_FLAGS)" \
 	    -o $(TAURI_DIR)/binaries/rl-toolkit-%%i.exe ./backend/cmd/rl-toolkit && \
 	  cd $(subst /,\,$(TAURI_DIR)) && \
-	  cargo tauri build --config tauri.launcher.json \
+	  cargo tauri build --features installer-updater --config tauri.launcher.json \
 	)
 	@echo NSIS bundle: $(TAURI_TARGET)\bundle\nsis
 else

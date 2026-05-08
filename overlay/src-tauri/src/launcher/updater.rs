@@ -1,15 +1,19 @@
-//! Auto-update for the launcher (installer build only).
+//! Auto-update for the launcher.
 //!
-//! Two paths:
-//!   - check_on_startup: best-effort, called from run() after the
-//!     window is built. Silent on no-update or any error.
-//!   - check_for_updates command: invoked from a "Check for updates"
-//!     menu item in the frontend. Always reports back.
+//! Compiled in only when the `installer-updater` Cargo feature is on
+//! (the NSIS installer build). The portable build omits both the
+//! plugin and this module's wiring, because tauri-plugin-updater
+//! deserializes its config eagerly and aborts the launcher when the
+//! `plugins.updater` block is absent from the active Tauri config.
 //!
-//! In the portable build, tauri-plugin-updater is still compiled in
-//! but the `plugins.updater` block is absent from the active Tauri
-//! config; UpdaterExt::updater() returns Err and we surface that
-//! verbatim so the frontend can degrade to "open release page."
+//! Surface (when enabled):
+//!   - check_for_updates / apply_update: Tauri commands the frontend
+//!     calls.
+//!   - check_on_startup: best-effort, fires from run() once the
+//!     window is built. Emits `updater://available` to the frontend
+//!     when a newer version exists.
+
+#![cfg(feature = "installer-updater")]
 
 use serde::Serialize;
 use tauri::AppHandle;

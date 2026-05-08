@@ -2,6 +2,7 @@ pub mod backend;
 pub mod ipc;
 pub mod settings;
 pub mod tray;
+#[cfg(feature = "installer-updater")]
 pub mod updater;
 pub mod window;
 
@@ -16,18 +17,21 @@ use std::sync::Mutex;
 use tauri::{Builder, Manager};
 
 pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
-    builder
+    let builder = builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(w) = app.get_webview_window("launcher") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-        }))
+        .plugin(tauri_plugin_dialog::init());
+
+    #[cfg(feature = "installer-updater")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        if let Some(w) = app.get_webview_window("launcher") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }))
 }
 
 pub fn run(args: Args) {
@@ -58,25 +62,46 @@ pub fn run(args: Args) {
         stopped_by_user: false,
     };
 
-    install_plugins(tauri::Builder::default())
-        .manage::<LauncherState>(Mutex::new(ctx))
-        .invoke_handler(tauri::generate_handler![
-            ipc::get_status,
-            ipc::get_toolkit_url,
-            ipc::toggle_overlay,
-            ipc::restart_backend,
-            ipc::stop_backend,
-            ipc::start_backend,
-            ipc::open_data_folder,
-            ipc::open_dashboard_in_browser,
-            ipc::open_external_url,
-            ipc::quit,
-            ipc::get_settings,
-            ipc::save_settings,
-            ipc::get_launcher_monitor_size,
-            updater::check_for_updates,
-            updater::apply_update,
-        ])
+    let builder = install_plugins(tauri::Builder::default())
+        .manage::<LauncherState>(Mutex::new(ctx));
+
+    #[cfg(feature = "installer-updater")]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        ipc::get_status,
+        ipc::get_toolkit_url,
+        ipc::toggle_overlay,
+        ipc::restart_backend,
+        ipc::stop_backend,
+        ipc::start_backend,
+        ipc::open_data_folder,
+        ipc::open_dashboard_in_browser,
+        ipc::open_external_url,
+        ipc::quit,
+        ipc::get_settings,
+        ipc::save_settings,
+        ipc::get_launcher_monitor_size,
+        updater::check_for_updates,
+        updater::apply_update,
+    ]);
+
+    #[cfg(not(feature = "installer-updater"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        ipc::get_status,
+        ipc::get_toolkit_url,
+        ipc::toggle_overlay,
+        ipc::restart_backend,
+        ipc::stop_backend,
+        ipc::start_backend,
+        ipc::open_data_folder,
+        ipc::open_dashboard_in_browser,
+        ipc::open_external_url,
+        ipc::quit,
+        ipc::get_settings,
+        ipc::save_settings,
+        ipc::get_launcher_monitor_size,
+    ]);
+
+    builder
         .setup(move |app| {
             let handle = app.handle().clone();
             let (toolkit_url, initial_settings) = {
@@ -102,12 +127,17 @@ pub fn run(args: Args) {
                 crate::log_error!("[launcher] overlay pre-build failed: {e}");
             }
 
-            // Best-effort update check. No-op when the updater plugin
-            // has no `plugins.updater` config (portable build).
-            let handle_for_updater = handle.clone();
-            tauri::async_runtime::spawn(async move {
-                updater::check_on_startup(handle_for_updater).await;
-            });
+            // Best-effort update check. Compiled in only for the
+            // installer build — the portable build omits the updater
+            // entirely (the plugin can't be left "configured but
+            // inactive"; its setup deserializes config eagerly).
+            #[cfg(feature = "installer-updater")]
+            {
+                let handle_for_updater = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    updater::check_on_startup(handle_for_updater).await;
+                });
+            }
 
             // Drive real RL focus events into every webview the launcher
             // owns (the launcher window itself ignores them; the overlay
