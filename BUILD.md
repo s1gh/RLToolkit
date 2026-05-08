@@ -210,6 +210,25 @@ The portable build bundles the sidecar next to the launcher and is
 otherwise identical, minus the auto-updater (it's a separate Cargo
 feature, gated to the installer build).
 
+#### Plugin hot-reload (`rl-toolkit dev`)
+
+The backend's localhost dev API — used by `rl-toolkit dev <plugin-path>`
+to push live edits into the running overlay — is **off by default**.
+Production runs don't need it; opt in only while iterating on a plugin:
+
+```powershell
+# Direct backend run:
+.\rl-toolkit.exe -dev
+
+# Via the launcher: set the env var before launching, the launcher
+# propagates it to the sidecar as -dev:
+$env:RLT_DEV = "1"
+.\release\windows\RLT-Launcher.exe
+```
+
+Without `-dev`, `rl-toolkit dev <path>` will fail with a clear hint
+about turning it on. `RLT_DEV` accepts `1`, `true`, `yes`, or `on`.
+
 ### Known caveats
 
 - **SmartScreen on first run.** Unsigned NSIS still trips Microsoft
