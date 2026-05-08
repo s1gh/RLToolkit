@@ -345,23 +345,33 @@
       body.overlay-mode {
         font-size: 16px;
       }
+      /* Padding stays constant across modes so the chip column
+         doesn't shift vertically when the drain bar spawns in or
+         out. Earlier the idle mode added a 0.25rem top inset and 0
+         in active — the chips visibly jumped up on combo start and
+         back down on streak end. */
       .ov {
         display: inline-flex;
         flex-direction: column;
         gap: 0.22rem;
         width: max-content;
         max-width: 100%;
-        padding: 0.25rem 1rem 1rem 0;
+        padding: 0;
         animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
-      /* In active/break mode the widget needs the full iframe width so
-         the victim chip has room to grow before it ellipsis-truncates.
-         Idle mode keeps `width: max-content` so the small header chip
-         hugs its content (looks weird floated as a wide bar). */
+      /* In active/break mode the widget needs the full iframe width
+         so the bar reaches the right edge. Idle mode keeps
+         `width: max-content` so the chip column hugs its content
+         (looks weird floated as a wide bar). `.is-fading-out` is set
+         transiently by JS during break→idle so the active layout
+         holds until the active block finishes its opacity fade —
+         without this hold the root width snaps to max-content
+         mid-fade and the streak number visibly jumps left before
+         disappearing. */
       .ov[data-mode="active"],
-      .ov[data-mode="break"] {
+      .ov[data-mode="break"],
+      .ov.is-fading-out {
         width: 100%;
-        padding: 0;
       }
 
       /* Header tag — same backing/border-left treatment as dejavu's team
@@ -396,47 +406,6 @@
         letter-spacing: 0.04em;
       }
 
-      .ov-list {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.18rem;
-      }
-      .ov-row {
-        display: inline-grid;
-        grid-template-columns: 1.6rem auto;
-        gap: 0.5rem;
-        align-items: center;
-        padding: 0.3rem 0.6rem 0.3rem 0.5rem;
-        background: rgba(10, 12, 20, 0.82);
-        border-left: 2px solid rgba(255, 255, 255, 0.12);
-        border-radius: 2px;
-        max-width: 14rem;
-        animation: ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-        animation-delay: calc(var(--ov-i, 0) * 40ms);
-      }
-      .ov-row .c {
-        font-family: var(--rlt-display);
-        font-feature-settings: "tnum";
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--rlt-orange);
-        text-align: right;
-        letter-spacing: 0.04em;
-        text-shadow: 0 0 8px rgba(251, 124, 60, 0.45);
-      }
-      .ov-row .n {
-        font-family: var(--rlt-display);
-        font-size: 0.92rem;
-        font-weight: 600;
-        color: #fff;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        letter-spacing: 0.02em;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
-      }
-
       @keyframes ov-fade-in {
         from {
           opacity: 0;
@@ -447,38 +416,16 @@
           transform: translateY(0);
         }
       }
-      @keyframes ov-row-in {
-        from {
-          opacity: 0;
-          transform: translateX(-6px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(0);
-        }
-      }
-
       /* ─── Mode toggle ───────────────────────────────────────────
-         Just opacity. Earlier iterations also swapped position to
-         absolute on the hidden block, animated a desaturation
-         filter, and toggled pointer-events — all firing on the same
-         frame produced a staggered glitch on break → idle. Plain
-         opacity reads as a clean fade.
-
-         The two blocks (.ov-active in the right column, .ov-list
-         below .ov-main) live in different DOM slots, so a hidden-
-         but-still-in-flow element doesn't cost layout — it just
-         occupies its own empty rectangle. The chip column on the
-         left dominates idle-mode height anyway. */
-      .ov-list,
+         Just an opacity fade on the active subtree. Earlier iterations
+         also swapped position to absolute on the hidden block,
+         animated a desaturation filter, and toggled pointer-events —
+         all firing on the same frame produced a staggered glitch on
+         break → idle. Plain opacity reads as a clean fade. */
       .ov-active {
         transition: opacity 400ms ease;
       }
       .ov[data-mode="idle"] .ov-active {
-        opacity: 0;
-      }
-      .ov[data-mode="active"] .ov-list,
-      .ov[data-mode="break"] .ov-list {
         opacity: 0;
       }
       /* Active layout fills the widget; idle uses inline-flex from .ov.
@@ -640,14 +587,27 @@
          JS write, slowing the bar to a crawl. Drain bar fills
          whatever width remains after the DEMOS chip. Hidden in idle
          (no streak to drain — empty bar would just be visual noise). */
+      /* Bar opacity tweens 1→0 in lockstep with the active block
+         during break→idle so the readout disappears as a single
+         unit instead of the bar snapping out a frame before the
+         multiplier. `visibility: hidden` only kicks in once the
+         transient `is-fading-out` class has cleared, which keeps
+         the bar occupying its row for the duration of the fade
+         (avoids streak text jumping up). Width is JS-driven and
+         intentionally untransitioned — see drain-bar comment above. */
       .ov-bar {
         align-self: stretch;
         height: 3px;
         background: rgba(255, 255, 255, 0.08);
         border-radius: 2px;
         overflow: hidden;
+        opacity: 1;
+        transition: opacity 400ms ease;
       }
       .ov[data-mode="idle"] .ov-bar {
+        opacity: 0;
+      }
+      .ov[data-mode="idle"]:not(.is-fading-out) .ov-bar {
         visibility: hidden;
       }
       .ov-bar-fill {
@@ -860,27 +820,30 @@
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
 
-      /* BEST badge picks up the tier color it was earned at */
-      .ov.tier-hot .ov-best,
-      .ov.tier-bloom .ov-best,
-      .ov.tier-apocalypse .ov-best,
-      .ov.tier-armageddon .ov-best,
-      .ov.tier-extinction .ov-best,
-      .ov.tier-genocide .ov-best {
+      /* BEST badge picks up the tier color of the all-time best streak
+         it represents — independent of the current streak's tier so the
+         badge stays styled correctly between matches when the live tier
+         resets to base. The tier class is set on .ov-best directly. */
+      .ov-best.tier-hot,
+      .ov-best.tier-bloom,
+      .ov-best.tier-apocalypse,
+      .ov-best.tier-armageddon,
+      .ov-best.tier-extinction,
+      .ov-best.tier-genocide {
         border-left-color: currentColor;
       }
-      .ov.tier-hot .ov-best-streak,
-      .ov.tier-hot .ov-best-word { color: #ff6a1f; }
-      .ov.tier-bloom .ov-best-streak,
-      .ov.tier-bloom .ov-best-word { color: #ff4d8a; }
-      .ov.tier-apocalypse .ov-best-streak,
-      .ov.tier-apocalypse .ov-best-word { color: #ff2d62; }
-      .ov.tier-armageddon .ov-best-streak,
-      .ov.tier-armageddon .ov-best-word { color: #ff1a4d; }
-      .ov.tier-extinction .ov-best-streak,
-      .ov.tier-extinction .ov-best-word { color: #fff0f5; }
-      .ov.tier-genocide .ov-best-streak,
-      .ov.tier-genocide .ov-best-word { color: #ffffff; }
+      .ov-best.tier-hot .ov-best-streak,
+      .ov-best.tier-hot .ov-best-word { color: #ff6a1f; }
+      .ov-best.tier-bloom .ov-best-streak,
+      .ov-best.tier-bloom .ov-best-word { color: #ff4d8a; }
+      .ov-best.tier-apocalypse .ov-best-streak,
+      .ov-best.tier-apocalypse .ov-best-word { color: #ff2d62; }
+      .ov-best.tier-armageddon .ov-best-streak,
+      .ov-best.tier-armageddon .ov-best-word { color: #ff1a4d; }
+      .ov-best.tier-extinction .ov-best-streak,
+      .ov-best.tier-extinction .ov-best-word { color: #fff0f5; }
+      .ov-best.tier-genocide .ov-best-streak,
+      .ov-best.tier-genocide .ov-best-word { color: #ffffff; }
 
       /* ─── Shake on demo ────────────────────────────────────────
          JS adds .shake-light / .shake-hard on every demo at tier-hot+;
@@ -935,7 +898,6 @@
       /* Honor reduced-motion — keep the static look. */
       @media (prefers-reduced-motion: reduce) {
         body.overlay-mode .ov,
-        .ov-row,
         .ov-streak {
           /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
           animation: none !important;
@@ -1021,10 +983,10 @@
     </main>
 
     <!-- ═════════════════════ OVERLAY ═════════════════════
-         Layout: persistent chips at the top (DEMOS counter + BEST
-         record), then a swappable bottom block.
-         - data-mode="idle"   bottom shows .ov-list (victim leaderboard)
-         - data-mode="active" bottom shows .ov-active (drain bar + streak)
+         Layout: persistent chips on the left (DEMOS counter, BEST
+         record, LAST victim) and a streak readout on the right.
+         - data-mode="idle"   active subtree fades out, chips alone
+         - data-mode="active" .ov-active visible (drain bar + streak)
          - data-mode="break"  reuses .ov-active with .is-break styling
 
          The chips never disappear — they're context the player wants
@@ -1046,8 +1008,8 @@
              underneath the drain bar so they share the same
              horizontal track — the streak's "progress" reads
              directly from the bar above it.
-           Idle mode hides .ov-stack and shows the victim list below
-             the chips (it doesn't need the column structure). -->
+           In idle mode the active subtree fades out and the chips
+             carry the readout on their own. -->
       <div class="ov-main">
         <div class="ov-col-left">
           <div class="ov-head">
@@ -1072,10 +1034,6 @@
           </div>
         </div>
       </div>
-
-      <!-- IDLE bottom slot: victim list. Below the chip column when
-           in idle mode (replaces the streak block visually). -->
-      <div id="ov-list" class="ov-list"></div>
     </div>
 
     <script>
@@ -1100,7 +1058,6 @@
         // white-hot and adds harder shake + faster pulse.
         const COMBO_WINDOW_MS = 20000; // gap allowed between demos (playable time)
         const BREAK_HOLD_MS = 1000;    // freeze duration on streak end
-        const BREAK_FADE_MS = 200;     // crossfade from break to idle
 
         const TIERS = [
           { min:  2, word: 'TAGGED',      cls: 'tier-base' },
@@ -1151,6 +1108,7 @@
           }
 
           const t = tierFor(currentStreak);
+          const bt = tierFor(allTimeBestStreak);
           return {
             mode,
             streak: currentStreak,
@@ -1159,9 +1117,12 @@
             victim: lastVictimName,
             // BEST badge values — all-time personal record, not
             // per-match. The badge exists so the player has a number
-            // to chase across sessions.
+            // to chase across sessions. bestTierClass is independent
+            // of the live tierClass so the badge keeps its earned
+            // styling on a fresh game when currentStreak is 0.
             bestStreak: allTimeBestStreak,
             bestStreakWord: allTimeBestStreakWord,
+            bestTierClass: bt ? bt.cls : 'tier-base',
             // Drives the timer bar width. 1.0 = full, 0.0 = expired.
             // Negative when in break mode; clamp to 0 for the bar.
             timerRemaining01: Math.max(0, Math.min(1, 1 - sinceDemo / COMBO_WINDOW_MS)),
@@ -1455,6 +1416,16 @@
         // DOM path is skipped — saves an innerHTML rebuild per frame
         // during a streak.
         let lastOverlayFp = '';
+        // Tracks the previously-rendered mode so we can detect the
+        // active|break → idle transition and run the fade-out hold
+        // (see is-fading-out class). Seeded to 'idle' so the very
+        // first render (mode is already idle) doesn't trigger a fade.
+        let lastRenderedMode = 'idle';
+        // ms — kept just longer than the .ov-active / .ov-bar opacity
+        // transition (400ms) so the layout-hold class clears cleanly
+        // after the fade lands.
+        const FADE_OUT_HOLD_MS = 420;
+        let fadeOutTimer = 0;
         function renderOverlay(ui) {
           const ov = $('ov');
           if (!ov) return;
@@ -1463,25 +1434,44 @@
           if (!ui) ui = computeUiState();
 
           // Build the fingerprint over every value the heavy path writes.
-          // top-3 match entries are folded in by id+count+name;
           // ui.bestStreak / ui.bestStreakWord (all-time personal record)
-          // drive the BEST badge; streak/word/victim drive the active
-          // subtree. The match-roster slice mirrors the one we use to
-          // render rows below.
-          const matchEntries = Object.entries(current)
-            .sort((a, b) => b[1].count - a[1].count)
-            .slice(0, 3);
-          const matchFp = matchEntries
-            .map(([id, v]) => id + ':' + v.count + ':' + v.name)
-            .join('|');
+          // drive the BEST badge; streak/word drive the active subtree;
+          // lastMatchVictim drives the LAST chip. Match-roster entries
+          // aren't shown anymore so they're not part of the fingerprint.
           const fp =
             ui.mode + '|' + ui.tierClass + '|' +
             ui.streak + '|' + ui.word + '|' +
-            ui.bestStreak + '|' + ui.bestStreakWord + '|' +
+            ui.bestStreak + '|' + ui.bestStreakWord + '|' + ui.bestTierClass + '|' +
             lastMatchVictim + '|' +
-            currentGuid + '|' + matchDemoCount() + '|' + matchFp;
+            currentGuid + '|' + matchDemoCount();
           if (fp === lastOverlayFp) return;
           lastOverlayFp = fp;
+
+          // Hold the active layout (full width, no padding, drain bar
+          // present) while the active block fades out. Without this
+          // hold, switching data-mode to "idle" instantly snaps the
+          // root width to max-content, the right column collapses,
+          // and the centered streak number visibly slides left
+          // mid-fade. Class clears on a timer matched to the CSS
+          // transition; further mode flips before it expires reset
+          // the timer so we never get stuck holding the layout.
+          if ((lastRenderedMode === 'active' || lastRenderedMode === 'break') && ui.mode === 'idle') {
+            ov.classList.add('is-fading-out');
+            if (fadeOutTimer) clearTimeout(fadeOutTimer);
+            fadeOutTimer = setTimeout(() => {
+              ov.classList.remove('is-fading-out');
+              fadeOutTimer = 0;
+            }, FADE_OUT_HOLD_MS);
+          } else if (ui.mode !== 'idle') {
+            // New combo while we were still fading: drop the hold so
+            // the active layout takes over cleanly.
+            if (fadeOutTimer) {
+              clearTimeout(fadeOutTimer);
+              fadeOutTimer = 0;
+            }
+            ov.classList.remove('is-fading-out');
+          }
+          lastRenderedMode = ui.mode;
 
           // Top-level mode + tier classes drive everything CSS-side.
           ov.dataset.mode = ui.mode;
@@ -1513,6 +1503,21 @@
           // up to 1 and the badge starts moving.
           const best = $('ov-best');
           best.hidden = false;
+          // The badge carries its own tier class so its color tracks
+          // the all-time best streak, not the live one — keeps the
+          // earned styling visible after the streak ends or between
+          // matches when the root .ov reverts to tier-base.
+          best.classList.remove(
+            'tier-base',
+            'tier-glow',
+            'tier-hot',
+            'tier-bloom',
+            'tier-apocalypse',
+            'tier-armageddon',
+            'tier-extinction',
+            'tier-genocide',
+          );
+          best.classList.add(ui.bestTierClass);
           $('ov-best-streak').textContent = 'x' + ui.bestStreak;
           $('ov-best-word').textContent = ui.bestStreakWord;
 
@@ -1527,26 +1532,6 @@
           } else {
             last.hidden = true;
           }
-
-          // Empty state intentionally renders nothing: the DEMOS
-          // counter at the top reads 0 and the BEST badge is hidden
-          // until the first x2 — together those already tell the
-          // "waiting" story without an extra chip below them.
-          $('ov-list').innerHTML = matchEntries
-            .map(
-              ([_id, v], i) =>
-                '<div class="ov-row" style="--ov-i:' +
-                i +
-                '">' +
-                '<span class="c">' +
-                v.count +
-                '</span>' +
-                '<span class="n">' +
-                esc(v.name) +
-                '</span>' +
-                '</div>',
-            )
-            .join('');
 
           // ── Active/break subtree ──
           // Streak number + tier word only. The victim moved out to
