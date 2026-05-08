@@ -32,13 +32,19 @@ $bundleDir = "overlay\src-tauri\target\release\bundle\nsis"
 $stageRoot = "dist\smoketest"
 
 function Set-Version([string]$ver) {
-  (Get-Content $cargoToml) -replace '^version = "[^"]*"', ('version = "{0}"' -f $ver) |
-    Set-Content -NoNewline $cargoToml
-  # Cargo.toml requires trailing newline; -replace strips none, but
-  # Set-Content -NoNewline drops the EOF newline. Re-append it.
-  Add-Content -NoNewline $cargoToml "`n"
-  (Get-Content $tauriConf) -replace '"version": "[^"]*"', ('"version": "{0}"' -f $ver) |
-    Set-Content $tauriConf
+  # Read, swap version line, write back. Set-Content joins lines with
+  # the platform newline (CRLF on Windows) which Cargo + Tauri both
+  # tolerate. The .gitattributes rule keeps the index at LF, so this
+  # file's working-tree representation may diff against HEAD by a
+  # whitespace pass; that's expected and ignored on next checkout.
+  $cargoLines = Get-Content $cargoToml
+  $cargoLines = $cargoLines -replace '^version = "[^"]*"', ('version = "{0}"' -f $ver)
+  Set-Content -Path $cargoToml -Value $cargoLines
+
+  $tauriLines = Get-Content $tauriConf
+  $tauriLines = $tauriLines -replace '"version": "[^"]*"', ('"version": "{0}"' -f $ver)
+  Set-Content -Path $tauriConf -Value $tauriLines
+
   Write-Host "==> source set to $ver" -ForegroundColor Cyan
 }
 
