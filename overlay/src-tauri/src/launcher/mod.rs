@@ -29,8 +29,22 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
 }
 
 pub fn run(args: Args) {
+    // Initialize file logging before anything else can fail. The
+    // launcher settings file lives next to the data dir, but the
+    // *configured* data_dir may differ (user override) — we resolve
+    // logs against the active data_dir from settings, falling back to
+    // the platform default. Either way the user finds them under
+    // `<data dir>/logs/`.
     let settings_store = SettingsStore::new(crate::paths::launcher_settings_path());
     let initial = settings_store.load();
+    let data_dir_for_logs = initial
+        .data_dir
+        .as_ref()
+        .filter(|p| !p.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(crate::paths::default_data_dir);
+    crate::logging::init(data_dir_for_logs);
+    crate::log_info!("[launcher] starting (toolkit={})", args.toolkit);
 
     let ctx = LauncherCtx {
         toolkit_url: args.toolkit.trim_end_matches('/').to_string(),
@@ -81,7 +95,7 @@ pub fn run(args: Args) {
             // Creating it once up front means toggle_overlay only needs
             // show()/hide(), which is safe from any thread.
             if let Err(e) = crate::overlay_bridge::ensure_overlay(&handle) {
-                eprintln!("[launcher] overlay pre-build failed: {e}");
+                crate::log_error!("[launcher] overlay pre-build failed: {e}");
             }
 
             // Drive real RL focus events into every webview the launcher
@@ -91,7 +105,7 @@ pub fn run(args: Args) {
             focus_watcher::spawn(handle.clone(), rule);
 
             if let Err(e) = tray::setup_tray(&handle, "RL Toolkit") {
-                eprintln!("[launcher] tray failed: {e}");
+                crate::log_warn!("[launcher] tray failed: {e}");
                 if let Some(state) = handle.try_state::<LauncherState>() {
                     state.lock().unwrap().tray_ok = false;
                 }
@@ -101,7 +115,7 @@ pub fn run(args: Args) {
             let app_for_probe = handle.clone();
             std::thread::spawn(move || {
                 use crate::launcher::backend::{probe_status, spawn_sidecar, BackendOwnership, ProbeOutcome};
-                let log_path = crate::paths::launcher_log_path();
+                let log_path = crate::launcher::backend::sidecar_log_path_today();
                 let (plugins_dir, data_dir, rl_addr) = {
                     use tauri::Manager;
                     let state: tauri::State<LauncherState> = app_for_probe.state();
@@ -124,13 +138,13 @@ pub fn run(args: Args) {
                                 b
                             }
                             Err(e) => {
-                                eprintln!("[launcher] spawn failed: {e}");
+                                crate::log_error!("[launcher] spawn failed: {e}");
                                 BackendOwnership::Unavailable
                             }
                         }
                     }
                     ProbeOutcome::Unrelated => {
-                        eprintln!("[launcher] something else is on the toolkit port");
+                        crate::log_warn!("[launcher] something else is on the toolkit port");
                         BackendOwnership::Unavailable
                     }
                 };
@@ -256,6 +270,11 @@ fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
         .set("Content-Type", "application/json")
         .send_string(&body);
     if let Err(e) = result {
-        eprintln!("[launcher] detected-surface report failed: {e}");
+        // Debug-only: this fires during the brief window between
+        // backend probe success and the HTTP server actually
+        // accepting connections. Surfacing it on stderr panicked
+        // beta users who thought the launcher was broken; the file
+        // log keeps the trail for genuine bug hunts.
+        crate::log_debug!("[launcher] detected-surface report failed: {e}");
     }
 }

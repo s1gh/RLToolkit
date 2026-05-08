@@ -146,7 +146,7 @@ pub fn restart_backend(app: AppHandle, state: State<LauncherState>) -> Result<()
         if let Some(mut owned) = slot.take() {
             owned.terminate(std::time::Duration::from_secs(2));
         }
-        let log_path = crate::paths::launcher_log_path();
+        let log_path = crate::launcher::backend::sidecar_log_path_today();
         match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => {
                 *slot = Some(new_owned);
@@ -202,7 +202,7 @@ pub fn start_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), 
         if let Some(mut owned) = slot.take() {
             owned.terminate(std::time::Duration::from_secs(2));
         }
-        let log_path = crate::paths::launcher_log_path();
+        let log_path = crate::launcher::backend::sidecar_log_path_today();
         match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => {
                 *slot = Some(new_owned);
@@ -385,7 +385,7 @@ pub fn save_settings(
         if let Some(mut owned) = slot.take() {
             owned.terminate(std::time::Duration::from_secs(2));
         }
-        let log_path = crate::paths::launcher_log_path();
+        let log_path = crate::launcher::backend::sidecar_log_path_today();
         match spawn_sidecar(&app, log_path, plugins_dir, data_dir, rl_addr) {
             Ok(new_owned) => *slot = Some(new_owned),
             Err(e) => return Err(e),

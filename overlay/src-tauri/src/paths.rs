@@ -41,8 +41,20 @@ pub fn default_plugins_dir() -> PathBuf {
     base_dir().join("plugins")
 }
 
-/// Path to the launcher's sidecar log. Lives under data/ so all
-/// generated files share one parent.
-pub fn launcher_log_path() -> PathBuf {
-    default_data_dir().join("launcher.log")
+/// Path to the sidecar's stdout/stderr capture file. The Go backend
+/// writes its own structured log to `logs/backend-YYYY-MM-DD.log` via
+/// the stdlib `log` package; this file catches anything that bypasses
+/// it (Go runtime panics, raw `fmt.Print`s) so a hard crash isn't
+/// lost. Daily-stamped to match the launcher and backend files; the
+/// caller passes today's date in.
+pub fn sidecar_log_path(date_stamp: &str) -> PathBuf {
+    default_data_dir()
+        .join("logs")
+        .join(format!("sidecar-{date_stamp}.log"))
+}
+
+/// Directory holding all rotated log files (launcher-*, backend-*,
+/// sidecar-*). Bug-report hand-off: "zip and send this folder."
+pub fn logs_dir() -> PathBuf {
+    default_data_dir().join("logs")
 }

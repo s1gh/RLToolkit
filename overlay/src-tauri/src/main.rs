@@ -191,9 +191,12 @@ fn probe_toolkit(toolkit: &str) -> Result<(), String> {
 /// Best-effort POST of the bound monitor's logical (w, h) to
 /// /api/overlay/surface/detected. The dashboard setting is the canonical
 /// source of truth; this is purely informational so the editor and the
-/// dashboard "Use detected" button have a sane default. Failure is
-/// logged but never propagated — the launcher must keep starting even
-/// when the toolkit is offline at this exact instant.
+/// dashboard "Use detected" button have a sane default. Failures are
+/// silently swallowed — the rl-widget overlay can mount before the
+/// backend has finished spawning, in which case this POST hits a
+/// connection refused that's expected and noisy. The launcher does its
+/// own report after the backend probe succeeds, so this one being a
+/// best-effort no-op on race is fine.
 fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
     let base = toolkit.trim_end_matches('/');
     let url = format!("{}/api/overlay/surface/detected", base);
@@ -202,13 +205,15 @@ fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
         w.round() as i64,
         h.round() as i64
     );
-    let result = ureq::post(&url)
+    // Result intentionally discarded — see the doc comment above. We
+    // keep the call (rather than skipping it) because on multi-monitor
+    // setups the overlay may be on a different monitor than the
+    // launcher window, and that's the more accurate "detected" value
+    // when both succeed.
+    let _ = ureq::post(&url)
         .timeout(std::time::Duration::from_secs(2))
         .set("Content-Type", "application/json")
         .send_string(&body);
-    if let Err(e) = result {
-        eprintln!("[rl-widget] detected-surface report failed: {e}");
-    }
 }
 
 // ─── Tauri commands (the RLT.widget.* surface) ──────────────────
@@ -229,7 +234,7 @@ fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
 /// it back into a `Mode` we can pattern-match on.
 fn ignored_in_unified(mode: &tauri::State<'_, Mode>, fn_name: &str) -> bool {
     if matches!(**mode, Mode::Unified) {
-        eprintln!("[rl-widget] {} ignored in unified mode", fn_name);
+        rl_widget::log_debug!("[rl-widget] {} ignored in unified mode", fn_name);
         return true;
     }
     false
@@ -713,14 +718,16 @@ fn main() {
     let args = Args::parse();
 
     if launcher_mode_active(&args) {
-        // Install the overlay factory the launcher can call later.
-        // Must be a bare fn pointer (no captures), so the body calls a
-        // free function that takes only &AppHandle.
+        // launcher::run installs file logging itself (it can read the
+        // user-configured data_dir). The non-launcher overlay path
+        // below initializes against the platform default — this
+        // process can't see launcher.json.
         rl_widget::overlay_bridge::install(|app| build_overlay_for_launcher(app));
         launcher::run(args);
         return;
     }
 
+    rl_widget::logging::init(rl_widget::paths::default_data_dir());
     main_overlay(args);
 }
 
@@ -730,24 +737,24 @@ fn main_overlay(args: Args) {
             let manifest = match fetch_manifest(&args.toolkit, &name) {
                 Ok(m) => m,
                 Err(e) => {
-                    eprintln!("[rl-widget] {}", e);
-                    eprintln!("[rl-widget] start the toolkit first (e.g. ./rl-toolkit) and retry");
+                    rl_widget::log_error!("[rl-widget] {}", e);
+                    rl_widget::log_error!("[rl-widget] start the toolkit first (e.g. ./rl-toolkit) and retry");
                     std::process::exit(1);
                 }
             };
             let url = plugin_url(&args.toolkit, &name, &manifest.file, &manifest.anchor);
-            eprintln!("[rl-widget] plugin={} url={}", name, url);
+            rl_widget::log_info!("[rl-widget] plugin={} url={}", name, url);
             let title = format!("RL Toolkit – {}", name);
             (Mode::Plugin { manifest }, url, title)
         }
         _ => {
             if let Err(e) = probe_toolkit(&args.toolkit) {
-                eprintln!("[rl-widget] {}", e);
-                eprintln!("[rl-widget] start the toolkit first (e.g. ./rl-toolkit) and retry");
+                rl_widget::log_error!("[rl-widget] {}", e);
+                rl_widget::log_error!("[rl-widget] start the toolkit first (e.g. ./rl-toolkit) and retry");
                 std::process::exit(1);
             }
             let url = unified_url(&args.toolkit);
-            eprintln!("[rl-widget] unified mode url={}", url);
+            rl_widget::log_info!("[rl-widget] unified mode url={}", url);
             (Mode::Unified, url, "RL Toolkit – Overlay".to_string())
         }
     };
@@ -784,7 +791,7 @@ fn main_overlay(args: Args) {
             // Tray is best-effort. Some minimal Linux desktops can't
             // host one; the user falls back to killing the process.
             if let Err(e) = setup_tray(app.handle(), &tray_tooltip) {
-                eprintln!("[rl-widget] tray icon failed to register: {e}");
+                rl_widget::log_warn!("[rl-widget] tray icon failed to register: {e}");
             }
 
             // Build the overlay window via the shared helper.
@@ -847,7 +854,7 @@ fn init_layer_shell_common(
     let gtk_window = match window.gtk_window() {
         Ok(w) => w,
         Err(e) => {
-            eprintln!("[rl-widget] gtk_window unavailable, skipping layer-shell: {e}");
+            rl_widget::log_error!("[rl-widget] gtk_window unavailable, skipping layer-shell: {e}");
             return None;
         }
     };
@@ -875,14 +882,14 @@ fn init_layer_shell_common(
             display.primary_monitor().or_else(|| display.monitor(0))
         };
         if mon.is_none() {
-            eprintln!(
+            rl_widget::log_warn!(
                 "[rl-widget] could not resolve a GDK monitor (index={monitor_index:?}); \
                  layer surface will fan across all outputs"
             );
         }
         mon
     } else {
-        eprintln!("[rl-widget] no default GDK display; layer surface will fan across all outputs");
+        rl_widget::log_warn!("[rl-widget] no default GDK display; layer surface will fan across all outputs");
         None
     };
 
@@ -892,7 +899,7 @@ fn init_layer_shell_common(
             .model()
             .map(|m| m.to_string())
             .unwrap_or_else(|| format!("index {:?}", monitor_index.unwrap_or(0)));
-        eprintln!("[rl-widget] layer-shell bound to monitor: {label:?}");
+        rl_widget::log_info!("[rl-widget] layer-shell bound to monitor: {label:?}");
     }
 
     gtk_window.set_layer(Layer::Overlay);

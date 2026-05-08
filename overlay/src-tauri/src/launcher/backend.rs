@@ -7,7 +7,19 @@
 //! failure means "something else is on this port."
 
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::time::Duration;
+
+/// Path to today's sidecar capture log. The Go backend now owns its
+/// own structured `backend-YYYY-MM-DD.log` (see backend/internal/logging),
+/// so this file is purely a safety net for stdout/stderr that bypasses
+/// `log.Printf` — Go runtime panics, raw `fmt.Print`, stack traces.
+/// Same daily-stamp scheme so all three streams (launcher / backend /
+/// sidecar) line up when zipped for a bug report.
+pub fn sidecar_log_path_today() -> PathBuf {
+    let stamp = crate::logging::today_date_stamp();
+    crate::paths::sidecar_log_path(&stamp)
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProbeOutcome {
@@ -98,7 +110,7 @@ impl BackendOwnership {
                     }
                     // Already attempted kill; nothing harsher to try via the
                     // shell plugin. Log and move on.
-                    eprintln!("[launcher] sidecar still alive after {grace:?}");
+                    crate::log_warn!("[launcher] sidecar still alive after {grace:?}");
                 }
             }
             BackendOwnership::Attached

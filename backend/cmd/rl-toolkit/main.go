@@ -23,6 +23,7 @@ import (
 	"rl-toolkit/backend/internal/discoveries"
 	"rl-toolkit/backend/internal/emit"
 	"rl-toolkit/backend/internal/identity"
+	"rl-toolkit/backend/internal/logging"
 	"rl-toolkit/backend/internal/overrides"
 	"rl-toolkit/backend/internal/paths"
 	"rl-toolkit/backend/internal/pipeline"
@@ -124,7 +125,14 @@ func (a identityAdapter) MyPrimaryID() string {
 func runServe() {
 	cfg := parseFlags()
 	log.SetFlags(log.Ltime)
-	log.SetOutput(&styledLogWriter{w: os.Stderr})
+	// Two sinks: stderr (with the dev-friendly ANSI styling) and a
+	// per-day file under <data>/logs/. The file gets the raw,
+	// already-time-prefixed bytes so a `tail -f` of yesterday's log
+	// reads cleanly without escape garbage. styledLogWriter is the
+	// stderr-side filter — it consumes the same bytes and adds color
+	// before they hit the terminal.
+	closeLogs := installLogSinks(cfg.DataDir)
+	defer func() { _ = closeLogs() }()
 
 	printStartupBanner(cfg)
 	printRLSetupNotice()
@@ -488,6 +496,24 @@ func printRLSetupNotice() {
 func printLogsSectionHeader() {
 	fmt.Fprintf(os.Stderr, "  %s%s%s %s──────────────────────────────────%s\n\n",
 		cDim, "logs", cReset, cDim, cReset)
+}
+
+// installLogSinks routes the stdlib log package to (a) the dev
+// terminal with ANSI styling and (b) a per-day file under
+// <dataDir>/logs/backend-YYYY-MM-DD.log. Returns a closer that flushes
+// the file at shutdown.
+//
+// The styled writer is the stderr leaf; the file gets the same
+// time-prefixed bytes WITHOUT escape sequences so files read cleanly
+// in any text viewer. logging.Init returns a MultiWriter wrapping
+// (styledStderr, fileSink) — log.SetOutput installs that as the sole
+// destination, and every log.Printf call across the backend reaches
+// both sinks for free.
+func installLogSinks(dataDir string) func() error {
+	styled := &styledLogWriter{w: os.Stderr}
+	out, closeFn := logging.Init(dataDir, styled)
+	log.SetOutput(out)
+	return closeFn
 }
 
 // styledLogWriter wraps stderr to colorize log lines emitted by the

@@ -33,7 +33,7 @@ fn state() -> Option<&'static X11State> {
         .get_or_init(|| match init_state() {
             Ok(s) => Some(s),
             Err(e) => {
-                eprintln!("[rl-widget] focus-gating: X11 init failed: {e}; \
+                crate::log_warn!("[rl-widget] focus-gating: X11 init failed: {e}; \
                            overlay will remain always-visible");
                 None
             }

@@ -56,7 +56,7 @@ fn log_dispatch_error(e: &impl std::fmt::Display) {
 
 fn log_dispatch_error_str(msg: &str) {
     if !DISPATCH_ERR_LOGGED.swap(true, Ordering::Relaxed) {
-        eprintln!(
+        crate::log_warn!(
             "[rl-widget] wayland dispatch failed (compositor restart?): {msg}; \
              focus-gating effectively disabled until process restart"
         );
@@ -92,12 +92,12 @@ fn state() -> Option<&'static Mutex<WaylandState>> {
     STATE
         .get_or_init(|| match try_init() {
             Ok(s) => {
-                eprintln!("[rl-widget] wayland foreign-toplevel-manager bound; \
+                crate::log_info!("[rl-widget] wayland foreign-toplevel-manager bound; \
                            focus-gating active");
                 Some(Mutex::new(s))
             }
             Err(e) => {
-                eprintln!("[rl-widget] focus-gating disabled: wayland compositor \
+                crate::log_warn!("[rl-widget] focus-gating disabled: wayland compositor \
                            doesn't expose toplevel focus ({e}); overlay will \
                            remain always-visible");
                 None

@@ -361,10 +361,10 @@ pub fn match_rule_from_arg(arg: Option<&str>) -> MatchRule {
 /// app's lifetime; no shutdown signal — process exit reclaims the thread.
 pub fn spawn(app: AppHandle, rule: MatchRule) {
     if rule.is_disabled() {
-        eprintln!("[rl-widget] focus-gating disabled (--game-match=\"\")");
+        crate::log_info!("[rl-widget] focus-gating disabled (--game-match=\"\")");
         return;
     }
-    eprintln!("[rl-widget] focus watcher: poll every {:?}, hide debounce {:?}",
+    crate::log_info!("[rl-widget] focus watcher: poll every {:?}, hide debounce {:?}",
               POLL_INTERVAL, HIDE_DEBOUNCE);
 
     let self_pid = std::process::id();
@@ -377,7 +377,7 @@ pub fn spawn(app: AppHandle, rule: MatchRule) {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 run_loop(app, rule, self_pid);
             }));
-            eprintln!("[rl-widget] focus watcher exiting (panic or natural). \
+            crate::log_error!("[rl-widget] focus watcher exiting (panic or natural). \
                        Overlay will remain visible until restart.");
         })
         .expect("focus watcher thread spawn failed");
@@ -400,11 +400,14 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
                         Some(prev) => now.duration_since(prev) >= Duration::from_secs(1),
                     };
                     if should_log {
-                        eprintln!("[rl-widget] focus-change emit failed: {e}");
+                        crate::log_warn!("[rl-widget] focus-change emit failed: {e}");
                         last_emit_log_at = Some(now);
                     }
                 }
-                eprintln!("[rl-widget] focus → {}", if active { "active" } else { "inactive" });
+                // Per-emit focus-change log dropped — it fires every time the
+                // user alt-tabs to/from RL, which is noisy. Errors above are
+                // still logged (rate-limited).
+                let _ = active;
             }
         }
         thread::sleep(POLL_INTERVAL);
