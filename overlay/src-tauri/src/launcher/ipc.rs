@@ -322,6 +322,21 @@ pub fn get_settings(state: State<LauncherState>) -> LauncherSettingsView {
     }
 }
 
+/// Outcome of save_settings, distinguishing the three cases the UI
+/// needs to handle differently:
+/// - changed=false: nothing to do (saving the same values, or only
+///   non-backend fields like surface). Modal can just close.
+/// - changed=true, respawned=false: user owns the backend (attached
+///   mode), so settings hit disk but the sidecar wasn't touched. UI
+///   should prompt the user to restart manually.
+/// - changed=true, respawned=true: launcher killed + respawned the
+///   sidecar with the new flags. UI should reload the dashboard.
+#[derive(serde::Serialize)]
+pub struct SaveSettingsResult {
+    pub changed: bool,
+    pub respawned: bool,
+}
+
 #[tauri::command]
 pub fn save_settings(
     plugins_dir: Option<String>,
@@ -329,26 +344,41 @@ pub fn save_settings(
     rl_addr: Option<String>,
     app: AppHandle,
     state: State<LauncherState>,
-) -> Result<bool, String> {
+) -> Result<SaveSettingsResult, String> {
     use crate::launcher::backend::spawn_sidecar;
 
-    // Persist to disk.
-    let attached = {
+    // Normalize: empty strings are treated as "use default", same as None.
+    let new_plugins = plugins_dir.clone().filter(|p| !p.trim().is_empty());
+    let new_data = data_dir.clone().filter(|p| !p.trim().is_empty());
+    let new_rl = rl_addr.clone().filter(|p| !p.trim().is_empty());
+
+    // Persist to disk and detect whether any value the backend cares
+    // about actually changed. Without this check, every Save (including
+    // a Save with no edits, or one that only touched non-respawn fields
+    // like surface size) would kill + respawn the sidecar — visible to
+    // the user as a dashboard reload flash.
+    let (attached, changed) = {
         let ctx = state.lock().unwrap();
-        let mut s = ctx.settings.load();
-        s.plugins_dir = plugins_dir.clone().filter(|p| !p.trim().is_empty());
-        s.data_dir = data_dir.clone().filter(|p| !p.trim().is_empty());
-        s.rl_addr = rl_addr.clone().filter(|p| !p.trim().is_empty());
+        let prev = ctx.settings.load();
+        let changed = prev.plugins_dir != new_plugins
+            || prev.data_dir != new_data
+            || prev.rl_addr != new_rl;
+        let mut s = prev;
+        s.plugins_dir = new_plugins;
+        s.data_dir = new_data;
+        s.rl_addr = new_rl;
         ctx.settings.save(&s).map_err(|e| e.to_string())?;
-        ctx.attached
+        (ctx.attached, changed)
     };
 
-    // If we don't own the backend, just signal that the user must restart.
+    if !changed {
+        return Ok(SaveSettingsResult { changed: false, respawned: false });
+    }
     if attached {
-        return Ok(false);
+        return Ok(SaveSettingsResult { changed: true, respawned: false });
     }
 
-    // Otherwise kill+respawn the sidecar with the new flags.
+    // Launcher-owned backend: kill+respawn the sidecar with the new flags.
     use tauri::Manager;
     if let Some(handle) = app.try_state::<crate::launcher::BackendHandle>() {
         let mut slot = handle.0.lock().unwrap();
@@ -361,5 +391,5 @@ pub fn save_settings(
             Err(e) => return Err(e),
         }
     }
-    Ok(true)
+    Ok(SaveSettingsResult { changed: true, respawned: true })
 }

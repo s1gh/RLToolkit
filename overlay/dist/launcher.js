@@ -585,22 +585,30 @@ document.getElementById("settings-save").addEventListener("click", async () => {
   const data = dataDirInput.value.trim();
   const rlAddr = rlAddrInput.value.trim();
   try {
-    const respawned = await invoke("save_settings", {
+    // Returns { changed, respawned }. Three branches:
+    //   • not changed       → backend untouched, just close.
+    //   • changed, respawned → launcher restarted the sidecar; reload
+    //     the dashboard (suppress the polling-driven reload first so
+    //     we don't trigger two reloads back to back).
+    //   • changed, !respawned → attached mode, settings hit disk but
+    //     the backend wasn't touched; tell the user to restart.
+    const result = await invoke("save_settings", {
       pluginsDir: plugins || null,
       dataDir: data || null,
       rlAddr: rlAddr || null,
     });
-    if (respawned) {
+    if (!result.changed) {
       closeSettings();
-      // Suppress the polling-driven reconnect-reload for ~5s; we'll do
-      // the reload explicitly once at +800ms.
+      return;
+    }
+    if (result.respawned) {
+      closeSettings();
       suppressReloadUntil = Date.now() + 5000;
       setTimeout(() => { reloadDashboard(); }, 800);
-    } else {
-      // Attached — user must restart their backend manually.
-      settingsHint.textContent = "Settings saved — restart your backend to apply.";
-      settingsHint.hidden = false;
+      return;
     }
+    settingsHint.textContent = "Settings saved — restart your backend to apply.";
+    settingsHint.hidden = false;
   } catch (e) {
     settingsHint.textContent = "Save failed: " + (e?.message || e);
     settingsHint.hidden = false;
