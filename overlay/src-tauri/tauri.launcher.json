@@ -3,7 +3,7 @@
   "productName": "RLT-Launcher",
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "appimage"],
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/rl-toolkit"],
     "windows": {
