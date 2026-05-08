@@ -76,103 +76,153 @@ host a tray, kill the `rl-widget` process.
 
 ## Windows
 
-> **In flight:** the Windows packaging story is being rewritten. This
-> section reflects the old two-binary flow; the new flow (single NSIS
-> installer + portable zip + auto-update) lands once the first
-> Windows-built release is verified. Track via
-> `docs/superpowers/plans/2026-05-08-windows-packaging.md`.
+Two artifacts ship per release:
+
+| Artifact                         | For                                                                                       | Auto-update              |
+|----------------------------------|-------------------------------------------------------------------------------------------|--------------------------|
+| `RLToolkit_<v>_x64-setup.exe`    | Mainstream — NSIS installer; lands in `%LOCALAPPDATA%\RLT-Launcher\`, Start Menu shortcut, uninstaller in *Apps & Features* | Yes (Tauri updater)      |
+| `RLToolkit_<v>_x64-portable.zip` | Power users / no-admin / USB stick — unzip and run                                        | Notify-only (banner links to release page) |
+
+User data lives at `%LOCALAPPDATA%\RLToolkit\` regardless of which
+artifact you ship. The install dir and the data dir are deliberately
+separate so updates and uninstalls never touch user state (settings,
+identity, plugin databases, logs).
 
 ### Prereqs
 
 1. **Rust** — install [rustup](https://rustup.rs). Default MSVC toolchain.
 2. **Visual Studio Build Tools 2022** — [download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022).
-   In the installer pick *Desktop development with C++*. Provides
+   In the installer, pick *Desktop development with C++*. Provides
    `link.exe`, the MSVC C runtime, and the Windows SDK headers Tauri's
    `wry` crate needs.
-3. **WebView2 runtime** — preinstalled on Windows 11 and recent Windows
-   10. To check, run in PowerShell:
+3. **WebView2 runtime** — preinstalled on Windows 11 / recent Windows 10.
+   To check:
    ```powershell
    Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
    ```
    If that returns nothing, install the [evergreen runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
-4. **Go** (for the toolkit, optional — see "Building rl-toolkit" below).
-5. **Node.js (LTS)** — required for any `make` target on Windows. The
-   `make sdk` step bundles the web SDK with esbuild, and `make backend`
-   / `make release` depend on it. Install from
-   [nodejs.org](https://nodejs.org/) (LTS installer adds `node` and
-   `npm` to PATH). Then in the repo root:
+4. **Go** — for the `rl-toolkit` sidecar and the `gen-update-manifest` helper.
+5. **Node.js (LTS)** — `make sdk` bundles the web SDK with esbuild. After cloning:
    ```powershell
    npm install
    ```
-   to fetch the local esbuild + biome devDeps.
-
-   If Node isn't installed, you can still build the toolkit binary
-   directly with `go build -o rl-toolkit.exe .` — but that skips the
-   SDK bundle step, so the binary will serve whatever `sdk.js` is
-   currently on disk under `backend\internal\server\web\sdk\dist\`.
-   Building from a fresh clone without Node will fail — there's no
-   pre-bundled SDK in version control.
 6. **Tauri CLI**:
    ```powershell
    cargo install tauri-cli --version "^2.0" --locked
    ```
 
-### Build the widget
+### Signing key (one-time)
+
+The Tauri updater verifies update integrity with an Ed25519 keypair.
+Generate it once:
 
 ```powershell
-cd overlay\src-tauri
-cargo tauri build           # release: ~5–10 min, optimized
-# or
-cargo tauri build --debug   # debug:   ~2 min, faster iteration
+cargo tauri signer generate -w "$HOME\Documents\rltoolkit-updater.key"
 ```
 
-Output:
+You'll be prompted for a password. Back up both the `.key` file and the
+password — to a password manager **and** an offline location. **Loss of
+the private key permanently breaks updates for already-shipped
+versions.** A new key forces every existing installation to be
+reinstalled by hand, since the old launcher will reject signatures from
+the new key.
 
-```
-overlay\src-tauri\target\release\rl-widget.exe                       # ~7 MB
-overlay\src-tauri\target\release\bundle\msi\rl-widget_0.1.0_x64_*.msi  # installer
-```
+The matching public key is committed in
+`overlay\src-tauri\tauri.launcher.json` under `plugins.updater.pubkey`.
+Don't regenerate unless you accept the consequences.
 
-### Build the toolkit
+> The signature is for **update integrity** only. It is NOT
+> Authenticode and does not silence the SmartScreen warning on first
+> run. Code signing requires a separate ~$300/yr cert and isn't
+> planned for now.
 
-You can either build natively on Windows:
+### Building a release
+
+Set the signing env vars in your PowerShell session:
 
 ```powershell
-go build -o rl-toolkit.exe .
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw "$HOME\Documents\rltoolkit-updater.key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "<password>"
 ```
 
-…or cross-compile from Linux (no extra setup, Go's stdlib only):
+Bump the version. The updater compares the running version against
+`latest.json`, so it has to actually change.
 
-```bash
-GOOS=windows GOARCH=amd64 go build -o rl-toolkit.exe .
-```
+- `overlay\src-tauri\Cargo.toml` — `version = "0.2.0"`
+- `overlay\src-tauri\tauri.conf.json` — `"version": "0.2.0"`
 
-Both produce identical binaries.
+(`scripts\build-windows-smoketest.ps1` has a `Set-Version` helper that
+rewrites both files in lockstep — handy for smoke tests, but for real
+releases keep it as a normal commit so the version bump shows up in
+`git log`.)
 
-### Run
+Build:
 
 ```powershell
-.\rl-toolkit.exe                                  # in one terminal
-.\overlay\src-tauri\target\release\rl-widget.exe                  # unified: all enabled plugins, fullscreen
-# or, single-plugin mode:
-.\overlay\src-tauri\target\release\rl-widget.exe --plugin=dejavu
+make release-windows VERSION=0.2.0 RELEASE_OWNER=<github-owner> RELEASE_NOTES="bug fixes"
 ```
 
-### Known caveats on Windows
+Outputs in `release\windows\`:
 
+- `RLToolkit_0.2.0_x64-setup.exe` — NSIS installer, signed
+- `RLToolkit_0.2.0_x64-setup.exe.sig` — minisign signature
+- `RLToolkit_0.2.0_x64-portable.zip` — `RLT-Launcher.exe` + `rl-toolkit.exe`
+- `latest.json` — manifest the running launcher fetches to detect updates
+
+### Publishing
+
+Upload **all four** artifacts to a single GitHub release named `v0.2.0`,
+and mark it as the latest release (the launcher's `endpoints` config
+points at `releases/latest/download/latest.json`):
+
+```powershell
+gh release create v0.2.0 --title "v0.2.0" --notes "..." --latest `
+  release\windows\RLToolkit_0.2.0_x64-setup.exe `
+  release\windows\RLToolkit_0.2.0_x64-setup.exe.sig `
+  release\windows\RLToolkit_0.2.0_x64-portable.zip `
+  release\windows\latest.json
+```
+
+The asset filename in `latest.json` (`RLToolkit_<v>_x64-setup.exe`) must
+match the URL on GitHub exactly, or installed launchers will hit a 404
+on the download step. `release-windows` generates the URL from
+`RELEASE_OWNER` + `VERSION`, so as long as you don't rename the
+artifacts, the manifest stays consistent.
+
+### Smoke testing the auto-update flow
+
+`scripts\build-windows-smoketest.ps1` builds **both** an old (`0.1.0`)
+and a new (`0.2.0`) installer in one pass, with version files reverted
+back to `0.1.0` after the build. Use it to verify the full
+"banner → download → relaunch on new version" loop end-to-end before a
+real release. See the script's header comment for the workflow.
+
+### Run (development)
+
+For dev iteration without going through the installer:
+
+```powershell
+make launcher-portable
+.\release\windows\RLT-Launcher.exe
+```
+
+The portable build bundles the sidecar next to the launcher and is
+otherwise identical, minus the auto-updater (it's a separate Cargo
+feature, gated to the installer build).
+
+### Known caveats
+
+- **SmartScreen on first run.** Unsigned NSIS still trips Microsoft
+  Defender SmartScreen — *"unrecognized app from starting"*. Click
+  *More info* → *Run anyway*. Mitigated only by Authenticode.
 - **Exclusive fullscreen RL doesn't get overlaid.** No compositor-level
   overlay (Tauri, Discord, Steam, OBS Browser Source) appears over an
   exclusively-fullscreen DirectX game. Set RL to **borderless windowed**
-  in Settings → Video. It's RL's default; only exclusive fullscreen
+  in *Settings → Video*. It's RL's default; only exclusive fullscreen
   breaks the overlay.
-- **SmartScreen warning on first run.** The `.exe` is unsigned; Windows
-  will show a "Microsoft Defender SmartScreen prevented an unrecognized
-  app from starting" dialog. Click *More info* → *Run anyway*. Code
-  signing requires a $300/yr cert and isn't planned for now.
-- **Anti-cheat.** RL ships with Easy Anti-Cheat in some modes. RL Toolkit
-  doesn't inject into the game process, hook input, or read game memory
-  — it talks to RL's own Stats API over TCP, which is the same surface
-  used by Bakkesmod and friends. EAC has no problem with it.
+- **Anti-cheat.** RL Toolkit doesn't inject into the game process, hook
+  input, or read game memory — it talks to RL's own Stats API over TCP,
+  the same surface as Bakkesmod. EAC has no problem with it.
 
 ---
 
