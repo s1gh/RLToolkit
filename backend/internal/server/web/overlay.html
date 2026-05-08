@@ -1,7 +1,20 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>RL Toolkit — Overlay</title>
+<script>
+  // Editor mode wants a dark backdrop so widget chrome reads against
+  // something solid; production overlay must stay transparent so the
+  // game shows through. Set the editor color synchronously here in
+  // <head> so the first paint is dark — overlay-editor.js used to do
+  // this from JS later, which left a white flash on full-page reloads
+  // (Reset all, plugin enable/disable). Toggling the html.edit class
+  // also lets the static CSS rule below pick the right background.
+  if (new URLSearchParams(location.search).get('edit') === '1') {
+    document.documentElement.classList.add('edit');
+  }
+</script>
 <style>
   html,body{margin:0;padding:0;width:100vw;height:100vh;background:transparent;overflow:hidden}
+  html.edit, html.edit body{background:#0a0c14}
   .pf{position:absolute;border:none;background:transparent}
 </style></head><body><script>
 // Shallow-merge per-user overrides on top of each plugin's manifest

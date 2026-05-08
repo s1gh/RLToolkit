@@ -59,11 +59,11 @@
 
   await loadSurface();
 
-  // Make the edit page non-transparent so widget chrome is readable
-  // against something. The production overlay is intentionally see-
-  // through; the editor is its own thing.
-  document.documentElement.style.background = '#0a0c14';
-  document.body.style.background = '#0a0c14';
+  // The dark backdrop is applied synchronously from the inline
+  // <head> script in overlay.html (toggling html.edit) so the first
+  // paint of a reload — Reset all, dashboard enable/disable, etc. —
+  // doesn't briefly flash the browser's default white. Nothing to do
+  // here beyond letting that CSS rule paint.
 
   // ─── Top bar ──────────────────────────────────────────────
   // Sticky bar across the viewport. Overlays the canvas (z-index 100)
@@ -902,22 +902,65 @@
     location.reload();
   }
 
-  // Listen for live surface changes from the dashboard. /events filters by
-  // the URL param; we ask for just _SurfaceChanged to avoid receiving the
-  // full game-event firehose.
-  const surfaceES = new EventSource('/events?events=_SurfaceChanged');
-  surfaceES.onmessage = (e) => {
+  // Listen for live surface + override changes from the dashboard.
+  // /events filters by URL param; we ask for the two synthetic events
+  // we care about and skip the full game-event firehose.
+  //
+  // _OverridesChanged: fires whenever the override map mutates (toggle
+  //   enable in the dashboard, drag/resize/anchor edits in any editor).
+  //   We only reload when the *enabled set* changes — drags from this
+  //   session shouldn't blow away a user mid-action just because the
+  //   server echoed our own write back as an SSE event.
+  // _SurfaceChanged: handled below the same way it always was.
+  const editES = new EventSource('/events?events=_OverridesChanged,_SurfaceChanged');
+  // Snapshot of plugin names that were "enabled" at editor mount time.
+  // Used to detect whether an inbound _OverridesChanged actually adds
+  // or removes a widget vs. just tweaks an existing one's geometry.
+  const enabledSetAtMount = new Set(
+    ctx.merged
+      .filter(({ overlay }) => overlay.enabled === true)
+      .map(({ plugin }) => plugin.name),
+  );
+  function enabledSetFromOverrides(overridesMap) {
+    const out = new Set();
+    if (!overridesMap || typeof overridesMap !== 'object') return out;
+    for (const [name, ov] of Object.entries(overridesMap)) {
+      if (ov && ov.enabled === true) out.add(name);
+    }
+    return out;
+  }
+  function setsEqual(a, b) {
+    if (a.size !== b.size) return false;
+    for (const v of a) if (!b.has(v)) return false;
+    return true;
+  }
+  editES.onmessage = (e) => {
     let env;
     try {
       env = JSON.parse(e.data);
     } catch (_) {
       return;
     }
-    if (!env || env.Event !== '_SurfaceChanged' || !env.Data) return;
-    surface = normalizeSurface(env.Data);
-    applyCanvasLayout();
+    if (!env) return;
+
+    if (env.Event === '_SurfaceChanged' && env.Data) {
+      surface = normalizeSurface(env.Data);
+      applyCanvasLayout();
+      return;
+    }
+
+    if (env.Event === '_OverridesChanged') {
+      const next = enabledSetFromOverrides(env.Data || {});
+      if (setsEqual(next, enabledSetAtMount)) return;
+      // The set of enabled-overlay plugins changed — a plugin was
+      // toggled on or off from the dashboard. Reload so the editor
+      // picks up the new widget list through the normal merge path.
+      // (Same approach resetWidget() takes after a Reset all.)
+      console.log('[overlay-editor] enabled set changed; reloading');
+      location.reload();
+    }
   };
-  surfaceES.onerror = (err) => console.warn('[overlay-editor] surface SSE lost', err);
+  editES.onerror = (err) => console.warn('[overlay-editor] SSE lost', err);
 
   console.log('[overlay-editor] rendered', widgets.length, 'widget(s)');
 })();
