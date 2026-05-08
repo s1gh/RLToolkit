@@ -28,6 +28,7 @@
         <li><button data-cmd="open_data_folder">Open data folder</button></li>
         <li><button data-cmd="open_dashboard_in_browser">Open in browser</button></li>
         <li><button data-cmd="open_settings" id="settings-btn">Settings</button></li>
+        <li><button data-cmd="reclaim_identity" id="reclaim-btn">Change identity</button></li>
         <li class="sep"></li>
         <li><button data-cmd="quit">Quit</button></li>
       </ul>
@@ -44,6 +45,31 @@
       <button id="fallback-retry" hidden>Retry</button>
     </div>
   </main>
+
+  <section id="splash" hidden>
+    <div class="splash-card">
+      <h1 class="splash-title">Set up your identity</h1>
+      <p class="splash-lede">
+        We need to know which player in the match is you so plugins can stamp
+        your stats correctly. To claim yourself:
+      </p>
+      <ol class="splash-steps">
+        <li>Start <strong>Rocket League</strong>.</li>
+        <li>Queue a <strong>private match by yourself</strong> (any playlist, any bots).</li>
+        <li>Click your name in the roster below when it appears.</li>
+      </ol>
+      <div class="splash-status" id="splash-status">Waiting for the backend…</div>
+      <div class="splash-roster" id="splash-roster"></div>
+      <p class="splash-error" id="splash-error" hidden></p>
+    </div>
+    <div class="splash-confirm" id="splash-confirm" hidden>
+      <div class="splash-confirm-card">
+        <div class="splash-confirm-check">✓</div>
+        <div class="splash-confirm-title">Welcome, <span id="splash-confirm-name"></span></div>
+        <div class="splash-confirm-sub">You're all set.</div>
+      </div>
+    </div>
+  </section>
 
   <div id="settings-modal" class="modal" hidden>
     <div class="modal-backdrop"></div>
