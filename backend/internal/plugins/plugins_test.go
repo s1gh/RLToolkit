@@ -10,11 +10,35 @@ import (
 	"time"
 )
 
+// writeManifest writes a plugin folder with the given manifest plus
+// stub files for every view path the manifest references (overlay,
+// dashboard, settings). validateManifest requires referenced files to
+// exist on disk, so tests that exercise the happy path must materialize
+// them — an empty file is enough to pass the existence check.
 func writeManifest(t *testing.T, dir, name string, m Manifest) {
 	t.Helper()
 	pluginDir := filepath.Join(dir, name)
 	if err := os.MkdirAll(pluginDir, 0755); err != nil {
 		t.Fatal(err)
+	}
+	touchView := func(rel string) {
+		if rel == "" {
+			return
+		}
+		full := filepath.Join(pluginDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	touchView(m.Overlay.File)
+	if m.Dashboard != nil {
+		touchView(m.Dashboard.File)
+	}
+	if m.Settings != nil {
+		touchView(m.Settings.File)
 	}
 	body, err := json.Marshal(m)
 	if err != nil {
@@ -46,7 +70,7 @@ func TestManager_ListsPlugins(t *testing.T) {
 
 func TestManager_HasGatesUnknown(t *testing.T) {
 	dir := t.TempDir()
-	writeManifest(t, dir, "alpha", Manifest{Name: "alpha", Version: "1.0"})
+	writeManifest(t, dir, "alpha", Manifest{Name: "alpha", Version: "1.0", Overlay: OverlayConfig{File: "overlay.html"}})
 	pm := New(dir)
 
 	if !pm.Has("alpha") {
@@ -72,14 +96,14 @@ func TestManager_DefaultsZeroOpacityToOne(t *testing.T) {
 
 func TestManager_RescansOnMtimeChange(t *testing.T) {
 	dir := t.TempDir()
-	writeManifest(t, dir, "p", Manifest{Name: "p", Title: "Old", Version: "1.0"})
+	writeManifest(t, dir, "p", Manifest{Name: "p", Title: "Old", Version: "1.0", Overlay: OverlayConfig{File: "overlay.html"}})
 	pm := New(dir)
 	if got := pm.List(); got[0].Title != "Old" {
 		t.Fatalf("first read title=%q", got[0].Title)
 	}
 	// Change manifest with a fresh mtime to trigger re-parse.
 	time.Sleep(10 * time.Millisecond)
-	writeManifest(t, dir, "p", Manifest{Name: "p", Title: "New", Version: "1.0"})
+	writeManifest(t, dir, "p", Manifest{Name: "p", Title: "New", Version: "1.0", Overlay: OverlayConfig{File: "overlay.html"}})
 	got := pm.List()
 	if got[0].Title != "New" {
 		t.Errorf("after rewrite: title=%q, want New", got[0].Title)
@@ -95,7 +119,7 @@ func TestManager_SkipsBadManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bad, "manifest.json"), []byte("not json"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	writeManifest(t, dir, "good", Manifest{Name: "good", Version: "1.0"})
+	writeManifest(t, dir, "good", Manifest{Name: "good", Version: "1.0", Overlay: OverlayConfig{File: "overlay.html"}})
 
 	pm := New(dir)
 	got := pm.List()
@@ -117,6 +141,9 @@ func TestManager_DevPluginShadowsInstalled(t *testing.T) {
 	// Dev: same name, different version, different folder.
 	devPluginRoot := filepath.Join(dev, "alpha-dev")
 	if err := os.MkdirAll(devPluginRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(devPluginRoot, "overlay.html"), nil, 0644); err != nil {
 		t.Fatal(err)
 	}
 	devManifest := Manifest{
@@ -155,6 +182,9 @@ func TestManager_DevPluginUnregisterRevealsInstalled(t *testing.T) {
 	if err := os.MkdirAll(devRoot, 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(devRoot, "overlay.html"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
 	dm := Manifest{Name: "alpha", Title: "Dev", Version: "9.9.9", Overlay: OverlayConfig{File: "overlay.html", Anchor: "top-left"}}
 	body, _ := json.Marshal(dm)
 	if err := os.WriteFile(filepath.Join(devRoot, "manifest.json"), body, 0644); err != nil {
@@ -188,6 +218,9 @@ func TestManager_DevPluginAppearsWhenNoInstalledCounterpart(t *testing.T) {
 	if err := os.MkdirAll(devRoot, 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(devRoot, "overlay.html"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
 	dm := Manifest{Name: "ghost", Title: "Ghost", Version: "0.1.0", Overlay: OverlayConfig{File: "overlay.html", Anchor: "top-left"}}
 	body, _ := json.Marshal(dm)
 	if err := os.WriteFile(filepath.Join(devRoot, "manifest.json"), body, 0644); err != nil {
@@ -208,6 +241,9 @@ func TestManager_DevPathReturnsAbsoluteRegisteredPath(t *testing.T) {
 	dev := t.TempDir()
 	devRoot := filepath.Join(dev, "alpha")
 	if err := os.MkdirAll(devRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(devRoot, "overlay.html"), nil, 0644); err != nil {
 		t.Fatal(err)
 	}
 	dm := Manifest{Name: "alpha", Version: "0.1.0", Overlay: OverlayConfig{File: "overlay.html", Anchor: "top-left"}}
@@ -269,4 +305,132 @@ func TestManager_NotifyReloadWithoutBroadcasterDoesNotPanic(t *testing.T) {
 	pm := New(t.TempDir())
 	// No AttachBroadcaster.
 	pm.NotifyReload("alpha") // should not panic, should just log
+}
+
+// ─── Validation tests ────────────────────────────────────────────
+//
+// Each subtest writes a manifest that's syntactically valid JSON but
+// fails one specific structural rule. The plugin should be skipped
+// (logged but not surfaced via List).
+
+func TestManager_RejectsManifestMissingName(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "noname", Manifest{Version: "1.0", Overlay: OverlayConfig{File: "overlay.html"}})
+	if got := New(dir).List(); len(got) != 0 {
+		t.Errorf("expected manifest without name to be rejected; got %+v", got)
+	}
+}
+
+func TestManager_RejectsManifestMissingVersion(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "noversion", Manifest{Name: "noversion", Overlay: OverlayConfig{File: "overlay.html"}})
+	if got := New(dir).List(); len(got) != 0 {
+		t.Errorf("expected manifest without version to be rejected; got %+v", got)
+	}
+}
+
+func TestManager_RejectsManifestMissingOverlayFile(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "nooverlay", Manifest{Name: "nooverlay", Version: "1.0"})
+	if got := New(dir).List(); len(got) != 0 {
+		t.Errorf("expected manifest without overlay.file to be rejected; got %+v", got)
+	}
+}
+
+func TestManager_RejectsManifestWithMissingOverlayHTML(t *testing.T) {
+	// Manifest references overlay.html but the file isn't on disk —
+	// validation must catch that, not wait until the user opens the
+	// overlay.
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "ghost")
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(Manifest{
+		Name: "ghost", Version: "1.0",
+		Overlay: OverlayConfig{File: "overlay.html"},
+	})
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Note: no overlay.html written.
+	if got := New(dir).List(); len(got) != 0 {
+		t.Errorf("expected manifest with missing overlay file to be rejected; got %+v", got)
+	}
+}
+
+func TestManager_RejectsManifestWithEscapingViewPath(t *testing.T) {
+	// `..` traversal would let a malformed plugin reference files
+	// outside its sandbox. validateManifest must refuse the path
+	// regardless of whether the target exists.
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "evil")
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(Manifest{
+		Name: "evil", Version: "1.0",
+		Overlay: OverlayConfig{File: "../escape.html"},
+	})
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := New(dir).List(); len(got) != 0 {
+		t.Errorf("expected manifest with escaping view path to be rejected; got %+v", got)
+	}
+}
+
+func TestManager_RejectsManifestWithAbsoluteViewPath(t *testing.T) {
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "abs")
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(Manifest{
+		Name: "abs", Version: "1.0",
+		Overlay: OverlayConfig{File: "/etc/passwd"},
+	})
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := New(dir).List(); len(got) != 0 {
+		t.Errorf("expected manifest with absolute view path to be rejected; got %+v", got)
+	}
+}
+
+func TestManager_RejectsManifestWithMissingDashboardFile(t *testing.T) {
+	// Optional view blocks (dashboard, settings) get the same checks
+	// when they're present — a manifest declaring dashboard but not
+	// providing the file is broken.
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "halfbaked")
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "overlay.html"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(Manifest{
+		Name: "halfbaked", Version: "1.0",
+		Overlay:   OverlayConfig{File: "overlay.html"},
+		Dashboard: &ViewConfig{File: "missing-dashboard.html"},
+	})
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := New(dir).List(); len(got) != 0 {
+		t.Errorf("expected manifest with missing dashboard file to be rejected; got %+v", got)
+	}
+}
+
+func TestManager_DefaultsEmptyTitleToName(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "p", Manifest{Name: "p", Version: "1.0", Overlay: OverlayConfig{File: "overlay.html"}})
+	got := New(dir).List()
+	if len(got) != 1 {
+		t.Fatalf("got %d, want 1", len(got))
+	}
+	if got[0].Title != "p" {
+		t.Errorf("Title = %q, want %q (empty title falls back to name)", got[0].Title, "p")
+	}
 }

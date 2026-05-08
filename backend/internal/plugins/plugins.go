@@ -6,10 +6,13 @@ package plugins
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"rl-toolkit/backend/internal/bus"
+	"strings"
 	"sync"
 )
 
@@ -70,6 +73,92 @@ type OverlayConfig struct {
 	// Phase strings match LifecyclePhase: none, created, countdown,
 	// live, paused, replay, ended, podium.
 	ShowDuringPhase []string `json:"show_during_phase,omitempty"`
+}
+
+// validateManifest enforces the structural rules a plugin must follow
+// to be loadable, and applies the small handful of defaults the rest
+// of the system assumes (zero opacity → fully opaque, empty title →
+// fall back to name). pluginRoot is the absolute path to the plugin's
+// folder; it's used both for path-existence checks and to refuse
+// `..`-style traversal in view file paths.
+//
+// Returns the first error encountered. Callers log and skip — a
+// half-valid plugin shouldn't appear in the dashboard.
+func validateManifest(m *Manifest, pluginRoot string) error {
+	if m == nil {
+		return errors.New("nil manifest")
+	}
+	if strings.TrimSpace(m.Name) == "" {
+		return errors.New("name is required")
+	}
+	if strings.TrimSpace(m.Version) == "" {
+		return errors.New("version is required")
+	}
+	if strings.TrimSpace(m.Overlay.File) == "" {
+		return errors.New("overlay.file is required")
+	}
+	if err := validateViewFile("overlay.file", m.Overlay.File, pluginRoot); err != nil {
+		return err
+	}
+	if m.Dashboard != nil {
+		if strings.TrimSpace(m.Dashboard.File) == "" {
+			return errors.New("dashboard.file is required when dashboard is set")
+		}
+		if err := validateViewFile("dashboard.file", m.Dashboard.File, pluginRoot); err != nil {
+			return err
+		}
+	}
+	if m.Settings != nil {
+		if strings.TrimSpace(m.Settings.File) == "" {
+			return errors.New("settings.file is required when settings is set")
+		}
+		if err := validateViewFile("settings.file", m.Settings.File, pluginRoot); err != nil {
+			return err
+		}
+	}
+
+	// Defaults — applied here so every consumer sees the same shape.
+	if strings.TrimSpace(m.Title) == "" {
+		m.Title = m.Name
+	}
+	// Zero opacity means "fully opaque" by convention. Plugins that
+	// want truly invisible should set a small ε.
+	if m.Overlay.Opacity == 0 {
+		m.Overlay.Opacity = 1.0
+	}
+	return nil
+}
+
+// validateViewFile checks that a manifest-declared view file:
+//   - exists on disk
+//   - resolves inside the plugin folder (refuses `..` traversal and
+//     absolute paths that would escape the sandbox)
+func validateViewFile(field, rel, pluginRoot string) error {
+	if filepath.IsAbs(rel) {
+		return fmt.Errorf("%s must be a relative path inside the plugin folder", field)
+	}
+	full := filepath.Join(pluginRoot, rel)
+	// filepath.Clean on the Join result canonicalizes `..`; if the
+	// result no longer starts with the plugin root, the path escapes.
+	rootAbs, err := filepath.Abs(pluginRoot)
+	if err != nil {
+		return fmt.Errorf("%s: cannot resolve plugin root: %w", field, err)
+	}
+	fullAbs, err := filepath.Abs(full)
+	if err != nil {
+		return fmt.Errorf("%s: cannot resolve path: %w", field, err)
+	}
+	rel2, err := filepath.Rel(rootAbs, fullAbs)
+	if err != nil || strings.HasPrefix(rel2, "..") {
+		return fmt.Errorf("%s %q escapes the plugin folder", field, rel)
+	}
+	if _, err := os.Stat(fullAbs); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s %q does not exist", field, rel)
+		}
+		return fmt.Errorf("%s %q: %w", field, rel, err)
+	}
+	return nil
 }
 
 // Broadcaster matches the slim publishing surface used elsewhere
@@ -186,12 +275,14 @@ func (pm *Manager) List() []*Manifest {
 			var m Manifest
 			if err := json.Unmarshal(data, &m); err != nil {
 				log.Printf("[plugins] Bad manifest in %s: %v", name, err)
+				delete(pm.cache, name)
 				continue
 			}
-			// A missing/zero opacity means "fully opaque" by convention.
-			// Plugins that want truly invisible should set a small ε.
-			if m.Overlay.Opacity == 0 {
-				m.Overlay.Opacity = 1.0
+			pluginRoot := filepath.Join(pm.dir, name)
+			if err := validateManifest(&m, pluginRoot); err != nil {
+				log.Printf("[plugins] Invalid manifest in %s: %v", name, err)
+				delete(pm.cache, name)
+				continue
 			}
 			cached = &cachedManifest{mtime: mtime, manifest: &m}
 			pm.cache[name] = cached
@@ -228,10 +319,13 @@ func (pm *Manager) List() []*Manifest {
 			var m Manifest
 			if err := json.Unmarshal(data, &m); err != nil {
 				log.Printf("[plugins] Dev %s: bad manifest: %v", name, err)
+				delete(pm.devCache, path)
 				continue
 			}
-			if m.Overlay.Opacity == 0 {
-				m.Overlay.Opacity = 1.0
+			if err := validateManifest(&m, path); err != nil {
+				log.Printf("[plugins] Dev %s: invalid manifest: %v", name, err)
+				delete(pm.devCache, path)
+				continue
 			}
 			cached = &cachedManifest{mtime: mtime, manifest: &m}
 			pm.devCache[path] = cached
