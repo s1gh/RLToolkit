@@ -232,10 +232,32 @@ release-linux: sdk
 	    -o $(TAURI_DIR)/binaries/$(BINARY)-$$triple ./backend/cmd/rl-toolkit && \
 	  cd $(TAURI_DIR) && \
 	  NO_STRIP=1 cargo tauri build --features bundled-updater --config tauri.launcher.json
-	@# AppImage rename: Tauri emits <productName>_<v>_amd64.AppImage; we want our canonical name.
-	@cp -f $(TAURI_TARGET)/bundle/appimage/$(LAUNCHER)_$(VERSION)_amd64.AppImage      $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage
-	@cp -f $(TAURI_TARGET)/bundle/appimage/$(LAUNCHER)_$(VERSION)_amd64.AppImage.sig  $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage.sig
-	@chmod +x $(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage
+	@# AppImage rename + GTK hook patch + re-sign. Tauri emits
+	@# <productName>_<v>_amd64.AppImage with linuxdeploy-plugin-gtk's
+	@# AppRun hook hard-coding GDK_BACKEND=x11. That kills overlay
+	@# transparency on Wayland (especially Hyprland's layer-shell).
+	@# We extract the AppImage, replace the hook with a no-op,
+	@# repack with appimagetool, and re-sign with `tauri signer sign`
+	@# so the Tauri-generated .sig matches the patched binary.
+	@# appimagetool comes from Tauri's own cache (it extracts one
+	@# during `cargo tauri build`); fall back to a host-installed
+	@# `appimagetool` on PATH if the cache is missing.
+	@tmp=$$(mktemp -d); \
+	  cp -f $(TAURI_TARGET)/bundle/appimage/$(LAUNCHER)_$(VERSION)_amd64.AppImage "$$tmp/in.AppImage"; \
+	  chmod +x "$$tmp/in.AppImage"; \
+	  cd "$$tmp" && ./in.AppImage --appimage-extract > /dev/null && cd - > /dev/null; \
+	  printf '#! /usr/bin/env bash\n# Hook neutered: original forced GDK_BACKEND=x11 which breaks\n# Wayland transparency / layer-shell. Bundled libs init fine\n# without env tweaks (host backend auto-detected by GDK).\n:\n' \
+	    > "$$tmp/squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh"; \
+	  chmod +x "$$tmp/squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh"; \
+	  appimagetool=$$(find /tmp -maxdepth 4 -path '*/appimagetool-prefix/usr/bin/appimagetool' 2>/dev/null | head -1); \
+	  if [ -z "$$appimagetool" ]; then appimagetool=$$(command -v appimagetool); fi; \
+	  if [ -z "$$appimagetool" ]; then echo "appimagetool not found; install appimagetool-bin or run cargo tauri build first to populate Tauri's cache" && exit 1; fi; \
+	  echo "using appimagetool: $$appimagetool"; \
+	  ARCH=x86_64 "$$appimagetool" "$$tmp/squashfs-root" "$(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage" 2>&1 | tail -3; \
+	  chmod +x "$(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage"; \
+	  rm -rf "$$tmp"
+	@cargo tauri signer sign "$(OUT_DIR)/RLToolkit_$(VERSION)_x86_64.AppImage" > /dev/null
+	@# `tauri signer sign` writes <file>.sig next to the input — that's already at the canonical path.
 	@# Portable tarball: stage the launcher binary (renamed from rl-widget to RLT-Launcher,
 	@# matching the Windows convention) and the rl-toolkit sidecar in a temp dir, then tar it.
 	@# We re-stage rather than reusing the AppImage's internals because the AppImage's
