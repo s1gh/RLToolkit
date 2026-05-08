@@ -1,12 +1,17 @@
 // gen-update-manifest writes a Tauri-updater latest.json manifest.
 //
 // Usage:
-//   gen-update-manifest \
-//     -version 0.2.0 \
-//     -sig release/windows/RLToolkit_0.2.0_x64-setup.exe.sig \
-//     -url https://github.com/owner/RLToolkit/releases/download/v0.2.0/RLToolkit_0.2.0_x64-setup.exe \
-//     [-notes "Bug fixes"] \
-//     > release/windows/latest.json
+//
+//	gen-update-manifest \
+//	  -version 0.2.0 \
+//	  -sig release/windows/RLToolkit_0.2.0_x64-setup.exe.sig \
+//	  -url https://github.com/owner/RLToolkit/releases/download/v0.2.0/RLToolkit_0.2.0_x64-setup.exe \
+//	  [-notes "Bug fixes"] \
+//	  -out release/windows/latest.json
+//
+// Writes plain UTF-8 (no BOM). Prefer -out to redirection — Windows
+// PowerShell 5.x rewrites stdout redirects with a BOM, which some
+// strict JSON parsers refuse.
 package main
 
 import (
@@ -34,6 +39,7 @@ func main() {
 	sigPath := flag.String("sig", "", "path to .sig file produced by Tauri (required)")
 	url := flag.String("url", "", "download URL of the signed installer (required)")
 	notes := flag.String("notes", "", "release notes (optional)")
+	outPath := flag.String("out", "", "destination file (optional; stdout when empty)")
 	flag.Parse()
 
 	if *version == "" || *sigPath == "" || *url == "" {
@@ -65,5 +71,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "marshal: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println(string(out))
+	out = append(out, '\n')
+
+	if *outPath != "" {
+		if err := os.WriteFile(*outPath, out, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "write %s: %v\n", *outPath, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if _, err := os.Stdout.Write(out); err != nil {
+		fmt.Fprintf(os.Stderr, "write stdout: %v\n", err)
+		os.Exit(1)
+	}
 }

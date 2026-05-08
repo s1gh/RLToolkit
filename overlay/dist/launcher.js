@@ -720,6 +720,14 @@ refreshStatus();
 bootIdentityCheck();
 
 // ─── Updater banner ─────────────────────────────────────────
+//
+// Two paths into the banner:
+//   1. Rust's startup check emits `updater://available` once the
+//      manifest is fetched. Fast path when the network is quick.
+//   2. The frontend itself asks `check_for_updates` on load. Reliable
+//      path — the Rust event can race the webview load and arrive
+//      before this listener exists, in which case the event is lost
+//      and only this query surfaces the banner.
 (function initUpdaterBanner() {
   const banner = document.getElementById("updater-banner");
   if (!banner) return;
@@ -740,6 +748,20 @@ bootIdentityCheck();
   }
 
   listen("updater://available", (e) => show(String(e.payload || "")));
+
+  // Reliable path. Run once at load — Rust's check_for_updates is
+  // cheap to call (it does the same network round-trip the startup
+  // check did, so within seconds it returns the same answer).
+  invoke("check_for_updates")
+    .then((res) => {
+      if (res && res.kind === "available") {
+        show(res.version);
+      }
+    })
+    .catch(() => {
+      // Command unavailable on portable builds (no updater feature).
+      // Banner stays hidden, which is the right behaviour.
+    });
 
   installBtn.addEventListener("click", async () => {
     installBtn.disabled = true;
