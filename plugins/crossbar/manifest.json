@@ -14,5 +14,6 @@
     "opacity": 0,
     "hide_when_unfocused": false
   },
-  "settings": { "file": "settings.html" }
+  "settings": { "file": "settings.html" },
+  "background": { "file": "background.html" }
 }

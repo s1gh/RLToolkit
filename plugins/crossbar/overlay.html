@@ -3,35 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <title>Crossbar Sound</title>
-    <link rel="stylesheet" href="/sdk.css" />
-    <script src="/sdk.js" data-plugin="crossbar" data-view="overlay"></script>
   </head>
   <body>
-    <script src="./shared.js"></script>
-    <script>
-      // Sound-only overlay. The Tauri widget is sized 1×1 with
-      // opacity 0 (see manifest); nothing to paint, just play audio.
-      (function () {
-        const DEBOUNCE_MS = 250;
-        let lastHitAt = 0;
-
-        RLT.plugin.register({
-          name: 'crossbar',
-          events: {
-            async _CrossbarHit() {
-              const now =
-                typeof performance !== 'undefined' && performance.now
-                  ? performance.now()
-                  : Date.now();
-              if (now - lastHitAt < DEBOUNCE_MS) return;
-              lastHitAt = now;
-              const cfg = await Crossbar.readConfig();
-              if (!cfg.playInReplays && RLT.match.state.phase === 'replay') return;
-              Crossbar.playSound(cfg);
-            },
-          },
-        });
-      })();
-    </script>
+    <!-- Crossbar runs in background.html. Overlay stub kept because
+         the manifest validator requires overlay.file. -->
   </body>
 </html>
