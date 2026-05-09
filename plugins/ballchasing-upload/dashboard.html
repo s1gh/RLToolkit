@@ -1,26 +1,37 @@
 <!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Ballchasing Upload</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <h1>Ballchasing Upload</h1>
-  <div id="banner" class="banner" hidden>
-    Configure your API key in settings to start uploading.
-  </div>
-  <div id="tab-warning" class="banner" style="display:none;">
-    Keep this tab open to upload replays.
-  </div>
-  <table>
-    <thead>
-      <tr><th>File</th><th>Status</th><th>Saved at</th><th>Action</th></tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
-  <script src="/sdk.js" data-plugin="ballchasing-upload" data-view="dashboard"></script>
-  <script>window.__rlt_view = "dashboard";</script>
-  <script src="app.js"></script>
-</body>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ballchasing Upload</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="/sdk.js" data-plugin="ballchasing-upload" data-view="dashboard"></script>
+  </head>
+  <body>
+    <section class="dashboard">
+      <h2>Ballchasing Upload</h2>
+
+      <div id="banner" class="banner" hidden>
+        Configure your API key in settings to start uploading.
+      </div>
+      <div id="tab-warning" class="banner">
+        Keep this tab open to upload replays.
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Status</th>
+            <th>Saved at</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </section>
+
+    <script>window.__rlt_view = "dashboard";</script>
+    <script src="app.js"></script>
+  </body>
 </html>

@@ -367,7 +367,7 @@
     } else if (entry.status === "pending" || entry.status === "retrying") {
       const btn = document.createElement("button");
       btn.textContent = "Cancel";
-      btn.className = "secondary";
+      btn.className = "btn";
       btn.addEventListener("click", async () => {
         entry.status = "cancelled";
         await persistAndRender();
@@ -376,6 +376,7 @@
     } else if (entry.status === "failed_permanent") {
       const retry = document.createElement("button");
       retry.textContent = "Retry";
+      retry.className = "btn primary";
       retry.addEventListener("click", async () => {
         entry.status = "pending";
         entry.attempts = 0;
@@ -387,7 +388,7 @@
       el.appendChild(retry);
       const remove = document.createElement("button");
       remove.textContent = "Remove";
-      remove.className = "secondary";
+      remove.className = "btn";
       remove.style.marginLeft = "6px";
       remove.addEventListener("click", async () => {
         queue = queue.filter(e => e !== entry);
