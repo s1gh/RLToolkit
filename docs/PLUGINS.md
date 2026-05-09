@@ -537,6 +537,7 @@ the only view that runs in a window of its own.
 | `opacity`             | float (0–1)    | no       | Window opacity. A literal `0` is reset to `1.0` by the validator — pick a small non-zero value (e.g. `0.01`) for near-invisible. |
 | `hide_when_unfocused` | boolean / null | no       | If `true`, overlay hides when the game window loses focus. `null`/absent uses the SDK default. |
 | `show_during_phase`   | array          | no       | Phase names to show during. Hidden in all other phases. See [phase gating](#phase-gating). |
+| `unmount_outside_phase` | boolean      | no       | When `true` (and `show_during_phase` is non-empty), the plugin's iframe is unmounted outside the listed phases — events stop being delivered, JS stops running. Default `false` (visual gate only). See [phase gating](#phase-gating). |
 
 ### `dashboard` and `settings` objects
 
@@ -1388,30 +1389,76 @@ Subscribe via `RLT.onStatus(fn)`.
 
 ## Phase gating
 
-Two ways to gate plugin work to specific phases:
+Three mechanisms, with very different cost and lifetime semantics.
+Pick by what you actually need:
 
-1. **At the manifest level** (recommended for visibility):
-   ```json
-   "show_during_phase": ["countdown", "live", "paused", "replay"]
-   ```
-   The toolkit will `display: none` your overlay outside those phases.
-   Plugin code keeps running; only the overlay is hidden.
+| Mechanism | Where | Visual effect | Plugin still runs? | Events still received? |
+|-----------|-------|---------------|--------------------|------------------------|
+| `show_during_phase` (manifest) | Author | `display: none` on `<body>` outside listed phases | Yes | Yes |
+| `show_during_phase` + `unmount_outside_phase: true` (manifest) | Author | Iframe is removed from the DOM outside listed phases | No (iframe is gone) | No (bus subscription dies, shared SSE filter shrinks) |
+| `whilePhase` on `RLT.plugin.register` (code) | Author | None — visibility unchanged | Yes | Yes (handler is a no-op outside phases) |
+| Per-card enable toggle (dashboard / `/api/overlay/overrides`) | User | Iframe unmounted | No | No |
 
-2. **At the handler level** (for finer control):
-   ```js
-   RLT.plugin.register({
-     whilePhase: ['live', 'replay'],
-     events: { _GoalScored: handler }, // only fires during live/replay
-   });
-   ```
-   Handlers gated by `whilePhase` are silently skipped outside the
-   allowed phases. `onState`, `onMatchActive`, and `onFocusChange`
-   ignore the gate (you usually want phase-change notifications
-   regardless of the current phase).
+### `show_during_phase` (visual gate, default)
 
-Phase values: `none` (no match), `lobby`, `countdown`, `live`,
-`paused`, `replay`, `ended`, `podium`. The string `idle` is a back-compat
-alias for `none`.
+```json
+"show_during_phase": ["countdown", "live", "paused", "replay"]
+```
+
+The aggregator forwards the array to the SDK as a URL flag; the SDK
+toggles `body { display: 'flex' | 'none' }` on phase change. The
+plugin's iframe stays mounted, the bus subscription stays open, and
+your event handlers keep firing — you just can't see anything
+outside the listed phases.
+
+### `unmount_outside_phase` (hard kill, opt-in)
+
+```json
+"show_during_phase": ["replay"],
+"unmount_outside_phase": true
+```
+
+Upgrades the gate: outside the listed phases, the aggregator
+**unmounts the iframe entirely**. The plugin's SSE subscription
+dies, the shared bus filter is recomputed without its events, and
+its in-memory state is released. Re-mounted (cold-started) on the
+next phase entry.
+
+Use this when:
+- The plugin holds expensive state (audio nodes, large buffers,
+  long-lived timers) that you'd rather release between phases.
+- You want a phase-bound plugin to be genuinely off — no event
+  delivery, no JS running — outside its window.
+
+Skip this when:
+- You need cross-phase state (e.g. a session-long counter) — the
+  cold-start on each re-mount loses your in-memory state.
+- The plugin's `show_during_phase` covers most of a match anyway —
+  the mount/unmount churn isn't worth the brief idle savings.
+
+No effect if `show_during_phase` is empty or absent.
+
+### `whilePhase` (handler-level)
+
+```js
+RLT.plugin.register({
+  whilePhase: ['live', 'replay'],
+  events: { _GoalScored: handler }, // only fires during live/replay
+});
+```
+
+Wraps each handler in a phase check. Handlers outside the allowed
+phases are silently skipped. The SDK still receives, parses, and
+dispatches the event — only the user callback is gated. `onState`,
+`onMatchActive`, and `onFocusChange` ignore `whilePhase` because
+you usually want phase-change notifications regardless of the
+current phase.
+
+### Phase values
+
+`none` (no match), `lobby`, `countdown`, `live`, `paused`, `replay`,
+`ended`, `podium`. The string `idle` is a back-compat alias for
+`none` accepted by `whilePhase`.
 
 ---
 

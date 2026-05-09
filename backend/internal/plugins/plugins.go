@@ -64,8 +64,17 @@ type OverlayConfig struct {
 	// ShowDuringPhase whitelists lifecycle phases during which the
 	// widget is visible. ANDs with HideWhenUnfocused. Nil or empty =
 	// show in any phase. Phase strings match LifecyclePhase: none,
-	// created, countdown, live, paused, replay, ended, podium.
+	// lobby, countdown, live, paused, replay, ended, podium.
 	ShowDuringPhase []string `json:"show_during_phase,omitempty"`
+	// UnmountOutsidePhase upgrades ShowDuringPhase from a visual gate
+	// (display:none on body) to a hard-kill: the iframe is removed
+	// from the DOM outside the listed phases, the plugin's SSE
+	// subscription dies, and the shared bus filter shrinks. Re-mounted
+	// when a listed phase becomes active again. No effect if
+	// ShowDuringPhase is empty. Useful for sound-only plugins or any
+	// plugin that holds heavy state you'd rather release between
+	// phases. Default false (keep iframe mounted, gate visually).
+	UnmountOutsidePhase bool `json:"unmount_outside_phase,omitempty"`
 }
 
 // validateManifest enforces structural rules and applies defaults

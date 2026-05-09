@@ -101,6 +101,14 @@
   // otherwise never see the current roster. Cache the last one and
   // replay on iframe load + bus_hello, same convention as lifecycle.
   let lastRoster = null;
+  // Current match phase, tracked from incoming _MatchState envelopes.
+  // Used to decide whether plugins with `unmount_outside_phase: true`
+  // should currently be mounted. 'none' is the default until the
+  // first _MatchState arrives.
+  let currentPhase = 'none';
+  // Last merged config used by applyConfig, kept so we can re-apply
+  // it on phase change without re-fetching /api/plugins.
+  let lastMerged = null;
 
   // ─── Hello / addEvent inbox from iframes ──────────────────
   //
@@ -179,6 +187,17 @@
         if (env.Status !== 'connected') lastRoster = null;
       }
       if (env.Event === '_RosterChanged') lastRoster = env;
+      // Phase-driven mount/unmount: any plugin with
+      // unmount_outside_phase + show_during_phase needs the aggregator
+      // itself to know the current phase. Re-apply config on every
+      // change so the iframe set matches the active phase.
+      if (env.Event === '_MatchState' && env.Data && env.Data.phase) {
+        const next = env.Data.phase;
+        if (next !== currentPhase) {
+          currentPhase = next;
+          if (lastMerged) applyConfig(lastMerged);
+        }
+      }
 
       // Fan to every iframe. Each iframe's SDK filters client-side
       // against its own subscribedEvents set; the parent broadcasts
@@ -347,10 +366,24 @@
   }
 
   function applyConfig(mergedList) {
+    lastMerged = mergedList;
     const wanted = new Set();
     for (const { plugin, overlay } of mergedList) {
       const enabled = overlay.enabled === true;
       if (!enabled) {
+        unmount(plugin.name);
+        continue;
+      }
+      // Hard phase gate: opt-in (unmount_outside_phase + non-empty
+      // show_during_phase). When the current phase isn't in the set,
+      // skip mounting — the bus filter will shrink so the plugin
+      // doesn't even receive events. Re-mounted on phase change via
+      // the SSE _MatchState handler above.
+      const phaseList = Array.isArray(overlay.show_during_phase)
+        ? overlay.show_during_phase
+        : null;
+      const hardGate = !!overlay.unmount_outside_phase && phaseList && phaseList.length > 0;
+      if (hardGate && !phaseList.includes(currentPhase)) {
         unmount(plugin.name);
         continue;
       }
