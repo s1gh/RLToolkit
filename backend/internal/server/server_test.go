@@ -15,6 +15,7 @@ import (
 	"rl-toolkit/backend/internal/bootid"
 	"rl-toolkit/backend/internal/bus"
 	"rl-toolkit/backend/internal/plugins"
+	"rl-toolkit/backend/internal/replaywatch"
 	"rl-toolkit/backend/internal/source"
 	"rl-toolkit/backend/internal/surface"
 	"strings"
@@ -385,3 +386,81 @@ func TestMarshalSurfaceChanged_Shape(t *testing.T) {
 		t.Errorf("envelope shape mismatch:\n got: %s\nwant: %s", raw, want)
 	}
 }
+
+func TestReplayWatcher_GET(t *testing.T) {
+	store, err := replaywatch.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := replaywatch.NewWatcher(store, recordingBroadcaster{}, replaywatch.WatcherOptions{})
+	srv := New(Deps{ReplayWatcher: w})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/replay-watcher", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := got["status"]; !ok {
+		t.Errorf("expected 'status' field in response: %+v", got)
+	}
+}
+
+func TestReplayWatcher_PUT(t *testing.T) {
+	store, err := replaywatch.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	notified := 0
+	store.Notify = func() { notified++ }
+	w := replaywatch.NewWatcher(store, recordingBroadcaster{}, replaywatch.WatcherOptions{})
+	srv := New(Deps{ReplayWatcher: w})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/replay-watcher",
+		strings.NewReader(`{"dir":"/some/path"}`))
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if got := store.Get(); got != "/some/path" {
+		t.Errorf("store.Get = %q, want /some/path", got)
+	}
+	if notified != 1 {
+		t.Errorf("Notify fired %d times, want 1", notified)
+	}
+}
+
+func TestReplayWatcher_PUT_NullClears(t *testing.T) {
+	store, err := replaywatch.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Set("/x")
+	w := replaywatch.NewWatcher(store, recordingBroadcaster{}, replaywatch.WatcherOptions{})
+	srv := New(Deps{ReplayWatcher: w})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/replay-watcher",
+		strings.NewReader(`{"dir":null}`))
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if got := store.Get(); got != "" {
+		t.Errorf("store.Get = %q, want empty", got)
+	}
+}
+
+// recordingBroadcaster is a minimal fake for tests that don't need the
+// full bus.
+type recordingBroadcaster struct{}
+
+func (recordingBroadcaster) Broadcast(bus.Event) {}

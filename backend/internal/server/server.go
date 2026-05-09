@@ -22,6 +22,7 @@ import (
 	"rl-toolkit/backend/internal/install"
 	"rl-toolkit/backend/internal/overrides"
 	"rl-toolkit/backend/internal/plugins"
+	"rl-toolkit/backend/internal/replaywatch"
 	"rl-toolkit/backend/internal/roster"
 	"rl-toolkit/backend/internal/source"
 	"rl-toolkit/backend/internal/state"
@@ -46,18 +47,19 @@ const (
 
 // Deps bundles every long-lived dependency the server reads from.
 type Deps struct {
-	Bus         *bus.Bus
-	Store       *datastore.Store
-	Plugins     *plugins.Manager
-	Source      *source.RL
-	MatchState  *state.MatchState
-	Roster      *roster.Tracker
-	Demos       *emit.Demos
-	Overrides   *overrides.Store
-	Surface     *surface.Store
-	Discoveries *discoveries.Store
-	Identity    *identity.Store
-	PluginDir   string
+	Bus           *bus.Bus
+	Store         *datastore.Store
+	Plugins       *plugins.Manager
+	Source        *source.RL
+	MatchState    *state.MatchState
+	Roster        *roster.Tracker
+	Demos         *emit.Demos
+	Overrides     *overrides.Store
+	Surface       *surface.Store
+	Discoveries   *discoveries.Store
+	Identity      *identity.Store
+	ReplayWatcher *replaywatch.Watcher
+	PluginDir     string
 }
 
 // Server holds the wiring between HTTP routes and the live runtime
@@ -89,6 +91,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sideload", s.handleSideload)
 	mux.HandleFunc("/api/overlay/surface", s.handleOverlaySurface)
 	mux.HandleFunc("/api/overlay/surface/detected", s.handleOverlaySurfaceDetected)
+	mux.HandleFunc("/api/replay-watcher", s.handleReplayWatcher)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -871,4 +874,76 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
+}
+
+// ── Replay watcher API ──────────────────────────────────────
+
+// handleReplayWatcher routes GET (current state) and PUT (set or
+// clear configured dir) on /api/replay-watcher.
+func (s *Server) handleReplayWatcher(w http.ResponseWriter, r *http.Request) {
+	if s.deps.ReplayWatcher == nil {
+		http.Error(w, "replay watcher unavailable", http.StatusInternalServerError)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, s.deps.ReplayWatcher.State())
+	case http.MethodPut:
+		s.handleReplayWatcherPut(w, r)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+// replayWatcherPutBody mirrors surface's PUT shape: {"dir":"..."} sets,
+// {"dir":null} (or empty body) clears.
+type replayWatcherPutBody struct {
+	Dir *string `json:"dir"`
+}
+
+func (s *Server) handleReplayWatcherPut(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
+	if err != nil {
+		httpError(w, "read body", err, http.StatusInternalServerError)
+		return
+	}
+	var b replayWatcherPutBody
+	if len(body) > 0 {
+		dec := json.NewDecoder(bytes.NewReader(body))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&b); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	dir := ""
+	if b.Dir != nil {
+		dir = *b.Dir
+	}
+	if err := s.deps.ReplayWatcher.Set(dir); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, s.deps.ReplayWatcher.State())
+}
+
+// replayWatcherChangedEnvelope is the SSE payload published when the
+// replay-watcher state changes. Mirrors surfaceChangedEnvelope.
+type replayWatcherChangedEnvelope struct {
+	Event string            `json:"Event"`
+	Data  replaywatch.State `json:"Data"`
+}
+
+// MarshalReplayWatcherChanged builds the JSON envelope for a
+// _ReplayWatcherChanged event. Returns nil on marshal failure.
+func MarshalReplayWatcherChanged(state replaywatch.State) []byte {
+	b, err := json.Marshal(replayWatcherChangedEnvelope{
+		Event: "_ReplayWatcherChanged",
+		Data:  state,
+	})
+	if err != nil {
+		log.Printf("[replaywatch] marshal _ReplayWatcherChanged: %v", err)
+		return nil
+	}
+	return b
 }

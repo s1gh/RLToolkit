@@ -75,6 +75,13 @@ func (w *Watcher) State() State {
 	return w.state
 }
 
+// Set updates the store; the store's Notify hook (set by main.go)
+// drives Reload + the _ReplayWatcherChanged broadcast. dir == ""
+// clears the override.
+func (w *Watcher) Set(dir string) error {
+	return w.store.Set(dir)
+}
+
 // setState updates state under the write lock.
 func (w *Watcher) setState(s State) {
 	w.mu.Lock()
