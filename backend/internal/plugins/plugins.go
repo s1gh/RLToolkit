@@ -43,14 +43,21 @@ type ViewConfig struct {
 }
 
 type OverlayConfig struct {
-	File         string  `json:"file"`
-	Width        int     `json:"width"`
-	Height       int     `json:"height"`
-	Anchor       string  `json:"anchor"`
-	OffsetX      int     `json:"offset_x"`
-	OffsetY      int     `json:"offset_y"`
-	Opacity      float64 `json:"opacity"`
-	ClickThrough bool    `json:"click_through"`
+	File    string  `json:"file"`
+	Width   int     `json:"width"`
+	Height  int     `json:"height"`
+	Anchor  string  `json:"anchor"`
+	OffsetX int     `json:"offset_x"`
+	OffsetY int     `json:"offset_y"`
+	Opacity float64 `json:"opacity"`
+	// click_through used to be a per-plugin manifest field. Removed in
+	// favor of unconditional click-through in overlay.html: the Tauri
+	// overlay window is OS-level click-through anyway, and the overlay
+	// editor / OBS browser source render through their own paths, so
+	// the manifest setting was redundant in every shipping context.
+	// Existing manifests with the field still parse; the value is
+	// dropped on read.
+
 	// HideWhenUnfocused gates the widget on RL window focus. Pointer so
 	// absent means "no preference; SDK default applies".
 	HideWhenUnfocused *bool `json:"hide_when_unfocused,omitempty"`

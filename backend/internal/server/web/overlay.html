@@ -329,7 +329,11 @@
     const oy = (overlay.offset_y || 0) + 'px';
     if (a.indexOf('top')   === 0) w.el.style.top  = oy; else w.el.style.bottom = oy;
     if (a.indexOf('-left') >= 0)  w.el.style.left = ox; else w.el.style.right  = ox;
-    w.el.style.pointerEvents = overlay.click_through ? 'none' : '';
+    // Always pass mouse through to whatever's beneath the overlay.
+    // The hosting Tauri window is OS-level click-through; this keeps
+    // the same behavior when /overlay is loaded outside Tauri (OBS,
+    // standalone browser tab) so plugins don't need to opt in.
+    w.el.style.pointerEvents = 'none';
   }
 
   function unmount(name) {

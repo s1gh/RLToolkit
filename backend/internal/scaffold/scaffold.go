@@ -71,8 +71,7 @@ const manifestTemplate = `{
     "anchor": "top-right",
     "offset_x": 16,
     "offset_y": 16,
-    "opacity": 1.0,
-    "click_through": true
+    "opacity": 1.0
   }
 }
 `

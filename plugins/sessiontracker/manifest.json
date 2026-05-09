@@ -12,7 +12,6 @@
     "offset_x": 16,
     "offset_y": 16,
     "opacity": 1.0,
-    "click_through": true,
     "hide_when_unfocused": true,
     "show_during_phase": ["lobby", "countdown", "live", "replay", "paused"]
   },

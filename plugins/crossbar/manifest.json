@@ -12,7 +12,6 @@
     "offset_x": 0,
     "offset_y": 0,
     "opacity": 0,
-    "click_through": true,
     "hide_when_unfocused": false
   },
   "settings": { "file": "settings.html" }

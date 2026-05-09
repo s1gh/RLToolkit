@@ -535,7 +535,6 @@ the only view that runs in a window of its own.
 | `offset_x`            | int            | no       | Pixels from the anchored edge horizontally.                            |
 | `offset_y`            | int            | no       | Pixels from the anchored edge vertically.                              |
 | `opacity`             | float (0–1)    | no       | Window opacity. A literal `0` is reset to `1.0` by the validator — pick a small non-zero value (e.g. `0.01`) for near-invisible. |
-| `click_through`       | boolean        | no       | If `true`, mouse events pass through to the game.                      |
 | `hide_when_unfocused` | boolean / null | no       | If `true`, overlay hides when the game window loses focus. `null`/absent uses the SDK default. |
 | `show_during_phase`   | array          | no       | Phase names to show during. Hidden in all other phases. See [phase gating](#phase-gating). |
 
@@ -1471,13 +1470,9 @@ storage](#per-plugin-storage-rltstore) for the `onChange` API.
 - **Use `ready()` for initial setup that needs identity or
   encounters.** It fires after both stores have hydrated; before that,
   `RLT.me.id` may be empty even if the user has set their identity.
-- **Make overlays click-through unless they're interactive.** Set
-  `"click_through": true` in the manifest. Plugins that swallow mouse
-  events compete with the game.
 - **For sound-only plugins, use a tiny non-zero opacity** (e.g.
-  `"opacity": 0.01`) plus `"click_through": true` and a transparent
-  body. The validator resets a literal `0` to `1.0`, so `0` won't hide
-  the window.
+  `"opacity": 0.01`) plus a transparent body. The validator resets a
+  literal `0` to `1.0`, so `0` won't hide the window.
 - **Inspect real event payloads with `RLT.on('*', console.log)`.**
   Drop a wildcard listener in any plugin to print every event the
   bus delivers — useful when you're not sure what a synthetic event
