@@ -12,7 +12,7 @@
       "!overlay/target",
       "!overlay/src-tauri/target",
       "!overlay/src-tauri/gen",
-      "!overlay/dist",
+      "!overlay/src",
       "!docs",
       "!.claude"
     ]

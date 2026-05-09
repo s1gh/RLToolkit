@@ -23,16 +23,14 @@
 
 # Tauri / Node (the overlay app lives in overlay/)
 overlay/target/
-overlay/dist/
 overlay/node_modules/
 overlay/src-tauri/target/
 overlay/src-tauri/gen/
+overlay/src-tauri/data/
 **/node_modules/
 
 # Local agent / session notes / archives
 .claude/
-docs/superpowers/
-!docs/superpowers/
 *.zip
 
 # Local git worktrees

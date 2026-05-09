@@ -1,5 +1,5 @@
 //! Build the launcher WebviewWindow. The dashboard is embedded as an
-//! `<iframe>` inside `launcher.html` (see overlay/dist/launcher.{html,css,js}).
+//! `<iframe>` inside `launcher.html` (see overlay/src/launcher.{html,css,js}).
 //! Tauri 2's multi-webview-window support has known issues on Linux/webkitgtk
 //! where `set_position`/`set_size` on child webviews silently no-op, so we
 //! use the iframe approach instead — one webview, native HTML layout.
