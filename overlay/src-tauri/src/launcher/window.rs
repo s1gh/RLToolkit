@@ -79,6 +79,14 @@ pub fn build_launcher_window(
     // Theme drives prefers-color-scheme and on Windows controls the
     // DWM accent on the window shadow / resize border.
     .theme(Some(Theme::Dark))
+    // Incognito: the launcher UI stores nothing locally (window
+    // geometry persists on the Rust side via launcher.json, plugin
+    // data goes through /api/data on the backend), so we skip the
+    // webview's cache/cookies/IndexedDB writes entirely. Also keeps
+    // the dashboard iframe loading from localhost:49200 from caching
+    // plugin assets across runs, which on WebKitGTK 2.52 can serve
+    // stale CSS even with Cache-Control: no-cache.
+    .incognito(true)
     .visible(true);
 
     if let (Some(x), Some(y)) = (initial.window_x, initial.window_y) {
