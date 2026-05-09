@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"rl-toolkit/backend/internal/bus"
@@ -35,11 +36,31 @@ type Manifest struct {
 	// surfaced as a "Settings" button on the dashboard. The view is
 	// responsible for its own layout + RLT.settings.close() wiring.
 	Settings *ViewConfig `json:"settings,omitempty"`
+
+	// Permissions optionally declares relaxations of the per-plugin
+	// sandbox. Today the only supported permission is `connect`, which
+	// allowlists external https origins the plugin can reach via the
+	// /api/plugin-fetch/<name> backend proxy. Used by plugins that talk
+	// to third-party APIs (e.g. ballchasing.com) which don't return
+	// CORS headers and so can't be called from the iframe directly.
+	Permissions *Permissions `json:"permissions,omitempty"`
 }
 
 // ViewConfig points at an HTML file inside the plugin folder.
 type ViewConfig struct {
 	File string `json:"file"`
+}
+
+// Permissions declares optional relaxations of the per-plugin
+// sandbox. Each field is a tightly-scoped allowlist; defaults stay
+// strict.
+type Permissions struct {
+	// Connect is a list of https origins the plugin is allowed to
+	// reach via /api/plugin-fetch/<name>. Each entry must be a bare
+	// https origin (scheme + host, optional :443) with no path,
+	// query, or fragment. Invalid entries are dropped at manifest
+	// load time.
+	Connect []string `json:"connect,omitempty"`
 }
 
 type OverlayConfig struct {
@@ -112,6 +133,9 @@ func validateManifest(m *Manifest, pluginRoot string) error {
 		if err := validateViewFile("settings.file", m.Settings.File, pluginRoot); err != nil {
 			return err
 		}
+	}
+	if m.Permissions != nil {
+		m.Permissions.Connect = sanitizeConnectPermissions(m.Name, m.Permissions.Connect)
 	}
 
 	if strings.TrimSpace(m.Title) == "" {
@@ -215,6 +239,17 @@ func (pm *Manager) Has(name string) bool {
 		}
 	}
 	return false
+}
+
+// Get returns the manifest for `name`, or nil if no plugin folder by
+// that name has a valid manifest. Triggers a manifest cache refresh.
+func (pm *Manager) Get(name string) *Manifest {
+	for _, m := range pm.List() {
+		if m != nil && m.Name == name {
+			return m
+		}
+	}
+	return nil
 }
 
 // List returns the current manifest list. Newly-dropped plugin folders
@@ -423,4 +458,57 @@ func (pm *Manager) NotifyReload(name string) {
 			b.Broadcast(bus.Event{Name: "_DevPluginReload", Data: body})
 		}
 	}
+}
+
+// sanitizeConnectPermissions filters a Permissions.Connect list down
+// to entries that are valid bare https origins. Each dropped entry
+// is logged once with the plugin name so authors can spot typos.
+//
+// Valid entry rules:
+//   - Parses cleanly via url.Parse.
+//   - Scheme is exactly "https".
+//   - Host is non-empty.
+//   - No userinfo.
+//   - Path is empty or "/".
+//   - No query, no fragment.
+//   - Port is unset or "443".
+func sanitizeConnectPermissions(pluginName string, in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		if isValidConnectOrigin(raw) {
+			out = append(out, raw)
+		} else {
+			log.Printf("[plugins] %s: dropped invalid connect permission %q", pluginName, raw)
+		}
+	}
+	return out
+}
+
+func isValidConnectOrigin(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "https" {
+		return false
+	}
+	if u.Host == "" {
+		return false
+	}
+	if u.User != nil {
+		return false
+	}
+	if u.Path != "" && u.Path != "/" {
+		return false
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	if p := u.Port(); p != "" && p != "443" {
+		return false
+	}
+	return true
 }

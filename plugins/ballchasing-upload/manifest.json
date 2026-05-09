@@ -11,6 +11,9 @@
     "anchor": "top-left",
     "show_during_phase": []
   },
+  "permissions": {
+    "connect": ["https://ballchasing.com"]
+  },
   "dashboard": { "file": "dashboard.html" },
   "settings": { "file": "settings.html" }
 }

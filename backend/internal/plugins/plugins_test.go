@@ -434,3 +434,84 @@ func TestManager_DefaultsEmptyTitleToName(t *testing.T) {
 		t.Errorf("Title = %q, want %q (empty title falls back to name)", got[0].Title, "p")
 	}
 }
+
+func TestValidateManifest_PermissionsAcceptsHTTPS(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "ok", Manifest{
+		Name: "ok", Version: "1.0",
+		Overlay:     OverlayConfig{File: "overlay.html", Anchor: "top-left"},
+		Permissions: &Permissions{Connect: []string{"https://ballchasing.com"}},
+	})
+	pm := New(dir)
+	got := pm.Get("ok")
+	if got == nil {
+		t.Fatal("Get(ok) returned nil")
+	}
+	if got.Permissions == nil || len(got.Permissions.Connect) != 1 || got.Permissions.Connect[0] != "https://ballchasing.com" {
+		t.Errorf("Permissions = %+v, want one https://ballchasing.com entry", got.Permissions)
+	}
+}
+
+func TestValidateManifest_PermissionsDropsInvalidEntries(t *testing.T) {
+	cases := []string{
+		"http://x.com",       // non-https
+		"https://x.com/path", // has path
+		"https://x.com:8080", // non-443 port
+		"https://x.com?q=1",  // query
+		"https://x.com#frag", // fragment
+		"https://u:p@x.com",  // userinfo
+		"://malformed",       // unparseable
+		"",                   // empty
+	}
+	for _, bad := range cases {
+		t.Run(bad, func(t *testing.T) {
+			dir := t.TempDir()
+			writeManifest(t, dir, "p", Manifest{
+				Name: "p", Version: "1.0",
+				Overlay:     OverlayConfig{File: "overlay.html", Anchor: "top-left"},
+				Permissions: &Permissions{Connect: []string{bad, "https://good.com"}},
+			})
+			pm := New(dir)
+			got := pm.Get("p")
+			if got == nil {
+				t.Fatal("Get(p) returned nil; manifest should still load with bad entries dropped")
+			}
+			if got.Permissions == nil || len(got.Permissions.Connect) != 1 || got.Permissions.Connect[0] != "https://good.com" {
+				t.Errorf("Permissions.Connect = %+v, want only [https://good.com]", got.Permissions)
+			}
+		})
+	}
+}
+
+func TestValidateManifest_PermissionsAbsentMeansNil(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "p", Manifest{
+		Name: "p", Version: "1.0",
+		Overlay: OverlayConfig{File: "overlay.html", Anchor: "top-left"},
+	})
+	pm := New(dir)
+	got := pm.Get("p")
+	if got == nil {
+		t.Fatal("Get(p) returned nil")
+	}
+	if got.Permissions != nil {
+		t.Errorf("Permissions = %+v, want nil when no permissions block in manifest", got.Permissions)
+	}
+}
+
+func TestValidateManifest_PermissionsEmptyConnectIsAllowed(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "p", Manifest{
+		Name: "p", Version: "1.0",
+		Overlay:     OverlayConfig{File: "overlay.html", Anchor: "top-left"},
+		Permissions: &Permissions{},
+	})
+	pm := New(dir)
+	got := pm.Get("p")
+	if got == nil || got.Permissions == nil {
+		t.Fatalf("expected non-nil Permissions, got %+v", got)
+	}
+	if len(got.Permissions.Connect) != 0 {
+		t.Errorf("Connect = %+v, want empty", got.Permissions.Connect)
+	}
+}
