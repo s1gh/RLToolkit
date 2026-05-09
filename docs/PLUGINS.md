@@ -58,14 +58,15 @@ You do not run any backend code. Plugins are pure HTML + JS + CSS.
 
 ### Render contexts
 
-A plugin can have up to **three views**, each its own HTML file
+A plugin can have up to **four views**, each its own HTML file
 declared in the manifest:
 
-| View          | Where it renders                                                    | Purpose                                                            | Required? |
-| ------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------ | --------- |
-| **Overlay**   | Tauri widget window floating on top of the game.                    | Compact, transparent, click-through HUD.                            | Yes       |
-| **Dashboard** | Full browser tab, opened from the dashboard's "Open Dashboard" button. | Rich UIs that don't fit a transparent overlay — history tables, charts, leaderboards, configuration. | Optional |
-| **Settings**  | Iframe modal inside the dashboard, opened from the "Settings" button.  | Per-plugin configuration UI.                                       | Optional |
+| View           | Where it renders                                                                                     | Purpose                                                                                              | Required? |
+| -------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------- |
+| **Overlay**    | Tauri widget window floating on top of the game.                                                     | Compact, transparent, click-through HUD.                                                              | Yes       |
+| **Dashboard**  | Full browser tab, opened from the dashboard's "Open" button.                                         | Rich UIs that don't fit a transparent overlay — history tables, charts, leaderboards, configuration. | Optional  |
+| **Settings**   | Iframe modal inside the dashboard, opened from the "Settings" button.                                | Per-plugin configuration UI.                                                                          | Optional  |
+| **Background** | Hidden iframe inside the launcher window. Loads at app startup, lives until the launcher closes.     | Always-on work that has to react to events independent of any visible UI surface.                     | Optional  |
 
 Each view file declares which view it is via a `data-view` attribute
 on the SDK script tag:
@@ -74,17 +75,37 @@ on the SDK script tag:
 <script src="/sdk.js" data-plugin="my-plugin" data-view="overlay"></script>
 <script src="/sdk.js" data-plugin="my-plugin" data-view="dashboard"></script>
 <script src="/sdk.js" data-plugin="my-plugin" data-view="settings"></script>
+<script src="/sdk.js" data-plugin="my-plugin" data-view="background"></script>
 ```
 
-The SDK exposes the current view as `RLT.view` and three boolean
-shorthands:
+The SDK exposes the current view as `RLT.view` and boolean shorthands:
 
 ```js
-RLT.view              // 'overlay' | 'dashboard' | 'settings'
+RLT.view              // 'overlay' | 'dashboard' | 'settings' | 'background'
 RLT.isOverlay         // === 'overlay'
 RLT.isDashboard       // === 'dashboard'
 RLT.isSettingsView    // === 'settings'
+RLT.isBackground      // === 'background'
 ```
+
+#### When to use the background view
+
+The overlay only loads while the Tauri overlay window is shown over
+the game (or an OBS browser source is open). The dashboard only loads
+while the user has that plugin's tab open. **Neither is reliable for
+event-driven work.** If your plugin has to react to an event the
+moment it fires — uploading a saved replay, playing a sound, posting
+to a webhook — put that handler in a background view.
+
+The background view has no UI (its iframe is `display:none`) and is
+loaded by the launcher for every enabled plugin that declares
+`background.file`. Lifetime is the launcher's lifetime; it survives
+dashboard reloads, plugin tab navigation, and overlay visibility
+changes.
+
+`ballchasing-upload` and `crossbar` both use this pattern — settings
+panel for config, overlay reduced to a stub, all real work in
+`background.html`.
 
 Why three files instead of one HTML branched at runtime? Each view has
 distinct UI, distinct stylesheet needs, and different lifetimes. Three
@@ -520,6 +541,8 @@ hot-reload is refused — stop the dev session first.
 | `description` | string | no       | Shown in the dashboard plugin list.                                    |
 | `dashboard`   | object | no       | `{ "file": "dashboard.html" }` — full-page browser view.               |
 | `settings`    | object | no       | `{ "file": "settings.html" }` — iframe modal in the dashboard.         |
+| `background`  | object | no       | `{ "file": "background.html" }` — hidden always-on iframe in the launcher. |
+| `permissions` | object | no       | Sandbox relaxations. See `permissions` section below.                  |
 
 ### `overlay` object
 
@@ -539,16 +562,71 @@ the only view that runs in a window of its own.
 | `show_during_phase`   | array          | no       | Phase names to show during. Hidden in all other phases. See [phase gating](#phase-gating). |
 | `unmount_outside_phase` | boolean      | no       | When `true` (and `show_during_phase` is non-empty), the plugin's iframe is unmounted outside the listed phases — events stop being delivered, JS stops running. Default `false` (visual gate only). See [phase gating](#phase-gating). |
 
-### `dashboard` and `settings` objects
+### `dashboard`, `settings`, and `background` objects
 
-Both are simple `{ "file": "<name>.html" }` pointers today. Object
-form (rather than a bare string) leaves room for per-view options
-later without another schema break.
+All three are simple `{ "file": "<name>.html" }` pointers today.
+Object form (rather than a bare string) leaves room for per-view
+options later without another schema break.
 
 ```json
-"dashboard": { "file": "dashboard.html" },
-"settings":  { "file": "settings.html" }
+"dashboard":  { "file": "dashboard.html" },
+"settings":   { "file": "settings.html" },
+"background": { "file": "background.html" }
 ```
+
+The validator rejects any view whose `file` doesn't exist on disk
+inside the plugin folder, or whose path tries to escape the folder.
+
+### `permissions` object
+
+Plugins are sandboxed by default — the iframe runs in its own origin,
+and `fetch()` from inside it can only reach the toolkit's own
+endpoints (same-origin policy). External APIs that don't return
+permissive CORS headers (most third-party REST APIs) can't be called
+directly from the iframe.
+
+The `permissions` block opts a plugin into a tightly-scoped relaxation:
+
+```json
+"permissions": {
+  "connect": ["https://ballchasing.com"]
+}
+```
+
+| Field     | Type     | Notes                                                                                |
+| --------- | -------- | ------------------------------------------------------------------------------------ |
+| `connect` | string[] | List of bare https origins the plugin is allowed to reach via the backend proxy.     |
+
+Each `connect` entry must be a bare https origin: scheme + host
+(optional `:port`), no path, no query, no fragment, no userinfo.
+Invalid entries are dropped at manifest load time and logged to the
+backend console.
+
+To call an allowlisted origin from your plugin's JS, route the
+request through the backend proxy:
+
+```js
+const target = "https://ballchasing.com/api/v2/upload?" + params.toString();
+const proxied = "/api/plugin-fetch/my-plugin?url=" + encodeURIComponent(target);
+const r = await fetch(proxied, {
+  method: "POST",
+  headers: { Authorization: apiKey },
+  body: formData,
+});
+```
+
+The proxy:
+
+- Validates that the target's origin matches one of the plugin's
+  `permissions.connect` entries (403 otherwise).
+- Forwards `Authorization`, `Content-Type`, and `Accept` headers
+  through; strips `Cookie`, `Host`, and other sensitive headers.
+- Does NOT follow redirects — a 3xx from the upstream is returned
+  to the plugin verbatim, preventing SSRF via 302 into private
+  networks.
+- Caps both request and response bodies at 16 MiB.
+- Returns the upstream's status and body to the plugin's `fetch`
+  promise as if the call had been direct.
 
 ---
 
