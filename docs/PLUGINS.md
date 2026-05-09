@@ -1315,6 +1315,41 @@ winner team name and final scores.
 }
 ```
 
+#### `_SavedReplay`
+
+Fires when Rocket League finishes writing a `.replay` file to disk.
+The Stats API doesn't expose this signal, so the backend watches the
+Demos directory directly. Useful for plugins that want to copy,
+upload, or analyze replays after a match.
+
+```js
+{
+  matchGuid: string,    // file basename minus ".replay", uppercase as RL writes it
+  fileName: string,     // e.g. "04CD01A14F982F367484E281FA8BE810.replay"
+  path: string,         // absolute path on disk
+  sizeBytes: integer,   // size at the moment the file was observed stable
+  savedAt: string,      // ISO-8601 UTC, e.g. "2026-05-09T14:23:45.123Z"
+}
+```
+
+`matchGuid` correlates with `_MatchEnded.matchGuid`, but **case-fold both
+sides** before comparing — RL stores the GUID uppercase in the filename
+and (depending on the source) lowercase or mixed-case in the Stats API
+payload.
+
+The watcher waits until the file size has been stable for ~1.5s before
+firing, so plugins reading the file from `path` will see a complete
+replay. Files already present when the backend starts are NOT
+re-emitted — the event means "saved during this session."
+
+The watched directory auto-detects on Linux (Steam Proton prefix) and
+Windows (`%USERPROFILE%\Documents\My Games\Rocket League\TAGame\Demos`).
+macOS and non-standard installs require setting a custom path via
+`PUT /api/replay-watcher` with body `{"dir":"/abs/path"}`.
+
+A companion event `_ReplayWatcherChanged` fires whenever the
+configured directory changes; payload mirrors `GET /api/replay-watcher`.
+
 ### Tick stream
 
 #### `UpdateState`
