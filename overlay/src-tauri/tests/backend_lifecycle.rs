@@ -18,9 +18,8 @@ fn ensure_fake_backend_built() {
 }
 
 fn fake_backend_path() -> std::path::PathBuf {
-    // Cargo places example binaries in target/<profile>/examples/.
-    // Integration-test executables live in target/<profile>/deps/,
-    // so we walk up from there (or from target/<profile>/ directly) into examples/.
+    // Cargo: example binaries land in target/<profile>/examples/;
+    // integration tests run from target/<profile>/deps/, so walk up.
     let test_exe = std::env::current_exe().unwrap();
     let mut dir = test_exe.parent().unwrap().to_path_buf();
     if dir.ends_with("deps") {
@@ -49,7 +48,6 @@ fn probe_attaches_to_running_backend() {
         .spawn()
         .expect("spawn fake_backend");
 
-    // Wait briefly for it to bind.
     std::thread::sleep(Duration::from_millis(150));
 
     let url = format!("http://127.0.0.1:{}/api/status", port);
@@ -58,7 +56,10 @@ fn probe_attaches_to_running_backend() {
     let _ = child.kill();
     let _ = child.wait();
 
-    assert_eq!(outcome, ProbeOutcome::Toolkit);
+    match outcome {
+        ProbeOutcome::Toolkit { rl_api } => assert_eq!(rl_api, "connected"),
+        other => panic!("expected Toolkit, got {:?}", other),
+    }
 }
 
 #[test]
@@ -75,7 +76,6 @@ fn ownership_spawned_terminate_kills_child() {
     let mut owned = BackendOwnership::from_raw(child);
     owned.terminate(Duration::from_secs(2));
 
-    // After terminate the child must have exited.
     #[cfg(unix)]
     unsafe {
         // kill -0 returns -1/ESRCH if no such process.
@@ -84,6 +84,6 @@ fn ownership_spawned_terminate_kills_child() {
     }
     #[cfg(windows)]
     {
-        let _ = pid; // best-effort: rely on terminate having waited
+        let _ = pid;
     }
 }

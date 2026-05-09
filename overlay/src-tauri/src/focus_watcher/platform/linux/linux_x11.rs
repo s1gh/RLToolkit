@@ -1,13 +1,8 @@
-//! Linux/X11 foreground-window query.
-//!
-//! Path: read _NET_ACTIVE_WINDOW from the root window, then read
-//! _NET_WM_PID and WM_NAME from the active window. We use x11rb (pure-Rust)
-//! so we don't pull in libX11 at link time.
-//!
-//! Connection state is held in a OnceLock to avoid the cost of
-//! reconnecting every 250ms. If the X server is unreachable at startup
-//! we record that fact and degrade to "always None" for the rest of the
-//! process's life.
+//! Linux/X11 foreground-window query: _NET_ACTIVE_WINDOW on the root
+//! window, then _NET_WM_PID + _NET_WM_NAME on the active window via
+//! x11rb (pure-Rust, no libX11 link). Connection state is cached in a
+//! OnceLock; an init failure degrades to "always None" for the rest
+//! of the process's life.
 
 use crate::focus_watcher::ForegroundInfo;
 use std::sync::OnceLock;

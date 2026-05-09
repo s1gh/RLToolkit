@@ -1,8 +1,7 @@
-//! Persistent launcher settings stored at `data/launcher.json`.
-//!
-//! Writes go through a temp-file + rename so a crash mid-write can never
-//! leave a partial file on disk. Geometry writes are debounced upstream
-//! (see `launcher::window`); this module performs the I/O unconditionally.
+//! Persistent launcher settings stored at `data/launcher.json`. Writes
+//! use temp-file + rename so a crash mid-write can't leave a partial
+//! file on disk. Geometry writes are debounced upstream (see
+//! `launcher::window`).
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -32,9 +31,8 @@ impl SettingsStore {
         Self { path: path.into() }
     }
 
-    /// Load settings from disk. Returns defaults if the file is missing
-    /// or unreadable, or if its contents fail to parse — corrupt files
-    /// must never block startup.
+    /// Load settings, returning defaults on missing / unreadable /
+    /// unparseable file — startup must never block on corruption.
     pub fn load(&self) -> LauncherSettings {
         let bytes = match fs::read(&self.path) {
             Ok(b) => b,
@@ -56,7 +54,6 @@ impl SettingsStore {
             f.sync_all()?;
         }
         let result = fs::rename(&tmp, &self.path);
-        // If the rename failed, clean up the tmp file so it doesn't pile up.
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
         }

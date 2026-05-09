@@ -42,9 +42,8 @@ fn corrupt_file_falls_back_to_defaults() {
 
 #[test]
 fn save_is_atomic_via_tempfile_rename() {
-    // After a save the temp sidecar file (.launcher.json.tmp) must not
-    // remain on disk. The save path either renamed it onto launcher.json
-    // or returned an error.
+    // The .launcher.json.tmp sidecar must not survive a successful
+    // save — it should have been renamed onto launcher.json.
     let dir = TempDir::new().unwrap();
     let store = SettingsStore::new(dir.path().join("launcher.json"));
     store.save(&LauncherSettings::default()).unwrap();
@@ -82,12 +81,8 @@ fn spawn_test_server(body: &'static [u8], status: u16) -> (String, std::thread::
 
 #[test]
 fn probe_returns_attached_for_toolkit_response() {
-    // Real /api/status payload shape: rl_api is a string ("connected" /
-    // "disconnected") — see backend/internal/server/server.go where
-    // writeJSON serializes map[string]source.Status, and source.Status
-    // is `type Status string`. The earlier test envelope used a nested
-    // object which never deserialized into StatusEnvelope { rl_api: String },
-    // so the probe always returned Unrelated and the assertion lied.
+    // /api/status ships rl_api as a Status string ("connected" /
+    // "disconnected"); see backend/internal/server/server.go.
     let (url, _h) = spawn_test_server(b"{\"rl_api\":\"connected\"}", 200);
     match probe_status(&url, std::time::Duration::from_millis(500)) {
         ProbeOutcome::Toolkit { rl_api } => assert_eq!(rl_api, "connected"),

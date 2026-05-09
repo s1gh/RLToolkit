@@ -17,11 +17,9 @@ enum Backend {
 static BACKEND: OnceLock<Backend> = OnceLock::new();
 
 fn pick_backend() -> Backend {
-    // Native Wayland session if WAYLAND_DISPLAY is set AND XDG_SESSION_TYPE
-    // is "wayland" (or unset — some setups don't set it). In all other
-    // cases, X11 (which also covers XWayland: Wayland-session apps that
-    // expose themselves through the X server are reachable via X11
-    // _NET_ACTIVE_WINDOW).
+    // Native Wayland when WAYLAND_DISPLAY is set and XDG_SESSION_TYPE
+    // isn't "x11"; otherwise X11 (which also reaches XWayland clients
+    // via _NET_ACTIVE_WINDOW).
     let wl = std::env::var_os("WAYLAND_DISPLAY").is_some();
     let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
     let x11_session = session.eq_ignore_ascii_case("x11");

@@ -13,8 +13,8 @@ pub struct LauncherCtx {
     pub attached: bool,
     pub starting: bool,
     pub tray_ok: bool,
-    /// True when the user explicitly stopped the backend via Stop. Distinct
-    /// from "crashed" so the UI shows "Start backend" instead of "Restart".
+    /// True when the user explicitly stopped via Stop, so the UI shows
+    /// "Start backend" instead of "Restart" (distinct from "crashed").
     pub stopped_by_user: bool,
 }
 
@@ -114,12 +114,11 @@ pub fn toggle_overlay(
         let mut s = ctx.settings.load();
         s.overlay_enabled = enabled;
         ctx.settings.save(&s).map_err(|e| e.to_string())?;
-    } // release the lock before calling out
+    }
 
-    // The overlay window was created during launcher setup() and lives
-    // for the app's lifetime — never built from this IPC handler. Building
-    // a webview window from an IPC worker thread deadlocks WebView2 on
-    // Windows; show/hide is safe from any thread.
+    // The overlay window was built once during launcher setup() (see
+    // mod.rs) — building from an IPC worker deadlocks WebView2 on
+    // Windows. show()/hide() is safe from any thread.
     if let Some(w) = app.get_webview_window("main") {
         if enabled {
             let _ = w.show();
@@ -224,8 +223,6 @@ pub fn start_backend(app: AppHandle, state: State<LauncherState>) -> Result<(), 
 pub fn open_data_folder(app: AppHandle, state: State<LauncherState>) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
 
-    // Prefer the user's configured data_dir; fall back to the OS-standard
-    // data location used elsewhere in the app.
     let configured = {
         let ctx = state.lock().unwrap();
         ctx.settings.load().data_dir
@@ -236,8 +233,8 @@ pub fn open_data_folder(app: AppHandle, state: State<LauncherState>) -> Result<(
         None => crate::paths::default_data_dir(),
     };
 
-    // Make sure the directory exists; the OS file manager errors out
-    // ungracefully on a non-existent path.
+    // Pre-create the directory; the OS file manager errors ungracefully
+    // on a non-existent path.
     if !path.exists() {
         std::fs::create_dir_all(&path).map_err(|e| {
             format!("create data folder {}: {e}", path.display())
@@ -256,11 +253,9 @@ pub fn open_dashboard_in_browser(app: AppHandle, state: State<LauncherState>) ->
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
-/// Open an arbitrary URL in the user's default browser. Used by the
-/// dashboard iframe to route `target="_blank"` clicks (Open buttons,
-/// API endpoint links, etc.) out of the webview and into a real browser.
-/// Restricted to http/https schemes so a malicious dashboard payload
-/// can't pop open `file://` or shell schemes.
+/// Open an arbitrary URL in the user's default browser. Restricted to
+/// http/https so a malicious dashboard payload can't pop file:// or
+/// shell schemes.
 #[tauri::command]
 pub fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -275,11 +270,9 @@ pub fn quit(app: AppHandle) {
     app.exit(0);
 }
 
-/// Returns the launcher window's bound monitor logical size.
-/// Used by the Settings modal to (re-)post the detected surface to
-/// the backend each time the modal opens — keeps `detected` fresh
-/// even after the user clicked "Clear", and picks up monitor
-/// changes between sessions.
+/// Logical size of the launcher window's bound monitor. Used by the
+/// Settings modal to re-post the detected surface so it stays fresh
+/// after Clear and across monitor changes.
 #[derive(serde::Serialize)]
 pub struct MonitorSize {
     pub width: u32,
@@ -303,9 +296,7 @@ pub struct LauncherSettingsView {
     pub data_dir: Option<String>,
     pub rl_addr: Option<String>,
     /// Resolved default paths shown as placeholders in the Settings UI
-    /// when the user hasn't overridden them. Computed once per call so
-    /// the dialog can show e.g. "C:\Users\Foo\AppData\Local\RLToolkit\plugins"
-    /// instead of a vague "default" string.
+    /// when the user hasn't overridden them.
     pub default_plugins_dir: String,
     pub default_data_dir: String,
 }
@@ -327,15 +318,12 @@ pub fn get_settings(state: State<LauncherState>) -> LauncherSettingsView {
     }
 }
 
-/// Outcome of save_settings, distinguishing the three cases the UI
-/// needs to handle differently:
-/// - changed=false: nothing to do (saving the same values, or only
-///   non-backend fields like surface). Modal can just close.
-/// - changed=true, respawned=false: user owns the backend (attached
-///   mode), so settings hit disk but the sidecar wasn't touched. UI
-///   should prompt the user to restart manually.
-/// - changed=true, respawned=true: launcher killed + respawned the
-///   sidecar with the new flags. UI should reload the dashboard.
+/// Outcome of save_settings:
+/// - changed=false: nothing to do; modal can close.
+/// - changed=true, respawned=false: attached mode; user must restart
+///   the backend manually.
+/// - changed=true, respawned=true: sidecar killed and respawned with
+///   the new flags; UI should reload the dashboard.
 #[derive(serde::Serialize)]
 pub struct SaveSettingsResult {
     pub changed: bool,
@@ -357,11 +345,9 @@ pub fn save_settings(
     let new_data = data_dir.clone().filter(|p| !p.trim().is_empty());
     let new_rl = rl_addr.clone().filter(|p| !p.trim().is_empty());
 
-    // Persist to disk and detect whether any value the backend cares
-    // about actually changed. Without this check, every Save (including
-    // a Save with no edits, or one that only touched non-respawn fields
-    // like surface size) would kill + respawn the sidecar — visible to
-    // the user as a dashboard reload flash.
+    // Detect whether any backend-affecting value actually changed,
+    // otherwise every Save (no edits, or surface-only edits) would
+    // kill + respawn the sidecar and flash the dashboard.
     let (attached, changed) = {
         let ctx = state.lock().unwrap();
         let prev = ctx.settings.load();

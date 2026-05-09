@@ -1,20 +1,12 @@
-//! Dual-sink logging: every `log!` call writes to a per-day file under
-//! `<data dir>/logs/launcher-YYYY-MM-DD.log` AND to stderr.
+//! Dual-sink logging: each `log!` call writes to
+//! `<data dir>/logs/launcher-YYYY-MM-DD.log` and to stderr.
 //!
-//! The file is the canonical artifact for bug reports — when the user
-//! reports "the launcher did X," that log directory is what we ask
-//! them to zip and send. Stderr remains useful when running from a
-//! terminal during development (`cargo run`, `make release`).
+//! The file is the canonical artifact for bug reports. Daily rotation
+//! checks the date stamp on each write; older files are pruned at
+//! init (kept = `RETAIN_DAYS`).
 //!
-//! Daily rotation is done by checking the local-day stamp on each
-//! write. Older files are pruned at init (kept = `RETAIN_DAYS`). No
-//! external crate; we synthesize the YYYY-MM-DD from SystemTime, which
-//! is plenty of resolution for a per-day filename.
-//!
-//! Init contract: call `init()` once early in `main()`, before any
-//! log!() macro fires. Calls before init silently drop the file half
-//! and still print to stderr — so bootstrapping log lines aren't lost,
-//! they just live only in the terminal.
+//! Init contract: call `init()` once early in `main()`. Calls before
+//! init silently drop the file half and still print to stderr.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -22,15 +14,12 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// How many days of launcher-*.log files to keep on disk. Anything
-/// older is deleted at init. 14 days is enough that a user reporting
-/// a bug from "last week" still has the relevant logs, but keeps the
-/// directory from growing unbounded for users who run the launcher
-/// daily.
+/// Days of launcher-*.log files to keep on disk. Older files are
+/// deleted at init. 14 days covers "the bug from last week" without
+/// growing unbounded for daily users.
 const RETAIN_DAYS: u64 = 14;
 
-/// File name prefix. Lives next to backend-*.log and sidecar-*.log
-/// inside the same logs/ directory.
+/// File name prefix; lives next to backend-*.log and sidecar-*.log.
 const FILE_PREFIX: &str = "launcher-";
 
 struct LogState {
@@ -59,10 +48,7 @@ pub fn init(data_dir: PathBuf) {
     };
 
     let _ = STATE.get_or_init(|| Mutex::new(state));
-    // Idempotent: subsequent init() calls are a no-op. The first call
-    // wins on directory; we don't try to redirect an in-flight log
-    // sink at runtime because there's no use case (the data dir is
-    // settled before any log line fires).
+    // Idempotent: subsequent init() calls are a no-op.
 }
 
 /// Returns the canonical log directory once init() has run.
@@ -70,20 +56,16 @@ pub fn log_dir() -> Option<PathBuf> {
     STATE.get().and_then(|c| c.lock().ok().map(|s| s.dir.clone()))
 }
 
-/// Today's UTC date stamp in YYYY-MM-DD form. Exposed so other parts
-/// of the launcher (notably the sidecar capture path) can match the
-/// logging module's rotation cadence without duplicating the
-/// civil-from-days math.
+/// Today's UTC date stamp in YYYY-MM-DD form. Exposed so the sidecar
+/// capture path can match the rotation cadence.
 pub fn today_date_stamp() -> String {
     today_stamp()
 }
 
-/// Internal: write one fully-formed line to file + stderr. Adds a
-/// trailing newline if missing. The line should already include any
-/// `[facet]` prefix.
+/// Write one line to file + stderr. The line should already include
+/// any `[facet]` prefix.
 pub fn write_line(line: &str) {
-    // Always print to stderr first so a panic in the file path
-    // doesn't lose the message.
+    // Stderr first so a panic in the file path doesn't lose the message.
     eprintln!("{line}");
 
     let Some(cell) = STATE.get() else {
@@ -105,9 +87,7 @@ pub fn write_line(line: &str) {
     }
 
     if let Some((_, f)) = state.current.as_mut() {
-        // Format: HH:MM:SS <line>\n. Date is in the filename, no need
-        // to repeat it. Best-effort writes — if the file went away we
-        // don't try to recover here, the next reopen attempt picks it up.
+        // Format: HH:MM:SS <line>\n. Date lives in the filename.
         let ts = time_stamp();
         let _ = writeln!(f, "{ts} {line}");
         let _ = f.flush();
@@ -152,14 +132,10 @@ fn sweep_old(dir: &PathBuf) {
     }
 }
 
-/// YYYY-MM-DD in UTC. Synthesized from SystemTime so we don't pull
-/// in chrono just for a filename. The Go backend uses local time for
-/// its date stamp; this UTC vs local mismatch is intentional — Rust's
-/// stdlib has no timezone-aware date math, and adding chrono just
-/// for log filenames isn't worth it. For users in non-UTC zones the
-/// launcher and backend files for the same evening can carry
-/// different dates near midnight; the timestamps inside each file
-/// disambiguate, and bug-report zips include both anyway.
+/// YYYY-MM-DD in UTC. Synthesized from SystemTime so we don't depend
+/// on chrono. The Go backend uses local time, so launcher and backend
+/// files for the same evening can carry different dates near midnight
+/// in non-UTC zones — the timestamps inside each file disambiguate.
 fn today_stamp() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -169,9 +145,8 @@ fn today_stamp() -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// HH:MM:SS in UTC. Cheap, no allocations beyond the format string.
-/// UTC keeps timestamps comparable across user reports without needing
-/// to ship the user's tz with the log.
+/// HH:MM:SS in UTC. UTC keeps timestamps comparable across user
+/// reports without shipping the user's tz with the log.
 fn time_stamp() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -183,33 +158,28 @@ fn time_stamp() -> String {
     format!("{h:02}:{m:02}:{s:02}")
 }
 
-/// Days-from-epoch → (year, month, day) using the civil-from-days
-/// algorithm (Howard Hinnant). Works for any year ≥ 0.
+/// Days-from-epoch → (year, month, day) via Howard Hinnant's
+/// civil-from-days algorithm. Works for any year ≥ 0.
 fn ymd_from_secs(secs: u64) -> (i64, u32, u32) {
     let days = (secs / 86_400) as i64;
-    // Shift so day 0 = 0000-03-01 (March-based year for the algorithm).
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097; // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
     let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
-    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32; // [1, 12]
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
 }
 
-/// Log macros. Three user-facing levels:
-/// - `log_info!`  — normal events (startup, monitor binding). File-only.
-///   A clean launch should produce zero stderr output, so info lands
-///   in the log file but skips the terminal.
-/// - `log_warn!`  — recoverable problems (tray missing, surface report
-///   raced the backend). File + stderr.
-/// - `log_error!` — something genuinely went wrong. File + stderr.
-/// - `log_debug!` — chatty per-event lines. File-only, same as info
-///   today; the level tag is what distinguishes them in the log.
+/// Log macros:
+/// - `log_info!`  — normal events. File-only (clean launch = zero stderr).
+/// - `log_warn!`  — recoverable problems. File + stderr.
+/// - `log_error!` — failures. File + stderr.
+/// - `log_debug!` — chatty per-event lines. File-only.
 #[macro_export]
 macro_rules! log_info {
     ($($arg:tt)*) => {{
@@ -231,9 +201,8 @@ macro_rules! log_error {
     }};
 }
 
-/// Debug log — written to file but NOT to stderr. Used for chatty
-/// per-event lines (focus changes, surface-detect retries) we want
-/// available for forensics but not in the terminal.
+/// File-only debug log for chatty per-event lines (focus changes,
+/// surface-detect retries) kept available for forensics.
 #[macro_export]
 macro_rules! log_debug {
     ($($arg:tt)*) => {{
@@ -241,9 +210,8 @@ macro_rules! log_debug {
     }};
 }
 
-/// File-only counterpart used by the `log_debug!` macro. Same path as
-/// `write_line` minus the stderr println — kept on the public surface
-/// so the macro can reach it.
+/// File-only counterpart of `write_line` used by `log_debug!` and
+/// `log_info!`. Public so the exported macros can reach it.
 pub fn write_line_file_only(line: &str) {
     let Some(cell) = STATE.get() else {
         return;

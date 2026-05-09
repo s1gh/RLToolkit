@@ -1,22 +1,15 @@
 //! Canonical filesystem locations for everything the app persists.
+//! Mirrors `dirs::data_local_dir()` + `RLToolkit`; the Go side
+//! resolves the same path via backend/internal/paths.
 //!
-//! All user state lives under a single per-OS base directory so the
-//! launcher, the bundled backend, and the `rl-toolkit dev` CLI agree on
-//! where to find each file. The base is the platform's standard
-//! application-data dir + `RLToolkit`:
-//!
-//!   Linux:   $XDG_DATA_HOME/RLToolkit  (or ~/.local/share/RLToolkit)
+//!   Linux:   $XDG_DATA_HOME/RLToolkit (or ~/.local/share/RLToolkit)
 //!   macOS:   ~/Library/Application Support/RLToolkit
 //!   Windows: %LOCALAPPDATA%\RLToolkit
-//!
-//! These match `dirs::data_local_dir()` on every platform; the Go side
-//! resolves the same path via its own helper (see backend/internal/paths).
 
 use std::path::PathBuf;
 
-/// Base dir for all RL Toolkit state. Falls back to `.` when no OS-
-/// standard dir is resolvable (CI containers, weird sandboxes) — better
-/// to keep the app working with a relative path than to refuse to start.
+/// Base dir for all RL Toolkit state. Falls back to `.` for sandboxes
+/// where the OS-standard dir can't be resolved.
 pub fn base_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -41,12 +34,9 @@ pub fn default_plugins_dir() -> PathBuf {
     base_dir().join("plugins")
 }
 
-/// Path to the sidecar's stdout/stderr capture file. The Go backend
-/// writes its own structured log to `logs/backend-YYYY-MM-DD.log` via
-/// the stdlib `log` package; this file catches anything that bypasses
-/// it (Go runtime panics, raw `fmt.Print`s) so a hard crash isn't
-/// lost. Daily-stamped to match the launcher and backend files; the
-/// caller passes today's date in.
+/// Path to the sidecar's stdout/stderr capture file. Catches output
+/// that bypasses the Go backend's structured log (runtime panics, raw
+/// `fmt.Print`, stack traces).
 pub fn sidecar_log_path(date_stamp: &str) -> PathBuf {
     default_data_dir()
         .join("logs")

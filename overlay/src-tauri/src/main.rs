@@ -1,39 +1,26 @@
 // rl-widget — overlay widget for RL Toolkit.
 //
-// Two modes: unified (no flag — one fullscreen window loading the
-// toolkit's /overlay aggregator, which positions all enabled plugins)
-// and per-plugin (--plugin=<name> — one window per plugin, sized and
-// anchored from the plugin's manifest). In both cases the window is
-// transparent, frameless, click-through, and pinned above all others.
-//
-// Because the window is click-through + skip-taskbar + undecorated +
-// unfocused, it cannot be closed by clicking, alt-tabbing, or any
-// in-window UI. Exit happens via the tray icon's Quit item — best-
-// effort; logged-and-ignored if the desktop environment can't host
-// one. (A global-hotkey approach was tried earlier; both
-// tauri-plugin-global-shortcut on Windows and the Linux paths failed
-// to register cleanly, so it's been removed.)
+// Two modes: unified (one fullscreen window loading the toolkit's
+// /overlay aggregator, which positions all enabled plugins) and
+// per-plugin (--plugin=<name>, one window sized and anchored from the
+// plugin's manifest). The window is transparent, frameless,
+// click-through, and pinned above all others — exit happens via the
+// tray icon's Quit item.
 //
 // Per-platform overlay primitive:
-//   Linux/Wayland: wlr-layer-shell (overlay layer + anchored margins). The
-//     compositor handles placement; no windowrule config required.
-//     Click-through is NOT free here — layer-shell only handles where the
-//     surface lives; pointer input is still claimed by the GTK window
-//     unless we install an empty input shape (cairo region) on top of it.
+//   Linux/Wayland: wlr-layer-shell (overlay layer + anchored margins).
+//     Click-through is NOT free — layer-shell only handles placement;
+//     pointer input still goes to the GTK window unless we install an
+//     empty input shape on top.
 //   Windows / X11 / macOS: regular always-on-top frameless window with
-//     ignore_cursor_events=true. Tauri handles WS_EX_TRANSPARENT,
-//     NSWindow.level, and X11 _NET_WM_STATE_ABOVE per platform.
+//     ignore_cursor_events=true.
 //
-//   Windows 11 also paints a hairline frame around the window via DWM
-//   that survives decorations(false). It's compositor chrome (verified:
-//   Discord's window-share doesn't see it, full-screen-share does), so
-//   the suppression has to happen at the OS level. apply_windows_no_border
-//   turns off DWMWA_BORDER_COLOR, the rounded-corner pass, non-client
-//   rendering, and strips WS_THICKFRAME — see that function for the
-//   per-knob rationale.
+// Windows 11 also paints a hairline DWM frame that survives
+// decorations(false). apply_windows_no_border turns off the relevant
+// DWM attributes and strips WS_THICKFRAME.
 //
-// Plugins can also reshape their own widget at runtime via Tauri commands
-// (RLT.widget.* in the SDK) — see the `widget_*` handlers below.
+// Plugins can reshape their widget at runtime via Tauri commands
+// (RLT.widget.*) — see the `widget_*` handlers.
 //
 // CLI:
 //   rl-widget [--plugin=<name>] [--toolkit=URL]
@@ -148,9 +135,9 @@ fn plugin_url(toolkit: &str, plugin: &str, file: &str, anchor: &str) -> String {
     } else {
         file
     };
-    // The view discriminator now lives on the <script data-view="overlay">
-    // tag inside the file; the URL only carries parameterized runtime
-    // info the SDK can't derive on its own (anchor for body alignment).
+    // The view discriminator lives on the <script data-view="overlay">
+    // tag inside the file; the URL only carries runtime info the SDK
+    // can't derive (anchor for body alignment).
     format!(
         "{}/plugins/{}/{}?anchor={}",
         toolkit.trim_end_matches('/'),
@@ -170,14 +157,10 @@ fn unified_url(toolkit: &str) -> String {
     format!("{}/overlay", toolkit.trim_end_matches('/'))
 }
 
-/// Liveness check used by unified mode. Hits /api/status with a 2-second
-/// timeout. Returns Err on failure — main() treats this as fatal and
-/// refuses to open the window. We can't gracefully recover: the unified
-/// window is fullscreen, click-through, undecorated, and skip-taskbar.
-/// If we open it on a webview-error page (e.g. ERR_CONNECTION_REFUSED),
-/// the user can't click on or focus anything underneath it and has no
-/// path to close it short of Task Manager. Better to fail loudly at
-/// startup than to lock up the desktop.
+/// Liveness check for unified mode. Treated as fatal because the
+/// fullscreen click-through window is unrecoverable from the desktop
+/// — if it opens on a webview-error page, the user has no way to
+/// close it short of Task Manager.
 fn probe_toolkit(toolkit: &str) -> Result<(), String> {
     let base = toolkit.trim_end_matches('/');
     let url = format!("{}/api/status", base);
@@ -189,14 +172,11 @@ fn probe_toolkit(toolkit: &str) -> Result<(), String> {
 }
 
 /// Best-effort POST of the bound monitor's logical (w, h) to
-/// /api/overlay/surface/detected. The dashboard setting is the canonical
-/// source of truth; this is purely informational so the editor and the
-/// dashboard "Use detected" button have a sane default. Failures are
-/// silently swallowed — the rl-widget overlay can mount before the
-/// backend has finished spawning, in which case this POST hits a
-/// connection refused that's expected and noisy. The launcher does its
-/// own report after the backend probe succeeds, so this one being a
-/// best-effort no-op on race is fine.
+/// /api/overlay/surface/detected. Informational only — failures are
+/// swallowed because the overlay can mount before the backend
+/// finishes spawning. On multi-monitor setups the overlay may be on a
+/// different monitor than the launcher window, so this is the more
+/// accurate value when both succeed.
 fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
     let base = toolkit.trim_end_matches('/');
     let url = format!("{}/api/overlay/surface/detected", base);
@@ -205,11 +185,6 @@ fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
         w.round() as i64,
         h.round() as i64
     );
-    // Result intentionally discarded — see the doc comment above. We
-    // keep the call (rather than skipping it) because on multi-monitor
-    // setups the overlay may be on a different monitor than the
-    // launcher window, and that's the more accurate "detected" value
-    // when both succeed.
     let _ = ureq::post(&url)
         .timeout(std::time::Duration::from_secs(2))
         .set("Content-Type", "application/json")
@@ -218,20 +193,12 @@ fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
 
 // ─── Tauri commands (the RLT.widget.* surface) ──────────────────
 //
-// Each command applies the change to BOTH:
-//   1. Tauri's window (so the change works on Windows/macOS too)
-//   2. On Linux, the layer-shell surface (which has its own anchor/margin
-//      protocol that ignores xdg-toplevel positioning)
-// and updates the shared WidgetState so re-anchoring / re-margining can
-// reuse the previously-set values.
-//   3. Gates on Mode — no-ops with a log line in unified mode (where the
-//      window is shared across all plugins and per-plugin reshape is wrong).
+// Each command applies the change to Tauri's window (Windows/macOS)
+// and the layer-shell surface (Linux, which uses its own anchor/margin
+// protocol), updates shared WidgetState, and no-ops in unified mode
+// (where per-plugin reshape doesn't apply).
 
-/// Returns true when the widget is in unified mode. Each command
-/// handler calls this to decide whether to run or no-op + log.
-///
-/// `tauri::State<'_, Mode>` derefs to `&Mode`, so a single `*` peels
-/// it back into a `Mode` we can pattern-match on.
+/// Returns true when the widget is in unified mode.
 fn ignored_in_unified(mode: &tauri::State<'_, Mode>, fn_name: &str) -> bool {
     if matches!(**mode, Mode::Unified) {
         rl_widget::log_debug!("[rl-widget] {} ignored in unified mode", fn_name);
@@ -323,9 +290,8 @@ fn widget_opacity(
     }
     #[cfg(not(target_os = "linux"))]
     {
-        // Tauri's set_opacity is gated behind a feature; fall back to the
-        // platform's window if/when that lands. For the spike we no-op so
-        // the API surface stays uniform.
+        // Tauri's set_opacity is gated behind a feature; no-op for now
+        // so the API surface stays uniform across platforms.
         let _ = (clamped, &window);
     }
     Ok(())
@@ -417,14 +383,10 @@ fn apply_pixel_position(
     let _ = window.set_position(LogicalPosition::new(x, y));
 }
 
-/// Unified-mode fullscreen pass on non-Linux platforms. Sets the window
-/// size to the current monitor's logical size, positions at (0, 0), then
-/// flips to true fullscreen so Windows lets the surface draw over the
-/// taskbar. Without fullscreen, a borderless window at (0,0) sized to the
-/// monitor still gets clipped to the work-area on Windows 11 — the
-/// taskbar reserves the bottom ~48px and a bottom-anchored widget at
-/// offset_y=0 lands behind it. set_fullscreen drops that constraint.
-/// The toolkit's /overlay page handles per-plugin positioning inside.
+/// Unified-mode fullscreen pass on non-Linux: size to the monitor's
+/// logical bounds, position at (0,0), then set_fullscreen to escape
+/// Windows 11's work-area clipping (otherwise the taskbar reserves
+/// ~48px and a bottom-anchored widget at offset_y=0 lands behind it).
 #[cfg(not(target_os = "linux"))]
 fn apply_fullscreen_position(window: &tauri::WebviewWindow, toolkit: &str) {
     let Ok(Some(monitor)) = window.current_monitor() else {
@@ -437,41 +399,24 @@ fn apply_fullscreen_position(window: &tauri::WebviewWindow, toolkit: &str) {
     report_detected_surface(toolkit, mon_w, mon_h);
     let _ = window.set_position(LogicalPosition::new(0.0, 0.0));
     let _ = window.set_size(LogicalSize::new(mon_w, mon_h));
-    // Windows: cover the taskbar area too. set_fullscreen flips the
-    // window into a true-fullscreen state (without the legacy mode-
-    // change flicker since we don't change resolution). On macOS this
-    // would invoke the green-button "Full Screen" mode which animates
-    // and isn't what we want for an overlay, so gate to Windows.
+    // macOS would invoke the green-button "Full Screen" mode here,
+    // which animates and isn't what we want for an overlay.
     #[cfg(target_os = "windows")]
     let _ = window.set_fullscreen(true);
 }
 
-/// Suppress the Windows 11 hairline frame around the overlay window.
+/// Suppress the Windows 11 hairline DWM frame around the overlay
+/// window. The frame is compositor-painted, so HTML/CSS and
+/// `decorations(false)` can't reach it. Four independent best-effort
+/// knobs, harmless on Windows builds that don't recognize them:
 ///
-/// The artifact is compositor-painted: Discord's per-window screen
-/// share doesn't capture it, but full-screen share does. So we have to
-/// turn it off at the DWM / window-style level — HTML/CSS can't reach
-/// it, and `decorations(false)` doesn't either.
-///
-/// Four independent knobs, all best-effort. Each is harmless on
-/// Windows builds that don't recognize it (the API just returns a
-/// non-zero HRESULT we ignore) or where the bit isn't set:
-///
-///   1. DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE — explicit "no border
-///      color" on the window. Win11 22000+. May not be enough on its
-///      own (the prior attempt at this didn't fix the bug) but it's
-///      free to set.
-///   2. DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_DONOTROUND — opt out
-///      of the Win11 rounded-corner pass, which can paint a frame as
-///      part of the corner treatment.
-///   3. DWMWA_NCRENDERING_POLICY = DWMNCRP_DISABLED — disable
-///      non-client rendering on this HWND. Kills DWM-drawn frame
-///      chrome including the drop-shadow edge.
-///   4. Strip WS_THICKFRAME and re-apply with SWP_FRAMECHANGED.
-///      Tauri's decorations(false) clears WS_CAPTION but typically
-///      leaves the sizing border so the window stays programmatically
-///      resizable. We don't need that — `resizable(false)` is set —
-///      and the 1px sizing frame is a likely outline source.
+///   1. DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE — Win11 22000+.
+///   2. DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_DONOTROUND — opts out
+///      of the rounded-corner pass that can paint a frame.
+///   3. DWMWA_NCRENDERING_POLICY = DWMNCRP_DISABLED — kills DWM-drawn
+///      frame chrome including the drop-shadow edge.
+///   4. Strip WS_THICKFRAME (the 1px sizing border kept by
+///      decorations(false)) and re-apply with SWP_FRAMECHANGED.
 #[cfg(target_os = "windows")]
 fn apply_windows_no_border(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::Foundation::HWND;
@@ -485,17 +430,17 @@ fn apply_windows_no_border(window: &tauri::WebviewWindow) {
     };
 
     let Ok(hwnd) = window.hwnd() else { return };
-    // Tauri returns windows::Win32::Foundation::HWND (typed `windows`
-    // crate, a tuple struct around *mut c_void). windows-sys aliases
-    // HWND to that same raw pointer, so the inner field is the value
-    // we pass to all the Win32 calls below.
+    // Tauri returns windows::Win32::Foundation::HWND (tuple struct
+    // around *mut c_void); windows-sys aliases HWND to the same raw
+    // pointer, so the inner field is what the Win32 calls expect.
     let hwnd: HWND = hwnd.0;
 
+    // Safety for the unsafe blocks below: hwnd is a valid window handle
+    // owned by Tauri for this window's lifetime. DwmSetWindowAttribute
+    // reads `cbAttribute` bytes synchronously; each attribute here is a
+    // 32-bit enum value.
+
     // (1) DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE.
-    // Safety: hwnd is a valid window handle owned by Tauri for the
-    // lifetime of this window. DwmSetWindowAttribute reads
-    // `cbAttribute` bytes synchronously and returns. sizeof(COLORREF)
-    // = sizeof(u32) = 4.
     unsafe {
         let color: u32 = DWMWA_COLOR_NONE;
         let _ = DwmSetWindowAttribute(
@@ -507,7 +452,6 @@ fn apply_windows_no_border(window: &tauri::WebviewWindow) {
     }
 
     // (2) DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_DONOTROUND.
-    // Safety: same as above; the attribute is a 32-bit enum value.
     unsafe {
         let pref: u32 = DWMWCP_DONOTROUND as u32;
         let _ = DwmSetWindowAttribute(
@@ -519,7 +463,6 @@ fn apply_windows_no_border(window: &tauri::WebviewWindow) {
     }
 
     // (3) DWMWA_NCRENDERING_POLICY = DWMNCRP_DISABLED.
-    // Safety: same as above; the attribute is a 32-bit enum value.
     unsafe {
         let policy: u32 = DWMNCRP_DISABLED as u32;
         let _ = DwmSetWindowAttribute(
@@ -531,11 +474,8 @@ fn apply_windows_no_border(window: &tauri::WebviewWindow) {
     }
 
     // (4) Strip WS_THICKFRAME and notify the frame changed.
-    // Safety: hwnd is a valid HWND; GetWindowLongPtrW / SetWindowLongPtrW
-    // take a pointer-sized integer style word and return the previous
-    // value. SetWindowPos with SWP_FRAMECHANGED forces DWM to recompute
-    // the non-client area against the new style. SWP_NOMOVE | NOSIZE |
-    // NOZORDER | NOACTIVATE means we don't actually move/resize/restack.
+    // SWP_FRAMECHANGED forces DWM to recompute the non-client area;
+    // NOMOVE|NOSIZE|NOZORDER|NOACTIVATE keeps everything else in place.
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
         if style != 0 {
@@ -556,9 +496,8 @@ fn apply_windows_no_border(window: &tauri::WebviewWindow) {
     }
 }
 
-/// Build the tray icon with a Quit menu item. Best-effort: any error is
-/// returned to the caller, which logs and continues. The hotkey is the
-/// guaranteed exit path; the tray is a discoverability aid.
+/// Build the tray icon with a Quit menu item. Best-effort: errors
+/// bubble up so the caller can log and continue.
 fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
     let icon = app
         .default_window_icon()
@@ -597,10 +536,8 @@ fn launcher_mode_active(args: &Args) -> bool {
 }
 
 /// Build the overlay window from the launcher's app instance.
-/// Uses unified mode with hardcoded defaults — the launcher owns the
-/// lifecycle, so we skip hotkey and tray registration here (C2 will add
-/// those). Focus-watcher is also skipped: in launcher mode the overlay
-/// is always shown when toggled on, regardless of game window.
+/// Unified mode with hardcoded defaults; the launcher owns the
+/// lifecycle so tray and focus-watcher setup are skipped here.
 fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
     use tauri::Manager;
 
@@ -622,19 +559,11 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Construct the overlay webview window inside the given app.
-///
-/// Handles both the overlay-only path (called from `main_overlay`'s
-/// `.setup` closure) and the launcher path (called from
-/// `build_overlay_for_launcher`). The window is always labelled `"main"`.
-///
-/// Parameters:
-/// - `mode`         — Plugin or Unified, controls sizing/anchoring.
-/// - `url`          — Webview URL string (already constructed by caller).
-/// - `title`        — Window title string.
-/// - `persist_cache`— When false (default), opens in incognito mode so
-///                    the webview cache is discarded on each launch.
-/// - `monitor`      — Optional output index (Linux/Wayland only).
+/// Construct the overlay webview window inside the given app. Handles
+/// both the overlay-only and launcher paths; the window is always
+/// labelled `"main"`. `persist_cache=false` opens incognito so the
+/// webview cache is discarded each launch. `monitor` is Linux/Wayland
+/// only.
 fn build_overlay_window(
     app: &AppHandle,
     mode: &Mode,
@@ -646,12 +575,10 @@ fn build_overlay_window(
 ) -> tauri::Result<()> {
     let parsed = url::Url::parse(url).map_err(tauri::Error::InvalidUrl)?;
 
-    // The overlay window is built once during launcher setup() with
-    // visible(false), then show()/hide()d on toggle. Building from an
-    // IPC command's worker thread deadlocks WebView2 on Windows; only
-    // the main-thread setup() path works. visible(false) is safe here
-    // (in setup) — the deadlock only manifested when combined with
-    // building from an IPC worker.
+    // Built once during launcher setup() with visible(false), then
+    // show()/hide()d on toggle. Building from an IPC worker thread
+    // deadlocks WebView2 on Windows — only the main-thread setup()
+    // path is safe.
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(title)
         .decorations(false)
@@ -682,10 +609,10 @@ fn build_overlay_window(
 
             #[cfg(not(target_os = "linux"))]
             {
-                // For plugin mode from launcher, we don't have managed WidgetState.
-                // apply_pixel_position requires a tauri::State, so we skip on non-linux
-                // when called from the launcher path. The window will appear at default
-                // position; the toolkit handles per-plugin layout.
+                // The launcher path doesn't manage WidgetState, so
+                // apply_pixel_position can't run here. The window
+                // appears at the default position; the toolkit
+                // handles per-plugin layout.
                 let _ = monitor;
             }
         }
@@ -698,19 +625,15 @@ fn build_overlay_window(
         }
     }
 
-    // Apply click-through AFTER set_fullscreen on Windows: winit's fullscreen
-    // transition rewrites the window's extended styles via SetWindowLongPtr,
-    // which clears the WS_EX_TRANSPARENT bit set_ignore_cursor_events installed.
-    // Without this, the always-on-top fullscreen overlay swallows clicks meant
-    // for the launcher window underneath — title-bar caption buttons still work
-    // (DWM hit-tests those), but the launcher's webview content becomes dead.
+    // Click-through must be applied AFTER set_fullscreen on Windows:
+    // winit's fullscreen transition rewrites extended styles and clears
+    // the WS_EX_TRANSPARENT bit set_ignore_cursor_events installed.
     #[cfg(not(target_os = "linux"))]
     {
         let _ = window.set_ignore_cursor_events(true);
     }
 
-    // Caller decides whether to show the window. The launcher path keeps
-    // it hidden until toggled on; the standalone path shows immediately.
+    // Caller decides visibility — launcher path stays hidden until toggled.
     Ok(())
 }
 
@@ -718,10 +641,9 @@ fn main() {
     let args = Args::parse();
 
     if launcher_mode_active(&args) {
-        // launcher::run installs file logging itself (it can read the
-        // user-configured data_dir). The non-launcher overlay path
-        // below initializes against the platform default — this
-        // process can't see launcher.json.
+        // launcher::run installs file logging itself (reads the
+        // user-configured data_dir from launcher.json). The standalone
+        // overlay path below uses the platform default.
         rl_widget::overlay_bridge::install(|app| build_overlay_for_launcher(app));
         launcher::run(args);
         return;
@@ -759,9 +681,9 @@ fn main_overlay(args: Args) {
         }
     };
 
-    // Seed WidgetState. In Plugin mode, from the manifest. In Unified
-    // mode, a default — the value is never read because the widget_*
-    // command handlers gate on Mode and early-return.
+    // Seed WidgetState from the manifest in Plugin mode. Unified mode
+    // gets a default that's never read — widget_* handlers gate on
+    // Mode and early-return.
     let widget_state = match &mode {
         Mode::Plugin { manifest, .. } => WidgetState::from_manifest(manifest),
         Mode::Unified => WidgetState {
@@ -788,13 +710,11 @@ fn main_overlay(args: Args) {
             widget_visible,
         ])
         .setup(move |app| {
-            // Tray is best-effort. Some minimal Linux desktops can't
-            // host one; the user falls back to killing the process.
+            // Tray is best-effort; minimal Linux desktops can't host one.
             if let Err(e) = setup_tray(app.handle(), &tray_tooltip) {
                 rl_widget::log_warn!("[rl-widget] tray icon failed to register: {e}");
             }
 
-            // Build the overlay window via the shared helper.
             build_overlay_window(
                 app.handle(),
                 &mode_for_setup,
@@ -805,8 +725,8 @@ fn main_overlay(args: Args) {
                 &args_for_setup.toolkit,
             )?;
 
-            // In plugin mode on non-linux, apply pixel positioning using
-            // the managed WidgetState (only available in the overlay-only app).
+            // Plugin mode on non-Linux applies pixel positioning via the
+            // managed WidgetState (only available in the overlay-only app).
             #[cfg(not(target_os = "linux"))]
             if let Mode::Plugin { .. } = &mode_for_setup {
                 if let Some(window) = app.get_webview_window("main") {
@@ -815,9 +735,8 @@ fn main_overlay(args: Args) {
                 }
             }
 
-            // Standalone overlay always shows immediately. (The launcher
-            // path keeps the window hidden and toggles visibility from
-            // toggle_overlay; see launcher::mod::run.)
+            // Standalone shows immediately; the launcher path stays hidden
+            // until toggled (see launcher::mod::run).
             {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
@@ -825,9 +744,8 @@ fn main_overlay(args: Args) {
                 }
             }
 
-            // Start the foreground-window watcher. It owns a clone of the
-            // app handle and runs until the process exits. Disabled (early
-            // return) when --game-match="".
+            // Foreground-window watcher; runs until the process exits.
+            // Disabled when --game-match="".
             let rule = focus_watcher::match_rule_from_arg(args_for_setup.game_match.as_deref());
             focus_watcher::spawn(app.handle().clone(), rule);
 
@@ -839,10 +757,9 @@ fn main_overlay(args: Args) {
 
 // ─── Linux: wlr-layer-shell init ────────────────────────────────
 
-/// Layer-shell setup shared by both modes. Makes the GTK surface
-/// alpha-aware, binds the layer-shell protocol, parks on the overlay
-/// layer, disables keyboard focus, and clears any exclusive zone.
-/// Sizing and anchoring are mode-specific and applied separately.
+/// Layer-shell setup shared by both modes: alpha-aware GTK surface,
+/// overlay layer, no keyboard focus, no exclusive zone. Sizing and
+/// anchoring are mode-specific.
 #[cfg(target_os = "linux")]
 fn init_layer_shell_common(
     window: &tauri::WebviewWindow,
@@ -868,13 +785,9 @@ fn init_layer_shell_common(
 
     gtk_window.init_layer_shell();
 
-    // Resolve which GDK monitor to bind the layer surface to. Without this
-    // wlr-layer-shell fans the surface across every connected output
-    // simultaneously. We bind to the primary monitor by default; --monitor=N
-    // overrides for users whose game lives on a non-primary display.
-    //
-    // set_monitor() is a LayerShell trait method — it must be called AFTER
-    // init_layer_shell(), which installs the LayerShell state on the window.
+    // Bind to a specific GDK monitor so wlr-layer-shell doesn't fan
+    // the surface across every output. Primary by default; --monitor=N
+    // overrides. Must be called AFTER init_layer_shell() above.
     let chosen_monitor = if let Some(display) = gtk::gdk::Display::default() {
         let mon = if let Some(n) = monitor_index {
             display.monitor(n as i32)
@@ -904,24 +817,16 @@ fn init_layer_shell_common(
 
     gtk_window.set_layer(Layer::Overlay);
     gtk_window.set_keyboard_interactivity(false);
-    // -1 tells the compositor "do not shrink this surface to accommodate
-    // other layer-shell clients' exclusive zones." Without it, panels like
-    // waybar push our overlay's bottom up by their reserved height — so a
-    // bottom-anchored widget at offset_y=0 lands behind/under the panel
-    // instead of at the actual monitor edge. Setting 0 (the value before)
-    // means "I claim no exclusive zone," which is NOT the same as "ignore
-    // other clients' zones."
+    // -1 means "ignore other layer-shell clients' exclusive zones".
+    // Without this, panels like waybar push the overlay's bottom up by
+    // their reserved height. (0 means "I claim no exclusive zone",
+    // which is NOT the same.)
     gtk_window.set_exclusive_zone(-1);
 
-    // Click-through. Without this the overlay still grabs every pointer
-    // event even though it's transparent — clicks on the game underneath
-    // never reach RL. An empty input shape tells GDK "this surface has
-    // no interactive area," so the compositor routes input to whatever's
-    // beneath.
-    //
-    // realize() must run first: input_shape_combine_region needs the
-    // backing GdkWindow to exist, and on a not-yet-shown GTK window the
-    // call would silently no-op.
+    // Click-through: an empty input shape tells GDK the surface has
+    // no interactive area, so the compositor routes input to whatever
+    // is beneath. realize() must run first — input_shape_combine_region
+    // silently no-ops on a not-yet-shown window.
     gtk_window.realize();
     let empty_region = gtk::cairo::Region::create();
     gtk_window.input_shape_combine_region(Some(&empty_region));
@@ -967,9 +872,8 @@ fn apply_layer_shell_unified(
     use gtk::prelude::*;
     use gtk_layer_shell::{Edge, LayerShell};
 
-    // Resolve the chosen GDK monitor and report its logical size to the
-    // toolkit. Same selection logic as init_layer_shell_common (primary
-    // when no index given). Logical = device pixels / scale factor.
+    // Report the chosen monitor's logical size to the toolkit. Same
+    // monitor selection as init_layer_shell_common.
     let chosen_size = if let Some(display) = gtk::gdk::Display::default() {
         let mon = if let Some(n) = monitor_index {
             display.monitor(n as i32)
@@ -1000,13 +904,11 @@ fn apply_layer_shell_unified(
         gtk_window.set_layer_shell_margin(e, 0);
     }
 
-    // Pin the GTK window's default size to the monitor's logical size.
-    // Without this, WebKitGTK initially lays out the page at Tauri's
-    // default 800×600, and even though layer-shell anchoring stretches
-    // the surface, the webview's CSS viewport (100vh) sometimes stays
-    // at the smaller value until the next reflow — which means a
-    // bottom-anchored widget at offset_y=0 lands at the bottom of the
-    // ORIGINAL viewport, not the monitor edge, and clips below.
+    // Pin the GTK default size to the monitor's logical size:
+    // otherwise WebKitGTK lays out at Tauri's 800×600 default, and
+    // the CSS viewport can stick at that smaller value until the next
+    // reflow — bottom-anchored widgets at offset_y=0 then land
+    // mid-screen instead of at the monitor edge.
     if let Some((w, h)) = chosen_size {
         gtk_window.set_default_size(w as i32, h as i32);
         let _ = window.set_size(tauri::LogicalSize::new(w, h));

@@ -1,18 +1,16 @@
 //! Foreground-window detection for the overlay.
 //!
-//! Polls the OS each tick, applies a MatchRule, and feeds the result into a
-//! debounce state machine. State transitions emit a Tauri event
-//! ("rlt://focus-change") with payload { active: bool }.
-//!
-//! See docs/superpowers/specs/2026-05-02-foreground-detection-design.md.
+//! Polls the OS each tick, applies a MatchRule, and feeds the result
+//! into a debounce state machine that emits focus-change messages to
+//! every webview.
 
 pub mod platform;
 
-/// What we're matching against. Built once from --game-match (or the
-/// platform default).
+/// What we're matching against. Built once from --game-match or the
+/// platform default.
 #[derive(Debug, Clone)]
 pub struct MatchRule {
-    needle: String, // already lowercased
+    needle: String,
     strategy: MatchStrategy,
 }
 
@@ -73,10 +71,10 @@ impl MatchRule {
 
 use std::time::{Duration, Instant};
 
-/// How long after seeing "RL not foreground" we wait before firing the hide
-/// event. Long enough to absorb sub-frame focus blips (Wayland tooltip
-/// flicker, notification daemons stealing focus for one frame) but short
-/// enough that an intentional Alt-Tab away feels responsive.
+/// Wait window before firing the hide event after "RL not foreground".
+/// Long enough to absorb sub-frame focus blips (Wayland tooltips,
+/// notification daemons), short enough that intentional Alt-Tabs feel
+/// responsive.
 pub const HIDE_DEBOUNCE: Duration = Duration::from_millis(150);
 
 /// Internal state of the debouncer. The watcher owns one of these and feeds
@@ -100,22 +98,16 @@ pub struct StepOutcome {
 }
 
 impl DebounceState {
-    /// Initial state. We start in `Inactive` so plugins that default
-    /// hidden stay hidden until the watcher confirms RL is foreground.
-    /// On the first matching poll (≤ POLL_INTERVAL after spawn) the
-    /// debouncer transitions to `Active` and emits `Some(true)` —
-    /// instant-show is asymmetric with the 500ms hide debounce, so the
-    /// overlay appears within ~250ms of launch when RL is already focused
-    /// and never appears at all otherwise.
+    /// Start in `Inactive` so plugins that default hidden stay hidden
+    /// until the watcher confirms RL is foreground. The first matching
+    /// poll transitions to `Active` and emits `Some(true)` — instant
+    /// show, asymmetric with the hide debounce.
     pub fn initial() -> Self {
         Self::Inactive
     }
 
-    /// Advance the state by one tick.
-    ///
-    /// `matched` is whether the most recent query says RL is foreground.
-    /// `now` is the current time, passed in (not read from `Instant::now()`)
-    /// so tests can inject fake time.
+    /// Advance the state by one tick. `now` is injected so tests can
+    /// supply fake time.
     pub fn step(self, matched: bool, now: Instant) -> StepOutcome {
         match (self, matched) {
             // Already active and still foreground → no-op.
@@ -166,9 +158,7 @@ mod debounce_tests {
     use super::*;
 
     fn at(ms: u64) -> Instant {
-        // Build all test instants relative to a single base so comparisons
-        // are deterministic. Instant doesn't expose a constructor; we lean
-        // on a base captured once and offset from it.
+        // Instant has no public constructor; offset from a fixed base.
         static BASE: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
         let base = *BASE.get_or_init(Instant::now);
         base + Duration::from_millis(ms)
@@ -302,28 +292,17 @@ mod match_rule_tests {
 use std::thread;
 use tauri::{AppHandle, Manager};
 
-/// We use webview.eval(...) → window.postMessage(...) instead of Tauri's
-/// app.emit() because Tauri 2's event API (event.listen) is only exposed
-/// via the @tauri-apps/api JS package, which the toolkit's plain-JS SDK
-/// doesn't bundle. window.__TAURI_INTERNALS__ has invoke + ipc primitives
-/// but no event listener — confirmed by reading tauri-2.11.0/scripts/core.js
-/// and src/event/init.js. eval+postMessage is the simplest end-around.
-///
-/// The SDK filters incoming messages on `data.__rlt_focus__ === true` to
-/// distinguish our messages from anything else (Tauri internals, third-
-/// party scripts, the webview's own postMessage traffic).
+// Focus-change delivery uses webview.eval → window.postMessage rather
+// than app.emit() because Tauri 2's event listener is only exposed via
+// the @tauri-apps/api JS package, which the toolkit's plain-JS SDK
+// doesn't bundle. The SDK filters by `data.__rlt_focus__ === true`.
 
-/// How often we ask the OS what's foreground. The poll itself is cheap on
-/// every supported platform (Wayland: dispatch buffered events from an
-/// already-subscribed protocol; X11: GetInputFocus + a property read;
-/// Windows: GetForegroundWindow + a brief process-handle open; macOS:
-/// NSWorkspace.frontmostApplication). 10 polls/sec stays well under 1% CPU
-/// while keeping felt hide latency under ~250ms when paired with the
-/// HIDE_DEBOUNCE above.
+/// How often we ask the OS what's foreground. 10 Hz keeps CPU below
+/// 1% on every supported platform while holding felt hide latency
+/// under ~250ms (paired with HIDE_DEBOUNCE).
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Per-platform default needle. The watcher uses this when --game-match was
-/// not passed.
+/// Per-platform default needle, used when --game-match wasn't passed.
 pub fn default_match_rule() -> MatchRule {
     #[cfg(target_os = "windows")]
     {
@@ -335,14 +314,13 @@ pub fn default_match_rule() -> MatchRule {
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
-        // Unknown platform: behave as the empty-needle escape hatch.
         MatchRule::new("", MatchStrategy::TitleSubstring)
     }
 }
 
-/// Build a MatchRule from a user-supplied --game-match value. None →
-/// platform default. Some(empty) → disabled. Some(s) → that needle with the
-/// platform's strategy.
+/// Build a MatchRule from --game-match. None = platform default,
+/// Some("") = disabled, Some(s) = that needle with the platform's
+/// strategy.
 pub fn match_rule_from_arg(arg: Option<&str>) -> MatchRule {
     match arg {
         None => default_match_rule(),
@@ -357,8 +335,8 @@ pub fn match_rule_from_arg(arg: Option<&str>) -> MatchRule {
     }
 }
 
-/// Spawn the background watcher thread. Owns a clone of AppHandle for the
-/// app's lifetime; no shutdown signal — process exit reclaims the thread.
+/// Spawn the watcher thread. No shutdown signal — process exit
+/// reclaims it.
 pub fn spawn(app: AppHandle, rule: MatchRule) {
     if rule.is_disabled() {
         crate::log_info!("[rl-widget] focus-gating disabled (--game-match=\"\")");
@@ -371,9 +349,9 @@ pub fn spawn(app: AppHandle, rule: MatchRule) {
     thread::Builder::new()
         .name("rlt-focus-watcher".to_string())
         .spawn(move || {
-            // Catch panics so a bug in a platform query doesn't take down
-            // the watcher silently. On panic we log once and exit the
-            // thread; overlay reverts to always-visible.
+            // Catch panics so a buggy platform query exits the thread
+            // gracefully instead of taking down the process. The
+            // overlay reverts to always-visible.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 run_loop(app, rule, self_pid);
             }));
@@ -404,9 +382,6 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
                         last_emit_log_at = Some(now);
                     }
                 }
-                // Per-emit focus-change log dropped — it fires every time the
-                // user alt-tabs to/from RL, which is noisy. Errors above are
-                // still logged (rate-limited).
                 let _ = active;
             }
         }
@@ -414,14 +389,9 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
     }
 }
 
-/// Find every webview window the app currently owns and dispatch a
-/// `window.postMessage({ __rlt_focus__: true, active: <bool> }, '*')` into
-/// each via webview.eval(). The SDK listens for `message` events with that
-/// shape and fans them out to plugin onFocusChange handlers.
-///
-/// On a per-plugin overlay there's exactly one window ("main"); on a
-/// unified overlay, also one. Iterating webviews keeps this future-proof
-/// if we ever spawn additional surfaces.
+/// Dispatch a focus-change postMessage into every webview the app
+/// owns. The SDK listens for `message` events shaped
+/// `{ __rlt_focus__: true, active: <bool> }`.
 fn post_focus_message(app: &AppHandle, active: bool) -> Result<(), String> {
     let js = format!(
         "window.postMessage({{ __rlt_focus__: true, active: {} }}, '*');",
@@ -444,14 +414,13 @@ fn post_focus_message(app: &AppHandle, active: bool) -> Result<(), String> {
     }
 }
 
-/// One poll cycle. Returns:
-///   None              — no signal this tick (transient query failure or self-PID).
-///                       The debouncer treats this as "state unchanged."
-///   Some(true|false)  — RL is / is not foreground.
+/// One poll cycle. None = no signal this tick (transient query
+/// failure or self-PID — state unchanged); Some(b) = RL is/isn't
+/// foreground.
 fn poll_once(rule: &MatchRule, self_pid: u32) -> Option<bool> {
     let info = platform::query_foreground()?;
     if info.pid == self_pid {
-        return None; // self-exception: never count our own process as RL
+        return None;
     }
     Some(rule.apply(&info))
 }

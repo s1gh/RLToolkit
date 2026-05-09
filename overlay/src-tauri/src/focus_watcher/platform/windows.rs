@@ -1,10 +1,7 @@
-//! Windows foreground-window query.
-//!
-//! Path: GetForegroundWindow → GetWindowThreadProcessId →
-//! OpenProcess(QueryLimitedInformation) → QueryFullProcessImageNameW.
-//! We also pull GetWindowTextW for the title field, which the matcher
-//! ignores on Windows (ExeEquals strategy) but is useful for stderr
-//! diagnostics.
+//! Windows foreground-window query: GetForegroundWindow →
+//! GetWindowThreadProcessId → OpenProcess(QueryLimitedInformation) →
+//! QueryFullProcessImageNameW. The window title is collected for
+//! diagnostics; the matcher ignores it under the ExeEquals strategy.
 
 use crate::focus_watcher::ForegroundInfo;
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, MAX_PATH};

@@ -26,24 +26,16 @@ pub struct Args {
     pub game_match: Option<String>,
 
     /// Output index to bind the overlay to on Linux/Wayland (0-based,
-    /// matches the order in `hyprctl monitors` or compositor enumeration).
-    /// Default: primary monitor. Ignored on Windows/macOS — those use the
-    /// current monitor at window-build time.
-    ///
-    /// Why this exists: wlr-layer-shell layer surfaces with no bound
-    /// output are fanned across all connected outputs. Binding to a
-    /// specific monitor pins the overlay to one screen.
+    /// matches the order in `hyprctl monitors`). Default: primary
+    /// monitor. Ignored on Windows/macOS. Without this, wlr-layer-shell
+    /// fans the surface across every output.
     #[arg(long)]
     pub monitor: Option<usize>,
 
     /// Persist the webview's HTTP cache, cookies, and storage between
-    /// sessions. Default OFF — plugin assets change frequently during
-    /// development, and webkit2gtk's heuristic freshness window has been
-    /// observed to serve stale CSS even when the server sends
-    /// Cache-Control: no-cache. Running incognito gives every launch a
-    /// clean slate. Pass `--persist-cache` only when a plugin you trust
-    /// actually relies on persistent webview state (cookies, IndexedDB,
-    /// etc.).
+    /// sessions. Default OFF (incognito) so plugin asset changes
+    /// always pick up — webkit2gtk's heuristic freshness window can
+    /// serve stale CSS even with Cache-Control: no-cache.
     #[arg(long)]
     pub persist_cache: bool,
 

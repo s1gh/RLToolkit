@@ -1,19 +1,10 @@
-//! Auto-update for the launcher.
+//! Auto-update for the launcher. Compiled in only with the
+//! `bundled-updater` feature (Windows NSIS, Linux AppImage); portable
+//! builds omit it because tauri-plugin-updater deserializes config
+//! eagerly and the plugin can't be left "configured but inactive".
 //!
-//! Compiled in only when the `bundled-updater` Cargo feature is on
-//! (Windows NSIS installer, Linux AppImage). Portable builds (zip,
-//! tar.gz) omit both the plugin and this module's wiring because
-//! tauri-plugin-updater deserializes its config eagerly and aborts
-//! the launcher when the `plugins.updater` block is absent from the
-//! active Tauri config — the plugin can't be left "configured but
-//! inactive."
-//!
-//! Surface (when enabled):
-//!   - check_for_updates / apply_update: Tauri commands the frontend
-//!     calls.
-//!   - check_on_startup: best-effort, fires from run() once the
-//!     window is built. Emits `updater://available` to the frontend
-//!     when a newer version exists.
+//! Surface: check_for_updates / apply_update (frontend commands),
+//! check_on_startup (best-effort, emits `updater://available`).
 
 #![cfg(feature = "bundled-updater")]
 
@@ -31,12 +22,11 @@ pub enum CheckResult {
         version: String,
         notes: Option<String>,
     },
-    /// We are on the latest version.
     UpToDate,
-    /// Updater not configured for this build (typical of portable).
-    /// Frontend should fall back to "Open release page."
+    /// Updater not configured (portable build). Frontend should fall
+    /// back to "Open release page".
     Unavailable { reason: String },
-    /// Network or signature error. Treat as transient.
+    /// Transient (network or signature) error.
     Error { reason: String },
 }
 
@@ -46,21 +36,11 @@ pub async fn check_for_updates(app: AppHandle) -> CheckResult {
     do_check(&app).await
 }
 
-/// Frontend-callable: download and install the pending update.
-/// Tauri's updater handles signature verification, download, running
-/// the new bundle's install step, and relaunching. We surface only
-/// success/failure here.
-///
-/// The updater overwrites the running bundle file in place — the
-/// NSIS installer's `/UPDATE` flag on Windows, AppImage replacement
-/// on Linux. Both platforms have the same gotcha: the bundled
-/// `rl-toolkit` sidecar is a separate child process the launcher
-/// owns, and the OS won't let the new bundle clobber a running file.
-/// We hook `on_before_exit` to drain the sidecar before the install
-/// step runs. The hook also calls `app.cleanup_before_exit()` to
-/// preserve the plugin's default cleanup (tray icons, window
-/// resources) since overriding `on_before_exit` replaces the default
-/// entirely.
+/// Download and install the pending update. The updater overwrites
+/// the running bundle in place; the OS won't allow that while the
+/// sidecar is alive, so `on_before_exit` drains it first.
+/// `cleanup_before_exit()` is called explicitly because overriding
+/// `on_before_exit` replaces the plugin's default tray/window cleanup.
 #[tauri::command]
 pub async fn apply_update(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
@@ -69,10 +49,8 @@ pub async fn apply_update(app: AppHandle) -> Result<(), String> {
     let updater = app
         .updater_builder()
         .on_before_exit(move || {
-            // Drain the sidecar so NSIS can overwrite rl-toolkit.exe.
-            // Then run Tauri's standard cleanup (tray icons, window
-            // resources) — same as the plugin's default hook, since
-            // overriding on_before_exit replaces it entirely.
+            // Drain the sidecar so NSIS can overwrite rl-toolkit.exe,
+            // then run Tauri's standard tray/window cleanup.
             use tauri::Manager;
             if let Some(state) = app_for_hook.try_state::<crate::launcher::BackendHandle>() {
                 if let Some(mut owned) = state.0.lock().unwrap().take() {
@@ -93,24 +71,17 @@ pub async fn apply_update(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("install failed: {e}"))?;
 
-    // On Windows, Tauri spawns the new NSIS installer and the
-    // current process exits inside `download_and_install` (via
-    // on_before_exit + std::process::exit), so we never reach here
-    // on a successful update — the new installer relaunches us.
+    // Windows: the current process exits inside download_and_install
+    // (via on_before_exit + process::exit) and the new NSIS installer
+    // relaunches us, so this point is unreachable on success.
     //
-    // On Linux, `download_and_install` just rewrites the AppImage
-    // file in place and returns Ok. There is no automatic exec —
-    // the caller is responsible for restarting. We do that here.
-    // app.restart() drains state, exec()s a fresh process pointing
-    // at the same path, and never returns. That path is the
-    // freshly-rewritten AppImage, so the new process loads the
-    // updated bundle.
+    // Linux: download_and_install rewrites the AppImage in place and
+    // returns Ok — restart explicitly so the new process loads the
+    // updated bundle. app.restart() execs and never returns.
     #[cfg(target_os = "linux")]
     {
         crate::log_info!("[updater] install complete; restarting");
         app.restart();
-        // app.restart() returns ! (never), so anything after it on
-        // Linux is unreachable. The Ok below is for non-Linux paths.
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -121,12 +92,11 @@ pub async fn apply_update(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Best-effort startup check. Logs and returns; never panics.
+/// Best-effort startup check.
 pub async fn check_on_startup(app: AppHandle) {
     match do_check(&app).await {
         CheckResult::Available { version, .. } => {
             crate::log_info!("[updater] update available: {version}");
-            // Frontend listens for this event and shows the banner.
             use tauri::Emitter;
             let _ = app.emit("updater://available", version);
         }
@@ -137,7 +107,6 @@ pub async fn check_on_startup(app: AppHandle) {
             crate::log_debug!("[updater] not configured: {reason}");
         }
         CheckResult::Error { reason } => {
-            // Network blips are normal; debug-level only.
             crate::log_debug!("[updater] check error: {reason}");
         }
     }

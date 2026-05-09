@@ -35,11 +35,9 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
 }
 
 pub fn run(args: Args) {
-    // Initialize file logging before anything else can fail. The
-    // launcher settings file lives next to the data dir, but the
-    // *configured* data_dir may differ (user override) — we resolve
-    // logs against the active data_dir from settings, falling back to
-    // the platform default. Either way the user finds them under
+    // Initialize file logging early. The user can override data_dir via
+    // settings, so resolve logs against the configured value (falling
+    // back to the platform default). Logs always end up at
     // `<data dir>/logs/`.
     let settings_store = SettingsStore::new(crate::paths::launcher_settings_path());
     let initial = settings_store.load();
@@ -114,25 +112,22 @@ pub fn run(args: Args) {
                 (url, settings)
             };
 
-            // Build the window immediately so the user sees something while we probe.
+            // Build the launcher window immediately so the user sees
+            // something while we probe.
             window::build_launcher_window(&handle, &toolkit_url, &initial_settings)?;
 
-            // Build the overlay window now too, hidden. It must be created
-            // from setup() (the Tauri main thread during initialization).
-            // Building it later from an IPC command's worker thread —
-            // which is what toggle_overlay used to do — deadlocks
-            // WebView2 on Windows: build() never returns and every
-            // subsequent invoke from the launcher webview hangs forever.
-            // Creating it once up front means toggle_overlay only needs
-            // show()/hide(), which is safe from any thread.
+            // Build the overlay window hidden. It MUST be created from
+            // setup() (the Tauri main thread); creating it later from
+            // an IPC worker deadlocks WebView2 on Windows. With the
+            // window pre-built, toggle_overlay only needs show()/hide(),
+            // which is safe from any thread.
             if let Err(e) = crate::overlay_bridge::ensure_overlay(&handle) {
                 crate::log_error!("[launcher] overlay pre-build failed: {e}");
             }
 
-            // Best-effort update check. Compiled in only for the
-            // installer build — the portable build omits the updater
-            // entirely (the plugin can't be left "configured but
-            // inactive"; its setup deserializes config eagerly).
+            // Update check, installer build only. The plugin's setup
+            // deserializes config eagerly, so it can't be left
+            // "configured but inactive" in the portable build.
             #[cfg(feature = "bundled-updater")]
             {
                 let handle_for_updater = handle.clone();
@@ -141,9 +136,9 @@ pub fn run(args: Args) {
                 });
             }
 
-            // Drive real RL focus events into every webview the launcher
-            // owns (the launcher window itself ignores them; the overlay
-            // window forwards them to plugin iframes for hide_when_unfocused).
+            // Forward RL focus events to every webview. The launcher
+            // window ignores them; the overlay window forwards them
+            // to plugin iframes for hide_when_unfocused.
             let rule = focus_watcher::match_rule_from_arg(args.game_match.as_deref());
             focus_watcher::spawn(handle.clone(), rule);
 
@@ -192,7 +187,7 @@ pub fn run(args: Args) {
                     }
                 };
 
-                // Wait for ready (cap 10 s) when we just spawned.
+                // Wait up to 10s for a freshly-spawned backend to come up.
                 if matches!(owned, BackendOwnership::SpawnedSidecar(_) | BackendOwnership::SpawnedRaw(_)) {
                     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
                     while std::time::Instant::now() < deadline {
@@ -204,15 +199,11 @@ pub fn run(args: Args) {
                 }
                 clear_starting(&app_for_probe);
 
-                // Report the launcher window's monitor logical size as the
-                // detected overlay surface. The overlay window may not be
-                // mounted yet (or ever, this session) — without this report
-                // the backend has no idea what resolution the user actually
-                // runs, and falls back to 1920×1080 in the Settings UI.
-                // The overlay's own report (when it does mount) will
-                // overwrite this with its own monitor's size, which is the
-                // right behavior if the user pinned the overlay to a
-                // specific display.
+                // Report the launcher's monitor size as the detected
+                // surface. Without this, the backend has no idea what
+                // resolution the user runs and falls back to 1920×1080
+                // in the Settings UI. The overlay's own report (when
+                // it mounts) overwrites this with the overlay's monitor.
                 if matches!(owned, BackendOwnership::Attached
                     | BackendOwnership::SpawnedSidecar(_)
                     | BackendOwnership::SpawnedRaw(_))
@@ -224,9 +215,8 @@ pub fn run(args: Args) {
                     }
                 }
 
-                // Autostart the overlay if overlay_enabled was set.
-                // The overlay window was already built (hidden) during
-                // setup(); just reveal it.
+                // Autostart the overlay if overlay_enabled is set —
+                // the window was pre-built hidden in setup().
                 let auto = {
                     use tauri::Manager;
                     let state: tauri::State<LauncherState> = app_for_probe.state();
@@ -240,7 +230,7 @@ pub fn run(args: Args) {
                     }
                 }
 
-                // Park the ownership in app state so quit can drain it.
+                // Park ownership in app state so quit can drain it.
                 let owned = std::sync::Arc::new(std::sync::Mutex::new(Some(owned)));
                 app_for_probe.manage(BackendHandle(owned));
             });
@@ -259,7 +249,7 @@ pub fn run(args: Args) {
                         api.prevent_close();
                         let _ = window.hide();
                     }
-                    // else: allow close → fires ExitRequested → backend drained.
+                    // No tray: allow close → ExitRequested → backend drained.
                 }
             }
         })
@@ -294,12 +284,10 @@ fn clear_starting(app: &tauri::AppHandle) {
     }
 }
 
-/// Best-effort POST of the launcher window's bound monitor logical size
-/// to /api/overlay/surface/detected. Mirrors the rl-widget overlay's
-/// detection report so the backend has a sane "detected" value even
-/// when the overlay isn't mounted. Failures are logged but never
-/// propagated — the backend may not be ready at this exact moment, and
-/// the UI still works without a detected value (fallback to 1920×1080).
+/// Best-effort POST of the launcher window's monitor size to
+/// /api/overlay/surface/detected. Mirrors the overlay's detection
+/// report so the backend has a sane "detected" value even when the
+/// overlay isn't mounted. Failures are logged at debug level only.
 fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
     let base = toolkit.trim_end_matches('/');
     let url = format!("{}/api/overlay/surface/detected", base);
@@ -313,11 +301,9 @@ fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
         .set("Content-Type", "application/json")
         .send_string(&body);
     if let Err(e) = result {
-        // Debug-only: this fires during the brief window between
-        // backend probe success and the HTTP server actually
-        // accepting connections. Surfacing it on stderr panicked
-        // beta users who thought the launcher was broken; the file
-        // log keeps the trail for genuine bug hunts.
+        // Debug-only: fires in the brief window between probe success
+        // and the HTTP server accepting connections. Stderr noise here
+        // alarms users into thinking the launcher is broken.
         crate::log_debug!("[launcher] detected-surface report failed: {e}");
     }
 }

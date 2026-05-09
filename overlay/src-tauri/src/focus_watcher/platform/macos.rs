@@ -1,12 +1,7 @@
-//! macOS foreground-app query.
-//!
-//! NSWorkspace.sharedWorkspace.frontmostApplication returns the app the
-//! user is interacting with. We pull localizedName for the title field;
-//! processIdentifier gives us the PID for the self-PID exception. RL
-//! doesn't officially run on macOS anymore, so this exists for symmetry
-//! and for users running it via CrossOver/Parallels (the wrapper app
-//! shows up here, so the title-substring rule needs to match the
-//! wrapper's name — that's a user-configuration decision, not ours).
+//! macOS foreground-app query via NSWorkspace.frontmostApplication.
+//! RL doesn't officially run on macOS, so this exists for symmetry
+//! and for CrossOver/Parallels users (the wrapper app shows up here,
+//! so the title-substring rule must match the wrapper's name).
 
 use crate::focus_watcher::ForegroundInfo;
 use objc2_app_kit::NSWorkspace;

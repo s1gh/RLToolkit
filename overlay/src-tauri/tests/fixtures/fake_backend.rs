@@ -23,7 +23,7 @@ fn main() {
         };
         let mut buf = [0u8; 1024];
         let _ = s.read(&mut buf);
-        let body = b"{\"rl_api\":{\"connected\":true}}";
+        let body = b"{\"rl_api\":\"connected\"}";
         let _ = write!(
             s,
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

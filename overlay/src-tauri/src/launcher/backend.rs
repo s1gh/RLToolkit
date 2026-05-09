@@ -1,19 +1,16 @@
 //! Backend lifecycle: probe, sidecar spawn, graceful + forceful terminate.
 //!
-//! The launcher uses `probe_status` to decide whether to attach to an
-//! already-running backend or spawn its own sidecar. The validating
-//! struct mirrors the existing `/api/status` shape from
-//! `backend/server.go:344` — `{"rl_api": <RLStatus>}`. Any deserialization
-//! failure means "something else is on this port."
+//! `probe_status` decides whether to attach to an already-running
+//! backend or spawn a sidecar. It mirrors `/api/status`'s shape
+//! (`{"rl_api": <RLStatus>}`); any deserialization failure means
+//! "something else is on this port."
 
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Returns true when the named env var is set to a recognized truthy
-/// value. Accepts the usual suspects so a developer doesn't have to
-/// remember which spelling we picked. Anything else (unset, empty,
-/// "0", "false", etc.) is false.
+/// True when the named env var is set to a recognized truthy value
+/// ("1", "true", "yes", "on"). Anything else is false.
 fn env_truthy(name: &str) -> bool {
     matches!(
         std::env::var(name)
@@ -25,12 +22,10 @@ fn env_truthy(name: &str) -> bool {
     )
 }
 
-/// Path to today's sidecar capture log. The Go backend now owns its
-/// own structured `backend-YYYY-MM-DD.log` (see backend/internal/logging),
-/// so this file is purely a safety net for stdout/stderr that bypasses
-/// `log.Printf` — Go runtime panics, raw `fmt.Print`, stack traces.
-/// Same daily-stamp scheme so all three streams (launcher / backend /
-/// sidecar) line up when zipped for a bug report.
+/// Path to today's sidecar capture log. Safety net for stdout/stderr
+/// that bypasses `log.Printf` (Go runtime panics, raw `fmt.Print`,
+/// stack traces); the Go backend's own structured log is at
+/// `backend-YYYY-MM-DD.log`.
 pub fn sidecar_log_path_today() -> PathBuf {
     let stamp = crate::logging::today_date_stamp();
     crate::paths::sidecar_log_path(&stamp)
@@ -79,13 +74,11 @@ use tauri::AppHandle;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-/// Tracks who started the running backend. `SpawnedSidecar` holds a real
-/// `tauri_plugin_shell` child (production); `SpawnedRaw` holds a
-/// `std::process::Child` (integration tests using a fake binary). `Attached`
-/// and `Unavailable` are no-ops on terminate. `StoppedByUser` is a deliberate
-/// stop the user requested — distinct from `Unavailable` (which means we
-/// tried and gave up) so the UI can show "Start backend" rather than
-/// "Backend crashed".
+/// Tracks who started the running backend. SpawnedSidecar is the
+/// production path (tauri_plugin_shell child); SpawnedRaw is for
+/// integration tests with a fake binary. Attached / Unavailable
+/// no-op on terminate. StoppedByUser is distinct from Unavailable
+/// so the UI can show "Start backend" rather than "Backend crashed".
 #[derive(Debug)]
 pub enum BackendOwnership {
     SpawnedSidecar(CommandChild),
@@ -95,7 +88,6 @@ pub enum BackendOwnership {
     StoppedByUser,
 }
 
-// Convenience constructor for tests.
 impl BackendOwnership {
     pub fn from_raw(c: std::process::Child) -> Self {
         BackendOwnership::SpawnedRaw(c)
@@ -109,13 +101,12 @@ impl BackendOwnership {
                 Self::terminate_raw(child, grace);
             }
             BackendOwnership::SpawnedSidecar(_) => {
-                // CommandChild::kill consumes self. Swap out the variant so we
-                // can take ownership, then call kill on the owned child.
+                // CommandChild::kill consumes self; swap the variant
+                // out so we can take ownership.
                 let owned = std::mem::replace(self, BackendOwnership::Unavailable);
                 if let BackendOwnership::SpawnedSidecar(child) = owned {
                     let pid = child.pid();
                     let deadline = std::time::Instant::now() + grace;
-                    // Soft kill; CommandChild::kill posts the platform terminate signal.
                     let _ = child.kill();
                     while std::time::Instant::now() < deadline {
                         if !pid_alive(pid) {
@@ -123,8 +114,7 @@ impl BackendOwnership {
                         }
                         std::thread::sleep(std::time::Duration::from_millis(50));
                     }
-                    // Already attempted kill; nothing harsher to try via the
-                    // shell plugin. Log and move on.
+                    // Already kill()ed; nothing harsher available via shell plugin.
                     crate::log_warn!("[launcher] sidecar still alive after {grace:?}");
                 }
             }
@@ -173,7 +163,7 @@ fn pid_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
-        // Best-effort: open the process; if it can't be opened, assume gone.
+        // If the process can't be opened, assume it's gone.
         use std::os::raw::c_void;
         extern "system" {
             fn OpenProcess(da: u32, ih: i32, pid: u32) -> *mut c_void;
@@ -206,11 +196,9 @@ pub fn spawn_sidecar(
         .map_err(|e| format!("locate sidecar: {e}"))?;
 
     // Resolve unset dirs against the OS-standard application data dir
-    // (see crate::paths) so the sidecar's state lives in the same place
-    // regardless of where the launcher was started from. The launcher's
-    // own settings file is already there; data and plugins join it.
-    // The backend's exe-relative default would otherwise point inside
-    // the launcher's bundle, which is read-only on packaged installs.
+    // (see crate::paths). The backend's exe-relative default would
+    // otherwise point inside the launcher's bundle, which is read-only
+    // on packaged installs.
     let plugins = plugins_dir
         .filter(|p| !p.trim().is_empty())
         .unwrap_or_else(|| {
@@ -234,11 +222,8 @@ pub fn spawn_sidecar(
     if let Some(addr) = rl_addr.filter(|a| !a.trim().is_empty()) {
         cmd = cmd.args(["-rl-addr".to_string(), addr]);
     }
-    // Plugin hot-reload via `rl-toolkit dev <path>` requires the
-    // sidecar's localhost dev API. It's off by default in production;
-    // a developer running `make launcher-portable` can opt in by
-    // setting RLT_DEV=1 before launching the launcher, which we
-    // propagate to the sidecar as `-dev`.
+    // Plugin hot-reload via `rl-toolkit dev` needs the sidecar's
+    // localhost dev API. Off by default; opt in with RLT_DEV=1.
     if env_truthy("RLT_DEV") {
         cmd = cmd.args(["-dev".to_string()]);
     }

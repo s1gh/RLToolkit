@@ -1,15 +1,8 @@
-//! Linux/Wayland foreground-window query.
-//!
-//! Uses ext-foreign-toplevel-list-v1 via the wlr extension to enumerate
-//! toplevels and read the activated state. Supported by wlroots, KWin,
-//! and Hyprland. NOT supported by GNOME/Mutter — on those compositors,
-//! the global registry never advertises the manager interface; we
-//! detect this at startup and degrade to "always None" for the rest of
-//! the process's life (overlay stays visible always).
-//!
-//! State (the registry connection + per-toplevel handles) is held in a
-//! Mutex<Option<…>> so query_foreground() can mutate the toplevel list
-//! incrementally on each event-pump.
+//! Linux/Wayland foreground-window query via the wlr-foreign-toplevel
+//! protocol. Supported by wlroots, KWin, and Hyprland; NOT supported
+//! by GNOME/Mutter — on those compositors the registry never advertises
+//! the manager interface and we degrade to "always None" (overlay
+//! stays visible).
 
 use crate::focus_watcher::ForegroundInfo;
 use std::sync::{
@@ -73,9 +66,8 @@ fn try_init() -> Result<WaylandState, String> {
         .bind::<ZwlrForeignToplevelManagerV1, _, _>(&qh, 1..=3, ())
         .map_err(|e| format!("bind foreign-toplevel-manager: {e}"))?;
 
-    // Pull the initial burst of Toplevel/Title/State events for windows
-    // that already exist. Without this, the first few polls would see an
-    // empty toplevel list while the compositor's reply is still en route.
+    // Initial roundtrip pulls existing-window events synchronously;
+    // without it, the first few polls see an empty toplevel list.
     let mut app_data = AppData::default();
     queue
         .roundtrip(&mut app_data)
@@ -109,22 +101,11 @@ fn state() -> Option<&'static Mutex<WaylandState>> {
 pub fn query_foreground() -> Option<ForegroundInfo> {
     let m = state()?;
     let mut s = m.lock().ok()?;
-    // Pull events off the wayland socket and dispatch them, then prune
-    // closed toplevels.
-    //
-    // dispatch_pending alone is NOT enough: it only processes events
-    // already in the queue's internal buffer. Nothing puts them there
-    // unless we explicitly read from the socket via prepare_read +
-    // ReadEventsGuard::read(). The canonical non-blocking-poll pattern:
-    //
-    //   1. flush our outgoing requests
-    //   2. dispatch anything already buffered
-    //   3. if prepare_read returns Some(guard), call guard.read()
-    //      — WouldBlock means "no events ready this tick"; any other
-    //      Err is a real socket failure
-    //   4. dispatch what we just read
-    //
-    // Split the borrow explicitly so the borrow-checker sees disjoint fields.
+    // Non-blocking poll pattern: flush outgoing → dispatch buffered →
+    // prepare_read + read (WouldBlock = no events this tick) →
+    // dispatch what we just read. dispatch_pending alone won't pull
+    // events off the socket. The borrow is split so the checker sees
+    // disjoint fields.
     {
         let WaylandState { queue, app_data, conn } = &mut *s;
 
@@ -196,12 +177,10 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for AppData {
         }
     }
 
-    // The manager's `toplevel` event (opcode 0) creates a new
-    // ZwlrForeignToplevelHandleV1 object. wayland-client needs to know
-    // which Dispatch impl to attach to that child; without this override,
-    // it panics with "Missing event_created_child specialization for
-    // event opcode 0". The user_data is `()` since we look up state by
-    // proxy identity in the Handle dispatch impl.
+    // The manager's `toplevel` event (opcode 0) creates a child
+    // ZwlrForeignToplevelHandleV1; this macro tells wayland-client
+    // which Dispatch impl to attach to it. Without this, it panics
+    // with "Missing event_created_child specialization for opcode 0".
     wayland_client::event_created_child!(
         AppData,
         ZwlrForeignToplevelManagerV1,
@@ -228,9 +207,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppData {
         match event {
             HandleEvent::Title { title } => info.title = title,
             HandleEvent::State { state: bytes } => {
-                // wlr-foreign-toplevel-state is a byte array of u32 enum values
-                // (host byte order — wayland-client has already byte-swapped on
-                // receive). "activated" is enum variant 2.
+                // State is a u32 array in host byte order; "activated" is enum 2.
                 info.activated = bytes
                     .chunks_exact(4)
                     .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
@@ -238,8 +215,6 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppData {
             }
             HandleEvent::Closed => {
                 info.closed = true;
-                // We also tell the server we're done with this proxy. The actual
-                // Vec entry is pruned by query_foreground below.
             }
             _ => {}
         }
