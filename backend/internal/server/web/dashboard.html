@@ -714,12 +714,24 @@ async function refreshPluginList() {
     ]);
     const nextPlugins = ps || [];
     const nextFp = pluginsFingerprint(nextPlugins);
+    const nextOvJSON = JSON.stringify(ov || {});
+    const prevOvJSON = JSON.stringify(overrides || {});
     overrides = ov || {};
-    if (nextFp !== pluginsFp) {
+    const pluginsChanged = nextFp !== pluginsFp;
+    if (pluginsChanged) {
       plugins = nextPlugins;
       pluginsFp = nextFp;
     }
-    renderPlugins();
+    // Skip the re-render when nothing visible changed. Rewriting the
+    // grid's innerHTML on every focus event used to race clicks: a
+    // gear/uninstall click that landed during the rewrite hit a
+    // detached element and the action silently dropped (manifesting
+    // as "first click does nothing"). Event delegation handles the
+    // mid-render race too, but skipping the no-op render saves CPU
+    // and keeps DOM state stable for things like text selection.
+    if (pluginsChanged || nextOvJSON !== prevOvJSON) {
+      renderPlugins();
+    }
   } catch (_) { /* best-effort */ }
 }
 
@@ -904,21 +916,42 @@ function renderPlugins() {
     + '</article>';
   }).join('');
 
-  // Wire toggles
-  c.querySelectorAll('.card').forEach(card => {
+}
+
+// Delegated handlers on the plugin grid — the grid is rebuilt
+// (innerHTML rewrite) on every focus/visibilitychange refresh, which
+// would drop per-button listeners attached during render. A click that
+// arrived between innerHTML reset and listener re-attachment used to
+// silently no-op, requiring a second click. Delegating to the
+// container (which is never replaced) makes the buttons work even mid
+// re-render.
+(function wirePluginGridDelegation() {
+  const c = document.getElementById('pl');
+  if (!c) return;
+  c.addEventListener('click', (ev) => {
+    const card = ev.target.closest('.card');
+    if (!card) return;
     const name = card.getAttribute('data-plugin');
-    const cb = card.querySelector('input[data-role="enabled"]');
-    cb.addEventListener('change', () => setEnabled(name, cb.checked, cb));
-    const settingsBtn = card.querySelector('button[data-role="settings"]');
-    if (settingsBtn) {
-      settingsBtn.addEventListener('click', () => openSettingsModal(name));
+    if (!name) return;
+    const settingsBtn = ev.target.closest('button[data-role="settings"]');
+    if (settingsBtn && !settingsBtn.disabled) {
+      openSettingsModal(name);
+      return;
     }
-    const uninstallBtn = card.querySelector('button[data-role="uninstall"]');
-    if (uninstallBtn) {
-      uninstallBtn.addEventListener('click', () => uninstallPlugin(name));
+    const uninstallBtn = ev.target.closest('button[data-role="uninstall"]');
+    if (uninstallBtn && !uninstallBtn.disabled) {
+      uninstallPlugin(name);
     }
   });
-}
+  c.addEventListener('change', (ev) => {
+    const cb = ev.target.closest('input[data-role="enabled"]');
+    if (!cb) return;
+    const card = cb.closest('.card');
+    const name = card && card.getAttribute('data-plugin');
+    if (!name) return;
+    setEnabled(name, cb.checked, cb);
+  });
+})();
 
 async function setEnabled(name, enabled, cb) {
   try {
