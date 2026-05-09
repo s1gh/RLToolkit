@@ -827,8 +827,8 @@ RLT.stats.known          // Set of all values for membership tests
 
 ### Widget control: `RLT.widget`
 
-Tauri-hosted overlay only. Inside the dashboard preview iframe these
-all resolve to `false`.
+Tauri-hosted overlay only. Outside Tauri (dashboard tab, settings
+iframe) every method is a no-op.
 
 ```js
 RLT.widget.isHosted()                      // true inside Tauri
@@ -840,6 +840,18 @@ await RLT.widget.visible(true|false)
 RLT.widget.autoSize(true, { target, minWidth, maxWidth, minHeight, maxHeight })
 RLT.widget.fitWidth({ target, maxWidth, extra })
 ```
+
+Two return-shape conventions to know:
+
+- `size`, `anchor`, `margin`, `opacity`, `visible` always return a
+  **Promise** that resolves to `true` on success, `false` outside
+  Tauri or on IPC failure. `await` them.
+- `autoSize` and `fitWidth` return a **synchronous boolean** —
+  `true` when the watcher is set up (inside Tauri), `false` outside.
+  They kick off the resize loop in the background; there's nothing to
+  await. `await` works anyway (you'd just be awaiting a bare boolean),
+  so it's safe to call them with or without `await` if you'd rather
+  keep call-site styling consistent with the rest of the API.
 
 `autoSize` watches `target` (default `document.body`) with
 ResizeObserver and resizes the window on change. `fitWidth` is the
