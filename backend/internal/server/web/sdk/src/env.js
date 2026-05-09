@@ -4,14 +4,20 @@
 //
 // View detection: the plugin's HTML declares its view via
 //   <script src="/sdk.js" data-plugin="my-plugin" data-view="overlay">
-// Valid values: 'overlay', 'dashboard', 'settings'. Defaults to
-// 'overlay' so legacy single-view plugins keep working with no
-// migration. The view drives:
+// Valid values: 'overlay', 'dashboard', 'settings', 'background'.
+// Defaults to 'overlay' so legacy single-view plugins keep working
+// with no migration. The view drives:
 //   - body.overlay-mode auto-styling (only in 'overlay')
 //   - RLT.settings.close() being meaningful (only in 'settings')
 //   - which url-param contracts apply (none anymore)
+//
+// 'background' is a hidden, always-running iframe loaded by the
+// launcher for plugins that need to react to events independent of
+// any visible UI surface (e.g. a replay uploader that runs the
+// moment a replay is saved, regardless of which tab the user has
+// open).
 
-const VALID_VIEWS = new Set(['overlay', 'dashboard', 'settings']);
+const VALID_VIEWS = new Set(['overlay', 'dashboard', 'settings', 'background']);
 
 export const urlParams = new URLSearchParams(location.search);
 export const hostedBus = urlParams.has('__rlt_hosted');
@@ -37,6 +43,7 @@ export const view = (function discover() {
 export const isOverlay = view === 'overlay';
 export const isDashboard = view === 'dashboard';
 export const isSettingsView = view === 'settings';
+export const isBackground = view === 'background';
 
 export const pluginName = (function discover() {
   let name = 'unknown';

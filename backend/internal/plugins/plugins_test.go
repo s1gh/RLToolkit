@@ -40,6 +40,9 @@ func writeManifest(t *testing.T, dir, name string, m Manifest) {
 	if m.Settings != nil {
 		touchView(m.Settings.File)
 	}
+	if m.Background != nil {
+		touchView(m.Background.File)
+	}
 	body, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
@@ -512,5 +515,66 @@ func TestValidateManifest_PermissionsEmptyConnectIsAllowed(t *testing.T) {
 	}
 	if len(got.Permissions.Connect) != 0 {
 		t.Errorf("Connect = %+v, want empty", got.Permissions.Connect)
+	}
+}
+
+func TestValidateManifest_BackgroundFileRequired(t *testing.T) {
+	// Empty background.file (background block present, file empty)
+	// must reject the manifest. Construct directly so writeManifest's
+	// auto-touch doesn't paper over the empty file path.
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "p")
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "overlay.html"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"), []byte(`{
+		"name":"p","version":"1.0",
+		"overlay":{"file":"overlay.html","anchor":"top-left"},
+		"background":{"file":""}
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	pm := New(dir)
+	if got := pm.Get("p"); got != nil {
+		t.Errorf("expected nil for invalid manifest, got %+v", got)
+	}
+}
+
+func TestValidateManifest_BackgroundFileMissingOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "p")
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "overlay.html"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"), []byte(`{
+		"name":"p","version":"1.0",
+		"overlay":{"file":"overlay.html","anchor":"top-left"},
+		"background":{"file":"missing.html"}
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	pm := New(dir)
+	if got := pm.Get("p"); got != nil {
+		t.Errorf("expected nil when background.file points at nonexistent file, got %+v", got)
+	}
+}
+
+func TestValidateManifest_BackgroundLoadsWhenPresent(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "p", Manifest{
+		Name: "p", Version: "1.0",
+		Overlay:    OverlayConfig{File: "overlay.html", Anchor: "top-left"},
+		Background: &ViewConfig{File: "background.html"},
+	})
+	pm := New(dir)
+	got := pm.Get("p")
+	if got == nil || got.Background == nil || got.Background.File != "background.html" {
+		t.Errorf("expected background.file=background.html, got %+v", got)
 	}
 }

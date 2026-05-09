@@ -37,6 +37,14 @@ type Manifest struct {
 	// responsible for its own layout + RLT.settings.close() wiring.
 	Settings *ViewConfig `json:"settings,omitempty"`
 
+	// Background is an optional always-running view loaded as a hidden
+	// iframe in the launcher window for as long as the toolkit is up
+	// and the plugin is enabled. Use it for work that has to react to
+	// events independent of which UI surface (overlay / settings) the
+	// user has open — e.g. a replay uploader that must run regardless
+	// of whether the user has the dashboard tab focused.
+	Background *ViewConfig `json:"background,omitempty"`
+
 	// Permissions optionally declares relaxations of the per-plugin
 	// sandbox. Today the only supported permission is `connect`, which
 	// allowlists external https origins the plugin can reach via the
@@ -131,6 +139,14 @@ func validateManifest(m *Manifest, pluginRoot string) error {
 			return errors.New("settings.file is required when settings is set")
 		}
 		if err := validateViewFile("settings.file", m.Settings.File, pluginRoot); err != nil {
+			return err
+		}
+	}
+	if m.Background != nil {
+		if strings.TrimSpace(m.Background.File) == "" {
+			return errors.New("background.file is required when background is set")
+		}
+		if err := validateViewFile("background.file", m.Background.File, pluginRoot); err != nil {
 			return err
 		}
 	}
