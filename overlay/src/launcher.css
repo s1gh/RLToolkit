@@ -28,6 +28,18 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  /* Desktop-app feel: nothing in the launcher chrome should be
+     selectable. Inputs re-enable selection below so users can still
+     edit form fields. */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+input, textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 /* Resize handles for the frameless window. Fixed-positioned, sit
@@ -556,19 +568,4 @@ html, body {
 }
 .updater-banner .updater-dismiss { background: transparent; color: #aab1bd; }
 
-.version-footer {
-  position: fixed;
-  right: 8px;
-  bottom: 6px;
-  z-index: 5;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: rgba(20, 24, 32, 0.55);
-  color: #8a93a3;
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  letter-spacing: 0.02em;
-  pointer-events: none;
-  user-select: none;
-}
-.version-footer:empty { display: none; }
+

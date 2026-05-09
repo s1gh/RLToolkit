@@ -719,15 +719,39 @@ setInterval(refreshStatus, 2000);
 refreshStatus();
 bootIdentityCheck();
 
-// Stamp the launcher version into the footer. Useful during smoke
-// tests and bug reports to see at a glance whether an upgrade
-// actually landed.
-(async () => {
-  try {
-    const v = await invoke("get_app_version");
-    const el = document.getElementById("version-footer");
-    if (el && v) el.textContent = `v${v}`;
-  } catch {}
+// Forward the launcher version into the embedded dashboard so the
+// footer shows it next to "Developer endpoints", on the same baseline.
+// The dashboard listens for `rl-launcher:set-version` and renders the
+// payload as text. Posts on every iframe load (initial mount + any
+// subsequent reload from identity reset, plugin install, etc.).
+(function initLauncherVersionBridge() {
+  const iframe = document.getElementById("dashboard");
+  if (!iframe) return;
+  let cached = null;
+  async function fetchVersion() {
+    if (cached !== null) return cached;
+    try {
+      cached = String(await invoke("get_app_version") || "");
+    } catch {
+      cached = "";
+    }
+    return cached;
+  }
+  async function post() {
+    const version = await fetchVersion();
+    if (!version || !iframe.contentWindow) return;
+    try {
+      iframe.contentWindow.postMessage(
+        { type: "rl-launcher:set-version", version },
+        "*",
+      );
+    } catch {}
+  }
+  iframe.addEventListener("load", () => { post(); });
+  // First load may already be in-flight when this listener attaches.
+  // contentWindow is non-null once the about:blank has parsed, which
+  // is good enough — the dashboard's listener runs on its own load.
+  if (iframe.contentWindow) post();
 })();
 
 // ─── Updater banner ─────────────────────────────────────────
@@ -790,3 +814,4 @@ bootIdentityCheck();
 
   dismissBtn.addEventListener("click", hide);
 })();
+

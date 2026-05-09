@@ -49,6 +49,23 @@ body{
   min-height:100vh;
   letter-spacing:-0.005em;
 }
+/* Embedded inside the launcher: feel like a desktop app, not a web
+   page. Text isn't selectable, the cursor is the default arrow.
+   Form inputs still allow text selection so users can type. The
+   marker class is set on <html> by the inline script below.
+   Standalone browser tabs (no marker) keep native selection. */
+html.in-launcher,
+html.in-launcher body{
+  user-select:none;
+  -webkit-user-select:none;
+  cursor:default;
+}
+html.in-launcher input,
+html.in-launcher textarea{
+  user-select:text;
+  -webkit-user-select:text;
+  cursor:text;
+}
 a{color:inherit;text-decoration:none}
 button{font-family:inherit}
 
@@ -105,6 +122,9 @@ button{font-family:inherit}
   font-family:var(--mono); font-size:12px;
   color:var(--txt-3);
   font-feature-settings:'tnum';
+}
+.section-head-right{
+  display:flex; align-items:center; gap:12px;
 }
 
 /* ─── Plugin grid ──────────────────────────────────────────── */
@@ -377,11 +397,29 @@ button{font-family:inherit}
    so end users don't think it's something they need. The body
    reuses the .dot pill chrome the old footer ribbon had — these
    really are diagnostic, not branded launcher features. */
-.dev-endpoints{
+.dev-footer{
   border-top:1px solid var(--line);
   padding-top:14px; margin-top:8px;
-  font-size:12px; color:var(--txt-3);
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:16px;
 }
+.dev-endpoints{
+  font-size:12px; color:var(--txt-3);
+  flex:1 1 auto; min-width:0;
+}
+.launcher-version{
+  font-family:var(--mono);
+  font-size:12px;
+  color:var(--txt-3);
+  letter-spacing:0.04em;
+  user-select:none;
+  flex:0 0 auto;
+  /* Match the summary's vertical position: the summary's first line
+     sits at the section's padding-top, and so do we. */
+  line-height:1;
+  padding-top:1px;
+}
+.launcher-version:empty{ display:none; }
 .dev-endpoints summary{
   cursor:pointer;
   list-style:none;
@@ -474,6 +512,77 @@ button{font-family:inherit}
   border:0; display:block;
   background:var(--bg-0);
 }
+
+/* Confirm dialog: a smaller variant of the settings modal. Shorter,
+   wider on small screens, with a body text + two buttons row. */
+.modal.modal-confirm{
+  width:min(420px, 92vw);
+  height:auto;
+}
+.modal-confirm .modal-body{
+  padding:18px 22px;
+  color:var(--txt-2);
+  font-size:14px;
+  line-height:1.5;
+}
+.modal-confirm .modal-body p{ margin:0; }
+.modal-actions{
+  display:flex; justify-content:flex-end; gap:8px;
+  padding:12px 18px 16px;
+  border-top:1px solid var(--line);
+}
+/* Destructive primary action: red instead of cyan. */
+.btn.primary.danger{
+  background:var(--red, #ef4444);
+  border-color:var(--red, #ef4444);
+  color:#fff;
+}
+.btn.primary.danger:hover{
+  background:#dc2626;
+  border-color:#dc2626;
+  color:#fff;
+}
+/* Trash icon hover: tint red so the destructive intent is obvious. */
+.btn.icon.danger:hover:not(:disabled){
+  border-color:var(--red, #ef4444);
+  color:var(--red, #ef4444);
+}
+
+/* ─── Drag-drop install toasts ──────────────────────────────── */
+/* The full-window drop overlay is drawn by the launcher (which sees
+   the visual hint signal via postMessage). Toasts live in the
+   dashboard so they sit visually inside the page content rather
+   than over the launcher chrome. */
+.install-toasts{
+  position:fixed;
+  right:16px;
+  bottom:16px;
+  z-index:200;
+  display:flex; flex-direction:column; gap:8px;
+  pointer-events:none;
+}
+.install-toast{
+  min-width:240px; max-width:360px;
+  padding:10px 14px;
+  border-radius:8px;
+  background:rgba(20,22,27,0.96);
+  border-left:3px solid var(--green, #22c55e);
+  color:var(--txt);
+  font-size:13px;
+  box-shadow:0 6px 20px rgba(0,0,0,0.4);
+  animation:install-toast-in 150ms ease-out;
+}
+.install-toast.failed{ border-left-color:var(--red, #ef4444); }
+.install-toast .toast-title{ font-weight:600; margin-bottom:2px; }
+.install-toast .toast-detail{
+  color:var(--txt-3, #a6abbf);
+  font-size:12px;
+  word-break:break-word;
+}
+@keyframes install-toast-in{
+  from{ opacity:0; transform:translateX(8px); }
+  to  { opacity:1; transform:none; }
+}
 </style>
 </head>
 <body>
@@ -501,22 +610,48 @@ button{font-family:inherit}
   <section>
     <div class="section-head">
       <h2>Plugins</h2>
-      <span class="count" id="stat-count">0</span>
+      <div class="section-head-right">
+        <span class="count" id="stat-count">0</span>
+        <button class="btn" type="button" id="install-plugin-btn">Install plugin…</button>
+        <input type="file" id="install-plugin-input" accept=".rltp" hidden />
+      </div>
     </div>
     <div class="plugins" id="pl"></div>
   </section>
 
-  <details class="dev-endpoints">
-    <summary>Developer endpoints</summary>
-    <div class="dev-endpoints-row">
-      <a href="/api/plugins" target="_blank"><span class="dot"></span>/api/plugins</a>
-      <a href="/api/status" target="_blank"><span class="dot"></span>/api/status</a>
-      <a href="/api/match-state" target="_blank"><span class="dot"></span>/api/match-state</a>
-      <a href="/api/metrics" target="_blank"><span class="dot"></span>/api/metrics</a>
-      <a href="/api/events" target="_blank"><span class="dot"></span>/api/events</a>
-    </div>
-  </details>
+  <div id="install-toasts" class="install-toasts" aria-live="polite"></div>
 
+  <div class="dev-footer">
+    <details class="dev-endpoints">
+      <summary>Developer endpoints</summary>
+      <div class="dev-endpoints-row">
+        <a href="/api/plugins" target="_blank"><span class="dot"></span>/api/plugins</a>
+        <a href="/api/status" target="_blank"><span class="dot"></span>/api/status</a>
+        <a href="/api/match-state" target="_blank"><span class="dot"></span>/api/match-state</a>
+        <a href="/api/metrics" target="_blank"><span class="dot"></span>/api/metrics</a>
+        <a href="/api/events" target="_blank"><span class="dot"></span>/api/events</a>
+      </div>
+    </details>
+    <span id="launcher-version" class="launcher-version" aria-label="Launcher version"></span>
+  </div>
+
+</div>
+
+<!-- Generic confirm dialog. Re-used by destructive actions (currently
+     just plugin uninstall). The body text is set per-call via JS. -->
+<div class="modal-backdrop" id="confirm-modal" role="alertdialog" aria-modal="true" aria-hidden="true">
+  <div class="modal modal-confirm" role="document">
+    <div class="modal-head">
+      <h3 id="confirm-modal-title">Confirm</h3>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-modal-message"></p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" type="button" id="confirm-modal-cancel">Cancel</button>
+      <button class="btn primary danger" type="button" id="confirm-modal-ok">OK</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="settings-modal" role="dialog" aria-modal="true" aria-hidden="true">
@@ -533,6 +668,13 @@ button{font-family:inherit}
 
 <script>
 'use strict';
+
+// Stamp body.in-launcher when embedded so CSS can disable text
+// selection (desktop-app feel). Standalone browser tabs keep
+// native text selection.
+if (window.parent !== window) {
+  document.documentElement.classList.add('in-launcher');
+}
 
 // ─── Connection pill — short polling, no SSE ───────────────
 
@@ -744,6 +886,17 @@ function renderPlugins() {
             + '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
           + '</svg>'
         + '</button>'
+        + '<button class="btn icon danger" data-role="uninstall" type="button"'
+          + ' aria-label="Uninstall"'
+          + ' title="Uninstall">'
+          + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            + '<polyline points="3 6 5 6 21 6"/>'
+            + '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'
+            + '<path d="M10 11v6"/>'
+            + '<path d="M14 11v6"/>'
+            + '<path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>'
+          + '</svg>'
+        + '</button>'
       + '</div>'
     + '</article>';
   }).join('');
@@ -756,6 +909,10 @@ function renderPlugins() {
     const settingsBtn = card.querySelector('button[data-role="settings"]');
     if (settingsBtn) {
       settingsBtn.addEventListener('click', () => openSettingsModal(name));
+    }
+    const uninstallBtn = card.querySelector('button[data-role="uninstall"]');
+    if (uninstallBtn) {
+      uninstallBtn.addEventListener('click', () => uninstallPlugin(name));
     }
   });
 }
@@ -815,9 +972,121 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && settingsModal.classList.contains('open')) closeSettingsModal();
 });
 
+// ─── Confirm dialog ────────────────────────────────────────
+//
+// Promise-based confirm using the #confirm-modal markup. Returns true
+// when the user clicks the primary action, false on cancel/Escape/
+// backdrop. Single-instance: a second call while the first is open
+// resolves the first as `false` before opening anew.
+const confirmModal = document.getElementById('confirm-modal');
+const confirmTitle = document.getElementById('confirm-modal-title');
+const confirmMessage = document.getElementById('confirm-modal-message');
+const confirmOk = document.getElementById('confirm-modal-ok');
+const confirmCancel = document.getElementById('confirm-modal-cancel');
+let confirmResolver = null;
+function closeConfirm(result) {
+  if (!confirmResolver) return;
+  const r = confirmResolver;
+  confirmResolver = null;
+  confirmModal.classList.remove('open');
+  confirmModal.setAttribute('aria-hidden', 'true');
+  r(result);
+}
+function showConfirm({ title, message, confirmLabel }) {
+  if (confirmResolver) closeConfirm(false);
+  confirmTitle.textContent = title || 'Confirm';
+  confirmMessage.textContent = message || '';
+  confirmOk.textContent = confirmLabel || 'OK';
+  confirmModal.classList.add('open');
+  confirmModal.setAttribute('aria-hidden', 'false');
+  confirmOk.focus();
+  return new Promise((resolve) => { confirmResolver = resolve; });
+}
+confirmOk.addEventListener('click', () => closeConfirm(true));
+confirmCancel.addEventListener('click', () => closeConfirm(false));
+confirmModal.addEventListener('click', (e) => {
+  if (e.target === confirmModal) closeConfirm(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && confirmModal.classList.contains('open')) closeConfirm(false);
+});
+
+// ─── Uninstall a plugin ────────────────────────────────────
+async function uninstallPlugin(name) {
+  const ok = await showConfirm({
+    title: 'Uninstall ' + name + '?',
+    message: 'This removes the plugin folder from disk. User data stored under /api/data/'
+      + name + ' is preserved. The action cannot be undone — to restore the plugin you\'ll need '
+      + 'to install it again.',
+    confirmLabel: 'Uninstall',
+  });
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/plugins/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (!r.ok && r.status !== 204) {
+      const text = (await r.text()).trim();
+      spawnInstallToast({
+        kind: 'failed',
+        title: 'Uninstall failed: ' + name,
+        detail: text || ('server returned ' + r.status),
+      });
+      return;
+    }
+    spawnInstallToast({ kind: 'ok', title: 'Uninstalled ' + name });
+    if (typeof refreshPluginList === 'function') refreshPluginList();
+  } catch (e) {
+    spawnInstallToast({
+      kind: 'failed',
+      title: 'Uninstall failed: ' + name,
+      detail: String(e && e.message ? e.message : e),
+    });
+  }
+}
+
+// Module-level toast helper used by both install and uninstall flows.
+// Defined here so uninstallPlugin (above) and the install-picker IIFE
+// (below) can share it. Idempotent if the toast container is missing.
+function spawnInstallToast({ kind, title, detail }) {
+  const toasts = document.getElementById('install-toasts');
+  if (!toasts) return;
+  const el = document.createElement('div');
+  el.className = 'install-toast' + (kind === 'failed' ? ' failed' : '');
+  const t = document.createElement('div');
+  t.className = 'toast-title';
+  t.textContent = title;
+  el.appendChild(t);
+  if (detail) {
+    const d = document.createElement('div');
+    d.className = 'toast-detail';
+    d.textContent = detail;
+    el.appendChild(d);
+  }
+  toasts.appendChild(el);
+  const ttl = kind === 'failed' ? 8000 : 4000;
+  setTimeout(() => {
+    el.style.transition = 'opacity 200ms ease-out';
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 220);
+  }, ttl);
+}
+
 window.addEventListener('message', (e) => {
   if (e.origin !== location.origin) return;
   if (e.data && e.data.type === 'rlt:settings:close') closeSettingsModal();
+});
+
+// Cross-origin: the Tauri launcher (different origin) posts the
+// launcher version after the iframe loads so the footer version label
+// stays in sync with the running launcher. Accept by message-type
+// only; the payload is a short string we render verbatim, no DOM
+// injection beyond textContent.
+window.addEventListener('message', (e) => {
+  if (!e.data || typeof e.data !== 'object') return;
+  if (e.data.type !== 'rl-launcher:set-version') return;
+  const v = typeof e.data.version === 'string' ? e.data.version.trim() : '';
+  const el = document.getElementById('launcher-version');
+  if (!el) return;
+  el.textContent = v ? 'v' + v.replace(/^v/i, '') : '';
 });
 
 // When the dashboard is embedded inside the RL Toolkit launcher, links
@@ -840,6 +1109,72 @@ if (inLauncher) {
     window.parent.postMessage({ type: 'rl-launcher:open-external', url: absolute }, '*');
   });
 }
+
+// ─── Install plugin from file ───────────────────────────────
+//
+// Click the "Install plugin…" button → native file picker → upload
+// the chosen .rltp to /api/sideload → toast the result, refresh the
+// plugin list. Same backend endpoint the `rl-toolkit install` CLI
+// hits, so the install is identical.
+(function initInstallPicker() {
+  const btn = document.getElementById('install-plugin-btn');
+  const input = document.getElementById('install-plugin-input');
+  if (!btn || !input) return;
+
+  btn.addEventListener('click', () => input.click());
+
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    // Reset value so the same file can be picked again later.
+    input.value = '';
+    if (!file) return;
+    if (!/\.rltp$/i.test(file.name)) {
+      spawnInstallToast({
+        kind: 'failed',
+        title: 'Not a plugin file',
+        detail: file.name + ' — expected a .rltp archive',
+      });
+      return;
+    }
+    btn.disabled = true;
+    try {
+      await uploadOne(file);
+      if (typeof refreshPluginList === 'function') refreshPluginList();
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  async function uploadOne(file) {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    try {
+      const r = await fetch('/api/sideload', { method: 'POST', body: fd });
+      if (!r.ok) {
+        const text = (await r.text()).trim();
+        spawnInstallToast({
+          kind: 'failed',
+          title: 'Install failed: ' + file.name,
+          detail: text || ('server returned ' + r.status),
+        });
+        return;
+      }
+      let name = '';
+      try { name = (await r.json()).name || ''; } catch (_) {}
+      spawnInstallToast({
+        kind: 'ok',
+        title: 'Installed ' + (name || file.name.replace(/\.rltp$/i, '')),
+        detail: name && file.name !== name + '.rltp' ? file.name : '',
+      });
+    } catch (e) {
+      spawnInstallToast({
+        kind: 'failed',
+        title: 'Install failed: ' + file.name,
+        detail: String(e && e.message ? e.message : e),
+      });
+    }
+  }
+})();
 
 </script>
 </body></html>

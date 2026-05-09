@@ -76,6 +76,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/events", s.handleSSE)
 	mux.HandleFunc("/api/data/", s.handleData)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
+	mux.HandleFunc("/api/plugins/", s.handlePluginByName)
 	mux.HandleFunc("/api/events", s.handleEventCatalog)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/match-state", s.handleMatchState)
@@ -196,6 +197,39 @@ func (s *Server) handleSideload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"name": name})
+}
+
+// handlePluginByName operates on a single installed plugin keyed by
+// its directory name. Currently only DELETE is handled (uninstall);
+// other methods 405. Refuses dev-shadowed plugins because removing
+// the on-disk copy while a `rl-toolkit dev` registration is active
+// would silently leave the dev version running and confuse the user.
+func (s *Server) handlePluginByName(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/plugins/")
+	if name == "" || strings.Contains(name, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Allow", "DELETE")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.deps.Plugins != nil {
+		if devPath := s.deps.Plugins.DevPath(name); devPath != "" {
+			http.Error(w, "plugin is registered for dev hot-reload; stop `rl-toolkit dev` first", http.StatusConflict)
+			return
+		}
+		if !s.deps.Plugins.Has(name) {
+			http.NotFound(w, r)
+			return
+		}
+	}
+	if err := install.Uninstall(name, s.deps.PluginDir); err != nil {
+		http.Error(w, "uninstall: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // serveFromRoot serves `rest` from `root`, refusing path traversal and
