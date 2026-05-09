@@ -674,6 +674,9 @@ button{font-family:inherit}
 // native text selection.
 if (window.parent !== window) {
   document.documentElement.classList.add('in-launcher');
+  // Suppress WebKit's built-in context menu inside the launcher only.
+  // Standalone browser tabs keep right-click → reload / inspect.
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
 // ─── Connection pill — short polling, no SSE ───────────────

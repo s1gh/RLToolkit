@@ -3,6 +3,10 @@ if (!window.__TAURI__) {
 }
 const invoke = window.__TAURI__?.core?.invoke ?? (() => Promise.reject(new Error("Tauri not ready")));
 
+// Suppress WebKit's built-in context menu (Back / Reload / Open Frame
+// in New Window). The launcher is a desktop app, not a browser tab.
+window.addEventListener("contextmenu", (e) => e.preventDefault());
+
 const $ = sel => document.querySelector(sel);
 const conn = $("#conn");
 const ownership = $("#ownership-badge");
