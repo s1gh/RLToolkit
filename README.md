@@ -1,23 +1,18 @@
 # RL Toolkit
 
-A plugin-based overlay framework for Rocket League. Reads live match data from RL's own Stats API, exposes it to plugins as a clean JavaScript SDK, and renders them as transparent click-through overlays on top of the game.
+A plugin-based overlay platform for Rocket League. Install the launcher, enable the plugins you want, and they render as transparent overlays on top of the game — or as Browser Sources in OBS.
 
 > **Status: alpha.** Shipping and self-updating, but APIs and storage formats may still change between versions.
 
-![screenshot placeholder — overlay running on top of Rocket League](docs/assets/hero.png)
+![RL Toolkit launcher with the plugin list and OBS browser-source URLs](docs/assets/hero.png)
 
 ---
 
 ## What it is
 
-RL Toolkit is two binaries:
+You install one app — the **RL Toolkit launcher**. It bundles everything: the backend that talks to Rocket League's Stats API, the dashboard UI you see above, and the overlay window that floats on top of the game. From the dashboard you toggle plugins on and off, open per-plugin dashboards in their own tabs, configure them, and grab Browser Source URLs for OBS / Streamlabs.
 
-- **`rl-toolkit`** — a Go backend that talks to Rocket League over TCP, normalises the event stream, and serves a plugin host + dashboard over HTTP.
-- **`rl-widget`** — a Rust + Tauri 2 overlay window that renders plugin HTML on top of the game, click-through and undecorated.
-
-Plugins are pure HTML + JS + CSS, dropped into a directory. No backend code, no compilation step. The SDK (`window.RLT`) gives them match state, lifecycle events, per-plugin storage, and a settings panel.
-
-It does **not** inject into the game, hook input, or read game memory — it only consumes RL's own Stats API. EAC has no problem with it.
+It does **not** inject into the game, hook input, or read game memory — it only consumes RL's own Stats API over TCP. EAC has no problem with it.
 
 ## Bundled plugins
 
@@ -30,6 +25,8 @@ It does **not** inject into the game, hook input, or read game memory — it onl
 | **Crossbar Sound** | Plays a sound effect when the ball hits a crossbar. |
 | **Hello World** | Reference plugin showing the overlay + dashboard + settings layout. |
 | **SynthTracker** | Dev tool — subscribes to every synthetic event and shows live counts. |
+
+Plus any third-party plugins you install. The launcher's **Install plugin…** button accepts `.rltp` packages — drop one in and it's live.
 
 ## Install
 
@@ -44,45 +41,36 @@ Grab the latest release from the [releases page](https://github.com/s1gh/RLToolk
 
 In Rocket League, set *Settings → Video → Display Mode* to **Borderless**. Exclusive fullscreen blocks all compositor-level overlays (Tauri, Discord, Steam Overlay, OBS Browser Source) — this is a DirectX limitation, not specific to RL Toolkit.
 
-## Build from source
+## OBS / Streamlabs
 
-See [`docs/BUILD.md`](docs/BUILD.md) for the full build, packaging, and release flow on Linux and Windows. The short version:
+The launcher exposes two URLs for browser-source capture:
 
-```bash
-# Linux (Arch / Cachy / Manjaro)
-sudo pacman -S base-devel rustup go webkit2gtk-4.1 gtk-layer-shell pkg-config nodejs npm
-rustup default stable
-npm install
+- **Overlay:** `http://localhost:49200/overlay` — all enabled plugins, transparent background, ready to drop into OBS as a Browser Source.
+- **Overlay editor:** `http://localhost:49200/overlay?edit=1` — same view, but you can drag widgets to reposition and resize them. Layout persists.
 
-go build -o rl-toolkit .                    # backend (~5 sec)
-cd overlay/src-tauri && cargo build --release   # widget (~1 min first time)
-```
-
-Run them:
-
-```bash
-./rl-toolkit &
-./overlay/src-tauri/target/release/rl-widget
-```
+The launcher's *Browser sources* panel has copy buttons for both. Default port is `49200`; change it with `rl-toolkit -port <n>` if you need to.
 
 ## Writing a plugin
 
-A plugin is a directory under `plugins/` with a `manifest.json` and one or more HTML files:
+A plugin is **a folder with a `manifest.json` and one or more HTML files**. No build step, no backend code, no compilation. If you can write a webpage, you can write a plugin.
 
-```
-plugins/my-plugin/
-├── manifest.json
-├── overlay.html        # required — renders on top of the game
-├── dashboard.html      # optional — full browser tab
-└── settings.html       # optional — config modal
+### From zero to running plugin in under a minute
+
+```bash
+rl-toolkit new my-plugin            # scaffolds plugins/my-plugin/
+rl-toolkit dev plugins/my-plugin    # hot-reloads into the running overlay on save
 ```
 
-Minimal `overlay.html`:
+Edit the HTML, hit save, see the change live — no restart, no reload.
+
+### Minimal overlay
 
 ```html
 <!doctype html>
 <html>
-<head><script src="/sdk.js" data-plugin="my-plugin" data-view="overlay"></script></head>
+<head>
+  <script src="/sdk.js" data-plugin="my-plugin" data-view="overlay"></script>
+</head>
 <body>
   <div id="last-goal">queue up — waiting for a goal</div>
   <script>
@@ -100,13 +88,44 @@ Minimal `overlay.html`:
 </html>
 ```
 
-Full SDK reference, event catalogue, and packaging guide: [`docs/PLUGINS.md`](docs/PLUGINS.md).
+That's a working plugin. The `RLT` global gives you match state, lifecycle events, per-plugin storage, a settings panel, and a stats registry — see [`docs/PLUGINS.md`](docs/PLUGINS.md) for the full SDK reference.
+
+### A plugin can have up to four views
+
+| View | Where it renders | Required? |
+|---|---|---|
+| **Overlay** | Transparent click-through window on top of the game (and the OBS Browser Source). | Yes |
+| **Dashboard** | Full browser tab opened from the launcher's "Open" button — for tables, charts, history. | Optional |
+| **Settings** | Modal inside the launcher — per-plugin configuration UI. | Optional |
+| **Background** | Hidden iframe in the launcher — always-on work that runs without a visible UI. | Optional |
+
+### Sharing plugins
+
+```bash
+rl-toolkit pack plugins/my-plugin   # → my-plugin-1.0.0.rltp
+```
+
+Send the `.rltp` to anyone running RL Toolkit. They click *Install plugin…* in the launcher, pick the file, done.
+
+## Build from source
+
+See [`docs/BUILD.md`](docs/BUILD.md) for the full build, packaging, and release flow on Linux and Windows. The short version:
+
+```bash
+# Linux (Arch / Cachy / Manjaro)
+sudo pacman -S base-devel rustup go webkit2gtk-4.1 gtk-layer-shell pkg-config nodejs npm
+rustup default stable
+npm install
+
+go build -o rl-toolkit .                          # backend (~5 sec)
+cd overlay/src-tauri && cargo build --release     # widget (~1 min first time)
+```
 
 ## Repository layout
 
 ```
-backend/        Go backend — HTTP server, SSE bus, plugin host
-overlay/        Rust + Tauri 2 overlay window
+backend/        Go backend — HTTP server, SSE bus, plugin host, CLI
+overlay/        Rust + Tauri 2 launcher and overlay window
 plugins/        Bundled plugins (Déjà Vu, Session Tracker, etc.)
 docs/           BUILD.md, PLUGINS.md
 release/        Build outputs (gitignored)
