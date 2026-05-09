@@ -87,12 +87,12 @@ const overlayTemplate = `<!doctype html>
   <title>__NAME__</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.ico">
   <link rel="stylesheet" href="/sdk.css">
-  <script src="/sdk.js" data-plugin="__NAME__"></script>
+  <script src="/sdk.js" data-plugin="__NAME__" data-view="overlay"></script>
   <style>
     /* Default look in standalone (dashboard) mode. */
     body { background: var(--rlt-bg-0); color: var(--rlt-txt); padding: 16px;
            font-family: var(--rlt-ui); margin: 0; }
-    /* The SDK adds .overlay-mode automatically when ?overlay=1. */
+    /* The SDK adds .overlay-mode automatically when data-view="overlay". */
     body.overlay-mode { background: transparent; padding: 0; }
     .card { background: var(--rlt-bg-1); border: 1px solid var(--rlt-line);
             border-radius: 12px; padding: 14px 16px; }
@@ -142,13 +142,14 @@ const overlayTemplate = `<!doctype html>
       whilePhase: ['live', 'replay'],
 
       events: {
-        GoalScored(g) {
-          // g.scorer.name is always a string. g.scorer.player is the
-          // enriched roster lookup and may be null in the brief window
-          // before the match's first UpdateState arrives — don't depend
-          // on it for the displayed name.
+        _GoalScored(g) {
+          // _GoalScored is the enriched form of GoalScored: scorer +
+          // assister are resolved roster entries. g.scorer.name is
+          // always a string. g.scorer.player may be null in the brief
+          // window before the match's first UpdateState arrives — so
+          // don't depend on it for the displayed name.
           counts.goals++;
-          who.textContent = g.scorer.name;
+          who.textContent = g.scorer?.name ?? '—';
           render();
         },
         StatfeedEvent(s) {
