@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"rl-toolkit/backend/internal/bootid"
@@ -93,6 +94,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/overlay/surface/detected", s.handleOverlaySurfaceDetected)
 	mux.HandleFunc("/api/replay-watcher", s.handleReplayWatcher)
 	mux.HandleFunc("/api/replay-file", s.handleReplayFile)
+	mux.HandleFunc("/api/plugin-fetch/", s.handlePluginFetch)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -1032,4 +1034,134 @@ func (s *Server) handleReplayFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	http.ServeFile(w, r, resolvedPath)
+}
+
+// ── Plugin fetch proxy ──────────────────────────────────────
+
+// pluginFetchClient is the outbound HTTP client used by the plugin
+// fetch proxy. Redirects are NOT followed: the plugin sees the 3xx
+// response and decides what to do, which prevents an attacker who
+// controls an allowlisted upstream from redirecting to a private
+// network address (SSRF). Timeout is generous because uploads can be
+// large; per-request cancellation comes from the request context.
+var pluginFetchClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+	Timeout: 60 * time.Second,
+}
+
+// pluginFetchMaxBytes caps both the request body the plugin sends
+// through the proxy AND the response body the proxy returns. var
+// (not const) so tests can substitute a smaller value.
+var pluginFetchMaxBytes int64 = 16 << 20 // 16 MiB
+
+// handlePluginFetch proxies a plugin's outbound request to an
+// allowlisted external origin. Plugins running in the toolkit's iframe
+// can't talk directly to APIs that don't return CORS headers (most
+// don't), so the plugin POSTs to /api/plugin-fetch/<name>?url=<target>
+// and the server forwards the request.
+//
+// Security model:
+//   - Plugin must declare the target's origin in its manifest's
+//     permissions.connect array.
+//   - Target URL must be https and parse to a bare origin matching
+//     one of the allowlisted entries (no path/port deviation tolerated
+//     beyond what sanitizeConnectPermissions already accepted).
+//   - Redirects are not followed (returned to the plugin verbatim) to
+//     prevent SSRF via 3xx into private networks.
+//   - Sensitive headers from the inbound request (Cookie, Host) are
+//     stripped; only Authorization, Content-Type, Accept, and
+//     Retry-After are copied through. The plugin can still send any
+//     body it wants — the bytes are forwarded as-is.
+func (s *Server) handlePluginFetch(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Plugins == nil {
+		http.Error(w, "plugin manager unavailable", http.StatusInternalServerError)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/api/plugin-fetch/")
+	if name == "" || strings.Contains(name, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	manifest := s.deps.Plugins.Get(name)
+	if manifest == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if manifest.Permissions == nil || len(manifest.Permissions.Connect) == 0 {
+		http.Error(w, "plugin has no connect permissions", http.StatusForbidden)
+		return
+	}
+
+	rawURL := r.URL.Query().Get("url")
+	if rawURL == "" {
+		http.Error(w, "missing url parameter", http.StatusBadRequest)
+		return
+	}
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		http.Error(w, "invalid url: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if target.Scheme != "https" {
+		http.Error(w, "only https targets are allowed", http.StatusForbidden)
+		return
+	}
+	if !originAllowed(target, manifest.Permissions.Connect) {
+		http.Error(w, "target origin not in plugin's connect allowlist", http.StatusForbidden)
+		return
+	}
+
+	// Clone the body up to the cap. http.MaxBytesReader closes r.Body
+	// for us when the cap trips.
+	var body io.Reader
+	if r.Body != nil {
+		body = http.MaxBytesReader(w, r.Body, pluginFetchMaxBytes)
+	}
+
+	upstream, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), body)
+	if err != nil {
+		http.Error(w, "build upstream request: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, h := range []string{"Authorization", "Content-Type", "Accept"} {
+		if v := r.Header.Get(h); v != "" {
+			upstream.Header.Set(h, v)
+		}
+	}
+
+	resp, err := pluginFetchClient.Do(upstream)
+	if err != nil {
+		http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	for _, h := range []string{"Content-Type", "Retry-After"} {
+		if v := resp.Header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	// Cap response body too so a malicious upstream can't fill memory.
+	_, _ = io.CopyN(w, resp.Body, pluginFetchMaxBytes)
+}
+
+// originAllowed reports whether the target's origin (scheme://host[:port])
+// matches any entry in the allowlist. Both sides have already been
+// validated as bare https origins, so a string compare on the
+// canonicalized form is sufficient.
+func originAllowed(target *url.URL, allow []string) bool {
+	wantHost := target.Host
+	for _, entry := range allow {
+		u, err := url.Parse(entry)
+		if err != nil {
+			continue
+		}
+		if u.Scheme == target.Scheme && u.Host == wantHost {
+			return true
+		}
+	}
+	return false
 }

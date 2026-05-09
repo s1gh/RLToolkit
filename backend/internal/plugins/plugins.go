@@ -471,7 +471,12 @@ func (pm *Manager) NotifyReload(name string) {
 //   - No userinfo.
 //   - Path is empty or "/".
 //   - No query, no fragment.
-//   - Port is unset or "443".
+//
+// A port is allowed but optional; the proxy compares scheme+host+port
+// strings between manifest entry and target URL, so a manifest that
+// says `https://api.example.com` matches `https://api.example.com/x`
+// (Host "api.example.com") and a manifest that says
+// `https://api.example.com:8443` matches `https://api.example.com:8443/x`.
 func sanitizeConnectPermissions(pluginName string, in []string) []string {
 	out := make([]string, 0, len(in))
 	for _, raw := range in {
@@ -505,9 +510,6 @@ func isValidConnectOrigin(raw string) bool {
 		return false
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
-		return false
-	}
-	if p := u.Port(); p != "" && p != "443" {
 		return false
 	}
 	return true

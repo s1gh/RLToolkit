@@ -86,7 +86,12 @@
       testResult.textContent = "Testing...";
       testResult.className = "test-result";
       try {
-        const r = await fetch("https://ballchasing.com/api/", {
+        // Routed through the toolkit's /api/plugin-fetch proxy because
+        // ballchasing.com doesn't return CORS headers; a direct fetch
+        // from the iframe would fail the preflight.
+        const proxied = "/api/plugin-fetch/ballchasing-upload?url="
+          + encodeURIComponent("https://ballchasing.com/api/");
+        const r = await fetch(proxied, {
           headers: { Authorization: s.apiKey },
         });
         if (r.status === 200) {
@@ -232,11 +237,15 @@
 
     const params = new URLSearchParams({ visibility: settings.visibility });
     if (settings.group) params.set("group", settings.group);
-    const uploadUrl = "https://ballchasing.com/api/v2/upload?" + params.toString();
+    const uploadTarget = "https://ballchasing.com/api/v2/upload?" + params.toString();
+    // Routed through the toolkit's /api/plugin-fetch proxy because
+    // ballchasing.com doesn't return CORS headers.
+    const proxied = "/api/plugin-fetch/ballchasing-upload?url="
+      + encodeURIComponent(uploadTarget);
 
     let resp;
     try {
-      resp = await fetch(uploadUrl, {
+      resp = await fetch(proxied, {
         method: "POST",
         headers: { Authorization: settings.apiKey },
         body: fd,

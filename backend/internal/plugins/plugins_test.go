@@ -456,7 +456,6 @@ func TestValidateManifest_PermissionsDropsInvalidEntries(t *testing.T) {
 	cases := []string{
 		"http://x.com",       // non-https
 		"https://x.com/path", // has path
-		"https://x.com:8080", // non-443 port
 		"https://x.com?q=1",  // query
 		"https://x.com#frag", // fragment
 		"https://u:p@x.com",  // userinfo

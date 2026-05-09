@@ -624,3 +624,162 @@ func newTestServerWithReplayDir(t *testing.T, demoDir string) *Server {
 	}
 	return New(Deps{ReplayWatcher: w})
 }
+
+func TestPluginFetch_AllowedOriginForwards(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "TEST-KEY" {
+			t.Errorf("Authorization = %q, want TEST-KEY", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+	prevClient := pluginFetchClient
+	pluginFetchClient = upstream.Client()
+	pluginFetchClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	defer func() { pluginFetchClient = prevClient }()
+
+	pluginsDir := t.TempDir()
+	upstreamURL, _ := url.Parse(upstream.URL)
+	writePluginWithPermissions(t, pluginsDir, "p", []string{"https://" + upstreamURL.Host})
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	target := "https://" + upstreamURL.Host + "/api/"
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/plugin-fetch/p?url="+url.QueryEscape(target), nil)
+	req.Header.Set("Authorization", "TEST-KEY")
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if got := rec.Body.String(); got != `{"ok":true}` {
+		t.Errorf("body = %q", got)
+	}
+}
+
+func TestPluginFetch_DisallowedOriginRejected(t *testing.T) {
+	pluginsDir := t.TempDir()
+	writePluginWithPermissions(t, pluginsDir, "p", []string{"https://allowed.example.com"})
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/plugin-fetch/p?url=https%3A%2F%2Fevil.example.com%2F", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestPluginFetch_NoPermissionsBlockRejected(t *testing.T) {
+	pluginsDir := t.TempDir()
+	writePluginForCSP(t, pluginsDir, "p", nil)
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/plugin-fetch/p?url=https%3A%2F%2Fanything.example.com%2F", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestPluginFetch_UnknownPlugin404(t *testing.T) {
+	pluginsDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/plugin-fetch/ghost?url=https%3A%2F%2Fx.example.com%2F", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestPluginFetch_NonHTTPSRejected(t *testing.T) {
+	pluginsDir := t.TempDir()
+	writePluginWithPermissions(t, pluginsDir, "p", []string{"https://allowed.example.com"})
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/plugin-fetch/p?url=http%3A%2F%2Fallowed.example.com%2F", nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestPluginFetch_RedirectNotFollowed(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://elsewhere.example.com/")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+	prevClient := pluginFetchClient
+	pluginFetchClient = upstream.Client()
+	pluginFetchClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	defer func() { pluginFetchClient = prevClient }()
+
+	pluginsDir := t.TempDir()
+	upstreamURL, _ := url.Parse(upstream.URL)
+	writePluginWithPermissions(t, pluginsDir, "p", []string{"https://" + upstreamURL.Host})
+	pm := plugins.New(pluginsDir)
+	srv := New(Deps{Plugins: pm, PluginDir: pluginsDir})
+
+	target := "https://" + upstreamURL.Host + "/api/"
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/plugin-fetch/p?url="+url.QueryEscape(target), nil)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Errorf("status = %d, want 302 (not followed)", rec.Code)
+	}
+}
+
+// writePluginWithPermissions writes a plugin whose manifest declares
+// the given connect allowlist. Used by plugin-fetch tests.
+func writePluginWithPermissions(t *testing.T, dir, name string, connect []string) {
+	t.Helper()
+	pluginRoot := filepath.Join(dir, name)
+	if err := os.MkdirAll(pluginRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginRoot, "overlay.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]any{
+		"name":    name,
+		"version": "1.0",
+		"overlay": map[string]any{"file": "overlay.html", "anchor": "top-left"},
+	}
+	if connect != nil {
+		manifest["permissions"] = map[string]any{"connect": connect}
+	}
+	body, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(pluginRoot, "manifest.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writePluginForCSP writes a plugin without a permissions block.
+// Used by tests that exercise the "no allowlist" path.
+func writePluginForCSP(t *testing.T, dir, name string, _ []string) {
+	t.Helper()
+	writePluginWithPermissions(t, dir, name, nil)
+}
