@@ -510,36 +510,34 @@ hot-reload is refused — stop the dev session first.
 
 ## Manifest reference
 
-Required fields are bold.
-
-| Field           | Type    | Notes                                                                  |
-| --------------- | ------- | ---------------------------------------------------------------------- |
-| **`name`**      | string  | Directory-name match. Used as the namespace for `RLT.store`.           |
-| **`version`**   | string  | Semver. Logged at register time.                                       |
-| **`overlay`**   | object  | The Tauri widget view. See `overlay` table below.                      |
-| `title`         | string  | Display name in the dashboard. Defaults to `name` when omitted.        |
-| `author`        | string  | Optional. Shown in the dashboard plugin list.                          |
-| `description`   | string  | Optional. Shown in the dashboard plugin list.                          |
-| `dashboard`     | object  | Optional. `{ "file": "dashboard.html" }` — full-page browser view.     |
-| `settings`      | object  | Optional. `{ "file": "settings.html" }` — iframe modal in the dashboard. |
+| Field         | Type   | Required | Notes                                                                  |
+| ------------- | ------ | -------- | ---------------------------------------------------------------------- |
+| `name`        | string | yes      | Directory-name match. Used as the namespace for `RLT.store`.           |
+| `version`     | string | yes      | Semver. Logged at register time.                                       |
+| `overlay`     | object | yes      | The Tauri widget view. See `overlay` table below.                      |
+| `title`       | string | no       | Display name in the dashboard. Defaults to `name` when omitted.        |
+| `author`      | string | no       | Shown in the dashboard plugin list.                                    |
+| `description` | string | no       | Shown in the dashboard plugin list.                                    |
+| `dashboard`   | object | no       | `{ "file": "dashboard.html" }` — full-page browser view.               |
+| `settings`    | object | no       | `{ "file": "settings.html" }` — iframe modal in the dashboard.         |
 
 ### `overlay` object
 
 The overlay carries Tauri-specific sizing and gating because that's
 the only view that runs in a window of its own.
 
-| Field                 | Type           | Notes                                                                  |
-| --------------------- | -------------- | ---------------------------------------------------------------------- |
-| **`file`**            | string         | Path relative to the plugin dir. Usually `"overlay.html"`.             |
-| **`width`**           | int            | Initial window width in CSS pixels.                                    |
-| **`height`**          | int            | Initial window height.                                                 |
-| **`anchor`**          | string         | One of `top-left`, `top-right`, `bottom-left`, `bottom-right`.         |
-| `offset_x`            | int            | Pixels from the anchored edge horizontally.                            |
-| `offset_y`            | int            | Pixels from the anchored edge vertically.                              |
-| `opacity`             | float (0–1)    | Window opacity. Treats `0` as the unset default and resets it to `1.0` — pick a small non-zero value (e.g. `0.01`) if you really want a near-invisible window. |
-| `click_through`       | boolean        | If `true`, mouse events pass through to the game.                      |
-| `hide_when_unfocused` | boolean / null | If `true`, overlay hides when the game window loses focus.             |
-| `show_during_phase`   | array          | Phase names to show during. Hidden in all other phases. See [phase gating](#phase-gating). |
+| Field                 | Type           | Required | Notes                                                                  |
+| --------------------- | -------------- | -------- | ---------------------------------------------------------------------- |
+| `file`                | string         | yes      | Path relative to the plugin dir. Usually `"overlay.html"`.             |
+| `width`               | int            | no       | Initial window width in CSS pixels. Recommended; `0` falls back to platform default. |
+| `height`              | int            | no       | Initial window height. Recommended; `0` falls back to platform default. |
+| `anchor`              | string         | no       | One of `top-left`, `top-right`, `bottom-left`, `bottom-right`. Empty string falls back to `bottom-left`. |
+| `offset_x`            | int            | no       | Pixels from the anchored edge horizontally.                            |
+| `offset_y`            | int            | no       | Pixels from the anchored edge vertically.                              |
+| `opacity`             | float (0–1)    | no       | Window opacity. A literal `0` is reset to `1.0` by the validator — pick a small non-zero value (e.g. `0.01`) for near-invisible. |
+| `click_through`       | boolean        | no       | If `true`, mouse events pass through to the game.                      |
+| `hide_when_unfocused` | boolean / null | no       | If `true`, overlay hides when the game window loses focus. `null`/absent uses the SDK default. |
+| `show_during_phase`   | array          | no       | Phase names to show during. Hidden in all other phases. See [phase gating](#phase-gating). |
 
 ### `dashboard` and `settings` objects
 
