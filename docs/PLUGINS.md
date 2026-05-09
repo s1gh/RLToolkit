@@ -1465,8 +1465,12 @@ storage](#per-plugin-storage-rltstore) for the `onChange` API.
   the registry is server-injected, so a backend update keeps your
   plugin in sync automatically.
 - **Gate visibility at the manifest level.** `show_during_phase` is
-  cheaper than runtime `display: none` toggles and lets the toolkit
-  hide your window without your code running at all.
+  declarative — one line in the manifest instead of a phase
+  subscription in your code. Under the hood the SDK still toggles
+  `body { display: none }` per phase change, so your event handlers
+  keep firing; what you avoid is duplicating the subscription and the
+  flash of content before the first phase resolves (the SDK injects a
+  pre-paint hide for you).
 - **Use `ready()` for initial setup that needs identity or
   encounters.** It fires after both stores have hydrated; before that,
   `RLT.me.id` may be empty even if the user has set their identity.
