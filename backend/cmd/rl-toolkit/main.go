@@ -28,6 +28,7 @@ import (
 	"rl-toolkit/backend/internal/paths"
 	"rl-toolkit/backend/internal/pipeline"
 	"rl-toolkit/backend/internal/plugins"
+	"rl-toolkit/backend/internal/replaywatch"
 	"rl-toolkit/backend/internal/roster"
 	"rl-toolkit/backend/internal/scaffold"
 	"rl-toolkit/backend/internal/server"
@@ -233,23 +234,37 @@ func runServe() {
 		}
 	}
 
+	rwStore, err := replaywatch.NewStore(cfg.DataDir)
+	if err != nil {
+		log.Fatalf("[server] %v", err)
+	}
+	rwWatcher := replaywatch.NewWatcher(rwStore, eventBus, replaywatch.WatcherOptions{})
+	rwStore.Notify = func() {
+		rwWatcher.Reload()
+		if env := server.MarshalReplayWatcherChanged(rwWatcher.State()); env != nil {
+			eventBus.Broadcast(bus.Event{Name: "_ReplayWatcherChanged", Raw: env})
+		}
+	}
+
 	srv := server.New(server.Deps{
-		Bus:         eventBus,
-		Store:       store,
-		Plugins:     pm,
-		Source:      src,
-		MatchState:  matchState,
-		Roster:      rt,
-		Demos:       demos,
-		Overrides:   ovr,
-		Surface:     surf,
-		Discoveries: disc,
-		Identity:    idStore,
-		PluginDir:   cfg.PluginDir,
+		Bus:           eventBus,
+		Store:         store,
+		Plugins:       pm,
+		Source:        src,
+		MatchState:    matchState,
+		Roster:        rt,
+		Demos:         demos,
+		Overrides:     ovr,
+		Surface:       surf,
+		Discoveries:   disc,
+		Identity:      idStore,
+		ReplayWatcher: rwWatcher,
+		PluginDir:     cfg.PluginDir,
 	})
 	go src.Run(ctx)
 	go pipe.Run(ctx, src, eventBus)
 	go matchState.Run(ctx)
+	go rwWatcher.Run(ctx)
 	// Flush new Statfeed-name discoveries to disk every 5s. The store
 	// is debounced (no-op when unchanged) so a tight tick is fine.
 	go func() {
