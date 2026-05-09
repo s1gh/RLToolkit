@@ -579,13 +579,15 @@ inside the plugin folder, or whose path tries to escape the folder.
 
 ### `permissions` object
 
-Plugins are sandboxed by default — the iframe runs in its own origin,
-and `fetch()` from inside it can only reach the toolkit's own
-endpoints (same-origin policy). External APIs that don't return
-permissive CORS headers (most third-party REST APIs) can't be called
-directly from the iframe.
+Plugin iframes are served from the toolkit's own origin, so a
+`fetch()` to any `/api/...` path works directly. Calls to external
+APIs run into the browser's CORS policy: any third-party host that
+doesn't return permissive `Access-Control-Allow-*` headers will
+reject the preflight, and the call fails before it leaves. Most
+third-party REST APIs don't.
 
-The `permissions` block opts a plugin into a tightly-scoped relaxation:
+The `permissions` block opts a plugin into a tightly-scoped backend
+proxy that bypasses CORS for explicitly allowlisted origins:
 
 ```json
 "permissions": {
@@ -598,9 +600,9 @@ The `permissions` block opts a plugin into a tightly-scoped relaxation:
 | `connect` | string[] | List of bare https origins the plugin is allowed to reach via the backend proxy.     |
 
 Each `connect` entry must be a bare https origin: scheme + host
-(optional `:port`), no path, no query, no fragment, no userinfo.
-Invalid entries are dropped at manifest load time and logged to the
-backend console.
+(optional `:port`), with no query or fragment, no userinfo, and at
+most a `/` path. Invalid entries are dropped at manifest load time
+and logged to the backend console.
 
 To call an allowlisted origin from your plugin's JS, route the
 request through the backend proxy:
@@ -617,16 +619,22 @@ const r = await fetch(proxied, {
 
 The proxy:
 
-- Validates that the target's origin matches one of the plugin's
-  `permissions.connect` entries (403 otherwise).
-- Forwards `Authorization`, `Content-Type`, and `Accept` headers
-  through; strips `Cookie`, `Host`, and other sensitive headers.
+- Validates that the target URL is https and its origin matches one
+  of the plugin's `permissions.connect` entries (403 otherwise).
+- Builds a fresh upstream request with only the request method, URL,
+  and body forwarded. Of the inbound headers, only `Authorization`,
+  `Content-Type`, and `Accept` are copied through — everything else
+  (custom headers, `Cookie`, `User-Agent`, `Host`, …) is dropped.
 - Does NOT follow redirects — a 3xx from the upstream is returned
   to the plugin verbatim, preventing SSRF via 302 into private
   networks.
-- Caps both request and response bodies at 16 MiB.
-- Returns the upstream's status and body to the plugin's `fetch`
-  promise as if the call had been direct.
+- Caps both the inbound request body and the outbound response body
+  at 16 MiB.
+- Returns the upstream's status code and body to the plugin's
+  `fetch` promise. Of the upstream response headers, only
+  `Content-Type` and `Retry-After` are exposed; other headers
+  (e.g. `Set-Cookie`, `ETag`, rate-limit headers) are not visible
+  to the plugin.
 
 ---
 
