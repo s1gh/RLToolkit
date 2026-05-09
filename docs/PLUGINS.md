@@ -1431,10 +1431,24 @@ re-emitted — the event means "saved during this session."
 The watched directory auto-detects on Linux (Steam Proton prefix) and
 Windows (`%USERPROFILE%\Documents\My Games\Rocket League\TAGame\Demos`).
 macOS and non-standard installs require setting a custom path via
-`PUT /api/replay-watcher` with body `{"dir":"/abs/path"}`.
+`PUT /api/replay-watcher` with body `{"dir":"/abs/path"}`. A `null`
+or absent `dir` clears the override and falls back to auto-detect.
 
-A companion event `_ReplayWatcherChanged` fires whenever the
-configured directory changes; payload mirrors `GET /api/replay-watcher`.
+`GET /api/replay-watcher` returns the watcher's current state:
+
+```js
+{
+  configured: string,    // user override; "" when unset
+  autoDetected: string,  // first existing per-OS candidate; "" when none matched
+  effective: string,     // the dir the watcher is actually monitoring
+  status: "active" | "inactive",
+  statusReason: string,  // human-readable when inactive (e.g. "directory not found")
+}
+```
+
+A companion event `_ReplayWatcherChanged` fires after every successful
+PUT (even when the dir didn't actually change); payload is the same
+shape as `GET /api/replay-watcher`.
 
 ### Tick stream
 
