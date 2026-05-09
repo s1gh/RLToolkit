@@ -23,28 +23,21 @@ type Manifest struct {
 	Author      string        `json:"author"`
 	Description string        `json:"description,omitempty"`
 
-	// Overlay is the only required view: it's what the Tauri widget
-	// renders on top of the game. Carries sizing/anchoring/visibility
-	// gates because that's where they belong (Tauri-only concerns).
+	// Overlay is the required view rendered by the Tauri widget on top
+	// of the game.
 	Overlay OverlayConfig `json:"overlay"`
 
-	// Dashboard is an optional full-page browser view. Linked to from
-	// the dashboard's per-plugin card; opens in a new tab. Use it for
-	// rich UIs that don't fit a transparent overlay (history tables,
-	// charts, leaderboards, configuration that's too heavy for a
-	// settings panel).
+	// Dashboard is an optional full-page browser view linked from the
+	// dashboard's per-plugin card (history tables, charts, leaderboards).
 	Dashboard *ViewConfig `json:"dashboard,omitempty"`
 
-	// Settings is an optional iframe-rendered configuration panel. The
-	// dashboard exposes a per-plugin "Settings" button when this is
-	// set; clicking it opens the file in a modal iframe. The view is
+	// Settings is an optional iframe-rendered configuration panel
+	// surfaced as a "Settings" button on the dashboard. The view is
 	// responsible for its own layout + RLT.settings.close() wiring.
 	Settings *ViewConfig `json:"settings,omitempty"`
 }
 
-// ViewConfig points at an HTML file inside the plugin folder. Object
-// form (rather than a bare string) so we have room for per-view
-// options later without another breaking change.
+// ViewConfig points at an HTML file inside the plugin folder.
 type ViewConfig struct {
 	File string `json:"file"`
 }
@@ -58,32 +51,20 @@ type OverlayConfig struct {
 	OffsetY      int     `json:"offset_y"`
 	Opacity      float64 `json:"opacity"`
 	ClickThrough bool    `json:"click_through"`
-	// HideWhenUnfocused gates the widget on RL window focus. When true,
-	// the SDK default-hides the overlay body at load and toggles inline
-	// `display` on each onFocusChange emit. Pointer so absent ≠ false:
-	// absent means "the manifest didn't say" and the SDK can apply its
-	// current default (false; show always). Explicit false locks that
-	// behavior even if the SDK default flips later.
+	// HideWhenUnfocused gates the widget on RL window focus. Pointer so
+	// absent means "no preference; SDK default applies".
 	HideWhenUnfocused *bool `json:"hide_when_unfocused,omitempty"`
 	// ShowDuringPhase whitelists lifecycle phases during which the
-	// widget is visible. Combines with HideWhenUnfocused via AND: the
-	// widget shows only when RL is focused AND the current phase is in
-	// the list. Absent (nil) = show in any phase. Empty array would
-	// mean "never", so we treat that as the absent case to be safe.
-	// Phase strings match LifecyclePhase: none, created, countdown,
-	// live, paused, replay, ended, podium.
+	// widget is visible. ANDs with HideWhenUnfocused. Nil or empty =
+	// show in any phase. Phase strings match LifecyclePhase: none,
+	// created, countdown, live, paused, replay, ended, podium.
 	ShowDuringPhase []string `json:"show_during_phase,omitempty"`
 }
 
-// validateManifest enforces the structural rules a plugin must follow
-// to be loadable, and applies the small handful of defaults the rest
-// of the system assumes (zero opacity → fully opaque, empty title →
-// fall back to name). pluginRoot is the absolute path to the plugin's
-// folder; it's used both for path-existence checks and to refuse
-// `..`-style traversal in view file paths.
-//
-// Returns the first error encountered. Callers log and skip — a
-// half-valid plugin shouldn't appear in the dashboard.
+// validateManifest enforces structural rules and applies defaults
+// (zero opacity → 1.0, empty title → name). pluginRoot is used for
+// existence checks and to refuse `..`-style traversal in view paths.
+// Returns on first error; callers log and skip the plugin.
 func validateManifest(m *Manifest, pluginRoot string) error {
 	if m == nil {
 		return errors.New("nil manifest")
@@ -117,12 +98,11 @@ func validateManifest(m *Manifest, pluginRoot string) error {
 		}
 	}
 
-	// Defaults — applied here so every consumer sees the same shape.
 	if strings.TrimSpace(m.Title) == "" {
 		m.Title = m.Name
 	}
-	// Zero opacity means "fully opaque" by convention. Plugins that
-	// want truly invisible should set a small ε.
+	// Zero opacity is treated as fully opaque by convention; truly
+	// invisible plugins should set a small ε.
 	if m.Overlay.Opacity == 0 {
 		m.Overlay.Opacity = 1.0
 	}
@@ -138,8 +118,6 @@ func validateViewFile(field, rel, pluginRoot string) error {
 		return fmt.Errorf("%s must be a relative path inside the plugin folder", field)
 	}
 	full := filepath.Join(pluginRoot, rel)
-	// filepath.Clean on the Join result canonicalizes `..`; if the
-	// result no longer starts with the plugin root, the path escapes.
 	rootAbs, err := filepath.Abs(pluginRoot)
 	if err != nil {
 		return fmt.Errorf("%s: cannot resolve plugin root: %w", field, err)
@@ -161,21 +139,17 @@ func validateViewFile(field, rel, pluginRoot string) error {
 	return nil
 }
 
-// Broadcaster matches the slim publishing surface used elsewhere
-// (see state.Broadcaster). Defined here so the manager doesn't import
-// the bus package directly.
+// Broadcaster is the slim publish surface used here (matches
+// state.Broadcaster).
 type Broadcaster interface {
 	Broadcast(evt bus.Event)
 }
 
 // Manager scans the plugin directory and serves manifest listings.
-//
-// Dev plugins are an in-memory registration of <name → absolute folder
-// path>. When List() runs, each registered dev plugin is parsed
-// (mtime-cached like installed plugins) and shadows any installed
-// plugin of the same name in the returned slice. This is how
-// `rl-toolkit dev` hot-loads a plugin without disturbing what's on
-// disk.
+// Dev plugins (in-memory <name → absolute folder path>) shadow
+// installed plugins of the same name in List() output, mtime-cached
+// like installed plugins. This is how `rl-toolkit dev` hot-loads
+// without touching disk.
 type Manager struct {
 	dir string
 
@@ -185,14 +159,10 @@ type Manager struct {
 
 	// Dev plugins: name → absolute folder path.
 	dev map[string]string
-	// Mtime cache for dev manifests, keyed by absolute folder path so
-	// re-registering the same path under a different name doesn't lose
-	// the cache.
+	// devCache is keyed by absolute folder path so re-registering the
+	// same path under a different name doesn't lose the cache.
 	devCache map[string]*cachedManifest
 
-	// bus is set via AttachBroadcaster. NotifyReload publishes a
-	// `_DevPluginReload` event when bus is non-nil, so open SDK
-	// instances of the matching plugin reload themselves.
 	bus Broadcaster
 }
 
@@ -218,14 +188,10 @@ func New(dir string) *Manager {
 	return pm
 }
 
-// Has reports whether `name` refers to a plugin folder with a valid,
+// Has reports whether `name` refers to a plugin with a valid,
 // parseable manifest.json. Used by the file-server middleware to gate
-// access — plugins without a manifest aren't loadable, so requests for
-// their assets get 404'd instead of silently falling through to disk.
-//
-// Triggers a refresh of the manifest cache (cheap when nothing
-// changed) so a freshly-fixed manifest takes effect on the next
-// request without a server restart.
+// access. Triggers a manifest cache refresh so a freshly-fixed
+// manifest takes effect without a server restart.
 func (pm *Manager) Has(name string) bool {
 	for _, m := range pm.List() {
 		if m != nil && m.Name == name {
@@ -236,10 +202,8 @@ func (pm *Manager) Has(name string) bool {
 }
 
 // List returns the current manifest list. Newly-dropped plugin folders
-// appear without a server restart; a refresh of the dashboard is enough.
-//
-// The mtime cache means repeated calls don't re-parse unchanged manifests,
-// and removed folders are detected by absence from the directory listing.
+// appear without a server restart. The mtime cache skips re-parsing
+// unchanged manifests; removed folders drop out of the listing.
 func (pm *Manager) List() []*Manifest {
 	entries, err := os.ReadDir(pm.dir)
 	if err != nil {
@@ -299,9 +263,8 @@ func (pm *Manager) List() []*Manifest {
 		}
 	}
 
-	// Dev-plugin overlay: parse each registered dev folder's manifest
-	// and shadow any installed plugin with the same name. We hold
-	// pm.mu (acquired above), so reading pm.dev directly is safe.
+	// Dev-plugin overlay: parse each registered dev manifest and
+	// shadow any installed plugin with the same name.
 	for name, path := range pm.dev {
 		manifestPath := filepath.Join(path, "manifest.json")
 		st, err := os.Stat(manifestPath)
@@ -390,7 +353,7 @@ func (pm *Manager) RegisterDev(name, path string) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.dev[name] = abs
-	delete(pm.devCache, abs) // force re-parse on next List()
+	delete(pm.devCache, abs)
 	return nil
 }
 
@@ -416,10 +379,9 @@ func (pm *Manager) DevPath(name string) string {
 	return pm.dev[name]
 }
 
-// AttachBroadcaster wires a publisher into the manager so dev-plugin
-// reload notifications reach SSE subscribers (the running overlay and
-// dashboard windows). Called once at startup; safe to omit (NotifyReload
-// degrades to "log + invalidate cache" without it).
+// AttachBroadcaster wires a publisher so dev-reload notifications
+// reach SSE subscribers. Optional — without it, NotifyReload degrades
+// to "log + invalidate cache".
 func (pm *Manager) AttachBroadcaster(b Broadcaster) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()

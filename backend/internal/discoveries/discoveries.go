@@ -12,10 +12,9 @@ import (
 	"time"
 )
 
-// Entry is one row in the persisted discoveries map. It tracks how
-// often an unknown name has been seen and when. Plugin authors use
-// this to confirm new names before adding them to the verified
-// registry.
+// Entry tracks how often an unknown Statfeed name has been seen and
+// when, so plugin authors can confirm new names before adding them to
+// the verified registry.
 type Entry struct {
 	Name        string    `json:"name"`
 	FirstSeenAt time.Time `json:"firstSeenAt"`
@@ -98,10 +97,8 @@ func (s *Store) All() []*Entry {
 	return out
 }
 
-// Flush writes the entries to disk if dirty. Cheap when nothing
-// changed (no write). Errors are returned so callers can decide
-// whether to log; the synthesizer's flush loop logs once and
-// continues.
+// Flush writes the entries to disk if dirty. No-op when nothing
+// changed.
 func (s *Store) Flush() error {
 	s.mu.Lock()
 	if !s.dirty {

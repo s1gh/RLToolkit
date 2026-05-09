@@ -8,35 +8,20 @@ import (
 	"sync"
 )
 
-// Statfeed owns every Statfeed-driven synthetic event:
+// Statfeed owns every Statfeed-driven synthetic event: the catch-all
+// _StatfeedEvent, the promoted dedicated events (_Save, _EpicSave,
+// _Shot, _Assist, _Center, _Clear, _BicycleHit, _FlipReset, _HatTrick,
+// _Demolish), and _UnknownStatfeed for variants not in the verified
+// registry.
 //
-//   - The catch-all _StatfeedEvent (every Statfeed variant, with
-//     resolved targets).
-//   - The promoted dedicated events: _Save, _EpicSave, _Shot, _Assist,
-//     _Center, _Clear, _BicycleHit, _FlipReset, _HatTrick, _Demolish.
-//   - _UnknownStatfeed for any variant not in the verified registry.
+// Owns flipResetArmed (consumed by Goal for IsFlipResetGoal) and
+// flipResetCountByID (per-match counter on _FlipReset). Reads roster,
+// correlation lookback, realGoals (HatTrick suppression) and
+// discoveries (unknown-variant recording).
 //
-// State owned:
-//
-//   - flipResetArmed: scorer was airborne with a flip reset; consumed
-//     by Goal for the IsFlipResetGoal modifier flag.
-//   - flipResetCountByID: per-match counter on every _FlipReset wire
-//     payload.
-//
-// State read from shared stores:
-//
-//   - roster (resolve targets)
-//   - correlation (lookback for Save→Shot, Assist→Goal,
-//     touch-variants→BallHit)
-//   - realGoals (HatTrick suppression)
-//   - discoveries (record unknown variants for plugin authors)
-//
-// Demos are split into a typed _Demolish event the Demos emitter
-// consumes; this emitter doesn't own _PlayerDemolished or _DemoChain.
-//
-// Dispatch is idempotent across reset events: MatchCreated and
-// MatchDestroyed both clear per-match maps so a back-to-back rejoin
-// into the same lobby starts fresh.
+// _Demolish is consumed by the Demos emitter, which produces
+// _PlayerDemolished and _DemoChain. Per-match maps are cleared on
+// MatchCreated and MatchDestroyed.
 type Statfeed struct {
 	roster      RosterResolver
 	correlation Correlator
@@ -149,18 +134,17 @@ func (e *Statfeed) processStatfeed(evt bus.Event) []bus.Event {
 		resolvedSecondary = e.roster.ResolveByShortcut(*secondary)
 	}
 
-	// Record into the correlation buffer so _GoalScored / Phase-3
-	// events can look back for same-frame modifiers. Stash the wire
-	// ref for shortcut-matching plus the resolved enrichment for
-	// forward use.
+	// Record into the correlation buffer so downstream emitters can
+	// look back for same-frame modifiers. Stashes the wire ref for
+	// shortcut-matching plus the resolved enrichment for forward use.
 	e.correlation.Record("StatfeedEvent", &types.StatfeedRecord{
 		EventName: eventName,
 		MainRef:   main,
 		Resolved:  resolvedMain,
 	})
 
-	// Catch-all _StatfeedEvent first — same wire shape every
-	// subscriber depends on, irrespective of variant promotion.
+	// Catch-all _StatfeedEvent first — same wire shape regardless of
+	// variant promotion.
 	out := make([]bus.Event, 0, 3)
 	if body, err := json.Marshal(struct {
 		MatchGUID       string                `json:"matchGuid,omitempty"`
@@ -187,9 +171,8 @@ func (e *Statfeed) processStatfeed(evt bus.Event) []bus.Event {
 	}
 	switch eventName {
 	case "Demolish":
-		// Typed _Demolish carries just the resolved targets. Demos
-		// consumes it and produces _PlayerDemolished (with
-		// attackerSpeed) and _DemoChain (with chain detection).
+		// Demos consumes _Demolish and produces _PlayerDemolished (with
+		// attackerSpeed) and _DemoChain.
 		if resolvedMain != nil && resolvedSecondary != nil {
 			body, err := json.Marshal(struct {
 				MatchGUID string                `json:"matchGuid,omitempty"`
@@ -296,9 +279,8 @@ func (e *Statfeed) hatTrick(guid string, main *types.EnrichedPlayer) *bus.Event 
 	if main == nil {
 		return nil
 	}
+	// RL's HatTrick statfeed counts own goals; we don't.
 	if e.realGoals == nil || e.realGoals.RealGoals(main.ID) < 3 {
-		// RL's HatTrick statfeed counts own goals; we don't. Suppress
-		// the event when the real-goal count is below 3.
 		return nil
 	}
 	body, err := json.Marshal(struct {
@@ -320,8 +302,8 @@ func (e *Statfeed) save(guid string, main *types.EnrichedPlayer, eventName strin
 	if main == nil {
 		return nil
 	}
-	// Look back for a recent Shot statfeed by an opposing-team
-	// player. Saves can land several events after the shot.
+	// Saves can land several events after the shot, so look back for
+	// a Shot statfeed by an opposing-team player.
 	var correlatedShot *types.EnrichedPlayer
 	for _, p := range e.correlation.Recent("StatfeedEvent", 15) {
 		rec, ok := p.(*types.StatfeedRecord)

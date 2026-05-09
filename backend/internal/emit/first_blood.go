@@ -142,10 +142,8 @@ func (e *FirstBlood) emitFirstBlood(evt bus.Event) []bus.Event {
 }
 
 // emitOvertime detects the rising edge of bOvertime within UpdateState.
-// We parse the inner Data string ourselves (RL's UpdateState wraps its
-// payload as a JSON-encoded string) rather than depending on
-// TickStore — Stage 5.7 will move the per-tick decode into a shared
-// store, but until then this emitter pulls only what it needs.
+// Parses the inner Data string directly (RL wraps the payload as a
+// JSON-encoded string) — pulls only the bits this emitter needs.
 func (e *FirstBlood) emitOvertime(evt bus.Event) []bus.Event {
 	inner := wire.UnwrapInnerData(evt.Raw)
 	if inner == "" {

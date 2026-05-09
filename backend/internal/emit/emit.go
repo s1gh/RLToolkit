@@ -137,11 +137,8 @@ func recentTouch(c Correlator, window int) *types.EnrichedCorrelatedTouch {
 	return nil
 }
 
-// payloadBytes returns the JSON object the upstream emitter produced.
-// During the synth-bridged transition the legacy producer ships flat
-// raw JSON (with "Event" at the top level inline with the fields), so
-// Raw is what we want. Native emit processors return Event{Name, Data}
-// where Data is the typed payload — when that's set we prefer it.
+// payloadBytes returns Data when set (native emit processors) and
+// falls back to Raw (flat-JSON producers).
 func payloadBytes(evt bus.Event) []byte {
 	if len(evt.Data) > 0 {
 		return evt.Data

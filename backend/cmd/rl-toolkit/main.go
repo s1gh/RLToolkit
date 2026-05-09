@@ -50,15 +50,12 @@ type Config struct {
 }
 
 // httpShutdown bounds how long http.Shutdown waits for in-flight
-// handlers to honor ctx cancellation. SSE handlers wake from
-// r.Context().Done() inside ~ms, so this is a generous safety net for
-// any non-SSE handler that's mid-write.
+// handlers. SSE handlers wake from r.Context().Done() in milliseconds;
+// this is the safety net for any non-SSE handler mid-write.
 const httpShutdown = 2 * time.Second
 
 func main() {
-	// Subcommand dispatch: anything that isn't `serve` (or empty) is a
-	// tool. `serve` is also the implicit default so a bare
-	// `rl-toolkit` keeps behaving like before.
+	// `serve` is the implicit default; anything else is a tool subcommand.
 	if len(os.Args) > 1 && !isFlag(os.Args[1]) {
 		switch os.Args[1] {
 		case "serve":
@@ -107,9 +104,8 @@ Server flags (serve):
 `)
 }
 
-// identityAdapter bridges *identity.Store to roster.IdentityLookup —
-// the consumer-side interface declares MyPrimaryID(), the store has
-// Get() returning a richer *Identity. Adapter does the unwrap.
+// identityAdapter bridges *identity.Store to roster.IdentityLookup
+// (Get → MyPrimaryID).
 type identityAdapter struct{ s *identity.Store }
 
 func (a identityAdapter) MyPrimaryID() string {
@@ -126,12 +122,6 @@ func (a identityAdapter) MyPrimaryID() string {
 func runServe() {
 	cfg := parseFlags()
 	log.SetFlags(log.Ltime)
-	// Two sinks: stderr (with the dev-friendly ANSI styling) and a
-	// per-day file under <data>/logs/. The file gets the raw,
-	// already-time-prefixed bytes so a `tail -f` of yesterday's log
-	// reads cleanly without escape garbage. styledLogWriter is the
-	// stderr-side filter — it consumes the same bytes and adds color
-	// before they hit the terminal.
 	closeLogs := installLogSinks(cfg.DataDir)
 	defer func() { _ = closeLogs() }()
 
@@ -151,11 +141,8 @@ func runServe() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// The dev API is a localhost listener used by `rl-toolkit dev` to
-	// register and hot-reload plugin folders. It is opt-in: production
-	// runs (the default) leave this surface off entirely. Developers
-	// pass -dev (or set RLT_DEV=1 if launched via the launcher) to
-	// enable it.
+	// Dev API is opt-in: a localhost listener for `rl-toolkit dev`
+	// to register and hot-reload plugin folders.
 	if cfg.Dev {
 		devSrv, err := devapi.Start(ctx, pm)
 		if err != nil {
@@ -181,13 +168,9 @@ func runServe() {
 	tickDiff := emit.NewTickDiff(matchState, tickStore, corr, statfeed)
 	matchEnded := emit.NewMatchEnded(tickStore)
 
-	// Pipeline wiring: events flow source → pipeline → bus.
-	//
-	// State processors update shared snapshots (roster, matchState,
-	// tickStore) before any emit processor runs. Emit processors are
-	// registered in dependency order so producers fire before
-	// consumers — see pipeline.runEmit for the strictly-forward
-	// chaining rule.
+	// Pipeline wiring: events flow source → pipeline → bus. State
+	// processors run before any emit processor; emit processors are
+	// registered in dependency order (see pipeline.runEmit).
 	pipe := pipeline.New()
 	pipe.AddState(rt)
 	pipe.AddState(matchState)
@@ -235,10 +218,6 @@ func runServe() {
 	}
 
 	ovr.Notify = func() {
-		// Re-snapshot the full overrides map and publish to
-		// subscribers. Cheap: the file is tiny (one entry per plugin)
-		// and Notify only fires on user-driven editor changes, not
-		// in any hot loop.
 		if env := server.MarshalOverridesChanged(ovr.GetAll()); env != nil {
 			eventBus.Broadcast(bus.Event{Name: "_OverridesChanged", Raw: env})
 		}
@@ -271,10 +250,8 @@ func runServe() {
 	go src.Run(ctx)
 	go pipe.Run(ctx, src, eventBus)
 	go matchState.Run(ctx)
-	// Periodically flush new Statfeed-name discoveries to disk. The
-	// store itself is debounced (no-op when nothing changed), so a
-	// tight tick is fine — every 5 seconds is well under any
-	// human-noticeable lag.
+	// Flush new Statfeed-name discoveries to disk every 5s. The store
+	// is debounced (no-op when unchanged) so a tight tick is fine.
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
@@ -294,11 +271,9 @@ func runServe() {
 	hs := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler: srv.Routes(),
-		// BaseContext makes every request's r.Context() a child of
-		// the app's lifetime ctx. On shutdown we cancel ctx first so
-		// long-lived handlers (notably the SSE stream) wake up via
-		// <-r.Context().Done() instead of waiting for the shutdown
-		// grace period to elapse.
+		// Tie request contexts to the app lifetime so long-lived
+		// handlers (notably SSE) wake on cancel instead of waiting
+		// out the shutdown grace period.
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
 	}
 	go func() {
@@ -318,9 +293,8 @@ func runServe() {
 }
 
 // runNew handles `rl-toolkit new <name> [-plugins <dir>]`. Accepts
-// the name in any position (before or after flags) so common typing
-// patterns all work — Go's stdlib flag package stops at the first
-// non-flag.
+// the name in any position; Go's stdlib flag package stops at the
+// first non-flag, hence the manual split.
 func runNew(args []string) int {
 	fs := flag.NewFlagSet("new", flag.ExitOnError)
 	pluginDir := fs.String("plugins", defaultPluginDir(), "Plugin directory path")
@@ -367,11 +341,9 @@ func splitFlagsAndPositional(args []string) (flags, positional []string) {
 	return
 }
 
-// parseFlags reads server CLI flags and resolves directories to the
-// per-OS user application data dir (see backend/internal/paths) so the
-// backend's state lives in the same place whether it's run via the
-// launcher sidecar or invoked directly. Falls back to the executable
-// dir if the OS path can't be resolved.
+// parseFlags reads server CLI flags. Default directories resolve to
+// the per-OS user application data dir (see backend/internal/paths),
+// falling back to <exe-dir> when the OS path can't be resolved.
 func parseFlags() Config {
 	rlAddr := flag.String("rl-addr", "127.0.0.1:49123", "RL Stats API address (host:port)")
 	httpPort := flag.Int("port", 49200, "HTTP server port")
@@ -413,10 +385,9 @@ func defaultDataDir() string {
 	return filepath.Join(executableDir(), "data")
 }
 
-// awaitSignal blocks until SIGINT/SIGTERM. After the first signal it
-// returns so the main goroutine can run shutdown; a SECOND signal in
-// the grace window force-exits, so an impatient Ctrl+C, Ctrl+C
-// doesn't wait for the HTTP shutdown deadline.
+// awaitSignal blocks until SIGINT/SIGTERM. A second signal in the
+// grace window force-exits so Ctrl+C, Ctrl+C doesn't wait for the
+// shutdown deadline.
 func awaitSignal() {
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -428,9 +399,8 @@ func awaitSignal() {
 	}()
 }
 
-// ANSI escape codes. Empty when the terminal can't render them, so
-// the same code path produces clean plain-text in pipes / dumb
-// terms.
+// ANSI escape codes; empty when output can't render them so pipes /
+// dumb terms get clean plain text.
 var (
 	cReset   = ansi("\x1b[0m")
 	cDim     = ansi("\x1b[2m")
@@ -442,10 +412,8 @@ var (
 	cAccent  = ansi("\x1b[1;36m") // bold cyan — for the wordmark
 )
 
-// ansi returns the given escape only when output is going to a real
-// terminal that can render it. Honors the de-facto NO_COLOR
-// convention (https://no-color.org) and TERM=dumb so log redirects
-// produce clean text without escape garbage.
+// ansi returns the escape only when stderr is a real terminal that
+// can render it. Honors NO_COLOR (https://no-color.org) and TERM=dumb.
 func ansi(seq string) string {
 	if os.Getenv("NO_COLOR") != "" {
 		return ""
@@ -459,9 +427,8 @@ func ansi(seq string) string {
 	return seq
 }
 
-// printStartupBanner is the first thing the user sees on launch: the
-// URLs they actually need (dashboard, overlay) and the address the
-// toolkit will listen for RL on.
+// printStartupBanner shows the URLs the user needs (dashboard,
+// overlay) and the RL listen address.
 func printStartupBanner(cfg Config) {
 	fmt.Fprintf(os.Stderr, "\n  %srl-toolkit%s %s· stats overlay host%s\n",
 		cAccent, cReset, cDim, cReset)
@@ -477,10 +444,8 @@ func printStartupBanner(cfg Config) {
 	fmt.Fprintln(os.Stderr)
 }
 
-// printRLSetupNotice reminds the user that RL's Stats API is OFF by
-// default. Without PacketSendRate > 0 in DefaultStatsAPI.ini, RL
-// never opens the local socket and the toolkit will sit at
-// "disconnected" forever.
+// printRLSetupNotice reminds the user RL's Stats API is OFF by default —
+// without PacketSendRate>0, the toolkit sits at "disconnected".
 func printRLSetupNotice() {
 	bar := cAmber + "┃" + cReset
 	line := func(s string) { fmt.Fprintf(os.Stderr, "  %s  %s\n", bar, s) }
@@ -503,24 +468,16 @@ func printRLSetupNotice() {
 	fmt.Fprintln(os.Stderr)
 }
 
-// printLogsSectionHeader is the visual hand-off between the static
-// banner above and the live operational logs below.
+// printLogsSectionHeader separates the static banner from the live logs.
 func printLogsSectionHeader() {
 	fmt.Fprintf(os.Stderr, "  %s%s%s %s──────────────────────────────────%s\n\n",
 		cDim, "logs", cReset, cDim, cReset)
 }
 
-// installLogSinks routes the stdlib log package to (a) the dev
-// terminal with ANSI styling and (b) a per-day file under
-// <dataDir>/logs/backend-YYYY-MM-DD.log. Returns a closer that flushes
-// the file at shutdown.
-//
-// The styled writer is the stderr leaf; the file gets the same
-// time-prefixed bytes WITHOUT escape sequences so files read cleanly
-// in any text viewer. logging.Init returns a MultiWriter wrapping
-// (styledStderr, fileSink) — log.SetOutput installs that as the sole
-// destination, and every log.Printf call across the backend reaches
-// both sinks for free.
+// installLogSinks routes stdlib log output to ANSI-styled stderr and
+// a per-day file under <dataDir>/logs/. Returns a closer that flushes
+// the file at shutdown. The file sees raw bytes without escapes so
+// it reads cleanly in any text viewer.
 func installLogSinks(dataDir string) func() error {
 	styled := &styledLogWriter{w: os.Stderr}
 	out, closeFn := logging.Init(dataDir, styled)
@@ -528,18 +485,15 @@ func installLogSinks(dataDir string) func() error {
 	return closeFn
 }
 
-// styledLogWriter wraps stderr to colorize log lines emitted by the
-// stdlib log package. Each line arrives as "HH:MM:SS [facet] message".
-// We dim the timestamp, color the facet tag (one color per facet so
-// they're scannable at a glance), and leave the message body plain.
+// styledLogWriter colorizes stdlib log lines of the form
+// "HH:MM:SS [facet] message" — dim timestamp, per-facet colored tag,
+// plain message body.
 type styledLogWriter struct {
 	w io.Writer
 }
 
-// facetColor maps log facets to consistent colors so users can scan
-// a busy log by hue. Add new facets here as they're introduced;
-// unknown facets render dim, which reads as "uncategorized" without
-// breaking layout.
+// facetColor maps log facets to consistent colors. Unknown facets
+// render dim.
 var facetColor = map[string]string{
 	"server":  cGreen,
 	"rl-api":  cCyan,
@@ -565,10 +519,8 @@ func (s *styledLogWriter) Write(p []byte) (int, error) {
 	return len(p), err
 }
 
-// styleLine recognizes the stdlib log format with Ltime + a "[facet]"
-// prefix. Anything that doesn't match is written through unchanged so
-// non-conforming log calls (e.g. multi-line stack traces) don't get
-// chopped up.
+// styleLine matches stdlib Ltime + "[facet]" prefix; non-matching
+// lines pass through unchanged so stack traces stay intact.
 func (s *styledLogWriter) styleLine(out *bytes.Buffer, line []byte) {
 	if len(line) < 12 || line[2] != ':' || line[5] != ':' || line[8] != ' ' || line[9] != '[' {
 		out.Write(line)

@@ -26,9 +26,8 @@ func (s *Fixture) Events(ctx context.Context) <-chan bus.Event {
 		}
 		defer f.Close()
 		scanner := bufio.NewScanner(f)
-		// Default token size is 64KB which is plenty for a single
-		// envelope, but UpdateState payloads can be large; bump to 1MB
-		// just to be safe.
+		// Bump the scanner to 1MB — UpdateState payloads can exceed
+		// the default 64KB token cap.
 		buf := make([]byte, 0, 64*1024)
 		scanner.Buffer(buf, 1024*1024)
 		for scanner.Scan() {

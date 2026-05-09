@@ -29,20 +29,11 @@ func RegisterAliases(m map[string]string) {
 }
 
 // ExtractEventName pulls the event name from an RL-shaped JSON
-// envelope without a full Unmarshal. Returns "" if the field is
-// absent or malformed.
-//
-// RL emits the envelope key + values in lowercase ("event":"goalscored")
-// on this build of the Stats API; older docs use PascalCase
-// ("Event":"GoalScored"). We accept both keys and normalize the value
-// to canonical PascalCase via Canonical so every downstream comparison
-// stays PascalCase.
-//
-// Implementation: decode the envelope's two name keys via the JSON
-// parser. The Data field is captured as a json.RawMessage and thrown
-// away — no allocation for the multi-KB inner payload, and field
-// order in the envelope no longer matters (a previous substring-scan
-// implementation broke whenever Data appeared before Event).
+// envelope. Returns "" if absent or malformed. Accepts both PascalCase
+// ("Event") and lowercase ("event") keys; the value is normalized to
+// canonical PascalCase via Canonical so downstream comparisons stay
+// PascalCase. The Data field is skipped as a RawMessage to avoid
+// allocating the multi-KB inner payload.
 func ExtractEventName(raw []byte) string {
 	var env struct {
 		EventPascal string `json:"Event"`
@@ -61,12 +52,11 @@ func ExtractEventName(raw []byte) string {
 	return Canonical([]byte(name))
 }
 
-// Canonical maps an extracted name to its PascalCase form. The fast
-// path is a direct map lookup for known events. Unknown names fall
-// through unchanged so newly-added RL events still flow.
+// Canonical maps an extracted name to its PascalCase form via the
+// alias table. Unknown names fall through unchanged so newly-added RL
+// events still flow.
 func Canonical(b []byte) string {
-	// Synthetic events from our own server (_Lifecycle, _ConnectionStatus)
-	// never need normalization — we emit them in canonical form.
+	// Synthetic events ("_"-prefixed) are emitted in canonical form.
 	if len(b) > 0 && b[0] == '_' {
 		return string(b)
 	}
@@ -78,9 +68,6 @@ func Canonical(b []byte) string {
 	if name, ok := table[string(b)]; ok {
 		return name
 	}
-	// Common case on this RL build: input is already lowercase. Try the
-	// lowered form before giving up so a name change in the catalog
-	// doesn't silently break things.
 	lower := bytes.ToLower(b)
 	if name, ok := table[string(lower)]; ok {
 		return name
@@ -88,13 +75,10 @@ func Canonical(b []byte) string {
 	return string(b)
 }
 
-// bReplayTrueMarkers are the four casings/escape-forms of
-// `"bReplay":true` we may see in an UpdateState payload. The flag
-// lives inside the JSON-encoded Data string, so quotes appear
-// backslash-escaped in the raw envelope bytes. Casing also varies
-// (PascalCase vs lowercase) by RL build. This runs on every
-// UpdateState so it must stay allocation-free — four bytes.Contains
-// over a ~1KB payload is still sub-microsecond.
+// bReplayTrueMarkers covers the casings/escape-forms of `"bReplay":true`
+// we may see in an UpdateState payload. The flag lives inside the
+// JSON-encoded Data string (quotes backslash-escaped) and casing varies
+// by RL build. Allocation-free; runs on every UpdateState.
 var bReplayTrueMarkers = [][]byte{
 	[]byte(`\"bReplay\":true`),
 	[]byte(`\"breplay\":true`),
@@ -113,12 +97,9 @@ func ScanBReplay(raw []byte) bool {
 	return false
 }
 
-// matchGuidMarkers cover the four casings of `"MatchGuid":"…"`. The
-// field lives inside the JSON-encoded Data string, so quotes appear
-// backslash-escaped in the raw envelope bytes. Casing also varies
-// (PascalCase vs lowercase) by RL build. We try each marker in order
-// and slice off whatever quote variant (escaped or plain) ends the
-// value.
+// matchGuidMarkers covers the casings of `"MatchGuid":"…"`. Same
+// escape/casing concerns as bReplayTrueMarkers; we try each in order
+// and slice off whichever quote variant ends the value.
 var matchGuidMarkers = [][]byte{
 	[]byte(`\"MatchGuid\":\"`),
 	[]byte(`\"matchguid\":\"`),
@@ -135,9 +116,8 @@ func ExtractMatchGUID(raw []byte) string {
 			continue
 		}
 		rest := raw[i+len(m):]
-		// Value ends at the next quote, which may be escaped (\") if
-		// we're inside a JSON-encoded string. Look for whichever
-		// terminator comes first.
+		// Value ends at the next quote, escaped (\") if inside a
+		// JSON-encoded string — take whichever terminator comes first.
 		end := bytes.IndexByte(rest, '"')
 		if esc := bytes.Index(rest, []byte(`\"`)); esc >= 0 && (end < 0 || esc < end) {
 			end = esc

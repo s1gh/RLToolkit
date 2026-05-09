@@ -8,22 +8,16 @@ import (
 	"strings"
 )
 
-// webFS holds the dashboard, overlay, and SDK assets, served straight
-// from the binary so we don't depend on the cwd at runtime.
-//
-// Fonts are bundled too: the overlay used to fetch Saira Condensed,
-// Inter, and JetBrains Mono from fonts.googleapis.com on every launch,
-// which costs a network round-trip and triggers a post-load reflow as
-// the web font swaps in for the system fallback. Self-hosting kills
-// both costs.
+// webFS holds the dashboard, overlay, SDK, and font assets, served
+// straight from the binary so runtime doesn't depend on cwd. Fonts
+// are self-hosted to avoid the network round-trip and font-swap reflow.
 //
 //go:embed web/dashboard.html web/overlay.html web/sdk.css web/overlay-editor.js
 //go:embed web/fonts/*.woff2
 //go:embed web/sdk/dist/sdk.js
 var webFS embed.FS
 
-// faviconSVG mirrors the dashboard's logo gradient so the browser tab
-// and the dashboard's "RL" tile feel like the same brand.
+// faviconSVG mirrors the dashboard's logo gradient.
 const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
@@ -37,14 +31,11 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
         fill="#0a0c14" letter-spacing="-0.5">RL</text>
 </svg>`
 
-// Precomputed byte slices for assets we serve verbatim. Avoids a fresh
-// allocation+copy on every request.
-//
-// sdkJSBytes is rendered once at startup with the
-// types.VerifiedStatfeedNames registry inlined where the source has
-// the `/*__RLT_STATS__*/{}` placeholder. That gives plugins a
-// synchronous `RLT.stats.DEMOLISH` while keeping the registry in one
-// place (internal/types/statfeed.go).
+// Precomputed byte slices for assets served verbatim. sdkJSBytes is
+// rendered once at startup with types.VerifiedStatfeedNames inlined
+// where sdk.js carries a placeholder, so plugins get a synchronous
+// `RLT.stats.DEMOLISH` while the registry stays in one place
+// (internal/types/statfeed.go).
 var (
 	sdkJSBytes      = renderSDKJS(mustReadEmbed("web/sdk/dist/sdk.js"))
 	sdkCSSBytes     = mustReadEmbed("web/sdk.css")
@@ -62,27 +53,17 @@ func mustReadEmbed(path string) []byte {
 	return data
 }
 
-// statsPlaceholder is the marker the SDK source carries where the
-// registry literal should land. Bundled SDK source has:
-//
-//	JSON.parse("__RLT_STATS_JSON__")
-//
-// We replace the inner double-quoted token (including quotes) with a
-// JSON-encoded string of the same shape, so `JSON.parse(...)` at
-// runtime yields the registry object.
-//
-// Why a string literal rather than the previous comment + empty-object
-// placeholder? esbuild reformats comment+literal pairs, breaking
-// byte-exact substitution. String literals come through bundlers
-// verbatim.
+// statsPlaceholder marks where the registry literal lands in the
+// bundled SDK source: `JSON.parse("__RLT_STATS_JSON__")`. We swap the
+// quoted token for a JSON-encoded registry string so JSON.parse yields
+// the object at runtime. A string literal (rather than a comment +
+// empty object) survives bundler reformatting.
 var statsPlaceholder = []byte(`"__RLT_STATS_JSON__"`)
 
-// renderSDKJS substitutes the types.VerifiedStatfeedNames registry
-// into the SDK source at startup. Result is cached for the lifetime of
-// the process (the registry is a compile-time constant; nothing
-// changes at runtime). Panics if the placeholder isn't present — that
-// would leave RLT.stats permanently empty, which is a build-time bug
-// worth failing fast on.
+// renderSDKJS substitutes types.VerifiedStatfeedNames into the SDK
+// source at startup. Panics on a missing placeholder — that would
+// leave RLT.stats permanently empty, a build-time bug worth failing
+// fast on.
 func renderSDKJS(src []byte) []byte {
 	if !bytes.Contains(src, statsPlaceholder) {
 		panic("sdk.js missing " + string(statsPlaceholder) + " placeholder")
@@ -91,10 +72,8 @@ func renderSDKJS(src []byte) []byte {
 }
 
 // buildStatsJSONLiteral renders types.VerifiedStatfeedNames as a
-// JS-string-quoted JSON object: e.g. `'{"DEMOLISH":"Demolish",…}'`
-// (single-quoted to avoid escaping the inner double quotes). The SDK
-// passes this to `JSON.parse`, which yields the registry object.
-// Sorted by key for deterministic byte output.
+// single-quoted JSON object literal (e.g. `'{"DEMOLISH":"Demolish",…}'`)
+// for the SDK to JSON.parse. Sorted by key for deterministic output.
 func buildStatsJSONLiteral() []byte {
 	type entry struct{ key, val string }
 	rows := make([]entry, 0, len(types.VerifiedStatfeedNames))
@@ -121,12 +100,10 @@ func buildStatsJSONLiteral() []byte {
 	return b.Bytes()
 }
 
-// pascalToScreamingSnake converts "AerialGoal" → "AERIAL_GOAL",
-// "Demolish" → "DEMOLISH", "HoopsSwishGoal" → "HOOPS_SWISH_GOAL",
-// "MVP" → "MVP". The rule: insert an underscore between a lowercase
-// letter and an uppercase letter (the boundary between words), and
-// between an acronym and a following capitalized word (e.g. "MVPGoal"
-// → "MVP_GOAL"). Pure runs of uppercase ("MVP") stay intact.
+// pascalToScreamingSnake converts PascalCase to SCREAMING_SNAKE_CASE.
+// Inserts underscores between lowercase→uppercase transitions and
+// between an acronym and a following capitalized word (MVPGoal →
+// MVP_GOAL). Pure uppercase runs (MVP) stay intact.
 func pascalToScreamingSnake(s string) string {
 	runes := []rune(s)
 	var b strings.Builder

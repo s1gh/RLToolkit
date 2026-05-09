@@ -7,12 +7,9 @@ package types
 
 // ShortcutRef is the minimal player reference found in raw RL event
 // payloads (e.g., Scorer, MainTarget, BallLastTouch.Player). Shortcut
-// is RL's per-match player slot index (0..N), shipped as a JSON
-// number on the wire — not a string. Decoding it as a string used to
-// silently fail the whole inner Decode of any event carrying a
-// ShortcutRef (StatfeedEvent, GoalScored, BallHit), which is why
-// every downstream synthetic event (_PlayerDemolished, _GoalScored,
-// _BallHit) stopped firing the moment an event carried one.
+// is RL's per-match player slot index (0..N), shipped as a JSON number
+// — decoding it as a string silently fails the whole inner Decode of
+// any event carrying it.
 type ShortcutRef struct {
 	Name     string `json:"Name"`
 	Shortcut int    `json:"Shortcut"`
@@ -33,5 +30,5 @@ type EnrichedPlayer struct {
 	Team     int    `json:"team"`
 	Platform string `json:"platform,omitempty"`
 	IsBot    bool   `json:"isBot"`
-	IsMe     bool   `json:"isMe,omitempty"` // backend stamps via IdentityStore; SDK keeps client-side fallback
+	IsMe     bool   `json:"isMe,omitempty"`
 }

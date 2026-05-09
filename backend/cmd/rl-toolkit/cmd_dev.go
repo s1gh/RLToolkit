@@ -148,7 +148,7 @@ func runDev(args []string) int {
 	for {
 		select {
 		case ev := <-watcher.Events:
-			// Skip chmod-only events (most editors emit them on save).
+			// Skip chmod-only events; most editors emit them on save.
 			if ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) == 0 {
 				continue
 			}

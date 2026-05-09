@@ -53,9 +53,8 @@ func Plugin(pluginDir, name string) error {
 }
 
 func render(tpl, name string) string {
-	// Tiny templating — just a placeholder swap. We avoid text/template here
-	// because the templates contain a lot of {{}}-unfriendly content
-	// (CSS rules, JS object literals) and a one-token replace is plenty.
+	// A one-token replace; text/template is too noisy given the {{}}-
+	// unfriendly CSS and JS content in the templates.
 	return strings.ReplaceAll(tpl, "__NAME__", name)
 }
 

@@ -16,12 +16,8 @@ import (
 // that reason.
 const (
 	// outboxBufSize is the ring between the TCP read loop and the bus
-	// dispatcher. The on-the-wire rate depends on RL's PacketSendRate
-	// (1..120, recommended 10), so this is a fixed slot count rather
-	// than a time window — at 10 Hz it's ~100 s of headroom, at 120 Hz
-	// roughly 8 s. Far more than any expected GC or downstream hiccup
-	// at any supported rate; if it ever fills, packets are dropped
-	// (not blocked).
+	// dispatcher. At RL's recommended 10 Hz that's ~100s of headroom;
+	// at the 120 Hz max, ~8s. If it fills, packets drop (not block).
 	outboxBufSize = 1024
 
 	// tcpReadBuffer increases kernel headroom so bursts don't backpressure
@@ -40,9 +36,7 @@ const (
 	idleLogInterval = 5 * time.Minute
 )
 
-// rateLimitedLogger emits at most one log line per `interval`. Used
-// for drop logging on the RL packet hot path (PacketSendRate Hz) so
-// we know dropping is happening without spamming at the packet rate.
+// rateLimitedLogger emits at most one log line per `interval`.
 type rateLimitedLogger struct {
 	interval time.Duration
 	mu       sync.Mutex
@@ -60,9 +54,7 @@ func (r *rateLimitedLogger) log(msg string) {
 }
 
 // reset clears the rate limiter so the next log() call fires
-// immediately. Useful after a state change (reconnect succeeded, match
-// started) where we don't want a stale "still failing" timer to
-// swallow the first new failure.
+// immediately, e.g. after a reconnect succeeds.
 func (r *rateLimitedLogger) reset() {
 	r.mu.Lock()
 	r.last = time.Time{}

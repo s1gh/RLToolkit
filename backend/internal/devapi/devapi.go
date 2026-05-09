@@ -23,15 +23,11 @@ import (
 )
 
 // Plugins is the subset of the plugin manager that devapi calls into.
-// Defined here so tests can substitute a stub.
 type Plugins interface {
 	RegisterDev(name, path string) error
 	UnregisterDev(name string)
-	// NotifyReload tells the system that plugin <name>'s assets have
-	// changed and any open overlay window for that plugin should be
-	// refreshed. Implementation may be a no-op for now (the overlay
-	// re-fetches assets each time it loads, and the dashboard can
-	// notice via SSE when added).
+	// NotifyReload signals that the plugin's assets have changed so
+	// open overlay windows can refresh.
 	NotifyReload(name string)
 }
 
@@ -45,16 +41,9 @@ type Server struct {
 	stopOnce sync.Once
 }
 
-// DiscoveryDir returns the directory where dev.port lives — the same
-// per-OS RLToolkit application directory the launcher and bundled
-// backend use for everything else (see backend/internal/paths):
-//
-//	Linux:   $XDG_DATA_HOME/RLToolkit  (or ~/.local/share/RLToolkit)
-//	macOS:   ~/Library/Application Support/RLToolkit
-//	Windows: %LOCALAPPDATA%\RLToolkit
-//
-// Set RLT_DEV_DISCOVERY_DIR to override (used by tests and by advanced
-// users running multiple instances on the same machine).
+// DiscoveryDir returns the directory where dev.port lives — the
+// per-OS RLToolkit application directory (see backend/internal/paths).
+// Override via RLT_DEV_DISCOVERY_DIR (tests; multi-instance setups).
 func DiscoveryDir() (string, error) {
 	if env := os.Getenv("RLT_DEV_DISCOVERY_DIR"); env != "" {
 		return env, nil

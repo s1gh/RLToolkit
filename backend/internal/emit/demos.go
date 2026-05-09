@@ -29,22 +29,12 @@ type demoChainEntry struct {
 // next match's first demo doesn't extend a stale chain.
 const demoChainWindow = 5 * time.Second
 
-// Demos consumes the typed `_Demolish` events StatfeedEmitter publishes
-// and emits the richer wire-facing pair:
-//
-//   - `_PlayerDemolished` with attackerSpeed / attackerWasSupersonic
-//     (pulled from TickReader for SPECTATOR-only ticks) and the
-//     isSelfDemo / isTeamDemo flags.
-//   - `_DemoChain` when the same attacker has registered ≥2 demos
-//     within demoChainWindow.
-//
-// State owned:
-//
-//   - demolishLog: raw _PlayerDemolished envelopes (wire-shaped) for
-//     SSE replay.
-//   - demoChainByID: per-attacker rolling demo timestamps.
-//
-// Both reset on MatchCreated / MatchDestroyed.
+// Demos consumes _Demolish events from Statfeed and emits the richer
+// wire-facing pair: _PlayerDemolished (with attackerSpeed /
+// attackerWasSupersonic from TickReader plus isSelfDemo / isTeamDemo
+// flags) and _DemoChain when an attacker has ≥2 demos within
+// demoChainWindow. demolishLog (wire-shaped envelopes for SSE replay)
+// and demoChainByID reset on MatchCreated / MatchDestroyed.
 type Demos struct {
 	ticks TickReader
 
@@ -142,9 +132,8 @@ func (e *Demos) processDemolish(evt bus.Event) []bus.Event {
 	}
 	out := []bus.Event{{Name: "_PlayerDemolished", Data: body}}
 
-	// Build the wire-shaped envelope for SSE replay (the bus
-	// envelope it would produce). Done once here so the SSE handler
-	// can write it directly.
+	// Pre-build the bus envelope so the SSE replay handler can write
+	// it directly.
 	envelope, err := json.Marshal(struct {
 		Event string          `json:"Event"`
 		Data  json.RawMessage `json:"Data"`
@@ -155,11 +144,9 @@ func (e *Demos) processDemolish(evt bus.Event) []bus.Event {
 		e.demolishMu.Unlock()
 	}
 
-	// Demo-chain detection. Self-demos and team-demos still count
-	// as actions but skip chain reporting (a chain over your own
-	// teammate isn't a hype moment) — and are kept out of the
-	// per-attacker history so they don't extend chains over real
-	// demos.
+	// Self-demos and team-demos count as actions but skip chain
+	// reporting and aren't added to history so they don't extend
+	// chains over real demos.
 	if !payload.IsSelfDemo && !payload.IsTeamDemo && d.Attacker.ID != "" {
 		if chain := e.recordChain(d.MatchGUID, d.Attacker, d.Victim); chain != nil {
 			out = append(out, *chain)

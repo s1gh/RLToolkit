@@ -149,11 +149,9 @@ func (e *Goal) processGoal(evt bus.Event) *bus.Event {
 	if scorerRef == nil {
 		scorerRef = d.ScorerLow
 	}
-	// SDK guard: drop GoalScored events with no identifiable scorer.
-	// RL re-fires GoalScored at round-restart with empty Scorer.Name;
-	// without this, a synthetic event with name "Unknown" overwrites
-	// the prior tick's scorer for any plugin that caches the latest
-	// goal.
+	// RL re-fires GoalScored at round-restart with an empty Scorer.Name;
+	// dropping it here prevents a phantom "Unknown" scorer from
+	// overwriting the previous goal in any plugin that caches it.
 	if scorerRef == nil || scorerRef.Name == "" {
 		return nil
 	}
@@ -220,23 +218,17 @@ func (e *Goal) processGoal(evt bus.Event) *bus.Event {
 			}
 		}
 	}
-	// Own-goal heuristic: RL credits an opposing-team player as Scorer
-	// and the deflector is in BallLastTouch. lastToucher.Team ==
-	// concedingTeam means the deflector's team is the one that
-	// conceded — flag it.
-	//
-	// Solo own goals (private match with no opponents, where RL
-	// credits the deflector themselves) cannot be distinguished from
-	// a normal solo goal using team/ID alone — both have scorer ==
-	// lastToucher on the same team. They're caught by the verified
-	// _OwnGoal event instead, which uses score-delta verification.
+	// Own-goal heuristic: scorer is on the opposing team and the
+	// deflector (BallLastTouch) is on the conceding team. Solo own
+	// goals can't be distinguished here — _OwnGoal handles them via
+	// score-delta verification.
 	if lastToucher != nil && lastToucher.Team == concedingTeam {
 		out.IsOwnGoal = true
 	}
 
-	// Bump the per-player real-goal counter for non-own-goals so
-	// _HatTrick can verify RL's HatTrick threshold against actual
-	// scoring (RL's counter includes own goals; we don't).
+	// Bump the per-player real-goal counter on honest goals.
+	// RL's HatTrick counter includes own goals; we filter them out
+	// to verify the threshold against actual scoring.
 	if !out.IsOwnGoal && e.goals != nil {
 		e.goals.BumpRealGoals(scorer.ID)
 	}
@@ -264,10 +256,10 @@ func (e *Goal) processGoal(evt bus.Event) *bus.Event {
 		ConcedingTeam: concedingTeam,
 	})
 
-	// Cache the full enriched envelope so the bReplay rising edge
-	// can mirror it as _GoalReplayStarted. The correlation buffer
-	// gets evicted by burst BallHit/StatfeedEvent traffic during a
-	// celebration, so we keep our own copy.
+	// Cache the full enriched envelope so the bReplay rising edge can
+	// mirror it as _GoalReplayStarted. The correlation buffer gets
+	// evicted by burst BallHit/StatfeedEvent traffic during the
+	// celebration, hence the dedicated copy.
 	cached := out
 	e.mu.Lock()
 	e.lastGoal = &cached

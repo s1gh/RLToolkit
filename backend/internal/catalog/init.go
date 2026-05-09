@@ -5,21 +5,15 @@ import (
 	"strings"
 )
 
-// init seeds the wire package's name-canonicalization table from the
-// catalog. wire.Canonical is otherwise a no-op fallback, so the
-// source/dispatcher's normalization step depends on this running
-// before any envelope is decoded.
-//
-// The manual alias covers a wire-level RL build quirk that doesn't
-// lowercase to the catalog form.
+// init seeds wire.Canonical's lookup table from the catalog. Without
+// this, the source dispatcher's normalization step is a no-op.
 func init() {
 	m := make(map[string]string, len(Entries)+1)
 	for _, e := range Entries {
 		m[strings.ToLower(e.Name)] = e.Name
 	}
-	// Observed on this RL build: the wire ships `replaywillend` (no
-	// `goal` prefix). Treat it as the catalog's GoalReplayWillEnd so
-	// plugins subscribing to the documented name still get events.
+	// RL build quirk: the wire ships `replaywillend` without the
+	// `goal` prefix. Map it to GoalReplayWillEnd.
 	m["replaywillend"] = "GoalReplayWillEnd"
 	wire.RegisterAliases(m)
 }

@@ -8,13 +8,9 @@ import (
 )
 
 // metricsRingSize is how many recent publish durations we retain for
-// percentile estimates. The window is sample-count based, NOT
-// time-based: it covers however long it takes to accumulate 600
-// Broadcast calls. At RL's recommended PacketSendRate of 10 that's
-// roughly a minute of UpdateStates plus whatever derived events fire
-// alongside; on idle (no match) it can stretch to many minutes. Big
-// enough to smooth out a single slow publish; small enough that a
-// recent regression dominates the percentiles.
+// percentile estimates. Sample-count based, not time-based: at RL's
+// recommended PacketSendRate of 10 Hz this covers roughly a minute of
+// activity; on idle it stretches to many minutes.
 const metricsRingSize = 600
 
 // busMetrics is process-wide telemetry for the event bus. Counters use
@@ -139,14 +135,9 @@ func (m *busMetrics) snapshot(subscribers int) MetricsSnapshot {
 	}
 }
 
-// percentilesUS computes p50/p95/p99/max over the recent-publish
-// duration ring (metricsRingSize most recent samples), converted from
-// nanoseconds to microseconds. Returns zeros if no samples yet.
-//
-// Sort-on-read is fine here: /api/metrics isn't on a hot path, and
-// metricsRingSize is small enough that an O(N log N) sort is
-// microseconds. Trades read CPU for write simplicity (no maintained
-// order on insert).
+// percentilesUS computes p50/p95/p99/max over the recent-publish duration
+// ring, converted ns→μs. Sort-on-read: /api/metrics isn't hot, and the ring
+// is small enough that O(N log N) is microseconds.
 func (m *busMetrics) percentilesUS() (p50, p95, p99, max int64) {
 	m.durMu.Lock()
 	if m.durLen == 0 {

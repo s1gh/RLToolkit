@@ -25,31 +25,23 @@ type IdentityLookup interface {
 	MyPrimaryID() string
 }
 
-// Tracker watches UpdateState envelopes and emits a synthetic
-// _RosterChanged event whenever the roster identity changes (player
-// join, leave, team switch, or guid flip — a fresh match). Plugins
-// that only care about who's on the field (dejavu, anything similar)
-// can subscribe to _RosterChanged and skip UpdateState entirely,
-// which is the heaviest event by far (~1-3 KB per packet, fanned
-// out at the user's PacketSendRate of 1..120).
+// Tracker watches UpdateState envelopes and emits _RosterChanged
+// whenever the roster identity changes (join, leave, team switch, or
+// guid flip). Plugins that only care about who's on the field can
+// subscribe to _RosterChanged and skip UpdateState — the heaviest
+// event by far (~1-3 KB per packet at the user's PacketSendRate).
 //
-// What counts as a "change": the roster fingerprint is the match guid
-// plus the sorted (PrimaryId, TeamNum) pairs. Score, position, boost,
-// demos, etc. don't move it — those are physics state that lives on
-// UpdateState. Player name and platform are NOT in the fingerprint
-// either: they're stable for the duration of a match, but a typo
-// correction or a late-resolved platform string would otherwise flap
-// the event needlessly. The full normalized roster (id/team/name/
-// platform per player) is shipped in the payload so consumers don't
-// need to call match.build() themselves.
+// The fingerprint is matchGuid + sorted (PrimaryId, TeamNum) pairs.
+// Score, boost, position etc. don't move it — those are physics state
+// on UpdateState. Name and platform are excluded too: a typo
+// correction or late-resolved platform string would otherwise flap
+// the event needlessly. The full normalized roster ships in the
+// payload so consumers don't have to rebuild it.
 //
-// Implements both StateProcessor (Observe — keeps the lastRoster
-// snapshot fresh so ResolveByShortcut callers from other emitters
-// get current data) and EmitProcessor (Process — returns
-// _RosterChanged when the roster identity moved). Registration order
-// matters: state processors run before emit processors, so the
-// snapshot is current by the time anyone calls ResolveByShortcut
-// inside Process.
+// Implements both StateProcessor (Observe keeps lastRoster fresh for
+// ResolveByShortcut) and EmitProcessor (Process returns the staged
+// _RosterChanged). State runs before emit in the pipeline, so the
+// snapshot is current by the time Process callers reach for it.
 type Tracker struct {
 	mu         sync.Mutex
 	lastFp     string
@@ -136,9 +128,8 @@ func (t *Tracker) Observe(evt bus.Event) {
 		t.lastGUID = ""
 		t.lastRoster = nil
 		t.mu.Unlock()
-		// Only emit on the actual transition (had-roster → none).
-		// Suppresses the boot-time / idle-reconnect noise where the
-		// roster was already empty and nothing observably changed.
+		// Only emit on the actual transition (had-roster → none) so
+		// boot-time / idle-reconnect with an already-empty roster stays quiet.
 		if hadRoster {
 			t.queueEmission("", nil)
 		}

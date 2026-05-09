@@ -59,21 +59,9 @@ func (p *Pipeline) AddEmit(ep EmitProcessor) { p.emit = append(p.emit, ep) }
 
 // Run drives the pipeline until the source channel closes or ctx is
 // canceled. Each event from src goes to every StateProcessor in order
-// (first phase), then to every EmitProcessor in order (second phase).
-// The original event is broadcast first, followed by every synthetic
-// emission in the order it was produced.
-//
-// Emissions feed downstream emit processors. When emit processor N
-// returns an event, every later-registered emit processor (N+1, N+2,
-// …) also sees that event through its own Process call before the next
-// source event is handled. This lets dependent emitters consume
-// upstream emissions — e.g. FastestShotEmitter sees the _GoalScored
-// produced by GoalEmitter, as long as GoalEmitter is registered first.
-//
-// Earlier-registered emitters do NOT see emissions from later ones —
-// the feed is strictly forward, so registration order encodes the
-// dependency graph and there's no risk of cycles or unbounded
-// re-entry.
+// (first phase), then through runEmit's strict-forward emit chain
+// (second phase). The original event is broadcast before any synthetic
+// emissions.
 func (p *Pipeline) Run(ctx context.Context, src Source, dst Broadcaster) {
 	ch := src.Events(ctx)
 	for {
@@ -94,13 +82,11 @@ func (p *Pipeline) Run(ctx context.Context, src Source, dst Broadcaster) {
 }
 
 // runEmit feeds evt into every emit processor at index >= start, in
-// order. Each emission produced by processor i is broadcast and then
-// recursively fed into processors i+1..end before the next emission
-// from processor i is processed. This produces a strict pre-order
-// traversal: the source event's emissions show up in the order
-// (producer, producer's children, sibling, sibling's children, …) so
-// dependent emitters always see their inputs before their own turn
-// comes again.
+// order. Each emission is broadcast and recursively fed into
+// processors i+1..end before the next emission from processor i runs.
+// This is a strict-forward pre-order traversal: dependent emitters
+// always see their inputs before their own turn, and registration
+// order encodes the dependency graph (no cycles possible).
 func (p *Pipeline) runEmit(evt bus.Event, start int, dst Broadcaster) {
 	for i := start; i < len(p.emit); i++ {
 		for _, out := range p.emit[i].Process(evt) {

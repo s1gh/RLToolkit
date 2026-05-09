@@ -19,9 +19,8 @@ func Get() string {
 	once.Do(func() {
 		var b [8]byte
 		if _, err := rand.Read(b[:]); err != nil {
-			// crypto/rand failure on a desktop launcher process is
-			// effectively unrecoverable; surface it loudly rather than
-			// invent a deterministic ID that defeats the purpose.
+			// Falling back to a deterministic ID would defeat the
+			// purpose, so fail loudly instead.
 			panic("bootid: crypto/rand failed: " + err.Error())
 		}
 		id = hex.EncodeToString(b[:])

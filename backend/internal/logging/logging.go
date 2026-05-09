@@ -1,18 +1,11 @@
 // Package logging installs a dual-sink writer for the stdlib log
-// package: every log.Printf line goes both to stderr (so the dev
-// terminal still sees them, colorized via the caller's wrapper) and
-// to a per-day file under <data dir>/logs/backend-YYYY-MM-DD.log.
+// package: every log.Printf line goes both to stderr (colorized by the
+// caller's wrapper) and to a per-day file under
+// <data dir>/logs/backend-YYYY-MM-DD.log. Files older than RetainDays
+// are pruned at Init().
 //
-// The file is the canonical artifact for bug reports — when a user
-// reports a problem we ask them to zip <data dir>/logs/. Files older
-// than RetainDays are pruned at Init() so the directory doesn't grow
-// without bound.
-//
-// We deliberately keep using the stdlib `log` package rather than
-// pulling in slog or zap: every existing call site is `log.Printf`
-// with a `[facet] ...` prefix, and the styledLogWriter in
-// backend/cmd/rl-toolkit already consumes that format. Wrapping
-// log.Output with a teeing writer means zero call-site changes.
+// The file is the canonical artifact for bug reports — users zip
+// <data dir>/logs/ and send it.
 package logging
 
 import (

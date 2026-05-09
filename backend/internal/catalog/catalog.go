@@ -1,28 +1,14 @@
 // Package catalog documents every gameplay event the SDK emits to
-// plugins. It is served at /api/events for discoverability — plugin
-// authors curl that endpoint or browse it from the dashboard to see
-// what's available.
+// plugins. Served at /api/events for discoverability.
 //
 // IMPORTANT: keep Entries in sync with the JS-side `events.catalog`
-// in the SDK (search for "Event catalog"). The JS copy is what
-// plugins inspect at runtime via RLT.events.catalog; this Go copy is
-// the network-discoverable view. Both are intentionally static —
-// events don't appear/disappear, so a build-time mirror is fine.
+// in the SDK. The JS copy is what plugins inspect at runtime via
+// RLT.events.catalog; this Go copy is the network-discoverable view.
 //
-// Intentionally NOT cataloged (plumbing / framing events that fire
-// regardless of any plugin's subscription, and aren't gameplay):
-//   - _ConnectionStatus  — RL TCP socket transitions. Framing-bypass.
-//   - _RosterChanged     — roster identity changed. Framing-bypass.
-//   - _IdentityChanged is cataloged (it carries user-visible state),
-//     but _RosterChanged isn't because it duplicates information
-//     plugins already see on the next UpdateState/_MatchState tick.
-//   - _DevPluginReload   — dev hot-reload signal. Framing-bypass.
-//   - _OverridesChanged  — overlay editor saved a per-plugin override.
-//   - _SurfaceChanged    — overlay surface size changed.
-//   - _StoreChanged      — SDK plumbing for RLT.store namespacing.
-//
-// (See backend/internal/bus/bus.go:framingSignals for the exact
-// bypass list.)
+// Plumbing / framing events are deliberately not cataloged:
+// _ConnectionStatus, _RosterChanged, _DevPluginReload,
+// _OverridesChanged, _SurfaceChanged, _StoreChanged. See
+// backend/internal/bus/bus.go:framingSignals for the bypass list.
 package catalog
 
 // Entry is one row in the catalog.
@@ -35,16 +21,14 @@ type Entry struct {
 	Stability  string   `json:"stability"` // "stable" | "provisional" (no event uses "experimental" today; reserved)
 	Since      string   `json:"since"`     // "1.0", "1.1", etc.
 	// SubscriptionGroup buckets events that overlap on the wire so
-	// plugin authors can see at a glance "if I subscribe to X, do I
-	// also need Y?" Empty = no overlap concern. Conventions:
-	//   - "scoring"           — _GoalScored / _OwnGoal /
-	//                           _TeamScoreChanged all fire for the
-	//                           same goal at different confidence
-	//                           levels. Pick one.
+	// plugin authors can see at a glance whether subscribing to X
+	// also delivers Y. Conventions:
+	//   - "scoring"           — _GoalScored / _OwnGoal / _TeamScoreChanged
+	//                           all fire for the same goal at different
+	//                           confidence levels.
 	//   - "statfeed:catchall" — _StatfeedEvent fires for every variant.
-	//   - "statfeed:promoted" — Phase-3 dedicated events (_Save,
-	//                           _Shot…). Subscribe to one or the
-	//                           other; both = double-firing.
+	//   - "statfeed:promoted" — dedicated events (_Save, _Shot…).
+	//                           Both groups together = double-firing.
 	SubscriptionGroup string `json:"subscriptionGroup,omitempty"`
 }
 
@@ -87,7 +71,7 @@ var Entries = []Entry{
 	{Name: "_GoalScored", Category: "scoring", Shape: "goal-enriched", LivePhases: liveOrReplay, Desc: "GoalScored with Scorer/Assister/BallLastTouch resolved + scoringTeam/concedingTeam/isOwnGoal flags + same-frame modifiers (aerial/long/turtle/hatTrick/etc.). The isOwnGoal flag is heuristic and synchronous (last-touch on conceding team). For verified own-goal detection use _OwnGoal.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "scoring"},
 	{Name: "_OwnGoal", Category: "scoring", Shape: "owngoal", LivePhases: liveOrReplay, Desc: "Score delta verified against the previous tick + opposing-team last touch. Phase-gated to live/replay so off-gameplay score-ups don't false-positive. Higher confidence than _GoalScored.isOwnGoal (which is synchronous and heuristic).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "scoring"},
 
-	// ─── Statfeed promotions (Phase 3) ────────────────────────
+	// ─── Statfeed promotions ──────────────────────────────────
 	{Name: "_PlayerDemolished", Category: "stat", Shape: "demolish", LivePhases: liveOrReplay, Desc: "Demolish with attacker / victim resolved + isSelfDemo / isTeamDemo flags + attackerSpeed / attackerWasSupersonic from the most recent UpdateState (SPECTATOR-only).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
 	{Name: "_FlipReset", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "FlipReset with MainTarget resolved + flipResetsThisMatch counter.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
 	{Name: "_HatTrick", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "HatTrick with MainTarget resolved + goalsThisMatch counter.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
@@ -99,7 +83,7 @@ var Entries = []Entry{
 	{Name: "_Clear", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "Clear with MainTarget resolved + correlatedTouch (with pre/post hit speeds).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
 	{Name: "_BicycleHit", Category: "stat", Shape: "stat-touch", LivePhases: liveOrReplay, Desc: "BicycleHit with MainTarget resolved + correlatedTouch (with pre/post hit speeds). For bicycle-hits that scored, see _GoalScored.modifiers.isBicycleGoal.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
 
-	// ─── UpdateState diff events (Phase 4) ────────────────────
+	// ─── UpdateState diff events ──────────────────────────────
 	{Name: "_PlayerJoined", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player appeared this tick that wasn't in the previous tick. Includes current lifecycle phase so consumers can distinguish lobby joins from mid-match joins.", Stability: "provisional", Since: "1.1"},
 	{Name: "_PlayerLeft", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player disappeared this tick. Includes current lifecycle phase so consumers can distinguish lobby leaves from mid-match rage-quits.", Stability: "provisional", Since: "1.1"},
 	{Name: "_PlayerScoreChanged", Category: "stat", Shape: "score-delta", LivePhases: anyPhase, Desc: "Per-player stat diff (score, goals, assists, saves, shots, touches, demos). Only fields that moved appear in delta.", Stability: "provisional", Since: "1.1"},
@@ -107,19 +91,19 @@ var Entries = []Entry{
 	{Name: "_BallPossessionChanged", Category: "play", Shape: "possession", LivePhases: liveOnly, Desc: "Game.Ball.TeamNum changed between ticks. before/after are nullable — RL's untouched sentinel (255) is normalized to null. Includes triggeredBy (player + pre/post hit speeds) from the most recent BallHit when available.", Stability: "provisional", Since: "1.1"},
 	{Name: "_TeamScoreChanged", Category: "scoring", Shape: "team-score-delta", LivePhases: liveOrReplay, Desc: "A team's Score moved between ticks. Catch-all for score changes — fires alongside _GoalScored (regular goals) and _OwnGoal (verified own goals). Subscribe to one of the three depending on the level of detail you need; subscribing to all means every goal is delivered three times.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "scoring"},
 
-	// ─── Match milestones (Phase 4b) ──────────────────────────
+	// ─── Match milestones ─────────────────────────────────────
 	{Name: "_FirstTouch", Category: "play", Shape: "first-touch", LivePhases: liveOnly, Desc: "First BallHit after each RoundStarted (i.e., kickoff first touch). Re-arms every round.", Stability: "provisional", Since: "1.1"},
 	{Name: "_FirstBlood", Category: "scoring", Shape: "first-blood", LivePhases: liveOrReplay, Desc: "First _GoalScored of the match. secondsIntoMatch counts from MatchInitialized.", Stability: "provisional", Since: "1.1"},
 	{Name: "_OvertimeStarted", Category: "lifecycle", Shape: "overtime-started", LivePhases: liveOnly, Desc: "Rising edge of Game.bOvertime. Fires once per match. Includes tiedAt (the tied score going into OT).", Stability: "provisional", Since: "1.1"},
 	{Name: "_DemoChain", Category: "stat", Shape: "demo-chain", LivePhases: liveOrReplay, Desc: "Same attacker registered ≥2 demos within a rolling 5s window. Self-demos and team-demos are excluded. Re-fires with updated count + victims[] for each subsequent demo inside the window.", Stability: "provisional", Since: "1.2"},
 	{Name: "_FastestShotOfMatch", Category: "scoring", Shape: "fastest-shot", LivePhases: liveOrReplay, Desc: "Per-match max ball speed (km/h) was surpassed. Sources: BallHit.postHitSpeed and GoalScored.goalSpeed. Re-fires only when the previous max is beaten.", Stability: "provisional", Since: "1.2"},
 
-	// ─── Lifecycle + summary (Phase 5) ────────────────────────
+	// ─── Lifecycle + summary ──────────────────────────────────
 	{Name: "_BootId", Category: "lifecycle", Shape: "boot-id", LivePhases: anyPhase, Desc: "Process-lifetime random ID. Pushed as the first SSE frame on every connect so plugins can detect a backend restart (boot-id changed since their last bucket) and reset per-session state. Framing-bypass.", Stability: "stable", Since: "1.0"},
-	{Name: "_MatchState", Category: "lifecycle", Shape: "match-state", LivePhases: anyPhase, Desc: "Authoritative gameplay state. matchActive (am I in a match) and phase (lobby/countdown/live/paused/replay/ended/podium/none) on every transition, with previousPhase, phaseDurationSeconds, and trigger so subscribers see what changed and why. Replaces the legacy _Lifecycle and _LifecyclePhaseChanged events.", Stability: "stable", Since: "2.0"},
+	{Name: "_MatchState", Category: "lifecycle", Shape: "match-state", LivePhases: anyPhase, Desc: "Authoritative gameplay state. matchActive (am I in a match) and phase (lobby/countdown/live/paused/replay/ended/podium/none) on every transition, with previousPhase, phaseDurationSeconds, and trigger so subscribers see what changed and why.", Stability: "stable", Since: "2.0"},
 	{Name: "_IdentityChanged", Category: "lifecycle", Shape: "identity", LivePhases: anyPhase, Desc: "Backend-stored Identity (PrimaryID + Name) was Set or Cleared. Framing-bypass: every subscriber receives this regardless of the events filter so the SDK can hydrate RLT.me without a separate fetch.", Stability: "provisional", Since: "2.0"},
 	{Name: "_GoalReplayStarted", Category: "replay", Shape: "goal-replay-context", LivePhases: anyPhase, Desc: "Fires on the bReplay rising edge (start of a goal replay) with the full _GoalScored payload (scorer, assister, ballLastTouch, goalSpeed, goalTime, impactLocation, isOwnGoal, modifiers), so plugins know which goal the replay is for without correlating themselves. Edge-detected on UpdateState because recent RL builds skip the discrete GoalReplayStart event.", Stability: "provisional", Since: "1.1"},
 
-	// ─── Discoverability (Phase 6) ────────────────────────────
+	// ─── Discoverability ──────────────────────────────────────
 	{Name: "_UnknownStatfeed", Category: "stat", Shape: "unknown-statfeed", LivePhases: anyPhase, Desc: "Statfeed.EventName not in the verified registry. Persisted to data/statfeed-discoveries.json for offline review.", Stability: "stable", Since: "1.1"},
 }

@@ -26,10 +26,9 @@ type Override struct {
 	Width   *int     `json:"width,omitempty"`
 	Height  *int     `json:"height,omitempty"`
 	Opacity *float64 `json:"opacity,omitempty"`
-	// Enabled gates whether the plugin's overlay iframe is mounted at
-	// all. Pointer so nil means "no preference; default = true". When
-	// explicitly false, /overlay skips the plugin entirely (iframe
-	// unmounts, EventSource closes, no event consumption).
+	// Enabled gates whether the plugin's overlay iframe is mounted.
+	// Pointer so nil means "no preference; default = true". When
+	// explicitly false, /overlay skips the plugin entirely.
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
@@ -104,22 +103,19 @@ func (o Override) merge(partial Override) Override {
 	return o
 }
 
-// Store owns data/overlay-overrides.json. The file is loaded once at
-// startup and held in memory; writes go through a single mutex and
-// flush the whole map back to disk. The file is small (one entry per
-// plugin) so a full rewrite per change is fine — no need for an
-// append log or per-key fsync.
+// Store owns data/overlay-overrides.json. Loaded once at startup and
+// held in memory; writes flush the whole map back to disk under a
+// single mutex. The file is small (one entry per plugin) so full
+// rewrites per change are fine.
 type Store struct {
 	path string
 
 	mu   sync.RWMutex
 	data map[string]Override
 
-	// Notify, if set, is called on the goroutine performing the write
-	// after every successful persist (MergeOne and Delete). Wired by
-	// main to publish a synthetic _OverridesChanged SSE event so
-	// production /overlay clients can reflow in place. Not held under
-	// any lock — the callback is free to take its own.
+	// Notify, if set, fires after every successful persist (MergeOne /
+	// Delete) outside the lock. Wired by main to publish a synthetic
+	// _OverridesChanged SSE event so /overlay clients can reflow in place.
 	Notify func()
 }
 
@@ -190,8 +186,7 @@ func (s *Store) MergeOne(plugin string, partial Override) (Override, error) {
 	}
 	s.data[plugin] = merged
 	if err := s.persistLocked(); err != nil {
-		// Roll back the in-memory mutation so the API's "save failed"
-		// matches the actual store state.
+		// Roll back so the in-memory state matches disk.
 		if hadPrev {
 			s.data[plugin] = prev
 		} else {
@@ -228,10 +223,9 @@ func (s *Store) Delete(plugin string) error {
 	return nil
 }
 
-// fireNotify invokes the supplied callback with panic protection so a
-// buggy subscriber can't tear down the HTTP handler that triggered the
-// write — at that point the persist has already committed to disk and
-// the client deserves a clean response, not a torn connection.
+// fireNotify invokes the callback with panic protection so a buggy
+// subscriber can't tear down the HTTP handler — the persist has
+// already committed to disk by this point.
 func (s *Store) fireNotify(notify func()) {
 	if notify == nil {
 		return

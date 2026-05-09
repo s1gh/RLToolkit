@@ -47,24 +47,20 @@ func (e *TickDiff) Process(evt bus.Event) []bus.Event {
 	if curr == nil || prev == nil {
 		return nil
 	}
-	// Different-match guard: when the match guid changes, every
-	// "diff" against the previous snapshot would be misleading. The
-	// new tick is a fresh baseline.
+	// A match guid change means the new tick is a fresh baseline; any
+	// diff against the previous snapshot would be misleading.
 	if prev.MatchGUID != "" && curr.MatchGUID != "" && prev.MatchGUID != curr.MatchGUID {
 		return nil
 	}
 
 	out := make([]bus.Event, 0)
 
-	// Roster + per-player score diffs run in any phase. Players can
-	// join/leave or have stats reconciled in lobby, podium, etc.
+	// Roster + per-player score diffs run in any phase (join/leave
+	// and stat reconciliation can happen in lobby, podium, etc.).
 	out = append(out, e.diffPlayers(prev, curr)...)
 
-	// Play-state diffs only make sense during active gameplay. RL
-	// keeps streaming UpdateStates with stale flags during replays
-	// and on the post-match screen; without the gate we'd publish
-	// phantom _BoostPickup / _BallPossessionChanged /
-	// _TeamScoreChanged events.
+	// Play-state diffs only make sense during active gameplay; RL
+	// keeps streaming stale flags during replays and post-match.
 	if !liveGameplayPhases(e.phase) {
 		return out
 	}
@@ -227,18 +223,15 @@ func (e *TickDiff) playerScoreChanged(guid string, prev, curr *types.TickPlayer)
 	return &bus.Event{Name: "_PlayerScoreChanged", Data: body}
 }
 
-// boostPickup fires when the player's Boost increased (i.e., they
-// picked up a pad or ran over a big-boost icon). Suppresses the
-// post-respawn case (demolished → not demolished) — that's a boost
-// reset, not a pickup. Also suppresses the first observation (no
-// baseline), which happens when prev.Boost is nil (non-spectator
-// blackout).
+// boostPickup fires when Boost increased. Suppresses respawn boost
+// reset (demolished → not demolished) and the first observation in
+// non-spectator mode (prev.Boost nil).
 func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.Event {
 	if curr.Boost == nil {
 		return nil
 	}
-	// RL omits Boost when it's 0; treat nil as 0 so pickups from empty
-	// boost are still detected.
+	// RL omits Boost when 0; treat nil as 0 so pickups from empty
+	// boost still register.
 	prevBoost := 0
 	if prev.Boost != nil {
 		prevBoost = *prev.Boost
@@ -247,7 +240,6 @@ func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.E
 		return nil
 	}
 	if prev.Demolished && !curr.Demolished {
-		// Respawn boost-reset, not a pickup.
 		return nil
 	}
 	enriched := &types.EnrichedPlayer{
@@ -276,9 +268,8 @@ func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.E
 	return &bus.Event{Name: "_BoostPickup", Data: body}
 }
 
-// diffTeamScores fires _TeamScoreChanged when any team's Score moves.
-// Distinct from _OwnGoal: this fires for every score delta, including
-// regular goals.
+// diffTeamScores fires _TeamScoreChanged on any team's Score move —
+// every score delta, including regular goals (distinct from _OwnGoal).
 func (e *TickDiff) diffTeamScores(prev, curr *types.TickSnapshot) []bus.Event {
 	prevByNum := make(map[int]int, len(prev.Teams))
 	for _, t := range prev.Teams {

@@ -89,14 +89,13 @@ func (s *RL) Status() Status {
 }
 
 // enqueue is the only path from RL packets into the event channel.
-// Non-blocking by design — drops on full rather than backpressuring the
-// read loop.
+// Non-blocking by design — drops on full rather than backpressuring
+// the read loop.
 //
-// Canonicalizes bot ids on UpdateState envelopes here so every consumer
-// (raw bus subscribers and pipeline state processors alike) sees the
-// rewritten payload. The wire ships every bot under the "Unknown|0|0"
-// sentinel; without rewriting, downstream code that reads raw
-// UpdateState would collapse multiple bots into one player.
+// Canonicalizes bot ids on UpdateState here so every consumer (raw
+// bus subscribers and pipeline state processors alike) sees the
+// rewritten payload, instead of collapsing every bot into the
+// "Unknown|0|0" sentinel.
 func (s *RL) enqueue(msg []byte) {
 	var env struct {
 		EventPascal string          `json:"Event"`
@@ -197,16 +196,14 @@ func (s *RL) Run(ctx context.Context) {
 	}
 }
 
-// readLoop decodes packets from a single connection until the context
-// is canceled, the peer hangs up, or rlIdleTimeout elapses without
+// readLoop decodes packets from a single connection until ctx is
+// canceled, the peer hangs up, or rlIdleTimeout elapses without
 // traffic.
 //
-// The idle timeout exists because RL's exporter sometimes silently
-// stops emitting on an existing connection (especially after a match
-// ends + long menu idle) while leaving the TCP socket alive — but it
-// always emits to a fresh client. So treat prolonged silence as
-// "stale, reconnect" rather than waiting forever for data that won't
-// come.
+// RL's exporter sometimes silently stops emitting on an existing
+// connection (after long menu idles) while leaving the socket alive,
+// but always emits to a fresh client — so prolonged silence triggers
+// a reconnect.
 func (s *RL) readLoop(ctx context.Context, conn net.Conn) {
 	dec := json.NewDecoder(conn)
 	gotTraffic := false

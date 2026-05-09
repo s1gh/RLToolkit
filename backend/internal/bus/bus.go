@@ -9,11 +9,8 @@ import (
 
 // subscriberBufSize is the per-subscriber channel depth. Sized to
 // absorb GC pauses and browser repaint hitches without dropping a
-// healthy consumer, while still evicting a genuinely stalled one
-// quickly. The on-the-wire event rate depends on RL's PacketSendRate
-// (1..120, recommended 10), so this is a fixed slot count rather
-// than a time window — at 10 Hz it's ~6 s of headroom, at 120 Hz
-// roughly 0.5 s.
+// healthy consumer. At RL's recommended PacketSendRate of 10 Hz that's
+// ~6s of headroom; at the 120 Hz max, ~0.5s.
 const subscriberBufSize = 64
 
 // Bus fans out raw RL messages to all SSE subscribers.
@@ -114,12 +111,9 @@ func (b *Bus) removeLocked(s *subscriber) {
 }
 
 // framingSignals lists synthetic event names that bypass the per-subscriber
-// filter. Every subscriber needs these regardless of the ?events= filter
-// — they're status/lifecycle signals the SDK uses for its own bookkeeping
-// (connection state, gameplay phase, roster identity, dev hot-reload).
-// Other synthetic events (_StatfeedEvent, _GoalScored, etc.) are
-// filterable like normal events: a plugin only receives them if it
-// subscribed by name.
+// filter — status/lifecycle signals the SDK relies on regardless of plugin
+// opt-in. Other "_"-prefixed synthetics (_StatfeedEvent, _GoalScored, ...)
+// are filterable like normal events.
 var framingSignals = map[string]struct{}{
 	"_ConnectionStatus": {},
 	"_MatchState":       {},
@@ -165,19 +159,11 @@ func (b *Bus) Broadcast(evt Event) {
 func (b *Bus) broadcastRaw(eventName string, data []byte) {
 	start := time.Now()
 
-	// Framing-signal synthetics bypass the per-subscriber filter — every
-	// subscriber needs them regardless of what they listed in ?events=.
-	// Other synthetic _-prefixed events (_StatfeedEvent, _GoalScored,
-	// _PlayerDemolished, etc.) are filterable like normal events: a
-	// plugin only receives them if it subscribed by name. Keeps wire
-	// traffic proportional to actual interest now that high-rate events
-	// are publishing on every tick of activity.
 	bypassFilter := isFramingSignal(eventName)
 
-	// Snapshot under read lock + publishMu so we don't race the scratch
-	// slice with another publisher. We copy into a fresh slice owned by
-	// this call so the subsequent send loop doesn't share storage with
-	// the next publish.
+	// Snapshot under read lock + publishMu so concurrent publishers don't
+	// race the scratch slice. The send loop uses a fresh slice so it
+	// doesn't share storage with the next publish.
 	b.publishMu.Lock()
 	b.mu.RLock()
 	if cap(b.scratch) < len(b.subs) {
@@ -195,9 +181,6 @@ func (b *Bus) broadcastRaw(eventName string, data []byte) {
 	var slow []*subscriber
 	delivered, filterRejects := 0, 0
 	for _, s := range dst {
-		// Filter check — framing synthetics bypass to keep
-		// _ConnectionStatus / _MatchState / _RosterChanged /
-		// _IdentityChanged reliable as universal signals.
 		if !bypassFilter && s.events != nil {
 			if _, ok := s.events[eventName]; !ok {
 				filterRejects++

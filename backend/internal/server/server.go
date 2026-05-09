@@ -32,11 +32,9 @@ import (
 	"time"
 )
 
-// Tunables. The numbers are load-bearing: a stalled SSE write
-// eventually fills the bus's per-subscriber slot, and on Linux/Proton
-// that backpressure can reach RL's send() and freeze the game thread.
-// Better to disconnect a stuck client than to let any link in the
-// chain block.
+// Tunables. A stalled SSE write eventually fills its bus slot; on
+// Linux/Proton that backpressure can reach RL's send() and freeze
+// the game thread. Disconnect stuck clients rather than block.
 const (
 	sseHeartbeat     = 15 * time.Second
 	sseWriteDeadline = 2 * time.Second
@@ -46,9 +44,7 @@ const (
 	MaxPluginValueBytes = 10 << 20 // 10 MiB
 )
 
-// Deps bundles every long-lived dependency the server reads from. Made
-// a struct (instead of positional args) so the call site stays
-// readable as the list grows.
+// Deps bundles every long-lived dependency the server reads from.
 type Deps struct {
 	Bus         *bus.Bus
 	Store       *datastore.Store
@@ -98,25 +94,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/fonts/", s.handleFont)
 	mux.HandleFunc("/overlay-editor.js", s.handleOverlayEditorJS)
 	mux.HandleFunc("/favicon.ico", s.handleFavicon)
-	// Plugin assets are served straight from disk so iterating on a
-	// plugin is one-edit-then-refresh. Two layers of middleware sit in
-	// front:
-	//
-	//   - requireManifest gates every request on the plugin having a
-	//     valid manifest.json. A folder without (or with a malformed)
-	//     manifest is invisible to the dashboard and the unified
-	//     overlay; serving its files would produce a half-loaded
-	//     plugin that runs in isolation but isn't reachable through
-	//     the rest of the toolkit. Better to fail fast at the HTTP
-	//     layer with a clear 404.
-	//
-	//   - noCache forces revalidation so plugin edits show up on the
-	//     next request. Browsers (and the rl-widget webview in
-	//     particular) apply a heuristic freshness window based on
-	//     Last-Modified that's much too long during plugin
-	//     development. "no-cache" means "always revalidate", not
-	//     "don't cache" — unchanged files still come back cheaply as
-	//     a 304.
+	// Plugin assets serve straight from disk so iteration is
+	// edit-then-refresh. requireManifest gates on a valid
+	// manifest.json (broken plugins 404 instead of half-loading);
+	// noCache forces revalidation so edits show up on next request.
 	mux.Handle("/plugins/", http.StripPrefix("/plugins/",
 		s.requireManifest(noCache(http.HandlerFunc(s.servePluginAsset)))))
 	mux.HandleFunc("/", s.handleDashboard)
@@ -124,11 +105,8 @@ func (s *Server) Routes() http.Handler {
 	return cors(mux)
 }
 
-// noCache wraps a handler so its responses always carry
-// `Cache-Control: no-cache`. Used for files that change as the user
-// iterates (plugin assets) and for the embedded HTML shells. Despite
-// the name, "no-cache" doesn't disable caching — it forces
-// revalidation, so unchanged files still come back cheaply as a 304.
+// noCache wraps a handler with `Cache-Control: no-cache` so responses
+// always revalidate (304 on unchanged content; not "don't cache").
 func noCache(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
@@ -136,12 +114,8 @@ func noCache(h http.Handler) http.Handler {
 	})
 }
 
-// requireManifest blocks plugin asset requests when the plugin's
-// manifest is missing or malformed. The PluginManager scans manifests
-// at module-load time and on each List() call, and surfaces parse
-// errors via "[plugins] Bad manifest in <name>: ..." log lines. We
-// gate the file server on the same liveness check so a broken plugin
-// can't half-load.
+// requireManifest blocks plugin asset requests when the manifest is
+// missing or malformed, so a broken plugin can't half-load.
 func (s *Server) requireManifest(inner http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
@@ -154,15 +128,8 @@ func (s *Server) requireManifest(inner http.Handler) http.Handler {
 }
 
 // servePluginAsset serves /plugins/<name>/<rest> from the dev folder
-// if a dev plugin named <name> is registered, otherwise from the
-// installed plugins directory. The leading /plugins/ has already been
-// stripped by the time this handler runs, so r.URL.Path looks like
-// "<name>" or "<name>/<rest>".
-//
-// We can't use http.FileServer here because the directory root is
-// per-request: a dev plugin's assets live in an arbitrary folder on
-// the developer's machine, while installed plugins live under
-// s.deps.PluginDir.
+// when one is registered for <name>, otherwise from PluginDir.
+// http.FileServer doesn't fit because the root is per-request.
 func (s *Server) servePluginAsset(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, "/")
 	name, rest, _ := strings.Cut(rel, "/")
@@ -173,22 +140,15 @@ func (s *Server) servePluginAsset(w http.ResponseWriter, r *http.Request) {
 
 	root := s.deps.PluginDir
 	if devPath := s.deps.Plugins.DevPath(name); devPath != "" {
-		// Dev plugin registered: serve from the dev folder. The folder
-		// already contains manifest.json + assets at its root, so we
-		// only need the part after <name>/.
 		s.serveFromRoot(w, r, devPath, rest)
 		return
 	}
 	s.serveFromRoot(w, r, filepath.Join(root, name), rest)
 }
 
-// handleSideload accepts a multipart upload of a .rltp file under the
-// form field "file" and installs it via install.Install. Used by the
-// dashboard's drag-drop UI; also reachable via curl for testing.
-//
-// Cap on body size is intentional: a runaway upload should fail fast,
-// not consume disk and memory until OOM. 64 MiB is generous for plugin
-// archives (today's largest in-tree plugin is well under 100 KiB).
+// handleSideload accepts a multipart upload of a .rltp under the form
+// field "file" and installs it. The 64 MiB cap fails runaway uploads
+// fast — generous given today's largest plugin is well under 100 KiB.
 func (s *Server) handleSideload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -260,9 +220,9 @@ func (s *Server) serveFromRoot(w http.ResponseWriter, r *http.Request, root, res
 	http.ServeFile(w, r, abs)
 }
 
-// cors permits any origin: the server is meant to be reached from
-// arbitrary local pages (overlays in OBS, dashboard, plugin dev
-// servers) and is loopback-bound in practice.
+// cors permits any origin: the server is loopback-bound in practice
+// and reached from arbitrary local pages (OBS overlays, dashboard,
+// plugin dev servers).
 func cors(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -310,10 +270,8 @@ var (
 )
 
 // parseEventsFilter turns a comma-separated `?events=A,B,C` query
-// value into a set the bus can check per-publish. Empty input → nil
-// (no filter, all events delivered). Whitespace and empty entries are
-// trimmed; the synthetic "_*" framing events bypass the filter on the
-// bus side, so callers don't need to add them.
+// into a set. Empty input → nil (all events delivered). Synthetic
+// framing events bypass the filter on the bus side.
 func parseEventsFilter(raw string) map[string]struct{} {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -411,9 +369,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Replay the cached roster so a plugin refreshing mid-match (or
-	// connecting after the most recent roster delta) sees the current
-	// player list immediately.
+	// Replay the cached roster so a plugin connecting mid-match sees
+	// the current player list immediately.
 	if s.deps.Roster != nil {
 		if init := s.deps.Roster.Snapshot(); init != nil {
 			if !writeFrame(sseDataPrefix, init, sseRecordEnd) {
@@ -528,13 +485,10 @@ func (s *Server) handleDataDelete(w http.ResponseWriter, plugin, key string) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// broadcastStoreChanged emits _StoreChanged so other live SDK contexts
-// (overlay, dashboard preview, settings panel) can react when a key in
-// their namespace is written from somewhere else. The SDK filters by
-// namespace inside RLT.store.onChange so plugins only see their own
-// changes — but we broadcast unfiltered because any subscriber could
-// own any namespace, and the per-namespace filter is cheap on the JS
-// side.
+// broadcastStoreChanged emits _StoreChanged so live SDK contexts
+// (overlay, dashboard preview, settings) can react when a key in
+// their namespace changes elsewhere. Broadcast is unfiltered; the
+// SDK filters by namespace in RLT.store.onChange.
 func (s *Server) broadcastStoreChanged(namespace, key, op string) {
 	if s.deps.Bus == nil {
 		return
@@ -606,12 +560,10 @@ func (s *Server) handleSDKCSS(w http.ResponseWriter, _ *http.Request) {
 	writeAsset(w, "text/css; charset=utf-8", "no-cache", sdkCSSBytes)
 }
 
-// handleFont serves bundled woff2 font files from the embed FS. Path
-// is /fonts/<name>.woff2; only that exact suffix is allowed so a path
-// like /fonts/../sdk.js can't escape into other embedded assets. Long
-// Cache-Control because the bytes are content-addressed (file names
-// map to specific Google Fonts revisions); a font swap would land via
-// a rename, busting the cache.
+// handleFont serves bundled woff2 fonts from the embed FS. The
+// /fonts/<name>.woff2 suffix check prevents traversal into other
+// embedded assets. Long Cache-Control because filenames are
+// content-addressed; a swap lands via rename and busts the cache.
 func (s *Server) handleFont(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/fonts/")
 	if name == "" || strings.ContainsAny(name, "/\\") || !strings.HasSuffix(name, ".woff2") {
@@ -724,9 +676,7 @@ type overridesChangedEnvelope struct {
 }
 
 // MarshalOverridesChanged builds the JSON envelope for an
-// _OverridesChanged event. Returns nil bytes on marshal failure (which
-// the caller treats as "no event published") rather than panicking.
-// Exported so main can publish without owning the envelope shape.
+// _OverridesChanged event. Returns nil on marshal failure.
 func MarshalOverridesChanged(data map[string]overrides.Override) []byte {
 	b, err := json.Marshal(overridesChangedEnvelope{
 		Event: "_OverridesChanged",
@@ -771,8 +721,8 @@ func (s *Server) handleSurfacePut(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "read body", err, http.StatusInternalServerError)
 		return
 	}
-	// Accept the literal `null` to clear. json.Unmarshal of `null` into
-	// **Size leaves the pointer at nil, which is exactly what Set wants.
+	// `null` clears the value: json.Unmarshal of null into **Size
+	// leaves the pointer nil, which is what Set wants.
 	var sz *surface.Size
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
@@ -826,8 +776,7 @@ type surfaceChangedEnvelope struct {
 }
 
 // MarshalSurfaceChanged builds the JSON envelope for a _SurfaceChanged
-// event. Returns nil on marshal failure (caller treats nil as "no event").
-// Exported so main can publish without owning the envelope shape.
+// event. Returns nil on marshal failure.
 func MarshalSurfaceChanged(configured, detected *surface.Size, effective surface.Size) []byte {
 	b, err := json.Marshal(surfaceChangedEnvelope{
 		Event: "_SurfaceChanged",

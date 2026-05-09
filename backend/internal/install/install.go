@@ -1,8 +1,6 @@
-// Package install handles unpacking a .rltp archive into the plugins
-// directory and removing installed plugin folders. It is the single
-// code path used by both the CLI (`rl-toolkit install`) and the
-// dashboard sideload route, so behavior is identical regardless of
-// origin.
+// Package install handles unpacking .rltp archives into the plugins
+// directory and removing installed plugin folders. Single code path
+// for both the CLI (`rl-toolkit install`) and dashboard sideload.
 package install
 
 import (
@@ -21,13 +19,9 @@ type manifest struct {
 	Version string `json:"version"`
 }
 
-// Install unzips rltpPath into pluginsDir/<name>/. The plugin name is
-// read from the archive's manifest.json. If the target folder already
-// exists it is fully replaced. Returns the plugin name.
-//
-// Each archive entry's path is validated against zip-slip: after
-// joining with the destination and cleaning, the resulting path must
-// remain inside the destination tree.
+// Install unzips rltpPath into pluginsDir/<name>/, where <name> is
+// the manifest.json name. Replaces the target folder if it exists.
+// Each entry path is validated against zip-slip.
 func Install(rltpPath, pluginsDir string) (string, error) {
 	r, err := zip.OpenReader(rltpPath)
 	if err != nil {
@@ -107,8 +101,6 @@ func readZipEntry(f *zip.File) ([]byte, error) {
 }
 
 func extractEntry(f *zip.File, dest string) error {
-	// Reject path traversal: each entry's path, after joining with the
-	// destination and cleaning, must remain within the destination.
 	cleaned := filepath.Clean(f.Name)
 	if cleaned == "." || strings.HasPrefix(cleaned, "..") || strings.Contains(cleaned, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("archive entry %q escapes destination", f.Name)
@@ -128,11 +120,9 @@ func extractEntry(f *zip.File, dest string) error {
 	return writeZipEntry(f, outPath)
 }
 
-// writeZipEntry copies one archive entry to disk. Each call owns its
-// own file handles so an extraction of N entries holds at most one
-// reader and one writer at a time. Close errors on the output file
-// are surfaced — silent close errors on a partial write would leave
-// a corrupt plugin on disk.
+// writeZipEntry copies one archive entry to disk. Surfaces output
+// close errors so a silent failure on partial write doesn't leave a
+// corrupt plugin behind.
 func writeZipEntry(f *zip.File, outPath string) error {
 	rc, err := f.Open()
 	if err != nil {

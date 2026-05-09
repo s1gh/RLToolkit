@@ -7,20 +7,17 @@ import (
 	"rl-toolkit/backend/internal/wire"
 )
 
-// BallHit republishes RL's `BallHit` event as `_BallHit` with resolved
-// EnrichedPlayer references attached. Closes one of the wire-spec
-// gaps: the raw BallHit ships only ShortcutRefs, which forces every
-// consumer to repeat the roster-join lookup themselves.
+// BallHit republishes RL's `BallHit` as `_BallHit` with resolved
+// EnrichedPlayer references attached, sparing every consumer the
+// roster-join lookup.
 //
-// As a side effect, every BallHit also lands in the shared Correlator
-// under the "BallHit" key — the entry carries the resolved primary
-// toucher plus the pre/post speeds. Downstream emitters that need
-// "who hit the ball most recently" (own-goal detection, touch-variant
-// statfeeds) read it back via Recent("BallHit", N) instead of decoding
-// _BallHit off the bus a second time.
+// Side effect: every BallHit lands in the shared Correlator under the
+// "BallHit" key (resolved primary toucher + pre/post speeds), so
+// downstream emitters can ask "who hit it most recently?" via
+// Recent("BallHit", N) without re-decoding off the bus.
 //
-// Phase gate: liveOnly (RL fires BallHit during goal-replay cinematics
-// and on the post-match screen — those aren't real touches).
+// Phase-gated to live gameplay — RL also fires BallHit during goal-
+// replay cinematics and the post-match screen, which aren't real touches.
 type BallHit struct {
 	roster      RosterResolver
 	phase       PhaseGate
@@ -81,8 +78,8 @@ func (e *BallHit) Process(evt bus.Event) []bus.Event {
 		out.Location = ball.Location
 	}
 
-	// Record the touch for downstream consumers BEFORE marshaling, so
-	// a marshal failure doesn't leave them looking at stale data.
+	// Record before marshaling so a marshal failure doesn't leave
+	// downstream consumers looking at stale data.
 	if e.correlation != nil && len(resolved) > 0 && resolved[0] != nil {
 		e.correlation.Record("BallHit", &types.BallHitRecord{
 			Player:       resolved[0],
