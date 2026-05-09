@@ -493,11 +493,18 @@ If `rl-toolkit dev` errors with `read dev.port: ... (is rl-toolkit
 running with -dev, or the launcher with RLT_DEV=1?)`, the backend
 isn't running with the dev API on. Restart it with `-dev`.
 
-End users install third-party plugins three ways: drag-drop a `.rltp`
-into the overlay window, use the dashboard's "Install from file…"
-picker, or `rl-toolkit install path/to/plugin.rltp` from a terminal.
-All three run the same install path: validate the manifest, replace
-the existing plugin folder if any, write the new files.
+End users install third-party plugins two ways: the dashboard's
+"Install plugin…" button (in the Plugins section header) opens a
+native file picker for a `.rltp`, or `rl-toolkit install path/to/plugin.rltp`
+from a terminal. Both run the same install path: validate the
+manifest, replace the existing plugin folder if any, write the new
+files. The picker uploads to the same `POST /api/sideload` endpoint
+the CLI's HTTP path uses.
+
+To remove a plugin, click the trash icon on its dashboard card (a
+confirm modal protects against accidents) or run `rl-toolkit uninstall <name>`.
+Uninstalling a plugin that's currently registered for `rl-toolkit dev`
+hot-reload is refused — stop the dev session first.
 
 ---
 
