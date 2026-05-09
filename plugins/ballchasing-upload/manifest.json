@@ -1,0 +1,16 @@
+{
+  "name": "ballchasing-upload",
+  "title": "Ballchasing Upload",
+  "version": "1.0.0",
+  "author": "rl-toolkit",
+  "description": "Automatically uploads saved replays to ballchasing.com.",
+  "overlay": {
+    "file": "overlay.html",
+    "width": 1,
+    "height": 1,
+    "anchor": "top-left",
+    "show_during_phase": []
+  },
+  "dashboard": { "file": "dashboard.html" },
+  "settings": { "file": "settings.html" }
+}

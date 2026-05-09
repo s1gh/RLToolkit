@@ -1,0 +1,59 @@
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #e5e7eb;
+  background: #0f172a;
+  margin: 0;
+  padding: 16px;
+}
+
+h1, h2 { margin: 0 0 12px; font-weight: 600; }
+h1 { font-size: 18px; }
+h2 { font-size: 14px; color: #94a3b8; }
+
+label { display: block; margin: 12px 0 4px; font-size: 13px; color: #94a3b8; }
+input[type="text"], input[type="password"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: #1e293b;
+  color: #e5e7eb;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  font-size: 13px;
+}
+button {
+  padding: 8px 14px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover { background: #1d4ed8; }
+button.secondary { background: #475569; }
+button.secondary:hover { background: #334155; }
+
+.banner {
+  background: #422006;
+  color: #fcd34d;
+  padding: 10px 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.test-result { margin-top: 8px; font-size: 13px; }
+.test-result.ok { color: #4ade80; }
+.test-result.err { color: #f87171; }
+
+.radios { display: flex; gap: 16px; }
+.radios label { display: inline-flex; align-items: center; gap: 6px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1e293b; }
+th { color: #94a3b8; font-weight: 500; }
+.status-success { color: #4ade80; }
+.status-fail { color: #f87171; }
+.status-pending { color: #94a3b8; }
+.status-uploading { color: #60a5fa; }
+.status-retrying { color: #fbbf24; }
