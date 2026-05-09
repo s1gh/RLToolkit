@@ -855,22 +855,18 @@ function renderPlugins() {
     const dashboardURL = p.dashboard?.file
       ? '/plugins/' + p.name + '/' + p.dashboard.file
       : null;
-    const overlayURL = p.overlay?.file
-      ? '/plugins/' + p.name + '/' + p.overlay.file
-      : null;
     const initials = (p.title || p.name || '?').replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '◇';
     const desc = p.description
       ? esc(p.description)
       : '<span style="color:var(--txt-3);font-style:italic">No description provided.</span>';
     const enabled = isEnabled(p.name);
 
-    // "Open" button preference: dashboard view if the plugin has one
-    // (the rich, full-page UI), else fall back to opening the overlay
-    // in a browser tab (useful for debugging without launching Tauri).
-    // Label stays "Open" either way — the user doesn't care which view
-    // file the plugin author happened to ship, and varying the label
-    // per plugin made the row of cards look inconsistent.
-    const openURL = dashboardURL || overlayURL;
+    // The Open button only renders when the plugin ships a dashboard
+    // view. Falling back to opening the overlay (which used to be the
+    // behavior) led to "Open" launching a blank tab for plugins like
+    // ballchasing-upload and crossbar whose overlay is a stub. Better
+    // to omit the button than ship one that does nothing useful.
+    const openURL = dashboardURL;
     const hasSettings = !!p.settings?.file;
 
     return '<article class="card' + (enabled ? '' : ' disabled') + '" data-plugin="' + esc(p.name) + '">'
