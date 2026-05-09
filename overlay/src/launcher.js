@@ -772,6 +772,11 @@ async function loadDashboard() {
   } catch (_) {
     document.getElementById("dashboard").src = "http://localhost:49200/";
   }
+  // Spin up background workers for any enabled plugin that declares
+  // `background.file`. reloadDashboard does this too, but that's only
+  // called on backend reconnect / settings-save; loadDashboard is the
+  // entry path on a fresh launch with an established identity.
+  syncBackgroundWorkers();
 }
 
 // Bridge: the embedded dashboard iframe sends external-open requests via
