@@ -277,7 +277,7 @@ async function openSse() {
   // framing-bypass keeps _IdentityChanged / _RosterChanged flowing
   // even with this filter.
   sseSource = new EventSource(
-    base + "/events?events=_RosterChanged,_IdentityChanged",
+    base + "/events?events=_RosterChanged,_IdentityChanged,_OverridesChanged",
   );
   sseSource.onmessage = (e) => {
     let env;
@@ -290,6 +290,11 @@ async function openSse() {
     if (env.Event === "_RosterChanged") {
       lastRoster = (env.Data && env.Data.players) || [];
       renderRoster(lastRoster);
+    } else if (env.Event === "_OverridesChanged") {
+      // A plugin was toggled enabled/disabled. Re-sync background
+      // workers so a newly-enabled plugin starts immediately and a
+      // newly-disabled one stops.
+      syncBackgroundWorkers();
     }
     // _IdentityChanged is informational here — state transitions are
     // driven by the explicit fetch results in claim/reclaim.
@@ -506,6 +511,68 @@ async function reloadDashboard() {
   // even if the webview's HTTP cache would otherwise serve stale copies.
   const sep = url.includes("?") ? "&" : "?";
   iframe.src = `${url}${sep}_t=${Date.now()}`;
+
+  // Refresh background workers too. Their lifecycle is independent of
+  // the dashboard iframe but the same triggers (backend reconnect,
+  // settings save) should re-sync them.
+  syncBackgroundWorkers();
+}
+
+// ─── Background workers ────────────────────────────────────
+// Plugins whose manifest declares `background.file` get a hidden
+// iframe loaded for as long as the launcher is open AND the plugin
+// is enabled. Used by plugins that need to react to events
+// independent of any visible UI surface (e.g. ballchasing-upload's
+// uploader pump runs the moment _SavedReplay fires, regardless of
+// whether the user has its dashboard tab open).
+async function syncBackgroundWorkers() {
+  const host = document.getElementById("bg-workers");
+  if (!host) return;
+  let base;
+  try {
+    base = await toolkitUrl();
+  } catch (_) {
+    return;
+  }
+  let plugins, overrides;
+  try {
+    [plugins, overrides] = await Promise.all([
+      fetch(base + "/api/plugins").then(r => r.json()).catch(() => []),
+      fetch(base + "/api/overlay/overrides").then(r => r.json()).catch(() => ({})),
+    ]);
+  } catch (_) {
+    return;
+  }
+
+  const wanted = new Set();
+  for (const p of plugins || []) {
+    if (!p || !p.background || !p.background.file) continue;
+    const ov = overrides && overrides[p.name];
+    if (!ov || ov.enabled !== true) continue;
+    wanted.add(p.name);
+  }
+
+  // Remove iframes for plugins no longer wanted.
+  for (const child of Array.from(host.children)) {
+    const name = child.dataset.plugin;
+    if (!name || !wanted.has(name)) {
+      child.remove();
+    } else {
+      wanted.delete(name);
+    }
+  }
+
+  // Add iframes for newly-wanted plugins.
+  for (const name of wanted) {
+    const p = (plugins || []).find(x => x && x.name === name);
+    if (!p || !p.background || !p.background.file) continue;
+    const ifr = document.createElement("iframe");
+    ifr.dataset.plugin = name;
+    ifr.title = name + " (background)";
+    ifr.style.display = "none";
+    ifr.src = base + "/plugins/" + encodeURIComponent(name) + "/" + p.background.file;
+    host.appendChild(ifr);
+  }
 }
 
 fallbackRetry.addEventListener("click", () => {

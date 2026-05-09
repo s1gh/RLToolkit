@@ -102,6 +102,14 @@
       Tray unavailable — closing this window will quit the app.
     </div>
     <iframe id="dashboard" src="about:blank"></iframe>
+    <!-- Hidden host for plugin background workers. Each enabled
+         plugin whose manifest declares `background.file` gets one
+         iframe in here for as long as the launcher window is open
+         (which is the entire app lifetime — the close button hides
+         to tray, doesn't quit). Lifecycle is managed by launcher.js
+         and is independent of the dashboard iframe so background
+         work survives dashboard reloads. -->
+    <div id="bg-workers" hidden aria-hidden="true"></div>
     <div id="fallback" class="fallback" hidden>
       <div class="msg" id="fallback-msg">Starting backend…</div>
       <button id="fallback-retry" hidden>Retry</button>
