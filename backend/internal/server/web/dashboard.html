@@ -206,7 +206,11 @@ button{font-family:inherit}
   overflow:hidden;
 }
 
-.card-actions{ display:flex; gap:6px; }
+/* Right-align the action buttons. With Open present its flex:1 fills
+   the row and the icons land on the right anyway; without Open the
+   icons would otherwise float to the left edge of an otherwise empty
+   row. justify-content makes the layout consistent across both. */
+.card-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .btn{
   flex:1;
   font-family:var(--ui); font-size:12px; font-weight:600;
@@ -240,11 +244,14 @@ button{font-family:inherit}
 .btn.primary:hover .arrow{ transform:translateX(2px); }
 /* Square icon button — opts out of the row's flex:1 stretch so the
    gear sits as a fixed-size secondary action next to the wide Open
-   button. Disabled state signals "this plugin has no settings panel"
-   without hiding the affordance, so users learn where settings live. */
+   button. Explicit width AND height so the icons stay square whether
+   they sit next to the Open button (which would otherwise stretch
+   them via align-items:stretch) or alone in a row without Open.
+   Disabled state signals "this plugin has no settings panel" without
+   hiding the affordance, so users learn where settings live. */
 .btn.icon{
   flex:0 0 auto;
-  width:38px; padding:0;
+  width:38px; height:38px; padding:0;
   color:var(--txt-2);
 }
 .btn.icon svg{ width:16px; height:16px; display:block; }
