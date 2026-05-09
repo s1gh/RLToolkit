@@ -442,7 +442,7 @@ root contains `manifest.json` and the rest of the plugin's assets, with
 no nested top-level folder. The canonical filename is
 `<name>-<version>.rltp`, derived from the manifest.
 
-The `rl-toolkit` binary has four subcommands for working with `.rltp`
+The `rl-toolkit` binary has subcommands for working with `.rltp`
 files:
 
 ```sh
@@ -458,22 +458,40 @@ rl-toolkit install [-plugins <dir>] <file.rltp>
 rl-toolkit uninstall [-plugins <dir>] <name>
 # Removes an installed plugin folder.
 
-rl-toolkit dev [-data <dir>] <plugin-folder>
-# Hot-reload an unpackaged plugin folder against the running overlay.
+rl-toolkit dev <plugin-folder>
+# Hot-reload an unpackaged plugin folder against the running backend.
 ```
 
-`rl-toolkit dev` is the daily-driver loop while authoring. With the
-overlay running in one terminal:
+`rl-toolkit dev` is the daily-driver loop while authoring. The backend
+must be running with the dev API enabled (see below):
 
 ```sh
-rl-toolkit             # in terminal A — starts the overlay/server
+rl-toolkit -dev                    # in terminal A — server with dev API on
 rl-toolkit dev plugins/my-plugin   # in terminal B
 ```
 
-`rl-toolkit dev` reads the overlay's localhost-only dev API port from a platform-canonical user config dir (`~/.config/rl-toolkit/dev.port` on Linux, `~/Library/Application Support/rl-toolkit/dev.port` on macOS, `%APPDATA%\rl-toolkit\dev.port` on Windows). The launcher and CLI agree on this location automatically; no flags needed. It registers the folder, watches it for changes, and tells the overlay to reload the plugin on each save (debounced ~150ms). On save, the overlay window and any open dashboard tab for that plugin reloads itself automatically — no manual browser refresh needed. Ctrl-C unregisters and exits cleanly. The overlay's plugin directory is never modified — the dev plugin lives entirely in memory and shadows any installed plugin of the same name until you Ctrl-C.
+The dev API is **off by default**; pass `-dev` to `rl-toolkit` (or
+launch the launcher with `RLT_DEV=1` set) to turn it on. The CLI then
+discovers the backend's localhost-only dev port via a `dev.port` file
+inside the RLToolkit application directory:
 
-If `rl-toolkit dev` errors with "is the overlay running?", start the
-overlay first; the CLI does not launch it.
+- Linux: `$XDG_DATA_HOME/RLToolkit/dev.port` (or
+  `~/.local/share/RLToolkit/dev.port`)
+- macOS: `~/Library/Application Support/RLToolkit/dev.port`
+- Windows: `%LOCALAPPDATA%\RLToolkit\dev.port`
+
+The launcher and CLI agree on this location automatically; no flags
+needed. `rl-toolkit dev` registers the folder, watches it for changes
+(debounce ~150ms), and tells every view of the plugin (overlay,
+dashboard tab, settings panel) to reload on each save — no manual
+browser refresh needed. Ctrl-C unregisters and exits cleanly. The
+installed plugin directory is never modified; the dev plugin lives
+entirely in memory and shadows any installed plugin of the same name
+until you Ctrl-C.
+
+If `rl-toolkit dev` errors with `read dev.port: ... (is rl-toolkit
+running with -dev, or the launcher with RLT_DEV=1?)`, the backend
+isn't running with the dev API on. Restart it with `-dev`.
 
 End users install third-party plugins three ways: drag-drop a `.rltp`
 into the overlay window, use the dashboard's "Install from file…"
@@ -490,11 +508,11 @@ Required fields are bold.
 | Field           | Type    | Notes                                                                  |
 | --------------- | ------- | ---------------------------------------------------------------------- |
 | **`name`**      | string  | Directory-name match. Used as the namespace for `RLT.store`.           |
-| **`title`**     | string  | Display name in the dashboard.                                         |
 | **`version`**   | string  | Semver. Logged at register time.                                       |
-| **`author`**    | string  |                                                                        |
-| `description`   | string  | Shown in the dashboard plugin list.                                    |
 | **`overlay`**   | object  | The Tauri widget view. See `overlay` table below.                      |
+| `title`         | string  | Display name in the dashboard. Defaults to `name` when omitted.        |
+| `author`        | string  | Optional. Shown in the dashboard plugin list.                          |
+| `description`   | string  | Optional. Shown in the dashboard plugin list.                          |
 | `dashboard`     | object  | Optional. `{ "file": "dashboard.html" }` — full-page browser view.     |
 | `settings`      | object  | Optional. `{ "file": "settings.html" }` — iframe modal in the dashboard. |
 
@@ -511,7 +529,7 @@ the only view that runs in a window of its own.
 | **`anchor`**          | string         | One of `top-left`, `top-right`, `bottom-left`, `bottom-right`.         |
 | `offset_x`            | int            | Pixels from the anchored edge horizontally.                            |
 | `offset_y`            | int            | Pixels from the anchored edge vertically.                              |
-| `opacity`             | float (0–1)    | Window opacity. `0` = fully transparent (useful for sound-only plugins). |
+| `opacity`             | float (0–1)    | Window opacity. Treats `0` as the unset default and resets it to `1.0` — pick a small non-zero value (e.g. `0.01`) if you really want a near-invisible window. |
 | `click_through`       | boolean        | If `true`, mouse events pass through to the game.                      |
 | `hide_when_unfocused` | boolean / null | If `true`, overlay hides when the game window loses focus.             |
 | `show_during_phase`   | array          | Phase names to show during. Hidden in all other phases. See [phase gating](#phase-gating). |
@@ -802,7 +820,7 @@ RLT.stats.SAVE           // → "Save"
 RLT.stats.EPIC_SAVE      // → "EpicSave"
 RLT.stats.GOAL           // → "Goal"
 RLT.stats.HAT_TRICK      // → "HatTrick"
-// … 29 entries total
+// … 28 entries total, mirroring backend/internal/types/statfeed.go
 
 RLT.stats.known          // Set of all values for membership tests
 ```
@@ -954,7 +972,8 @@ The authoritative current phase. Fires on every transition.
   phaseDurationSeconds: number,       // how long we've been in this phase
   trigger: 'MatchCreated'|'UpdateState'|'CountdownBegin'|'RoundStarted'|
            'MatchPaused'|'MatchUnpaused'|'MatchEnded'|'PodiumStart'|
-           'MatchDestroyed'|'bReplayEdge'|'connectionLost'|'initial'
+           'MatchDestroyed'|'bReplayEdge'|'connectionLost'|
+           'watchdogTimeout'|'initial'
 }
 ```
 
@@ -1194,21 +1213,23 @@ registry (`RLT.stats`). Useful for catching new stat types RL adds.
 
 #### Promoted statfeeds (one event per statfeed type)
 
-Same dispatch as `_StatfeedEvent`, but with extra correlated context
-woven in.
+Each promoted event ships with the same `matchGuid` as `_StatfeedEvent`
+plus extra correlated context. All fields beyond the base shape are
+listed below; everything except `_PlayerDemolished` carries
+`mainTarget` (and, when applicable, `secondaryTarget`).
 
-| Event              | Extra fields beyond `mainTarget`                                            |
-| ------------------ | --------------------------------------------------------------------------- |
-| `_PlayerDemolished` | `attacker`, `victim`, `isSelfDemo`, `isTeamDemo`, `attackerSpeed?`, `attackerWasSupersonic?` |
-| `_FlipReset`       | `flipResetsThisMatch` (counter)                                             |
-| `_HatTrick`        | `goalsThisMatch` (counter; suppressed if non-own-goal count < 3)            |
-| `_Save`            | `correlatedShot: EnrichedPlayer \| null` (within last 15 events)            |
-| `_EpicSave`        | `correlatedShot: EnrichedPlayer \| null`                                    |
-| `_Shot`            | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null`            |
-| `_Assist`          | `correlatedGoal: { scorer, scoringTeam, concedingTeam } \| null`            |
-| `_Center`          | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null`            |
-| `_Clear`           | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null`            |
-| `_BicycleHit`      | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null`            |
+| Event               | Extra fields                                                                |
+| ------------------- | --------------------------------------------------------------------------- |
+| `_PlayerDemolished` | `attacker`, `victim`, `isSelfDemo`, `isTeamDemo`, `attackerSpeed?`, `attackerWasSupersonic?` (no `mainTarget`/`secondaryTarget`) |
+| `_FlipReset`        | `flipResetsThisMatch` (counter)                                             |
+| `_HatTrick`         | `goalsThisMatch` (counter; the event is suppressed entirely until the player has 3 non-own-goal goals) |
+| `_Save`             | `correlatedShot: EnrichedPlayer \| null` (within the last 15 statfeed events) |
+| `_EpicSave`         | `correlatedShot: EnrichedPlayer \| null`                                    |
+| `_Shot`             | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null` (last 3 ball-hits) |
+| `_Assist`           | `correlatedGoal: { scorer, scoringTeam, concedingTeam } \| null`            |
+| `_Center`           | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null`            |
+| `_Clear`            | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null`            |
+| `_BicycleHit`       | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null`            |
 
 ### Demo correlation
 
@@ -1324,9 +1345,17 @@ Process-lifetime UUID. The first SSE frame on every connect — useful
 for detecting backend restarts (compare against the previous boot ID
 you saw).
 
+The boot ID lives at the **top level** of the SSE envelope
+(`{"Event":"_BootId","bootId":"..."}`), not inside a `Data` field, so
+SDK event handlers receive an empty payload (`{}`). To read the
+current boot ID, fetch `GET /api/boot-id`:
+
 ```js
-{ bootId: string }
+const { bootId } = await fetch('/api/boot-id').then((r) => r.json());
 ```
+
+`_BootId` is not bridged into `RLT.events`, so subscribe via the raw
+bus (`RLT.on('_BootId', ...)`) if you want the connect-time signal.
 
 #### `_status`
 
@@ -1428,8 +1457,10 @@ storage](#per-plugin-storage-rltstore) for the `onChange` API.
 - **Make overlays click-through unless they're interactive.** Set
   `"click_through": true` in the manifest. Plugins that swallow mouse
   events compete with the game.
-- **Set `"opacity": 0` for sound-only plugins.** The overlay window
-  still has to exist for the JS to run, but you can make it invisible.
+- **For sound-only plugins, use a tiny non-zero opacity** (e.g.
+  `"opacity": 0.01`) plus `"click_through": true` and a transparent
+  body. The validator resets a literal `0` to `1.0`, so `0` won't hide
+  the window.
 - **Inspect real event payloads with `RLT.on('*', console.log)`.**
   Drop a wildcard listener in any plugin to print every event the
   bus delivers — useful when you're not sure what a synthetic event
