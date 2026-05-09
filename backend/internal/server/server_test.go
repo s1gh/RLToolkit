@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"rl-toolkit/backend/internal/bootid"
@@ -464,3 +465,162 @@ func TestReplayWatcher_PUT_NullClears(t *testing.T) {
 type recordingBroadcaster struct{}
 
 func (recordingBroadcaster) Broadcast(bus.Event) {}
+
+func TestReplayFile_HappyPath(t *testing.T) {
+	demoDir := t.TempDir()
+	want := []byte("REPLAY-BYTES")
+	replayPath := filepath.Join(demoDir, "ABCD1234.replay")
+	if err := os.WriteFile(replayPath, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServerWithReplayDir(t, demoDir)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/replay-file?path="+url.QueryEscape(replayPath), nil)
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), want) {
+		t.Errorf("body = %q, want %q", rec.Body.Bytes(), want)
+	}
+}
+
+func TestReplayFile_RejectsPathTraversal(t *testing.T) {
+	demoDir := t.TempDir()
+	srv := newTestServerWithReplayDir(t, demoDir)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/replay-file?path="+url.QueryEscape("/etc/passwd"), nil)
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestReplayFile_RejectsNonReplayExtension(t *testing.T) {
+	demoDir := t.TempDir()
+	notesPath := filepath.Join(demoDir, "notes.txt")
+	if err := os.WriteFile(notesPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServerWithReplayDir(t, demoDir)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/replay-file?path="+url.QueryEscape(notesPath), nil)
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestReplayFile_WatcherInactive(t *testing.T) {
+	store, err := replaywatch.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := replaywatch.NewWatcher(store, recordingBroadcaster{}, replaywatch.WatcherOptions{})
+	srv := New(Deps{ReplayWatcher: w})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/replay-file?path=/some/path.replay", nil)
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestReplayFile_FileMissing(t *testing.T) {
+	demoDir := t.TempDir()
+	srv := newTestServerWithReplayDir(t, demoDir)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/replay-file?path="+url.QueryEscape(filepath.Join(demoDir, "GONE.replay")), nil)
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestReplayFile_OversizeFile(t *testing.T) {
+	demoDir := t.TempDir()
+	bigPath := filepath.Join(demoDir, "BIG.replay")
+	if err := os.WriteFile(bigPath, make([]byte, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := replayFileMaxBytes
+	replayFileMaxBytes = 50
+	defer func() { replayFileMaxBytes = prev }()
+
+	srv := newTestServerWithReplayDir(t, demoDir)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/replay-file?path="+url.QueryEscape(bigPath), nil)
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413", rec.Code)
+	}
+}
+
+func TestReplayFile_RejectsSymlinkEscape(t *testing.T) {
+	demoDir := t.TempDir()
+	outsideDir := t.TempDir()
+	target := filepath.Join(outsideDir, "secret.replay")
+	if err := os.WriteFile(target, []byte("nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(demoDir, "link.replay")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks not supported on this filesystem: %v", err)
+	}
+	srv := newTestServerWithReplayDir(t, demoDir)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/replay-file?path="+url.QueryEscape(link), nil)
+	srv.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+// newTestServerWithReplayDir builds a Server with a watcher whose
+// effective dir is set to demoDir. Used by /api/replay-file tests.
+func newTestServerWithReplayDir(t *testing.T, demoDir string) *Server {
+	t.Helper()
+	store, err := replaywatch.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(demoDir); err != nil {
+		t.Fatal(err)
+	}
+	w := replaywatch.NewWatcher(store, recordingBroadcaster{}, replaywatch.WatcherOptions{})
+	// Run the watcher just long enough that State().Effective is set.
+	ctx, cancel := context.WithCancel(context.Background())
+	go w.Run(ctx)
+	t.Cleanup(cancel)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if w.State().Effective == demoDir {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if w.State().Effective != demoDir {
+		t.Fatalf("watcher never resolved demoDir; state=%+v", w.State())
+	}
+	return New(Deps{ReplayWatcher: w})
+}

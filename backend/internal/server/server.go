@@ -92,6 +92,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/overlay/surface", s.handleOverlaySurface)
 	mux.HandleFunc("/api/overlay/surface/detected", s.handleOverlaySurfaceDetected)
 	mux.HandleFunc("/api/replay-watcher", s.handleReplayWatcher)
+	mux.HandleFunc("/api/replay-file", s.handleReplayFile)
 	mux.HandleFunc("/overlay", s.handleOverlay)
 	mux.HandleFunc("/sdk.js", s.handleSDKJS)
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
@@ -946,4 +947,89 @@ func MarshalReplayWatcherChanged(state replaywatch.State) []byte {
 		return nil
 	}
 	return b
+}
+
+// replayFileMaxBytes caps the size of a file the toolkit will serve
+// over /api/replay-file. The largest replays observed on disk are
+// well under 2 MB; the cap is generous headroom that still flags
+// "something is wrong, don't read this".
+//
+// var (not const) so tests can substitute a smaller value.
+var replayFileMaxBytes int64 = 10 << 20 // 10 MiB
+
+// handleReplayFile streams a .replay file's bytes from inside the
+// watcher's effective directory. Used by the bundled
+// ballchasing-upload plugin (and any future plugin that needs to
+// read replay bytes from JS).
+//
+// Validation:
+//   - 503 if the watcher has no effective directory.
+//   - 403 if the resolved path escapes the effective directory.
+//   - 403 if the file's extension is not .replay (case-insensitive).
+//   - 404 if the file does not exist.
+//   - 413 if the file's size exceeds replayFileMaxBytes.
+func (s *Server) handleReplayFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	if s.deps.ReplayWatcher == nil {
+		http.Error(w, "replay watcher unavailable", http.StatusInternalServerError)
+		return
+	}
+	effective := s.deps.ReplayWatcher.State().Effective
+	if effective == "" {
+		http.Error(w, "replay watcher inactive", http.StatusServiceUnavailable)
+		return
+	}
+
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" {
+		http.Error(w, "missing path parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Reject by extension first, before any filesystem work.
+	if !strings.EqualFold(filepath.Ext(rawPath), ".replay") {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	resolvedPath, err := filepath.EvalSymlinks(filepath.Clean(rawPath))
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(filepath.Clean(effective))
+	if err != nil {
+		http.Error(w, "replay watcher inactive", http.StatusServiceUnavailable)
+		return
+	}
+
+	rel, err := filepath.Rel(resolvedRoot, resolvedPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	info, err := os.Stat(resolvedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "stat: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if info.Size() > replayFileMaxBytes {
+		http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, resolvedPath)
 }
