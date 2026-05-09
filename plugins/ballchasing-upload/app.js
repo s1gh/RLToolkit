@@ -1,9 +1,15 @@
 // ballchasing-upload — bundled plugin that auto-uploads saved replays
 // to ballchasing.com.
 //
-// app.js is loaded by both dashboard.html and settings.html. The HTML
-// sets window.__rlt_view to "dashboard" or "settings" before the
-// script loads so we can wire each view's behavior here.
+// Two views:
+//
+//   - settings.html: API key + visibility + group + test connection.
+//   - background.html: loaded as a hidden iframe by the launcher. Owns
+//     the upload pump, subscribes to _SavedReplay, persists queue
+//     state. Runs for as long as the launcher is open and the plugin
+//     is enabled — independent of any visible UI tab.
+//
+// The HTML sets window.__rlt_view before this script loads.
 
 (function () {
   const view = window.__rlt_view;
@@ -35,7 +41,8 @@
 
   async function saveQueue(q) {
     // Cap to QUEUE_CAP entries by savedAt ascending (oldest first
-    // dropped). The dashboard shows the last 50 in descending order.
+    // dropped). Keeps the persisted state bounded across long
+    // sessions.
     const sorted = q.slice().sort((a, b) =>
       (a.savedAt || "").localeCompare(b.savedAt || ""));
     const trimmed = sorted.slice(Math.max(0, sorted.length - QUEUE_CAP));
@@ -112,9 +119,11 @@
     });
   }
 
-  // ── Dashboard view ──────────────────────────────────────────
-  // The dashboard owns the upload pump. Settings does not subscribe
-  // to _SavedReplay or run the uploader to avoid double-firing.
+  // ── Background pump ─────────────────────────────────────────
+  // Owns the upload queue. Subscribes to _SavedReplay, fetches replay
+  // bytes from the backend, POSTs them to ballchasing via the proxy,
+  // updates persisted queue state. No UI, no notifications — the
+  // user's only signal is "did the replay show up on ballchasing.com".
 
   let queue = [];
   let pumpRunning = false;
@@ -162,12 +171,7 @@
     }
   }
 
-  // backoffMs returns the delay to wait BEFORE the next attempt,
-  // given the new attempts counter (post-increment).
-  //
-  //   attempts == 1 (i.e. first try just failed): wait 30s
-  //   attempts == 2 (second try failed):          wait 2min
-  //   attempts == 3 (third try failed):           no more retries (caller handles)
+  // backoffMs: 30s → 2min → permanent fail.
   function backoffMs(attempts) {
     if (attempts <= 1) return 30 * 1000;
     if (attempts === 2) return 2 * 60 * 1000;
@@ -177,43 +181,32 @@
   async function runOne(entry) {
     entry.status = "uploading";
     entry.lastError = "";
-    await persistAndRender();
+    await saveQueue(queue);
 
     const settings = await loadSettings();
     if (!settings.apiKey) {
+      // Park the entry; next _SavedReplay or settings save will kick
+      // the pump again and we'll re-check.
       entry.status = "pending";
-      await persistAndRender();
-      // Pump will idle until the user saves an API key and reloads
-      // (next _SavedReplay or page refresh kicks it).
+      await saveQueue(queue);
       return;
     }
 
-    // Fetch bytes from the backend.
+    // Fetch bytes from the backend (path-traversal/size guards in
+    // /api/replay-file).
     let bytes;
     try {
       const r = await fetch("/api/replay-file?path=" + encodeURIComponent(entry.path));
-      if (r.status === 503) {
+      if (r.status === 503 || r.status === 404 || r.status === 413) {
         entry.status = "failed_permanent";
-        entry.lastError = "replay watcher inactive";
-        await persistAndRender();
-        return;
-      }
-      if (r.status === 404) {
-        entry.status = "failed_permanent";
-        entry.lastError = "replay file missing";
-        await persistAndRender();
-        return;
-      }
-      if (r.status === 413) {
-        entry.status = "failed_permanent";
-        entry.lastError = "replay file too large";
-        await persistAndRender();
+        entry.lastError = "backend " + r.status;
+        await saveQueue(queue);
         return;
       }
       if (!r.ok) {
         entry.status = "failed_permanent";
         entry.lastError = "backend error: " + r.status;
-        await persistAndRender();
+        await saveQueue(queue);
         return;
       }
       bytes = await r.arrayBuffer();
@@ -221,27 +214,24 @@
       entry.attempts = (entry.attempts || 0) + 1;
       if (entry.attempts >= 3) {
         entry.status = "failed_permanent";
-        entry.lastError = "network error: " + e.message;
+        entry.lastError = "network: " + e.message;
       } else {
         entry.status = "retrying";
-        entry.lastError = "network error: " + e.message;
+        entry.lastError = "network: " + e.message;
         entry.nextAttemptAt = Date.now() + backoffMs(entry.attempts);
       }
-      await persistAndRender();
+      await saveQueue(queue);
       return;
     }
 
-    // Upload to ballchasing.
+    // POST through /api/plugin-fetch/ to ballchasing.
     const fd = new FormData();
     fd.append("file", new Blob([bytes]), entry.fileName);
-
     const params = new URLSearchParams({ visibility: settings.visibility });
     if (settings.group) params.set("group", settings.group);
-    const uploadTarget = "https://ballchasing.com/api/v2/upload?" + params.toString();
-    // Routed through the toolkit's /api/plugin-fetch proxy because
-    // ballchasing.com doesn't return CORS headers.
+    const target = "https://ballchasing.com/api/v2/upload?" + params.toString();
     const proxied = "/api/plugin-fetch/ballchasing-upload?url="
-      + encodeURIComponent(uploadTarget);
+      + encodeURIComponent(target);
 
     let resp;
     try {
@@ -254,23 +244,19 @@
       entry.attempts = (entry.attempts || 0) + 1;
       if (entry.attempts >= 3) {
         entry.status = "failed_permanent";
-        entry.lastError = "network error: " + e.message;
+        entry.lastError = "network: " + e.message;
       } else {
         entry.status = "retrying";
-        entry.lastError = "network error: " + e.message;
+        entry.lastError = "network: " + e.message;
         entry.nextAttemptAt = Date.now() + backoffMs(entry.attempts);
       }
-      await persistAndRender();
+      await saveQueue(queue);
       return;
     }
 
-    if (resp.status === 201) {
+    if (resp.status === 201 || resp.status === 409) {
       const body = await resp.json().catch(() => ({}));
-      entry.status = "success";
-      entry.ballchasingUrl = body.id ? ("https://ballchasing.com/replay/" + body.id) : "";
-    } else if (resp.status === 409) {
-      const body = await resp.json().catch(() => ({}));
-      entry.status = "success_duplicate";
+      entry.status = resp.status === 409 ? "success_duplicate" : "success";
       entry.ballchasingUrl = body.id ? ("https://ballchasing.com/replay/" + body.id) : "";
     } else if (resp.status === 401) {
       entry.status = "failed_permanent";
@@ -279,158 +265,33 @@
       entry.lastError = "bad request: " + (await resp.text().catch(() => ""));
       entry.status = "failed_permanent";
     } else if (resp.status === 429) {
-      const retryAfter = parseInt(resp.headers.get("Retry-After") || "60", 10);
+      const raw = parseInt(resp.headers.get("Retry-After") || "60", 10);
+      const seconds = Number.isFinite(raw) ? Math.max(1, Math.min(3600, raw)) : 60;
       entry.status = "retrying";
-      entry.nextAttemptAt = Date.now() + (Number.isFinite(retryAfter) ? retryAfter : 60) * 1000;
+      entry.nextAttemptAt = Date.now() + seconds * 1000;
       entry.lastError = "rate limited";
     } else if (resp.status >= 500) {
       entry.attempts = (entry.attempts || 0) + 1;
       if (entry.attempts >= 3) {
         entry.status = "failed_permanent";
-        entry.lastError = "server error: " + resp.status;
+        entry.lastError = "server " + resp.status;
       } else {
         entry.status = "retrying";
         entry.nextAttemptAt = Date.now() + backoffMs(entry.attempts);
-        entry.lastError = "server error: " + resp.status;
+        entry.lastError = "server " + resp.status;
       }
     } else {
       entry.status = "failed_permanent";
       entry.lastError = "unexpected status: " + resp.status;
     }
-    await persistAndRender();
-  }
-
-  async function persistAndRender() {
     await saveQueue(queue);
-    renderTable();
   }
 
-  function renderTable() {
-    const rows = document.getElementById("rows");
-    if (!rows) return;
-    const sorted = queue.slice().sort((a, b) =>
-      (b.savedAt || "").localeCompare(a.savedAt || ""));
-    const last50 = sorted.slice(0, 50);
-    rows.innerHTML = "";
-    for (const entry of last50) {
-      const tr = document.createElement("tr");
-      tr.appendChild(td(entry.fileName));
-      tr.appendChild(statusCell(entry));
-      tr.appendChild(td(formatTime(entry.savedAt)));
-      tr.appendChild(actionCell(entry));
-      rows.appendChild(tr);
-    }
-  }
-
-  function td(text) {
-    const el = document.createElement("td");
-    el.textContent = text || "";
-    return el;
-  }
-
-  function statusCell(entry) {
-    const el = document.createElement("td");
-    let label = entry.status;
-    let cls = "status-pending";
-    switch (entry.status) {
-      case "success":
-      case "success_duplicate":
-        label = entry.status === "success_duplicate" ? "Uploaded (dup)" : "Uploaded";
-        cls = "status-success";
-        break;
-      case "uploading":
-        label = "Uploading...";
-        cls = "status-uploading";
-        break;
-      case "retrying":
-        label = "Retrying (" + (entry.attempts || 0) + "/3)";
-        cls = "status-retrying";
-        break;
-      case "failed_permanent":
-        label = "Failed: " + (entry.lastError || "unknown");
-        cls = "status-fail";
-        break;
-      case "pending":
-        label = "Pending";
-        cls = "status-pending";
-        break;
-      case "cancelled":
-        label = "Cancelled";
-        cls = "status-pending";
-        break;
-    }
-    el.textContent = label;
-    el.className = cls;
-    return el;
-  }
-
-  function actionCell(entry) {
-    const el = document.createElement("td");
-    if ((entry.status === "success" || entry.status === "success_duplicate") && entry.ballchasingUrl) {
-      const a = document.createElement("a");
-      a.href = entry.ballchasingUrl;
-      a.textContent = "Open";
-      a.target = "_blank";
-      a.rel = "noopener";
-      el.appendChild(a);
-    } else if (entry.status === "pending" || entry.status === "retrying") {
-      const btn = document.createElement("button");
-      btn.textContent = "Cancel";
-      btn.className = "btn";
-      btn.addEventListener("click", async () => {
-        entry.status = "cancelled";
-        await persistAndRender();
-      });
-      el.appendChild(btn);
-    } else if (entry.status === "failed_permanent") {
-      const retry = document.createElement("button");
-      retry.textContent = "Retry";
-      retry.className = "btn primary";
-      retry.addEventListener("click", async () => {
-        entry.status = "pending";
-        entry.attempts = 0;
-        entry.nextAttemptAt = 0;
-        entry.lastError = "";
-        await persistAndRender();
-        pump();
-      });
-      el.appendChild(retry);
-      const remove = document.createElement("button");
-      remove.textContent = "Remove";
-      remove.className = "btn";
-      remove.style.marginLeft = "6px";
-      remove.addEventListener("click", async () => {
-        queue = queue.filter(e => e !== entry);
-        await persistAndRender();
-      });
-      el.appendChild(remove);
-    }
-    return el;
-  }
-
-  function formatTime(iso) {
-    if (!iso) return "";
-    try {
-      return new Date(iso).toLocaleTimeString();
-    } catch (_) {
-      return iso;
-    }
-  }
-
-  async function refreshBanner() {
-    const settings = await loadSettings();
-    const banner = document.getElementById("banner");
-    if (banner) banner.hidden = !!settings.apiKey;
-  }
-
-  async function initDashboardView() {
+  async function initBackgroundView() {
     queue = await loadQueue();
-    renderTable();
-    await refreshBanner();
 
     RLT.on("_SavedReplay", async (payload) => {
-      // Defensive: skip if we already have a successful entry for
-      // this exact path (a replay observed twice for any reason).
+      // Skip if we already have a successful entry for this exact path.
       const dup = queue.find(e => e.path === payload.path
         && (e.status === "success" || e.status === "success_duplicate"));
       if (dup) return;
@@ -445,9 +306,13 @@
         lastError: "",
         ballchasingUrl: "",
       });
-      await persistAndRender();
+      await saveQueue(queue);
       pump();
     });
+
+    // Also re-pump when settings change — saving a new API key should
+    // unblock entries parked under the "no apiKey" branch.
+    RLT.store.onChange(SETTINGS_KEY, () => { pump(); });
 
     // Drain any pending/retrying entries from a prior session.
     pump();
@@ -459,9 +324,10 @@
     init() {
       if (view === "settings") {
         initSettingsView();
-      } else if (view === "dashboard") {
-        initDashboardView();
+      } else if (view === "background") {
+        initBackgroundView();
       }
+      // Other views (overlay stub) do nothing.
     },
   });
 })();
