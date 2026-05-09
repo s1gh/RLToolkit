@@ -168,6 +168,64 @@ func TestWatcher_SkipsPreexistingFiles(t *testing.T) {
 	assertNoEvent(t, rb, "_SavedReplay", 2*stableDelayForTests)
 }
 
+func TestWatcher_HotSwapOnSettingsChange(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	rb := &recordingBus{}
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(dirA); err != nil {
+		t.Fatal(err)
+	}
+	w := NewWatcher(store, rb, WatcherOptions{StableDelay: stableDelayForTests})
+	store.Notify = func() { w.Reload() }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+
+	// Wait for active on dirA.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && w.State().Effective != dirA {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if w.State().Effective != dirA {
+		t.Fatalf("never went active on dirA; state=%+v", w.State())
+	}
+
+	// Switch to dirB. The Notify hook calls Reload().
+	if err := store.Set(dirB); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && w.State().Effective != dirB {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if w.State().Effective != dirB {
+		t.Fatalf("never re-pointed to dirB; state=%+v", w.State())
+	}
+
+	// Writes to the OLD directory must NOT trigger.
+	if err := os.WriteFile(filepath.Join(dirA, "OLD.replay"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	assertNoEvent(t, rb, "_SavedReplay", 2*stableDelayForTests)
+
+	// Writes to the NEW directory DO trigger.
+	if err := os.WriteFile(filepath.Join(dirB, "NEW.replay"), []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	evt := waitForEvent(t, rb, "_SavedReplay", 2*time.Second)
+	var payload map[string]any
+	_ = json.Unmarshal(evt.Data, &payload)
+	if payload["fileName"] != "NEW.replay" {
+		t.Errorf("fileName = %v, want NEW.replay", payload["fileName"])
+	}
+}
+
 func TestWatcher_StateMissingDir(t *testing.T) {
 	rb := &recordingBus{}
 	store, _ := NewStore(t.TempDir())
