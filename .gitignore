@@ -32,6 +32,7 @@ overlay/src-tauri/data/
 # Local agent / session notes / archives
 .claude/
 *.zip
+docs/superpowers/
 
 # Local git worktrees
 .worktrees/
