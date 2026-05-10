@@ -187,19 +187,13 @@
   // rAF loop for the timer bar. Runs every frame while mode is active or
   // break; the bar drains smoothly off the playable bank. Self-stops when
   // mode flips to idle (renderOverlay still runs once to repaint the
-  // idle chrome). render() is called every frame — its writes are cheap
-  // textContent/dataset/style writes and the browser short-circuits
-  // unchanged values, so it's fine.
+  // idle chrome). renderOverlay accepts a precomputed ui so we don't
+  // walk computeUiState twice per frame.
   function activeLoop() {
     activeRafHandle = 0;
     if (!isOverlay) return;
-    render();
-    const fill = document.getElementById('ov-bar-fill');
-    if (fill) {
-      const ui = computeUiState();
-      fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
-    }
     const ui = computeUiState();
+    renderOverlay(ui);
     if (ui.mode === 'active' || ui.mode === 'break') {
       activeRafHandle = requestAnimationFrame(activeLoop);
     }
@@ -236,15 +230,35 @@
   const FADE_OUT_HOLD_MS = 420;
   let fadeOutTimer = 0;
 
-  function renderOverlay() {
+  // Element cache for the overlay's per-frame writes. Populated on the
+  // first renderOverlay call. The overlay's DOM is static (defined in
+  // overlay.html) so caching lookups eliminates ~9 getElementById calls
+  // per frame during an active streak (60 fps × hot path).
+  let ovEls = null;
+  function bindOvEls() {
     const root = document.getElementById('ov');
-    if (!root) return;
+    if (!root) return null;
+    return {
+      root,
+      fill:       document.getElementById('ov-bar-fill'),
+      total:      document.getElementById('ov-total'),
+      best:       document.getElementById('ov-best'),
+      bestStreak: document.getElementById('ov-best-streak'),
+      bestWord:   document.getElementById('ov-best-word'),
+      last:       document.getElementById('ov-last'),
+      lastName:   document.getElementById('ov-last-name'),
+      streak:     document.getElementById('ov-streak'),
+      word:       document.getElementById('ov-word'),
+    };
+  }
 
-    const ui = computeUiState();
+  function renderOverlay(uiArg) {
+    if (!ovEls) ovEls = bindOvEls();
+    if (!ovEls) return;
+    const ui = uiArg || computeUiState();
 
-    // Bar width (per-frame writes from activeLoop go via the same path).
-    const fill = document.getElementById('ov-bar-fill');
-    if (fill) fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
+    // Bar width.
+    if (ovEls.fill) ovEls.fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
 
     // Hold the active layout (full width) while the active block fades
     // out. Without this hold, switching data-mode to "idle" instantly
@@ -254,10 +268,10 @@
     // mode flips before it expires reset the timer so we never get
     // stuck holding the layout.
     if ((lastRenderedMode === 'active' || lastRenderedMode === 'break') && ui.mode === 'idle') {
-      root.classList.add('is-fading-out');
+      ovEls.root.classList.add('is-fading-out');
       if (fadeOutTimer) clearTimeout(fadeOutTimer);
       fadeOutTimer = setTimeout(() => {
-        root.classList.remove('is-fading-out');
+        ovEls.root.classList.remove('is-fading-out');
         fadeOutTimer = 0;
       }, FADE_OUT_HOLD_MS);
     } else if (ui.mode !== 'idle') {
@@ -267,34 +281,35 @@
         clearTimeout(fadeOutTimer);
         fadeOutTimer = 0;
       }
-      root.classList.remove('is-fading-out');
+      ovEls.root.classList.remove('is-fading-out');
     }
     lastRenderedMode = ui.mode;
 
     // Mode is an attribute (CSS keys `[data-mode]`); tier is a class
     // (CSS keys `.ov.tier-X` — verbatim from the original plugin so
     // the visual treatment carries over without any tweaks).
-    root.dataset.mode = ui.mode;
-    setTierClass(root, ui.tierClass);
+    ovEls.root.dataset.mode = ui.mode;
+    setTierClass(ovEls.root, ui.tierClass);
 
-    document.getElementById('ov-total').textContent = String(matchDemoCount());
+    ovEls.total.textContent = String(matchDemoCount());
 
-    const bestEl = document.getElementById('ov-best');
-    bestEl.hidden = false;
-    setTierClass(bestEl, ui.bestTierClass);
-    document.getElementById('ov-best-streak').textContent = 'x' + ui.bestStreak;
-    document.getElementById('ov-best-word').textContent = ui.bestStreakWord;
+    // BEST badge is always visible after first paint. Setting hidden=false
+    // every frame is a no-op the browser short-circuits, but we still
+    // burn the property read; only flip it when we know it's needed.
+    if (ovEls.best.hidden) ovEls.best.hidden = false;
+    setTierClass(ovEls.best, ui.bestTierClass);
+    ovEls.bestStreak.textContent = 'x' + ui.bestStreak;
+    ovEls.bestWord.textContent = ui.bestStreakWord;
 
-    const lastEl = document.getElementById('ov-last');
     if (lastMatchVictim) {
-      lastEl.hidden = false;
-      document.getElementById('ov-last-name').textContent = '↳ ' + lastMatchVictim;
-    } else {
-      lastEl.hidden = true;
+      if (ovEls.last.hidden) ovEls.last.hidden = false;
+      ovEls.lastName.textContent = '↳ ' + lastMatchVictim;
+    } else if (!ovEls.last.hidden) {
+      ovEls.last.hidden = true;
     }
 
-    document.getElementById('ov-streak').textContent = 'x' + ui.streak;
-    document.getElementById('ov-word').textContent = ui.word || '';
+    ovEls.streak.textContent = 'x' + ui.streak;
+    ovEls.word.textContent = ui.word || '';
   }
 
   function render() {
