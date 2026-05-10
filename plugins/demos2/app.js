@@ -397,9 +397,85 @@
       if (isOverlay && RLT.widget.isHosted()) {
         RLT.widget.fitWidth({ target: '.ov', maxWidth: 600, extra: 8 });
       }
+      // Seed the bank gate from the current phase so a plugin loading
+      // mid-match doesn't start with the gate flipped wrong.
+      setPlayablePhase((RLT.match?.state?.phase || 'none') === 'live');
     },
-    ready() {
+
+    async ready(handle) {
+      // Hydrate persisted state before processing buffered demos. Read
+      // the single 'state' key written by applyDemo. Missing key returns
+      // null (404 in the backend; the SDK swallows it).
+      try {
+        const s = await handle.store.get('state');
+        if (s && typeof s === 'object') {
+          totals = (s.totals && typeof s.totals === 'object') ? s.totals : {};
+          bestStreak = Number(s.bestStreak) || 0;
+          const t = tierFor(bestStreak);
+          bestStreakWord = t ? t.word : '';
+        }
+      } catch (e) {
+        console.error('[demos2] load failed:', e);
+      }
+
+      // Seed the current match if one is already in progress.
+      const m = RLT.match && RLT.match.current;
+      if (m) currentGuid = m.guid;
+
+      // Drain any _PlayerDemolished events the SSE replay delivered
+      // while we were awaiting the store fetch. Marked isReplay=true so
+      // totals don't double-bump.
+      hydrated = true;
+      while (pendingDemos.length > 0) {
+        applyDemo(pendingDemos.shift(), true);
+      }
+
       render();
+    },
+
+    // Single phase handler:
+    //   - flips the bank-time gate (only `live` is playable)
+    //   - resets the streak on out-of-match transitions
+    //   - anchors currentGuid on refresh (when MatchCreated has already fired)
+    //   - triggers a repaint
+    onState() {
+      const phase = RLT.match?.state?.phase || 'none';
+      setPlayablePhase(phase === 'live');
+      if (!KEEP_STREAK.has(phase) && currentStreak > 0) {
+        resetComboState();
+      }
+      const lcGuid = RLT.match?.state?.guid || null;
+      if (lcGuid && lcGuid !== currentGuid) currentGuid = lcGuid;
+      render();
+    },
+
+    // Backstop for the "user backed out without MatchDestroyed" path:
+    // the lifecycle silence watchdog flips matchActive=false when
+    // UpdateState stops arriving. Mirror the cleanup here.
+    onMatchActive(active) {
+      if (!active) {
+        cleanupMatchState();
+        render();
+      }
+    },
+
+    events: {
+      _PlayerDemolished(payload) {
+        if (!hydrated) {
+          pendingDemos.push(payload);
+          return;
+        }
+        applyDemo(payload, false);
+      },
+      // Match boundaries — bypass the UpdateState filter (baseline events).
+      MatchCreated(e) {
+        currentGuid = e?.matchGuid || null;
+        render();
+      },
+      MatchDestroyed() {
+        cleanupMatchState();
+        render();
+      },
     },
   });
 })();
