@@ -58,6 +58,41 @@
     lastTickAt = performance.now();
   }
 
+  // Combo state. lastDemoAt is bank time (not wall clock) so the
+  // 20s window only burns during `live`. currentStreak is 0 between
+  // combos and 1..N during an active streak. lastVictimName is the
+  // victim of the most recent demo of the active streak. lastMatchVictim
+  // survives streak resets and is only cleared on match-guid change.
+  let currentStreak = 0;
+  let lastDemoAt = 0;
+  let lastVictimName = '';
+  let lastMatchVictim = '';
+
+  // All-time persistent state, hydrated from the per-plugin store in
+  // ready(). bestStreakWord is derived from bestStreak via tierFor() and
+  // NOT persisted separately.
+  let totals = {};                // { [playerId]: { name, count } }
+  let bestStreak = 0;
+  let bestStreakWord = '';
+
+  // Per-match state. Reset on match-guid change.
+  let current = {};               // { [playerId]: { name, count } }
+  let currentGuid = null;
+
+  // Hydration gate. _PlayerDemolished events that arrive before the
+  // store load resolves are buffered here and drained at the end of
+  // ready() with isReplay=true so they don't double-count against
+  // totals (those demos already fired live when they originally happened).
+  let hydrated = false;
+  const pendingDemos = [];
+
+  // Streak survives these phases. Anything else (ended/none/lobby/podium)
+  // resets the combo state.
+  const KEEP_STREAK = new Set(['live', 'countdown', 'replay', 'paused']);
+
+  // rAF handle for the active drain loop. Non-zero means the loop is armed.
+  let activeRafHandle = 0;
+
   function render() {
     // Per-surface render branches land in later tasks.
   }
