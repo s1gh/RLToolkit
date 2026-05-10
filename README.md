@@ -62,7 +62,7 @@ sudo apt install libwebkit2gtk-4.1-0
 sudo dnf install webkit2gtk4.1
 ```
 
-In Rocket League, set *Settings → Video → Display Mode* to **Borderless**. Exclusive fullscreen blocks all compositor-level overlays (Tauri, Discord, Steam Overlay, OBS Browser Source) — this is a DirectX limitation, not specific to RL Toolkit.
+In Rocket League, set *Settings → Video → Display Mode* to **Borderless**. Exclusive fullscreen blocks all compositor-level overlays (Tauri, Discord, Steam Overlay, OBS Browser Source) — this is a fullscreen-rendering limitation that affects every overlay tool, not specific to RL Toolkit.
 
 ## OBS / Streamlabs
 
@@ -140,7 +140,7 @@ sudo pacman -S base-devel rustup go webkit2gtk-4.1 gtk-layer-shell pkg-config no
 rustup default stable
 npm install
 
-go build -o rl-toolkit .                          # backend (~5 sec)
+go build -o rl-toolkit ./backend/cmd/rl-toolkit   # backend (~5 sec)
 cd overlay/src-tauri && cargo build --release     # widget (~1 min first time)
 ```
 
