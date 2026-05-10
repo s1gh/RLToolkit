@@ -5,8 +5,13 @@
 # Trigger this manually after creating a draft GitHub release for the
 # tag and uploading the three Windows files (.exe, .sig, .zip) from
 # `make release-windows`. The workflow:
-#   1. Builds the AppImage and portable tar.gz on ubuntu-22.04 (oldest
-#      supported LTS → maximum glibc compatibility).
+#   1. Builds the AppImage and portable tar.gz on ubuntu-24.04. We
+#      bumped from 22.04 because its bundled GTK (3.24.33) has Wayland
+#      surface/damage bugs that produce vertical-line artifacts on
+#      transparent-window resize. 24.04's GTK 3.24.41 has the fixes.
+#      Cost: glibc floor rises from 2.35 to 2.39 — Ubuntu 22.04 /
+#      Debian 12 / RHEL 9 users need the portable tarball instead of
+#      the AppImage.
 #   2. Downloads the Windows .exe.sig from the release via gh.
 #   3. Generates latest.json referencing both platforms.
 #   4. Uploads the AppImage, .sig, .tar.gz, and latest.json to the
@@ -27,7 +32,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

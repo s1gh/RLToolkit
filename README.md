@@ -36,8 +36,31 @@ Grab the latest release from the [releases page](https://github.com/s1gh/RLToolk
 |---|---|---|
 | Windows | `RLToolkit_<v>_x64-setup.exe` | NSIS installer, auto-updates. |
 | Windows | `RLToolkit_<v>_x64-portable.zip` | No-admin / USB-stick. No auto-update. |
-| Linux   | `RLToolkit_<v>_x86_64.AppImage` | Any glibc 2.35+ distro. Auto-updates. |
+| Linux   | `RLToolkit_<v>_x86_64.AppImage` | glibc 2.39+ (Ubuntu 24.04+, Fedora 40+, current Arch). Auto-updates. |
 | Linux   | `RLToolkit_<v>_x86_64-portable.tar.gz` | Tarball. No auto-update. |
+
+### Linux runtime requirements
+
+The AppImage is built on Ubuntu 24.04. Glibc floor is **2.39**, so it runs on Ubuntu 24.04+, Fedora 40+, and current Arch / Cachy / Manjaro. Older distros (Ubuntu 22.04, Debian 12, RHEL 9) should use the portable tarball instead.
+
+It expects on the host:
+
+- libwayland-client / cursor / egl / server, libepoxy — present on every modern Linux desktop; GTK 3 lists them as hard deps regardless of X11/Wayland.
+- WebKit2GTK 4.1 (`libwebkit2gtk-4.1.so.0`)
+- Mesa (`libEGL.so.1`, `libGL.so.1`, `libgbm.so.1`)
+
+WebKit2GTK 4.1 is the one to watch — it's an extra package on Debian/Ubuntu.
+
+```bash
+# Arch / Cachy / Manjaro
+sudo pacman -S webkit2gtk-4.1
+
+# Debian / Ubuntu
+sudo apt install libwebkit2gtk-4.1-0
+
+# Fedora
+sudo dnf install webkit2gtk4.1
+```
 
 In Rocket League, set *Settings → Video → Display Mode* to **Borderless**. Exclusive fullscreen blocks all compositor-level overlays (Tauri, Discord, Steam Overlay, OBS Browser Source) — this is a DirectX limitation, not specific to RL Toolkit.
 

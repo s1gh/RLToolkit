@@ -200,11 +200,37 @@ A release is one GitHub release tag with seven assets:
 | `RLToolkit_<v>_x86_64-portable.tar.gz`  | CI                  | No                  |
 | `latest.json`                           | CI (last step)      | —                   |
 
-The AppImage runs on any glibc-2.35-or-newer distro (Ubuntu 22.04+,
-Fedora 36+, current Arch / Cachy / Manjaro). Linux user data lives at
+The AppImage runs on any glibc-2.39-or-newer distro (Ubuntu 24.04+,
+Fedora 40+, current Arch / Cachy / Manjaro). Linux user data lives at
 `~/.local/share/RLToolkit/` (or `$XDG_DATA_HOME/RLToolkit`), separate
 from the install location, so updates and uninstalls never touch user
 state.
+
+The AppImage build host is `ubuntu-24.04`. We started on `ubuntu-22.04`
+for maximum glibc compatibility but had to bump because its bundled
+GTK (3.24.33) has Wayland surface/damage bugs that produce
+vertical-line artifacts on transparent-window resize. 24.04 ships GTK
+3.24.41 with the fixes. Users on glibc 2.35–2.38 systems use the
+portable tarball instead.
+
+The `release-linux` Make target also strips a few libs from the AppDir
+before `appimagetool` repacks. `linuxdeploy-plugin-gtk` bundles the
+host's `libwayland-client/cursor/egl/server` and `libepoxy`, but the
+bundle has no Mesa — `libEGL` / `libGL` / `libgbm` always come from
+the user's host. On hosts with newer wayland (Arch / Cachy at
+wayland 1.25), host Mesa drives a Wayland EGL display through the
+older bundled `libwayland-client` and fails with `EGL_BAD_PARAMETER`,
+leaving the launcher window blank. Letting wayland-client resolve
+from the host pairs it with host Mesa and the EGL init succeeds. The
+wayland-* libs are NEEDED entries on `libgdk-3.so.0` regardless of
+session type, so they're always present on any GTK 3 install.
+
+The rest of the bundled GTK / Cairo / Pango / GLib stack stays in.
+`libgstgl-1.0.so.0` also stays bundled because host gstreamer ABI
+tends to drift the other way (missing `gst_video_is_dma_drm_caps`).
+
+If the strip list ever needs updating (a future Ubuntu LTS bumps a
+soname suffix), the list lives in `Makefile` under `release-linux`.
 
 ### One-time setup
 

@@ -220,7 +220,27 @@ release-linux: sdk
 	@# Patch + re-sign: linuxdeploy-plugin-gtk's AppRun hook hard-codes
 	@# GDK_BACKEND=x11, which kills overlay transparency on Wayland
 	@# (Hyprland layer-shell especially). Extract, neuter the hook,
-	@# repack with appimagetool, then re-sign with `tauri signer sign`.
+	@# drop the wayland + epoxy libs that linuxdeploy bundles from the
+	@# build host, repack with appimagetool, then re-sign with
+	@# `tauri signer sign`.
+	@#
+	@# Why drop the wayland libs: linuxdeploy doesn't bundle Mesa, so
+	@# libEGL/libGL/libgbm always come from the user's host. On hosts
+	@# with newer wayland (e.g. Arch/CachyOS at wayland 1.25), host
+	@# Mesa drives a Wayland EGL display through the OLDER bundled
+	@# libwayland-client and fails with EGL_BAD_PARAMETER → blank
+	@# launcher window. Letting wayland-client resolve from the host
+	@# pairs it with host Mesa and the EGL init succeeds.
+	@#
+	@# The rest of the GTK / cairo / pango / glib stack stays bundled.
+	@# Earlier we tried stripping it on top of Ubuntu 22.04 builds to
+	@# fix vertical-line artifacts on transparent-window resize, but
+	@# the actual cause was bundled GTK 3.24.33 specifically — a
+	@# Wayland surface bug that's fixed in 3.24.41 (Ubuntu 24.04). We
+	@# now build on 24.04, so bundled GTK is no longer the problem and
+	@# the broad strip isn't needed. libgstgl stays bundled — host
+	@# gstreamer ABI tends to drift the other way.
+	@#
 	@# appimagetool is taken from Tauri's own cache (populated during
 	@# `cargo tauri build`), with a host-installed binary as fallback.
 	@tmp=$$(mktemp -d); \
@@ -230,6 +250,9 @@ release-linux: sdk
 	  printf '#! /usr/bin/env bash\n# Hook neutered: original forced GDK_BACKEND=x11 which breaks\n# Wayland transparency / layer-shell. Bundled libs init fine\n# without env tweaks (host backend auto-detected by GDK).\n:\n' \
 	    > "$$tmp/squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh"; \
 	  chmod +x "$$tmp/squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh"; \
+	  for lib in libwayland-client.so.0 libwayland-cursor.so.0 libwayland-egl.so.1 libwayland-server.so.0 libepoxy.so.0; do \
+	    rm -f "$$tmp/squashfs-root/usr/lib/$$lib" "$$tmp/squashfs-root/usr/lib/x86_64-linux-gnu/$$lib"; \
+	  done; \
 	  appimagetool=$$(find /tmp -maxdepth 4 -path '*/appimage_extracted_*/usr/bin/appimagetool' 2>/dev/null | head -1); \
 	  if [ -z "$$appimagetool" ]; then appimagetool=$$(command -v appimagetool); fi; \
 	  if [ -z "$$appimagetool" ]; then echo "appimagetool not found; install appimagetool-bin or run cargo tauri build first to populate Tauri's cache" && exit 1; fi; \
