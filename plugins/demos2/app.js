@@ -211,9 +211,20 @@
     activeRafHandle = requestAnimationFrame(activeLoop);
   }
 
-  // Targeted writes — no innerHTML, no class-list strip. Shake/pulse
-  // classes live on .ov-streak via the data-tier attribute (pulse) or
-  // a one-shot shake-* class (shake) and are never touched here.
+  // Targeted writes — no innerHTML on the live overlay. Shake/pulse
+  // animation classes live on .ov-streak and are managed by triggerShake;
+  // renderOverlay never touches them.
+  const TIER_CLASSES = [
+    'tier-base', 'tier-glow', 'tier-hot', 'tier-bloom',
+    'tier-apocalypse', 'tier-armageddon', 'tier-extinction', 'tier-genocide',
+  ];
+
+  function setTierClass(el, cls) {
+    if (!el || el.classList.contains(cls)) return;
+    el.classList.remove(...TIER_CLASSES);
+    el.classList.add(cls);
+  }
+
   function renderOverlay() {
     const root = document.getElementById('ov');
     if (!root) return;
@@ -224,16 +235,17 @@
     const fill = document.getElementById('ov-bar-fill');
     if (fill) fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
 
-    // One attribute per axis. Replaces the 8-class swap from the
-    // original plugin. CSS selects per-tier values off [data-tier].
+    // Mode is an attribute (CSS keys `[data-mode]`); tier is a class
+    // (CSS keys `.ov.tier-X` — verbatim from the original plugin so
+    // the visual treatment carries over without any tweaks).
     root.dataset.mode = ui.mode;
-    root.dataset.tier = ui.tierClass;
+    setTierClass(root, ui.tierClass);
 
     document.getElementById('ov-total').textContent = String(matchDemoCount());
 
     const bestEl = document.getElementById('ov-best');
     bestEl.hidden = false;
-    bestEl.dataset.tier = ui.bestTierClass;
+    setTierClass(bestEl, ui.bestTierClass);
     document.getElementById('ov-best-streak').textContent = 'x' + ui.bestStreak;
     document.getElementById('ov-best-word').textContent = ui.bestStreakWord;
 
@@ -255,20 +267,19 @@
   }
 
   function renderControl() {
-    // Connection pill: managed by the SDK helper if available, else a
-    // no-op. Keeps the same surface as the original plugin so users
-    // running both side-by-side see identical chrome.
-    if (RLT.ui && typeof RLT.ui.bindStatusPill === 'function') {
-      RLT.ui.bindStatusPill('conn');
-    }
-
     // Identity strip. demos2 doesn't own identity (Déjà Vu does); we
-    // just mirror whatever the SDK has claimed.
+    // just mirror whatever the SDK has claimed. RLT.me is the identity
+    // module — it has .id but no .name. The display name lives in the
+    // shared encounter ledger under that id; pull the most recent.
     const idVal = document.getElementById('id-val');
     const idHint = document.getElementById('id-hint');
-    const me = RLT.me || {};
-    if (me.id && me.name) {
-      idVal.textContent = me.name;
+    const myId = RLT.me && RLT.me.id ? RLT.me.id : '';
+    if (myId) {
+      const enc = RLT.encounters && RLT.encounters.get ? RLT.encounters.get(myId) : null;
+      const name = enc && enc.names && enc.names.length
+        ? enc.names[enc.names.length - 1]
+        : 'Player';
+      idVal.textContent = name;
       idVal.classList.remove('empty');
       if (idHint) idHint.hidden = true;
     } else {
@@ -397,6 +408,12 @@
       if (isOverlay && RLT.widget.isHosted()) {
         RLT.widget.fitWidth({ target: '.ov', maxWidth: 600, extra: 8 });
       }
+      // Bind the dashboard's connection pill once. The helper attaches
+      // its own SSE listener — running it on every render would leak
+      // subscriptions.
+      if (!isOverlay && RLT.ui && typeof RLT.ui.bindStatusPill === 'function') {
+        RLT.ui.bindStatusPill('conn');
+      }
       // Seed the bank gate from the current phase so a plugin loading
       // mid-match doesn't start with the gate flipped wrong.
       setPlayablePhase((RLT.match?.state?.phase || 'none') === 'live');
@@ -457,6 +474,13 @@
         cleanupMatchState();
         render();
       }
+    },
+
+    // Identity changed — the strip on the dashboard needs to reflect
+    // the new claim. Demos doesn't own identity (Déjà Vu does); this
+    // is purely a display update.
+    onIdentity() {
+      render();
     },
 
     events: {

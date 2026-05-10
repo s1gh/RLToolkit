@@ -1,433 +1,886 @@
-/* Demolitions 2 — overlay + dashboard styles. Tokens come from sdk.css
-   (--rlt-* prefix). The tier system is keyed off [data-tier] attributes
-   on .ov (root) and .ov-best (badge), driven by CSS custom properties. */
+      /* ──────────────────────────────────────────────────────────────────
+         All colors, fonts, and radii come from sdk.css custom properties
+         (--rlt-*). That's the toolkit's design language — use those tokens
+         and your plugin will look like part of the dashboard. Demolitions
+         are violent, so we lean on --rlt-orange as the accent.
+         ────────────────────────────────────────────────────────────────── */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
 
-/* ─── Overlay surface ─────────────────────────────────────── */
-.ov {
-  display: none;
-}
+      body {
+        font-family: var(--rlt-ui);
+        font-size: 13px;
+        color: var(--rlt-txt);
+        background:
+          radial-gradient(900px 500px at 85% -10%, rgba(251, 124, 60, 0.1), transparent 60%),
+          radial-gradient(800px 400px at 0% 110%, rgba(244, 114, 182, 0.06), transparent 60%),
+          var(--rlt-bg-0);
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      body.overlay-mode {
+        background: transparent;
+        overflow: hidden;
+      }
 
-body.overlay-mode .ov {
-  display: inline-flex;
-  flex-direction: column;
-  width: max-content;
-  max-width: 100%;
-  height: auto;
-  max-height: 100%;
-  padding: 0.25rem 1.2rem 1.2rem 0;
-  color: var(--rlt-txt);
-  font-family: var(--rlt-display);
-  animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
+      /* ════════════════════════════════════════════════════════
+         CONTROL PAGE  (dashboard tab)
+         ════════════════════════════════════════════════════════ */
+      .page {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 28px 24px 48px;
+      }
 
-@keyframes ov-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+      /* Topbar — same card-on-card treatment dejavu uses, so the dashboard
+         tab reads as one toolkit even when you switch between plugins. */
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        padding: 14px 18px;
+        background: linear-gradient(135deg, var(--rlt-bg-1), var(--rlt-bg-2));
+        border: 1px solid var(--rlt-line);
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 9px;
+        background: linear-gradient(135deg, var(--rlt-orange), var(--rlt-magenta));
+        box-shadow: 0 0 24px var(--rlt-orange-glow);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--rlt-display);
+        font-weight: 700;
+        font-size: 18px;
+        color: var(--rlt-bg-0);
+        letter-spacing: -0.02em;
+      }
+      h1 {
+        font-family: var(--rlt-display);
+        font-weight: 700;
+        font-size: 20px;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        background: linear-gradient(90deg, #fff 30%, var(--rlt-orange));
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .tag {
+        font-size: 11px;
+        color: var(--rlt-txt-3);
+        letter-spacing: 0.02em;
+        font-weight: 500;
+      }
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
 
-.ov-main {
-  display: flex;
-  gap: 0.8rem;
-  align-items: flex-start;
-}
+      /* Connection pill — mirrors dejavu's so a player running both
+         plugins gets one consistent live/offline status indicator. */
+      .conn-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: var(--rlt-bg-3);
+        border: 1px solid var(--rlt-line);
+        border-radius: 99px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--rlt-txt-2);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .conn-pill::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--rlt-txt-3);
+      }
+      .conn-pill[data-status="connected"]::before {
+        background: var(--rlt-green);
+        box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+        animation: pulse 1.4s ease-in-out infinite alternate;
+      }
+      .conn-pill[data-status="disconnected"]::before {
+        background: #ef4444;
+      }
+      @keyframes pulse {
+        from { opacity: 0.55; }
+        to { opacity: 1; }
+      }
 
-.ov-col-left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  min-width: 6rem;
-}
+      .icon-btn {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: var(--rlt-bg-3);
+        border: 1px solid var(--rlt-line);
+        color: var(--rlt-txt-2);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        transition:
+          border-color 0.15s ease,
+          color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+      .icon-btn:hover {
+        border-color: var(--rlt-orange);
+        color: var(--rlt-orange);
+        box-shadow: 0 0 16px var(--rlt-orange-glow);
+      }
 
-.ov-stack {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 8rem;
-}
+      /* Identity strip — read-only here. Demos doesn't claim identity;
+         that's dejavu's job. We show the current claim (or a hint to go
+         claim one) so the player knows why their demos aren't counting. */
+      .identity-strip {
+        background: var(--rlt-bg-1);
+        border: 1px solid var(--rlt-line);
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 4px;
+        font-size: 13px;
+        color: var(--rlt-txt-2);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .il-label {
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        font-weight: 700;
+        color: var(--rlt-txt-3);
+      }
+      .il-name {
+        font-family: var(--rlt-display);
+        font-size: 16px;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: 0.01em;
+      }
+      .il-name.empty {
+        color: var(--rlt-txt-3);
+        font-style: italic;
+        font-weight: 500;
+      }
+      .il-hint {
+        font-style: italic;
+        color: var(--rlt-txt-3);
+        font-size: 12px;
+      }
 
-/* DEMOS chip */
-.ov-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  padding: 0.3rem 0.55rem;
-  background: rgba(10, 12, 20, 0.78);
-  border-left: 2px solid rgba(255, 255, 255, 0.18);
-  border-radius: 2px;
-}
-.ov-label {
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--rlt-txt-3);
-}
-.ov-total {
-  font-feature-settings: "tnum";
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: #fff;
-}
+      /* Two-column grid: this match (left) + all time (right). Same shape
+         and breakpoint as dejavu's grid so the dashboard tabs feel like
+         one app rather than two. */
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 20px;
+        margin-top: 20px;
+      }
+      @media (max-width: 860px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
 
-/* BEST and LAST chips share base chrome with DEMOS. */
-.ov-best, .ov-last {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  padding: 0.25rem 0.55rem;
-  background: rgba(10, 12, 20, 0.78);
-  border-left: 2px solid rgba(255, 255, 255, 0.18);
-  border-radius: 2px;
-  font-size: 0.7rem;
-}
-.ov-best-label, .ov-last-label {
-  font-size: 0.55rem;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--rlt-txt-3);
-}
-.ov-best-streak {
-  font-feature-settings: "tnum";
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-.ov-best-word {
-  font-size: 0.55rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  opacity: 0.85;
-}
-.ov-last-name {
-  font-size: 0.78rem;
-  color: var(--rlt-txt);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 12rem;
-}
+      .card {
+        background: linear-gradient(180deg, var(--rlt-bg-1), var(--rlt-bg-2));
+        border: 1px solid var(--rlt-line);
+        border-radius: var(--rlt-radius-lg);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        padding: 20px 22px;
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--rlt-line);
+      }
+      .card-head h2 {
+        font-family: var(--rlt-display);
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #fff;
+      }
+      .badge {
+        font-family: var(--rlt-mono);
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--rlt-txt-2);
+        background: var(--rlt-bg-3);
+        border: 1px solid var(--rlt-line);
+        border-radius: 99px;
+        padding: 4px 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
 
-/* Drain bar — visible only in active/break modes. */
-.ov-bar {
-  height: 0.18rem;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 2px;
-  overflow: hidden;
-  transition: opacity 220ms ease;
-}
-.ov-bar-fill {
-  height: 100%;
-  width: 100%;
-  background: var(--streak-color, var(--rlt-txt-3));
-  box-shadow: 0 0 8px var(--streak-color, transparent);
-  transition: background-color 220ms ease, box-shadow 220ms ease;
-}
-.ov[data-mode="idle"] .ov-bar {
-  opacity: 0;
-}
+      /* Victim row — flush list, separator above each row except first.
+         Mirrors dejavu's leaderboard rhythm: list reads as one composed
+         column rather than a wall of mini-cards. */
+      .row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 0;
+        transition: background 0.12s ease;
+      }
+      .row + .row {
+        border-top: 1px solid var(--rlt-line);
+      }
+      .row-name {
+        font-family: var(--rlt-ui);
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--rlt-txt);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row-count {
+        font-family: var(--rlt-display);
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--rlt-orange);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+      }
+      .row-count .x {
+        font-family: var(--rlt-mono);
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--rlt-txt-3);
+        margin-right: 2px;
+      }
 
-/* Active subtree — streak number + tier word. */
-.ov-active {
-  display: flex;
-  align-items: baseline;
-  gap: 0.55rem;
-  transition: opacity 220ms ease;
-}
-.ov[data-mode="idle"] .ov-active {
-  opacity: 0;
-}
+      /* Empty state — same em-icon pattern dejavu uses. */
+      .card-empty {
+        padding: 40px 16px;
+        text-align: center;
+        color: var(--rlt-txt-3);
+        font-size: 12px;
+      }
+      .card-empty .em-icon {
+        font-size: 28px;
+        margin-bottom: 6px;
+        opacity: 0.5;
+        font-family: var(--rlt-display);
+        line-height: 1;
+      }
 
-.ov-streak {
-  font-feature-settings: "tnum";
-  font-size: 2.2rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  color: var(--streak-color, var(--rlt-txt-3));
-  text-shadow: var(--streak-glow, none);
-  transform: scale(var(--streak-scale, 1));
-  transform-origin: left center;
-  transition:
-    color 220ms ease,
-    text-shadow 220ms ease,
-    transform 220ms ease;
-}
-.ov-word {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--streak-color, var(--rlt-txt-3));
-  text-shadow: var(--streak-glow, none);
-  transition: color 220ms ease, text-shadow 220ms ease;
-}
+      /* ════════════════════════════════════════════════════════
+         OVERLAY MODE  (?overlay=1) — "Kill feed" HUD
+         ════════════════════════════════════════════════════════
+         Design intent: a HUD readout, not a webpage.
+         - No outer card: each row carries its own translucent backing
+           so the game shows through between rows.
+         - Header tag mirrors the team labels in dejavu's overlay so a
+           player running both plugins sees one consistent HUD language.
+         - rem-based sizing rooted at <html>; bump body font-size to
+           rescale the whole widget in one place.
+         ════════════════════════════════════════════════════════ */
+      body.overlay-mode {
+        font-size: 16px;
+      }
+      /* Padding stays constant across modes so the chip column
+         doesn't shift vertically when the drain bar spawns in or
+         out. Earlier the idle mode added a 0.25rem top inset and 0
+         in active — the chips visibly jumped up on combo start and
+         back down on streak end. */
+      .ov {
+        display: inline-flex;
+        flex-direction: column;
+        gap: 0.22rem;
+        width: max-content;
+        max-width: 100%;
+        padding: 0;
+        animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      /* In active/break mode the widget needs the full iframe width
+         so the bar reaches the right edge. Idle mode keeps
+         `width: max-content` so the chip column hugs its content
+         (looks weird floated as a wide bar). `.is-fading-out` is set
+         transiently by JS during break→idle so the active layout
+         holds until the active block finishes its opacity fade —
+         without this hold the root width snaps to max-content
+         mid-fade and the streak number visibly jumps left before
+         disappearing. */
+      .ov[data-mode="active"],
+      .ov[data-mode="break"],
+      .ov.is-fading-out {
+        width: 100%;
+      }
 
-/* ─── Tier system ─────────────────────────────────────────────
-   Each tier sets three custom properties on the root or on the
-   BEST badge. .ov-streak / .ov-word / .ov-bar-fill consume them. */
-.ov[data-tier="tier-base"] {
-  --streak-color: #ff8c47;
-  --streak-glow:  0 0 8px rgba(255, 140, 71, 0.5);
-  --streak-scale: 1;
-}
-.ov[data-tier="tier-glow"] {
-  --streak-color: #ff8c47;
-  --streak-glow:  0 0 14px rgba(255, 140, 71, 0.8);
-  --streak-scale: 1;
-}
-.ov[data-tier="tier-hot"] {
-  --streak-color: #ff5e3a;
-  --streak-glow:  0 0 16px rgba(255, 94, 58, 0.75);
-  --streak-scale: 1.15;
-}
-.ov[data-tier="tier-bloom"] {
-  --streak-color: #ff3d8a;
-  --streak-glow:  0 0 20px rgba(255, 61, 138, 0.8);
-  --streak-scale: 1.3;
-}
-.ov[data-tier="tier-apocalypse"] {
-  --streak-color: #ff1f5a;
-  --streak-glow:  0 0 26px rgba(255, 31, 90, 0.9);
-  --streak-scale: 1.45;
-}
-.ov[data-tier="tier-armageddon"] {
-  --streak-color: #ff4040;
-  --streak-glow:  0 0 30px rgba(255, 64, 64, 0.95);
-  --streak-scale: 1.45;
-}
-.ov[data-tier="tier-extinction"] {
-  --streak-color: #ff8080;
-  --streak-glow:  0 0 36px rgba(255, 200, 200, 0.95);
-  --streak-scale: 1.45;
-}
-.ov[data-tier="tier-genocide"] {
-  --streak-color: #ffffff;
-  --streak-glow:  0 0 40px rgba(255, 255, 255, 0.95);
-  --streak-scale: 1.45;
-}
+      /* Header tag — same backing/border-left treatment as dejavu's team
+         labels. Orange because that's the demos accent. */
+      /* No backdrop-filter — webkit2gtk over Wayland layer-shell repaints
+         every blurred chip per frame. Opaquer background reads almost the
+         same against a moving game and stays on the GPU. */
+      .ov-head {
+        display: flex;
+        align-items: baseline;
+        gap: 0.6rem;
+        align-self: stretch;
+        padding: 0.22rem 0.6rem 0.22rem 0.5rem;
+        background: rgba(10, 12, 20, 0.78);
+        border-left: 2px solid var(--rlt-orange);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov-label {
+        font-family: var(--rlt-display);
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--rlt-orange);
+      }
+      .ov-total {
+        font-family: var(--rlt-display);
+        font-size: 1rem;
+        font-weight: 700;
+        color: #fff;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.04em;
+      }
 
-/* BEST badge tracks the all-time best tier independently from .ov. */
-.ov-best[data-tier="tier-base"]       { color: var(--rlt-txt-2); }
-.ov-best[data-tier="tier-glow"]       { color: #ff8c47; }
-.ov-best[data-tier="tier-hot"]        { color: #ff5e3a; }
-.ov-best[data-tier="tier-bloom"]      { color: #ff3d8a; }
-.ov-best[data-tier="tier-apocalypse"] { color: #ff1f5a; }
-.ov-best[data-tier="tier-armageddon"] { color: #ff4040; }
-.ov-best[data-tier="tier-extinction"] { color: #ff8080; }
-.ov-best[data-tier="tier-genocide"]   { color: #ffffff; }
-.ov-best[data-tier="tier-base"] .ov-best-label,
-.ov-best[data-tier="tier-glow"] .ov-best-label,
-.ov-best[data-tier="tier-hot"] .ov-best-label,
-.ov-best[data-tier="tier-bloom"] .ov-best-label,
-.ov-best[data-tier="tier-apocalypse"] .ov-best-label,
-.ov-best[data-tier="tier-armageddon"] .ov-best-label,
-.ov-best[data-tier="tier-extinction"] .ov-best-label,
-.ov-best[data-tier="tier-genocide"] .ov-best-label {
-  color: var(--rlt-txt-3);
-}
+      @keyframes ov-fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      /* ─── Mode toggle ───────────────────────────────────────────
+         Just an opacity fade on the active subtree. Earlier iterations
+         also swapped position to absolute on the hidden block,
+         animated a desaturation filter, and toggled pointer-events —
+         all firing on the same frame produced a staggered glitch on
+         break → idle. Plain opacity reads as a clean fade. */
+      .ov-active {
+        transition: opacity 400ms ease;
+      }
+      .ov[data-mode="idle"] .ov-active {
+        opacity: 0;
+      }
+      /* Active layout fills the widget; idle uses inline-flex from .ov.
+         No background, no border, no border-radius — the rectangle of
+         this element must stay invisible. Tier "heat" is painted via
+         text-shadow on the streak number and word (see tier rules
+         below); we tried filter:drop-shadow first but it caused
+         compositor-stall artifacts on the wry/webkit overlay surface
+         (rectangular flash, lag during pulse animations). The
+         center-alignment matters too: at genocide tier the text-
+         shadow stack is wide enough that flex-start alignment lets
+         the halo bleed against the iframe edge and triggers the same
+         rectangular box-flash. Centering keeps the shadow inside
+         the active block's safe rectangle. */
+      .ov-active {
+        position: relative;
+        align-self: stretch;
+        display: flex;
+        flex-direction: column;
+        /* Horizontal center for shadow safety — at genocide tier the
+           text-shadow stack is wide enough that flex-start lets the
+           halo bleed against the iframe edge and trips webkit2gtk's
+           rectangular box-flash artifact. Centering keeps the shadow
+           inside the active block's safe rectangle.
+           Streak block lives directly under the drain bar in the
+           right column (.ov-stack), so vertical-flush is fine — no
+           empty gap to "center within". */
+        align-items: center;
+        gap: 0.1rem;
+        padding: 0.4rem 0.5rem 0.5rem;
+      }
 
-/* Pulse on apocalypse-and-above when actively combo'ing. Gated by both
-   tier and mode so it doesn't pulse on the idle screen. */
-.ov[data-tier="tier-apocalypse"][data-mode="active"] .ov-streak,
-.ov[data-tier="tier-armageddon"][data-mode="active"] .ov-streak,
-.ov[data-tier="tier-extinction"][data-mode="active"] .ov-streak,
-.ov[data-tier="tier-genocide"][data-mode="active"] .ov-streak {
-  animation: ov-pulse 1.6s ease-in-out infinite;
-}
-@keyframes ov-pulse {
-  0%, 100% { transform: scale(var(--streak-scale, 1)); }
-  50%      { transform: scale(calc(var(--streak-scale, 1) * 1.04)); }
-}
+      /* ─── BEST badge (idle) ─────────────────────────────────────
+         Color is the tier color of the streak it represents — set via
+         tier classes on .ov. Tag style mirrors the dejavu team labels. */
+      .ov-best {
+        align-self: stretch;
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        padding: 0.22rem 0.6rem 0.22rem 0.5rem;
+        background: rgba(10, 12, 20, 0.85);
+        border-left: 2px solid var(--rlt-orange);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+      }
+      /* The author rule above sets `display: flex`, which beats the
+         UA stylesheet's `[hidden] { display: none }` by source order
+         at equal specificity. Restore the hidden behaviour explicitly
+         so JS toggling `el.hidden` works as expected. */
+      .ov-best[hidden] {
+        display: none;
+      }
+      /* The BEST label is intentionally neutral (cream-toned, not tier-
+         colored) so it reads as "this is what comes next is a record",
+         not as part of the tier word that follows it. The streak number
+         and tier word carry the heat. */
+      .ov-best-label {
+        font-family: var(--rlt-display);
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--rlt-txt);
+        opacity: 0.7;
+      }
+      .ov-best-streak {
+        font-family: var(--rlt-display);
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: var(--rlt-orange);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.04em;
+      }
+      .ov-best-word {
+        font-family: var(--rlt-display);
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--rlt-orange);
+      }
 
-/* Shake animations — one-shot. The JS toggles .shake-light / .shake-hard
-   / .shake-extreme on .ov-streak and clears the class on animationend.
-   transform-origin sits on the left so the streak number wobbles in
-   place rather than drifting. */
-@keyframes ov-shake-light {
-  0%, 100% { transform: scale(var(--streak-scale, 1)) translateX(0); }
-  25%      { transform: scale(var(--streak-scale, 1)) translateX(-1.5px); }
-  75%      { transform: scale(var(--streak-scale, 1)) translateX(1.5px); }
-}
-@keyframes ov-shake-hard {
-  0%, 100% { transform: scale(var(--streak-scale, 1)) translate(0, 0); }
-  20%      { transform: scale(var(--streak-scale, 1)) translate(-3px, 1px); }
-  40%      { transform: scale(var(--streak-scale, 1)) translate(3px, -1px); }
-  60%      { transform: scale(var(--streak-scale, 1)) translate(-2px, 1px); }
-  80%      { transform: scale(var(--streak-scale, 1)) translate(2px, -1px); }
-}
-@keyframes ov-shake-extreme {
-  0%, 100% { transform: scale(var(--streak-scale, 1)) translate(0, 0); }
-  15%      { transform: scale(var(--streak-scale, 1)) translate(-5px, 2px); }
-  30%      { transform: scale(var(--streak-scale, 1)) translate(5px, -2px); }
-  45%      { transform: scale(var(--streak-scale, 1)) translate(-4px, 2px); }
-  60%      { transform: scale(var(--streak-scale, 1)) translate(4px, -2px); }
-  75%      { transform: scale(var(--streak-scale, 1)) translate(-3px, 1px); }
-}
-.ov-streak.shake-light   { animation: ov-shake-light 220ms ease-out; }
-.ov-streak.shake-hard    { animation: ov-shake-hard 280ms ease-out; }
-.ov-streak.shake-extreme { animation: ov-shake-extreme 320ms ease-out; }
+      /* ─── LAST chip (most-recent victim) ─────────────────────────
+         Same chip chrome as BEST. Mounts on the first demo of a
+         match and updates each subsequent demo. Intentionally
+         neutral (cream, no tier coloring) — it's a name, not a
+         record being broken. The streak number and tier word in the
+         right column carry the moment-to-moment heat; this chip is
+         steady context. */
+      .ov-last {
+        align-self: stretch;
+        display: flex;
+        align-items: baseline;
+        gap: 0.45rem;
+        padding: 0.22rem 0.6rem 0.22rem 0.5rem;
+        background: rgba(10, 12, 20, 0.85);
+        border-left: 2px solid var(--rlt-txt-3);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+        max-width: 14rem;
+      }
+      .ov-last[hidden] {
+        display: none;
+      }
+      .ov-last-label {
+        font-family: var(--rlt-display);
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--rlt-txt);
+        opacity: 0.7;
+      }
+      .ov-last-name {
+        font-family: var(--rlt-display);
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--rlt-txt);
+        letter-spacing: 0.02em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
 
-/* Respect user motion preferences. !important is correct here — user
-   preference must win over animation declarations on the same element. */
-@media (prefers-reduced-motion: reduce) {
-  body.overlay-mode .ov,
-  .ov-streak,
-  .ov-bar-fill {
-    /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
-    animation: none !important;
-    transition: none !important;
-  }
-}
+      /* ─── Main two-column layout ─────────────────────────────────
+         Left column: DEMOS + BEST chips stacked. Hugs content.
+         Right column (.ov-stack): drain bar at top, streak readout
+           below — they share a horizontal track so the streak number
+           sits directly under the bar, not floating elsewhere. */
+      .ov-main {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+      .ov-col-left {
+        display: flex;
+        flex-direction: column;
+        gap: 0.22rem;
+        flex: 0 0 auto;
+      }
+      .ov-stack {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.1rem;
+        /* Top padding aligns the bar with the top edge of the DEMOS
+           chip (chip border + chip top-padding ≈ this offset). */
+        padding-top: 0.15rem;
+      }
 
-/* ─── Dashboard surface ───────────────────────────────────── */
-body:not(.overlay-mode) {
-  font-family: var(--rlt-ui);
-  font-size: 13px;
-  color: var(--rlt-txt);
-  background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(255, 124, 60, 0.12), transparent 60%),
-    var(--rlt-bg-0);
-  min-height: 100vh;
-}
+      /* ─── Drain bar ─────────────────────────────────────────────
+         JS-driven drain: renderOverlay sets the fill's inline width
+         each frame from computeUiState's timerRemaining01 (driven off
+         the playable bank, not wall-clock). No CSS transition — the
+         rAF loop interpolates the width directly, and replay/menu
+         pauses freeze the bar naturally because the bank itself
+         freezes. A 20s CSS transition here was double-animating every
+         JS write, slowing the bar to a crawl. Drain bar fills
+         whatever width remains after the DEMOS chip. Hidden in idle
+         (no streak to drain — empty bar would just be visual noise). */
+      /* Bar opacity tweens 1→0 in lockstep with the active block
+         during break→idle so the readout disappears as a single
+         unit instead of the bar snapping out a frame before the
+         multiplier. `visibility: hidden` only kicks in once the
+         transient `is-fading-out` class has cleared, which keeps
+         the bar occupying its row for the duration of the fade
+         (avoids streak text jumping up). Width is JS-driven and
+         intentionally untransitioned — see drain-bar comment above. */
+      .ov-bar {
+        align-self: stretch;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 2px;
+        overflow: hidden;
+        opacity: 1;
+        transition: opacity 400ms ease;
+      }
+      .ov[data-mode="idle"] .ov-bar {
+        opacity: 0;
+      }
+      .ov[data-mode="idle"]:not(.is-fading-out) .ov-bar {
+        visibility: hidden;
+      }
+      .ov-bar-fill {
+        width: 0%;
+        height: 100%;
+        background: var(--rlt-orange);
+        box-shadow: 0 0 6px rgba(251, 124, 60, 0.6);
+      }
 
-.page {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 28px 24px 48px;
-}
+      /* ─── Active: number + word ─────────────────────────────────
+         Sizing is base here; tier classes in Task 6 scale up. */
+      /* No transitions on font-size / color here — they used to
+         tween tier escalations (x4 → x5 grew the number smoothly).
+         But on the streak-lost transition, the tier class flips back
+         to tier-base while the parent .ov-active is fading via
+         opacity. The font-size/color tween then runs IN PARALLEL
+         with the fade, so the number visibly shrinks and color-
+         shifts mid-disappearance. That's the staggered glitch.
+         Snapping tier changes is a small visual loss; a clean fade
+         is worth more. */
+      .ov-streak {
+        font-family: var(--rlt-display);
+        font-feature-settings: "tnum";
+        font-size: 2.6rem;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--rlt-orange);
+        letter-spacing: -0.02em;
+        text-shadow: 0 0 14px rgba(251, 124, 60, 0.5);
+      }
+      .ov-word {
+        font-family: var(--rlt-display);
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--rlt-orange);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      /* Break mode: leave the colors alone. Earlier iterations
+         desaturated the streak/word in break to "cool off" the
+         combo, but combined with the active block's opacity fade
+         and position-absolute swap on the next mode flip it produced
+         a staggered, glitchy disappearance. Cleaner to just let the
+         block fade out with its tier colors intact. */
 
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  padding: 14px 18px;
-  background: linear-gradient(135deg, var(--rlt-bg-1), var(--rlt-bg-2));
-  border: 1px solid var(--rlt-line);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.brand .logo {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  background: var(--rlt-bg-3);
-  border-radius: 10px;
-  font-family: var(--rlt-display);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-.brand h1 {
-  font-family: var(--rlt-display);
-  font-size: 1.5rem;
-  font-weight: 700;
-}
-.brand .tag {
-  font-size: 0.75rem;
-  color: var(--rlt-txt-3);
-}
-.topbar-right {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  background: var(--rlt-bg-3);
-  border: 1px solid var(--rlt-line);
-  border-radius: 8px;
-  color: var(--rlt-txt-2);
-  cursor: pointer;
-}
-.icon-btn:hover { color: var(--rlt-txt); }
+      /* ─── Tier escalation ───────────────────────────────────────
+         Each tier class on .ov drives color/size for the active
+         subtree and rim-bloom on the .ov itself. Sizes are relative
+         to the base set in Task 5 (.ov-streak 2.6rem, .ov-word 1rem). */
 
-.identity-strip {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 8px 14px;
-  margin-bottom: 14px;
-  background: var(--rlt-bg-1);
-  border: 1px solid var(--rlt-line);
-  border-radius: 10px;
-  font-size: 0.78rem;
-}
-.il-label { color: var(--rlt-txt-3); }
-.il-name { font-weight: 600; }
-.il-name.empty { color: var(--rlt-txt-3); font-style: italic; }
-.il-hint { color: var(--rlt-txt-3); }
+      /* tier-base (x2 TAGGED) — base orange, no escalation */
+      .ov.tier-base .ov-streak,
+      .ov.tier-base .ov-word {
+        color: var(--rlt-orange);
+      }
 
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 20px;
-  margin-top: 20px;
-}
-@media (max-width: 860px) {
-  .grid { grid-template-columns: 1fr; }
-}
+      /* tier-glow (x3 SMOKED) — orange + extra glow + steady rim */
+      .ov.tier-glow .ov-streak {
+        color: var(--rlt-orange);
+        text-shadow: 0 0 20px rgba(251, 124, 60, 0.7);
+      }
+      .ov.tier-glow .ov-word {
+        color: var(--rlt-orange);
+        text-shadow: 0 0 12px rgba(251, 124, 60, 0.6), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      /* No drop-shadow — heat carried entirely by text-shadow above.
+         drop-shadow filters were causing compositor-stall artifacts
+         (rectangular flash, lag) on the wry/webkit overlay surface. */
 
-.card {
-  background: var(--rlt-bg-1);
-  border: 1px solid var(--rlt-line);
-  border-radius: 12px;
-  overflow: hidden;
-}
-.card-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--rlt-line);
-}
-.card-head h2 {
-  font-family: var(--rlt-display);
-  font-size: 1.1rem;
-  letter-spacing: 0.04em;
-}
-.badge {
-  font-size: 0.72rem;
-  color: var(--rlt-txt-3);
-  font-feature-settings: "tnum";
-}
+      /* tier-hot (x4 ANNIHILATED) — hotter orange, +15% size,
+         steady rim + shake-on-demo class */
+      .ov.tier-hot .ov-streak {
+        font-size: 3rem;
+        color: #ff6a1f;
+        text-shadow: 0 0 24px rgba(255, 106, 31, 0.8);
+      }
+      .ov.tier-hot .ov-word {
+        font-size: 1.15rem;
+        color: #ff6a1f;
+        text-shadow: 0 0 14px rgba(255, 106, 31, 0.7), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      /* No drop-shadow — see tier-glow note. */
 
-.card-empty {
-  padding: 32px 16px;
-  text-align: center;
-  color: var(--rlt-txt-3);
-  font-size: 0.85rem;
-}
+      /* tier-bloom (x5 OBLITERATED) — magenta-orange, +30% size.
+         Text-shadow only; large drop-shadow filters were causing
+         compositor lag and box-flash artifacts. */
+      .ov.tier-bloom .ov-streak {
+        font-size: 3.4rem;
+        color: #ff4d8a;
+        text-shadow:
+          0 0 14px rgba(255, 77, 138, 1),
+          0 0 8px rgba(255, 106, 31, 0.7);
+      }
+      .ov.tier-bloom .ov-word {
+        font-size: 1.3rem;
+        color: #ff4d8a;
+        text-shadow: 0 0 10px rgba(255, 77, 138, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
 
-.row {
-  display: grid;
-  grid-template-columns: 3rem 1fr;
-  gap: 12px;
-  align-items: baseline;
-  padding: 8px 18px;
-}
-.row + .row {
-  border-top: 1px solid var(--rlt-line);
-}
-.r-count {
-  font-family: var(--rlt-display);
-  font-feature-settings: "tnum";
-  font-weight: 700;
-  text-align: right;
-  color: var(--rlt-txt-2);
-}
-.r-name {
-  font-size: 0.95rem;
-}
+      /* tier-apocalypse (x6+) — red-magenta, +45% size, with a slow
+         text-shadow pulse for the "energy alive between demos" feel.
+         The pulse animates text-shadow rather than filter:drop-shadow:
+         text-shadow stays inside the rendering layer's bounds, so it
+         doesn't trigger compositor-stall box-flashes the way a heavy
+         drop-shadow keyframe did. */
+      .ov.tier-apocalypse .ov-streak {
+        font-size: 3.8rem;
+        color: #ff2d62;
+        text-shadow:
+          0 0 16px rgba(255, 45, 98, 1),
+          0 0 10px rgba(244, 114, 182, 0.7);
+      }
+      .ov.tier-apocalypse .ov-word {
+        font-size: 1.45rem;
+        color: #ff2d62;
+        letter-spacing: 0.24em;
+        text-shadow: 0 0 12px rgba(255, 45, 98, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-apocalypse[data-mode="active"] .ov-streak {
+        animation: ov-apocalypse-streak-pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes ov-apocalypse-streak-pulse {
+        0%, 100% {
+          text-shadow:
+            0 0 16px rgba(255, 45, 98, 1),
+            0 0 10px rgba(244, 114, 182, 0.7);
+        }
+        50% {
+          text-shadow:
+            0 0 22px rgba(255, 45, 98, 1),
+            0 0 14px rgba(244, 114, 182, 0.9);
+        }
+      }
+
+      /* ─── Ultra tiers ──────────────────────────────────────────
+         x8 ARMAGEDDON, x10 EXTINCTION, x12 GENOCIDE — for the chasers
+         who keep the streak alive past x6. Size stays at +45% (further
+         growth overflows the 320×240 iframe), but color escalates from
+         red-magenta toward white-hot, pulse accelerates, and shake gets
+         meaner. The text starts to look like it's burning out. */
+
+      /* Ultra tiers — heat carried entirely by text-shadow. The
+         filter:drop-shadow approach we tried earlier caused compositor
+         lag and rectangular box-flash artifacts on the wry/webkit
+         overlay surface, even with single (non-stacked) shadows. We
+         keep text-shadow radii small enough to stay inside the .ov-
+         active padding so they don't bleed against the iframe edge. */
+
+      /* tier-armageddon (x8) — deeper, more aggressive red */
+      .ov.tier-armageddon .ov-streak {
+        font-size: 3.8rem;
+        color: #ff1a4d;
+        text-shadow:
+          0 0 14px rgba(255, 26, 77, 1),
+          0 0 8px rgba(255, 60, 100, 0.8),
+          0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-armageddon .ov-word {
+        font-size: 1.45rem;
+        color: #ff1a4d;
+        letter-spacing: 0.26em;
+        text-shadow:
+          0 0 12px rgba(255, 26, 77, 1),
+          0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+
+      /* tier-extinction (x10) — color blowing out toward white with a
+         layered red+pink inner shadow. The white text plus a tight
+         magenta core reads as "burning out" without big radii. */
+      .ov.tier-extinction .ov-streak {
+        font-size: 3.8rem;
+        color: #fff0f5;
+        text-shadow:
+          0 0 14px rgba(255, 255, 255, 0.85),
+          0 0 10px rgba(255, 26, 77, 1),
+          0 0 6px rgba(255, 80, 130, 0.95),
+          0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-extinction .ov-word {
+        font-size: 1.45rem;
+        color: #fff0f5;
+        letter-spacing: 0.28em;
+        text-shadow:
+          0 0 12px rgba(255, 255, 255, 0.85),
+          0 0 8px rgba(255, 26, 77, 1),
+          0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+
+      /* tier-genocide (x12+) — pure white text with the brightest
+         layered glow available without straying outside text-shadow.
+         The streak number gets a four-stop chain: white core, tight
+         pink, slightly wider red, sharp drop. */
+      .ov.tier-genocide .ov-streak {
+        font-size: 3.8rem;
+        color: #ffffff;
+        text-shadow:
+          0 0 18px rgba(255, 255, 255, 0.95),
+          0 0 12px rgba(255, 80, 130, 1),
+          0 0 8px rgba(255, 26, 77, 1),
+          0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      .ov.tier-genocide .ov-word {
+        font-size: 1.45rem;
+        color: #ffffff;
+        letter-spacing: 0.3em;
+        text-shadow:
+          0 0 14px rgba(255, 255, 255, 0.95),
+          0 0 10px rgba(255, 80, 130, 1),
+          0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+
+      /* BEST badge picks up the tier color of the all-time best streak
+         it represents — independent of the current streak's tier so the
+         badge stays styled correctly between matches when the live tier
+         resets to base. The tier class is set on .ov-best directly. */
+      .ov-best.tier-hot,
+      .ov-best.tier-bloom,
+      .ov-best.tier-apocalypse,
+      .ov-best.tier-armageddon,
+      .ov-best.tier-extinction,
+      .ov-best.tier-genocide {
+        border-left-color: currentColor;
+      }
+      .ov-best.tier-hot .ov-best-streak,
+      .ov-best.tier-hot .ov-best-word { color: #ff6a1f; }
+      .ov-best.tier-bloom .ov-best-streak,
+      .ov-best.tier-bloom .ov-best-word { color: #ff4d8a; }
+      .ov-best.tier-apocalypse .ov-best-streak,
+      .ov-best.tier-apocalypse .ov-best-word { color: #ff2d62; }
+      .ov-best.tier-armageddon .ov-best-streak,
+      .ov-best.tier-armageddon .ov-best-word { color: #ff1a4d; }
+      .ov-best.tier-extinction .ov-best-streak,
+      .ov-best.tier-extinction .ov-best-word { color: #fff0f5; }
+      .ov-best.tier-genocide .ov-best-streak,
+      .ov-best.tier-genocide .ov-best-word { color: #ffffff; }
+
+      /* ─── Shake on demo ────────────────────────────────────────
+         JS adds .shake-light / .shake-hard on every demo at tier-hot+;
+         self-removed on animationend. Translate-only so it doesn't
+         compound with the apocalypse rim-pulse box-shadow. */
+      @keyframes ov-shake-light {
+        0%, 100% { transform: translate(0, 0); }
+        25% { transform: translate(-2px, 1px); }
+        50% { transform: translate(2px, -1px); }
+        75% { transform: translate(-1px, 2px); }
+      }
+      @keyframes ov-shake-hard {
+        0%, 100% { transform: translate(0, 0); }
+        15% { transform: translate(-4px, 2px); }
+        30% { transform: translate(4px, -3px); }
+        45% { transform: translate(-3px, -2px); }
+        60% { transform: translate(3px, 3px); }
+        80% { transform: translate(-2px, 1px); }
+      }
+      /* shake-extreme — for ultra tiers (x8+). Bigger amplitude, longer
+         duration, more jitter steps. The base keyframe is shared across
+         armageddon/extinction/genocide; per-tier rules below apply
+         escalating durations and amplitude scales. */
+      @keyframes ov-shake-extreme {
+        0%, 100% { transform: translate(0, 0); }
+        10% { transform: translate(-6px, 3px); }
+        22% { transform: translate(6px, -4px); }
+        34% { transform: translate(-5px, -3px); }
+        46% { transform: translate(5px, 4px); }
+        58% { transform: translate(-4px, 2px); }
+        70% { transform: translate(4px, -2px); }
+        85% { transform: translate(-2px, 1px); }
+      }
+      /* Shake animates ONLY the streak number — the big "xN" the
+         player's eye is locked on during a combo. Earlier the shake
+         was on .ov (the whole widget) which jiggled the chip column
+         too, including the steady DEMOS / BEST / LAST chips that
+         have no business moving. Confined to .ov-streak the shake
+         reads as kinetic feedback on the focal element rather than
+         the whole HUD vibrating. */
+      .ov-streak.shake-light   { animation: ov-shake-light 120ms ease-out; }
+      .ov-streak.shake-hard    { animation: ov-shake-hard 160ms ease-out; }
+      .ov-streak.shake-extreme { animation: ov-shake-extreme 200ms ease-out; }
+      /* Per-tier amplitude scaling: each ultra tier shakes a bit
+         harder by stretching the duration. Genocide gets the
+         longest, most visible jitter so x12+ feels distinct from
+         x8/x10. */
+      .ov.tier-armageddon .ov-streak.shake-extreme { animation-duration: 180ms; }
+      .ov.tier-extinction .ov-streak.shake-extreme { animation-duration: 220ms; }
+      .ov.tier-genocide   .ov-streak.shake-extreme { animation-duration: 260ms; }
+
+      /* Honor reduced-motion — keep the static look. */
+      @media (prefers-reduced-motion: reduce) {
+        body.overlay-mode .ov,
+        .ov-streak {
+          /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
+          animation: none !important;
+        }
+      }
+
+      /* ?overlay=1 hides the control page, no-overlay hides the widget.
+         The SDK adds .overlay-mode to <body> when the URL has ?overlay=1.
+         Placed last so the high-specificity selectors below win against
+         the base .page / .ov rules above (descending-specificity rule). */
+      body.overlay-mode .page {
+        display: none;
+      }
+      body:not(.overlay-mode) .ov {
+        display: none;
+      }
