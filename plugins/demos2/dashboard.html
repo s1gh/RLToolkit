@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Demolitions 2</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+    <link href="/sdk.css" rel="stylesheet" />
+    <link href="/plugins/demos2/styles.css" rel="stylesheet" />
+    <script src="/sdk.js" data-plugin="demos2" data-view="dashboard"></script>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">DM</div>
+          <div>
+            <h1>Demolitions 2</h1>
+            <div class="tag">Who you've sent flying</div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <span class="conn-pill" id="conn" data-status="disconnected">offline</span>
+          <button
+            type="button"
+            class="icon-btn"
+            id="open-overlay"
+            title="Open overlay"
+            onclick="window.open('overlay.html', '_blank')"
+          >
+            ⧉
+          </button>
+        </div>
+      </header>
+
+      <section class="identity-strip">
+        <span class="il-label">you:</span>
+        <span class="il-name empty" id="id-val">unclaimed</span>
+        <span class="il-hint" id="id-hint">— claim your identity in Déjà Vu so your demos count</span>
+      </section>
+
+      <div class="grid">
+        <section class="card">
+          <div class="card-head">
+            <h2>This match</h2>
+            <span class="badge" id="match-badge">no match</span>
+          </div>
+          <div id="match-list"></div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2>All time</h2>
+            <span class="badge"
+              ><span id="total">0</span> demos ·
+              <span id="all-count">0</span> rivals<span id="all-best-wrap" hidden>
+                · best <span id="all-best">x0</span>
+                <span id="all-best-word"></span></span
+              ></span
+            >
+          </div>
+          <div id="all-list"></div>
+        </section>
+      </div>
+    </main>
+    <script src="/plugins/demos2/app.js"></script>
+  </body>
+</html>
