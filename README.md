@@ -23,8 +23,6 @@ It does not inject into the game, hook input, or read game memory. It only consu
 | **Demolitions** | Demolitions dealt this match and all-time. |
 | **Ballchasing Upload** | Auto-uploads saved replays to ballchasing.com. |
 | **Crossbar Sound** | Plays a sound effect when the ball hits a crossbar. |
-| **Hello World** | Reference plugin showing the overlay, dashboard, and settings layout. |
-| **SynthTracker** | Dev tool that subscribes to every synthetic event and shows live counts. |
 
 Plus any third-party plugins you install. The launcher's **Install plugin…** button accepts `.rltp` packages: pick one and it's live.
 
