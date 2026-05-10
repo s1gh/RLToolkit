@@ -661,11 +661,25 @@ document.addEventListener("keydown", (e) => {
 
 // Iframe-aware dismissal: the dashboard runs in its own document, so
 // pointerdown there never bubbles to this listener. When the user
-// clicks into the iframe the launcher window loses focus — that's
+// clicks into the iframe the launcher window loses focus, and that's
 // the signal we use to close the menu.
 window.addEventListener("blur", () => {
   const menu = document.getElementById("overflow");
   if (menu?.hasAttribute("open")) menu.removeAttribute("open");
+});
+
+// Click-to-focus mitigation. On Wayland (Hyprland especially) the
+// transition between the Tauri shell and the dashboard iframe doesn't
+// always complete in one event. After dismissing the launcher's
+// overflow menu by clicking into the iframe area, the next click on
+// a button inside the dashboard can be eaten by the compositor as a
+// focus-grab, so the user has to click twice. Forwarding focus into
+// the iframe whenever the launcher window regains focus shortcuts
+// the second click. focus() on a same-process cross-origin iframe is
+// allowed; we don't read into the iframe, only nudge focus.
+window.addEventListener("focus", () => {
+  const iframe = document.getElementById("dashboard");
+  iframe?.contentWindow?.focus();
 });
 
 // Frameless resize: each .rh zone calls startResizeDragging on
