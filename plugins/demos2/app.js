@@ -33,6 +33,31 @@
     return hit;
   }
 
+  // Bank time — only ticks during `live`. Replays, kickoff countdowns,
+  // and pauses do not burn the combo window. lastTickAt is performance.now()
+  // at the last bank advance; bankNow() advances the bank to "now" if we
+  // are currently in a playable phase, then returns the bank value.
+  let playableElapsed = 0;
+  let lastTickAt = performance.now();
+  let inPlayablePhase = false;
+
+  function bankNow() {
+    if (inPlayablePhase) {
+      const now = performance.now();
+      playableElapsed += now - lastTickAt;
+      lastTickAt = now;
+    }
+    return playableElapsed;
+  }
+
+  function setPlayablePhase(active) {
+    if (active === inPlayablePhase) return;
+    // Settle the bank up to current time before flipping the gate.
+    if (inPlayablePhase) bankNow();
+    inPlayablePhase = active;
+    lastTickAt = performance.now();
+  }
+
   function render() {
     // Per-surface render branches land in later tasks.
   }
