@@ -93,6 +93,41 @@
   // rAF handle for the active drain loop. Non-zero means the loop is armed.
   let activeRafHandle = 0;
 
+  function totalCount() {
+    let n = 0;
+    for (const k in totals) n += totals[k].count;
+    return n;
+  }
+
+  function matchDemoCount() {
+    let n = 0;
+    for (const k in current) n += current[k].count;
+    return n;
+  }
+
+  function resetComboState() {
+    currentStreak = 0;
+    lastDemoAt = 0;
+    lastVictimName = '';
+  }
+
+  function cleanupMatchState() {
+    current = {};
+    currentGuid = null;
+    lastMatchVictim = '';
+    resetComboState();
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[c]));
+  }
+
   function render() {
     // Per-surface render branches land in later tasks.
   }
