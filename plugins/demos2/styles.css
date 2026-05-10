@@ -819,19 +819,26 @@
          JS adds .shake-light / .shake-hard on every demo at tier-hot+;
          self-removed on animationend. Translate-only so it doesn't
          compound with the apocalypse rim-pulse box-shadow. */
+      /* Shake amplitudes tuned so each tier is visibly distinct on a
+         3-4rem glyph. Earlier amplitudes (±2/±4/±6) were geometrically
+         escalated but the relative motion at the smaller glyph sizes
+         (3rem at tier-hot) was too subtle to read as "this row just
+         shook" — only the extreme shake at the largest glyphs landed.
+         Doubling the lower-tier amplitudes makes the escalation
+         readable on a glance. */
       @keyframes ov-shake-light {
         0%, 100% { transform: translate(0, 0); }
-        25% { transform: translate(-2px, 1px); }
-        50% { transform: translate(2px, -1px); }
-        75% { transform: translate(-1px, 2px); }
+        25% { transform: translate(-4px, 2px); }
+        50% { transform: translate(4px, -2px); }
+        75% { transform: translate(-2px, 3px); }
       }
       @keyframes ov-shake-hard {
         0%, 100% { transform: translate(0, 0); }
-        15% { transform: translate(-4px, 2px); }
-        30% { transform: translate(4px, -3px); }
-        45% { transform: translate(-3px, -2px); }
-        60% { transform: translate(3px, 3px); }
-        80% { transform: translate(-2px, 1px); }
+        15% { transform: translate(-7px, 3px); }
+        30% { transform: translate(7px, -4px); }
+        45% { transform: translate(-5px, -3px); }
+        60% { transform: translate(5px, 4px); }
+        80% { transform: translate(-3px, 2px); }
       }
       /* shake-extreme — for ultra tiers (x8+). Bigger amplitude, longer
          duration, more jitter steps. The base keyframe is shared across
@@ -839,13 +846,13 @@
          escalating durations and amplitude scales. */
       @keyframes ov-shake-extreme {
         0%, 100% { transform: translate(0, 0); }
-        10% { transform: translate(-6px, 3px); }
-        22% { transform: translate(6px, -4px); }
-        34% { transform: translate(-5px, -3px); }
-        46% { transform: translate(5px, 4px); }
-        58% { transform: translate(-4px, 2px); }
-        70% { transform: translate(4px, -2px); }
-        85% { transform: translate(-2px, 1px); }
+        10% { transform: translate(-10px, 4px); }
+        22% { transform: translate(10px, -5px); }
+        34% { transform: translate(-8px, -4px); }
+        46% { transform: translate(8px, 5px); }
+        58% { transform: translate(-6px, 3px); }
+        70% { transform: translate(6px, -3px); }
+        85% { transform: translate(-4px, 2px); }
       }
       /* Shake animates ONLY the streak number — the big "xN" the
          player's eye is locked on during a combo. Earlier the shake
@@ -854,16 +861,23 @@
          have no business moving. Confined to .ov-streak the shake
          reads as kinetic feedback on the focal element rather than
          the whole HUD vibrating. */
-      .ov-streak.shake-light   { animation: ov-shake-light 120ms ease-out; }
-      .ov-streak.shake-hard    { animation: ov-shake-hard 160ms ease-out; }
-      .ov-streak.shake-extreme { animation: ov-shake-extreme 200ms ease-out; }
+      /* Shake selectors prefix with `.ov[data-mode]` so they reach the
+         same specificity as the tier-apocalypse[data-mode="active"]
+         pulse selector above. Source order then decides: shake comes
+         later, shake wins for the duration of the one-shot animation,
+         pulse resumes when the shake class is removed on animationend.
+         Without this prefix, the pulse animation kept its `animation`
+         property at apocalypse+ tiers and the shake silently lost. */
+      .ov[data-mode] .ov-streak.shake-light   { animation: ov-shake-light 120ms ease-out; }
+      .ov[data-mode] .ov-streak.shake-hard    { animation: ov-shake-hard 160ms ease-out; }
+      .ov[data-mode] .ov-streak.shake-extreme { animation: ov-shake-extreme 200ms ease-out; }
       /* Per-tier amplitude scaling: each ultra tier shakes a bit
          harder by stretching the duration. Genocide gets the
          longest, most visible jitter so x12+ feels distinct from
-         x8/x10. */
-      .ov.tier-armageddon .ov-streak.shake-extreme { animation-duration: 180ms; }
-      .ov.tier-extinction .ov-streak.shake-extreme { animation-duration: 220ms; }
-      .ov.tier-genocide   .ov-streak.shake-extreme { animation-duration: 260ms; }
+         x8/x10. Matching specificity bump so these still apply. */
+      .ov.tier-armageddon[data-mode] .ov-streak.shake-extreme { animation-duration: 180ms; }
+      .ov.tier-extinction[data-mode] .ov-streak.shake-extreme { animation-duration: 220ms; }
+      .ov.tier-genocide[data-mode]   .ov-streak.shake-extreme { animation-duration: 260ms; }
 
       /* Honor reduced-motion — keep the static look. */
       @media (prefers-reduced-motion: reduce) {
