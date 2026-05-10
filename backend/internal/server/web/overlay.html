@@ -402,6 +402,39 @@
   // hosted-mode hello will widen it as their handlers register.
   openBus();
 
+  // Pre-hide flush. Stale-buffer flash on layer-shell remap is caused
+  // by WebKit's last-produced buffer being re-attached on map after
+  // hide; if the user mutated the DOM (e.g. disabled a plugin) while
+  // the document was hidden, those mutations did not reach a paint
+  // (per the Page Visibility / "update the rendering" spec gating),
+  // so the cached buffer still contains the pre-mutation state and
+  // flashes for one frame on the next show().
+  //
+  // Fix: the Tauri side asks us to clear the page BEFORE it calls
+  // hide(), and waits for the resulting paint to land (rAF) before
+  // unmapping the surface. With the buffer cleared while still
+  // visible, whatever the compositor presents on remap is empty,
+  // not stale. Sequence on the Tauri side:
+  //   1. evaluate __rlt_prepare_for_hide(); on the webview
+  //   2. await its returned promise (resolves after one paint)
+  //   3. call window.hide()
+  // On show() we just resume from lastMerged; visibilitychange to
+  // 'visible' handles the remount path so iframes come back.
+  window.__rlt_prepare_for_hide = function () {
+    for (const name of Array.from(widgets.keys())) unmount(name);
+    return new Promise((resolve) => {
+      // Two rAFs: the first runs the style/layout for the now-empty
+      // DOM, the second guarantees that frame has been presented to
+      // the compositor before we resolve. wl_surface state is double-
+      // buffered and replaced atomically at commit, so the post-rAF
+      // commit is what GTK will hand the compositor.
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && lastMerged) applyConfig(lastMerged);
+  });
+
   // Diagnostic: report the actual rendered viewport so we can verify
   // it matches what the editor's target says it should be. If they
   // diverge, bottom-anchored widgets clip below the screen.

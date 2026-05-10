@@ -123,7 +123,35 @@ pub fn toggle_overlay(
         if enabled {
             let _ = w.show();
         } else {
-            let _ = w.hide();
+            // Pre-hide flush. WebKitGTK doesn't paint while a document
+            // is hidden (Page Visibility / "update the rendering"
+            // gating), so any DOM mutation that happens between hide
+            // and show won't reach the buffer GTK hands the compositor
+            // on the post-show map. Result: stale plugin contents
+            // briefly flash on remap if the user disabled a plugin
+            // while the overlay was off. Mitigate by clearing the
+            // overlay's iframes BEFORE hide() — while the document
+            // is still visible, so the clear actually paints — then
+            // wait a beat for that paint to land before unmapping.
+            //
+            // The aggregator (web/overlay.html) installs
+            // window.__rlt_prepare_for_hide which unmounts every
+            // iframe and resolves after two requestAnimationFrame
+            // ticks. We invoke it via fire-and-forget eval, then
+            // sleep a generous fixed budget (60ms ≈ 4 frames at
+            // 60Hz) to cover the rAF chain plus the GTK frame-clock
+            // commit, and only then call hide(). On show() we don't
+            // need to do anything special — the aggregator listens
+            // for visibilitychange and re-applies lastMerged.
+            let _ = w.eval(
+                "if (typeof window.__rlt_prepare_for_hide === 'function') \
+                 { window.__rlt_prepare_for_hide(); }",
+            );
+            let w_clone = w.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                let _ = w_clone.hide();
+            });
         }
     }
     Ok(())
