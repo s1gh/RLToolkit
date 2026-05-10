@@ -1,706 +1,35 @@
-/* ─── Tokens ────────────────────────────────────────────── */
-:root {
-  --bg-0: #0a0c14;
-  --bg-1: #0f1320;
-  --bg-2: #161b2c;
-  --bg-3: #1d2238;
-  --line: #232a44;
-  --line-2: #2f375a;
-  --txt: #e6e9f5;
-  --txt-2: #a9b0cf;
-  --txt-3: #6c739a;
+/* Déjà Vu — recon HUD aesthetic. Tactical, condensed type, sharp
+   edges, dark navy slabs with a gold accent. Tokens come from sdk.css
+   (--rlt-* prefix). No animations: app.js rebuilds the body on every
+   event, which would retrigger any CSS keyframe mid-cycle. */
 
-  --cyan: #22d3ee;
-  --cyan-glow: rgba(34, 211, 238, 0.35);
-  --violet: #a78bfa;
-  --violet-glow: rgba(167, 139, 250, 0.35);
-  --magenta: #f472b6;
-  --gold: #fbbf24;
-  --gold-soft: rgba(251, 191, 36, 0.12);
-  --gold-glow: rgba(251, 191, 36, 0.35);
-
-  --blue: #3b82f6;
-  --blue-glow: rgba(59, 130, 246, 0.4);
-  --orange: #fb7c3c;
-  --orange-glow: rgba(251, 124, 60, 0.4);
-
-  --display: "Saira Condensed", system-ui, sans-serif;
-  --ui: "Inter", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, monospace;
-}
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-html,
-body {
-  height: 100%;
-}
-
-body {
-  font-family: var(--ui);
-  font-size: 13px;
-  color: var(--txt);
-  background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(167, 139, 250, 0.12), transparent 60%),
-    radial-gradient(1000px 500px at 0% 110%, rgba(34, 211, 238, 0.08), transparent 60%), var(--bg-0);
-  -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
-}
-body.overlay-mode {
-  background: transparent;
-  overflow: hidden;
-}
-.mono {
-  font-family: var(--mono);
-  font-feature-settings: "tnum";
-}
-
-/* ════════════════════════════════════════════════════════
-   CONTROL PAGE
-   ════════════════════════════════════════════════════════ */
-.page {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 28px 24px 48px;
-}
-
-/* Two-column dashboard: live match (left) + most-met leaderboard (right).
-   Stacks vertically below 860px so the layout still works on narrow tabs. */
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 20px;
-  margin-top: 20px;
-}
-@media (max-width: 860px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  padding: 14px 18px;
-  background: linear-gradient(135deg, var(--bg-1), var(--bg-2));
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.brand .logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--cyan), var(--violet));
-  box-shadow: 0 0 24px var(--violet-glow);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--bg-0);
-  letter-spacing: -0.02em;
-}
-.brand h1 {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 20px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  background: linear-gradient(90deg, #fff 30%, var(--cyan));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-.brand .tag {
-  font-size: 11px;
-  color: var(--txt-3);
-  letter-spacing: 0.02em;
-  font-weight: 500;
-}
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.conn-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-  border-radius: 99px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--txt-2);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.conn-pill::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--txt-3);
-}
-.conn-pill[data-status="connected"]::before {
-  background: #22c55e;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
-  /* Simple opacity-only breathe on the dot. Single value animated with
-     `alternate` direction so there's no loop-point stutter, no
-     multi-layer shadow choreography to misalign. */
-  animation: pulse 1.4s ease-in-out infinite alternate;
-}
-.conn-pill[data-status="connecting"]::before {
-  background: var(--gold);
-  box-shadow: 0 0 10px var(--gold);
-}
-.conn-pill[data-status="disconnected"]::before {
-  background: #ef4444;
-}
-/* Animate opacity only — one channel, no double-shadow interference.
-   With `alternate`, the curve reverses at each endpoint so there's no
-   stutter at the loop point. */
-@keyframes pulse {
-  from {
-    opacity: 0.55;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.icon-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-  color: var(--txt-2);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  /* Explicit property list — `transition: all` makes the browser watch
-     every property for changes. Hover only flips border/color/shadow. */
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-.icon-btn:hover {
-  border-color: var(--cyan);
-  color: var(--cyan);
-  box-shadow: 0 0 16px var(--cyan-glow);
-}
-
-/* ─── Cards ─────────────────────────────────────────────── */
-.card {
-  background: linear-gradient(180deg, var(--bg-1), var(--bg-2));
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 20px 22px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-}
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-}
-.card-head h2 {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 18px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #fff;
-}
-.card-head .badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 99px;
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-  color: var(--txt-2);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-family: var(--mono);
-}
-.card-empty {
-  padding: 50px 20px;
-  text-align: center;
-  color: var(--txt-3);
-  font-size: 13px;
-}
-.card-empty .em-icon {
-  font-size: 30px;
-  margin-bottom: 8px;
-  opacity: 0.5;
-}
-
-/* ─── Match player rows ─────────────────────────────────── */
-.teams-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.team-block-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  padding: 0 4px;
-}
-.team-block-head .tdot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-}
-.team-block.blue .tdot {
-  background: var(--blue);
-  box-shadow: 0 0 10px var(--blue-glow);
-}
-.team-block.orange .tdot {
-  background: var(--orange);
-  box-shadow: 0 0 10px var(--orange-glow);
-}
-.team-block-head .tname {
-  font-family: var(--display);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-.team-block.blue .tname {
-  color: var(--blue);
-}
-.team-block.orange .tname {
-  color: var(--orange);
-}
-
-.player-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  margin-bottom: 6px;
-  position: relative;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-.player-row:hover {
-  border-color: var(--line-2);
-  background: var(--bg-3);
-}
-.player-row.is-me {
-  border-color: var(--violet);
-  background: linear-gradient(135deg, rgba(167, 139, 250, 0.08), var(--bg-2));
-  box-shadow: 0 0 24px rgba(167, 139, 250, 0.15);
-}
-/* Subtle returner — every other player you've met before. The corner
-   stamp says "we've crossed paths"; the row chrome stays close to default
-   so the standout treatment below has somewhere to escalate to. */
-.player-row.returning {
-  border-color: rgba(251, 191, 36, 0.35);
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.04), var(--bg-2));
-}
-.player-row.returning::after {
-  content: "DÉJÀ VU";
-  position: absolute;
-  top: 6px;
-  right: 14px;
-  font-family: var(--display);
-  font-size: 8px;
-  font-weight: 700;
-  color: var(--gold);
-  letter-spacing: 0.2em;
-  opacity: 0.55;
-}
-
-/* Standout returner — at most one row per match, picked by
-   classifyReturners(). Brighter border and a stronger background tint;
-   the badge picks up the full gold treatment below. */
-.player-row.returning-top {
-  border-color: var(--gold);
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.1), var(--bg-2));
-}
-.player-row.returning-top::after {
-  opacity: 0.95;
-}
-
-/* Defensive: self should never get the gold treatment even if a stale
-   `returning` class survives somehow. `is-me` adds the same selector
-   weight as `returning`, so to win both `::after` content and border
-   color we need !important — these specifically override the gold
-   treatment in the rules above, which would otherwise reach the same
-   element via the source-order tiebreak. */
-.player-row.is-me::after {
-  /* biome-ignore lint/complexity/noImportantStyles: deliberate override of .returning */
-  content: none !important;
-}
-.player-row.is-me {
-  /* biome-ignore lint/complexity/noImportantStyles: deliberate override of .returning */
-  border-color: var(--violet) !important;
-}
-.pr-badge {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: var(--bg-0);
-  border: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 16px;
-  color: var(--txt-2);
-}
-/* Subtle tier: badge tints gold but doesn't glow. */
-.player-row.returning .pr-badge {
-  background: rgba(251, 191, 36, 0.06);
-  border-color: rgba(251, 191, 36, 0.55);
-  color: rgba(251, 191, 36, 0.85);
-}
-/* Standout: full gold + glow — same dramatic look the badge had pre-tier. */
-.player-row.returning-top .pr-badge {
-  background: var(--gold-soft);
-  border-color: var(--gold);
-  color: var(--gold);
-  box-shadow: 0 0 14px var(--gold-glow);
-}
-.player-row.is-me .pr-badge {
-  background: rgba(167, 139, 250, 0.15);
-  border-color: var(--violet);
-  color: var(--violet);
-  /* The "ME" label is shorter than two digits, so tighten typography to
-     read as a deliberate tag rather than a number that wandered off. */
-  font-size: 13px;
-  letter-spacing: 0.12em;
-}
-.pr-info {
-  min-width: 0;
-}
-.pr-name {
-  font-family: var(--display);
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-  letter-spacing: 0.01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pr-name .you-tag {
-  display: inline-block;
-  margin-left: 8px;
-  font-family: var(--ui);
-  font-size: 9px;
-  font-weight: 800;
-  color: var(--violet);
-  background: rgba(167, 139, 250, 0.15);
-  border: 1px solid var(--violet);
-  padding: 2px 6px;
-  border-radius: 4px;
-  letter-spacing: 0.14em;
-  vertical-align: middle;
-}
-/* BOT tag — used both inline next to a name and on leaderboard rows.
-   Muted on purpose: bots are noise relative to the humans this plugin
-   exists to track. Desaturated cyan reads as "label" rather than "alert". */
-.bot-tag {
-  display: inline-block;
-  margin-left: 8px;
-  font-family: var(--ui);
-  font-size: 9px;
-  font-weight: 700;
-  color: #6f9aa8;
-  background: rgba(111, 154, 168, 0.1);
-  border: 1px solid rgba(111, 154, 168, 0.45);
-  padding: 2px 6px;
-  border-radius: 4px;
-  letter-spacing: 0.14em;
-  vertical-align: middle;
-}
-/* Bot row — neutral treatment, suppress every gold returning state.
-   Match.js gates this in JS too (the `returning` class isn't applied to
-   bots), but we double-belt for safety: a future code change shouldn't
-   accidentally paint a bot row gold. */
-.player-row.is-bot {
-  border-color: var(--line);
-  background: var(--bg-2);
-}
-.player-row.is-bot.returning::after,
-.player-row.is-bot.returning-top::after {
-  content: none;
-}
-.pr-aliases {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--txt-3);
-  margin-top: 2px;
-}
-.pr-platform {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  color: var(--txt-2);
-  background: transparent;
-  border: 0;
-  flex: 0 0 auto;
-}
-.pr-platform .rlt-platform-icon {
-  width: 18px;
-  height: 18px;
-  display: block;
-}
-.pr-platform-empty::before {
-  content: "?";
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--txt-3);
-}
-/* ─── Leaderboard ───────────────────────────────────────────────────
-   Flush list, no per-row cards. Each row is a transparent grid with a
-   single subtle separator above (except the first). Returning players
-   get a 2px gold accent on the left edge — flag without dominating.
-   The whole leaderboard reads as one composed list. */
-.lb-row {
-  position: relative;
-  display: grid;
-  /* count | name+aliases | platform icon | last-seen */
-  grid-template-columns: 56px minmax(0, 1fr) 28px 44px;
-  column-gap: 16px;
-  align-items: center;
-  padding: 10px 14px 10px 16px;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  transition: background 0.12s ease;
-}
-/* Separator above each row except the first. Plain border on the row
-   itself — simpler and more reliable than a pseudo-element. */
-.lb-row + .lb-row {
-  border-top: 1px solid var(--line);
-}
-.lb-row:hover {
-  background: rgba(255, 255, 255, 0.02);
-}
-/* Returning-player accent: 2px gold bar on the left. Subtle, persistent,
-   doesn't crowd the data. No glow — at this scale it just bleeds across
-   the row separator and visually erases it for adjacent returning rows. */
-.lb-row.returning::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 2px;
-  background: var(--gold);
-  border-radius: 2px;
-}
-
-/* Encounter count — display face for the number, smaller faded ×.
-   Sized down from the previous chunky 22px to read as one element of
-   a row rather than the row's centerpiece. */
-.lb-count {
-  font-family: var(--display);
-  font-feature-settings: "tnum";
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--txt);
-  text-align: right;
-  white-space: nowrap;
-}
-.lb-count .x {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--txt-3);
-  margin-left: 2px;
-}
-.lb-row.returning .lb-count {
-  color: var(--gold);
-}
-
-/* Name + (optional) aliases line. Aliases are dimmed mono. */
-.lb-info {
-  min-width: 0;
-}
-.lb-name {
-  font-family: var(--ui);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.005em;
-  color: var(--txt);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.lb-aliases {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--txt-3);
-  margin-top: 3px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Platform icon — fills its grid column, icon centered within. */
-.lb-platform {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 22px;
-  color: var(--txt-2);
-  background: transparent;
-}
-.lb-platform .rlt-platform-icon {
-  width: 18px;
-  height: 18px;
-  display: block;
-}
-.lb-platform-empty::before {
-  content: "?";
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--txt-3);
-}
-
-/* Time-ago — dim mono, right-aligned. */
-.lb-time {
-  font-family: var(--mono);
-  font-feature-settings: "tnum";
-  font-size: 11px;
-  color: var(--txt-3);
-  min-width: 36px;
-  text-align: right;
-}
-
-/* ─── Toast ─────────────────────────────────────────────── */
-.toast {
-  position: fixed;
-  bottom: 28px;
-  left: 50%;
-  transform: translateX(-50%) translateY(20px);
-  background: linear-gradient(135deg, var(--cyan), var(--violet));
-  color: var(--bg-0);
-  padding: 12px 22px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 0.25s,
-    transform 0.25s;
-  z-index: 1000;
-  box-shadow:
-    0 0 30px var(--cyan-glow),
-    0 0 50px var(--violet-glow);
-}
-.toast.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-/* ════════════════════════════════════════════════════════
-   OVERLAY MODE  (?overlay=1) — "Recon HUD"
-   ════════════════════════════════════════════════════════
-   Design intent: a tactical sighting widget, not a webpage.
-   - No outer card. Each row is a self-contained tag with its
-     own translucent backing. Game shows through the gaps.
-   - Returning opponents trigger gold accents and a slow pulse
-     — the whole point of dejavu is the recognition.
-   - Anchored bottom-left by the SDK; rows stack upward.
-
-   Sizing model: every overlay-mode metric is in rem, rooted at
-   <html>'s font-size which we override below. Bump that one
-   value to scale the whole HUD; shrink to densify. (Future:
-   could be plugin-configurable via the manifest.)
-   ════════════════════════════════════════════════════════ */
-body.overlay-mode {
-  /* This rescales every rem unit below in one place. 17px ≈ 30%
-     larger than the 13px default — readable at 1440p without
-     dominating the screen. */
-  font-size: 17px;
-}
-/* The dashboard chrome and the overlay live in the same DOM. !important
-   here forces the display switch to win against any inline styles the
-   SDK may have applied (e.g. the foreground-show/hide path mutates
-   .ov's inline display:none from app.js — without !important this
-   media-driven rule loses to the inline value). */
-body.overlay-mode .page {
-  /* biome-ignore lint/complexity/noImportantStyles: must beat inline display */
-  display: none !important;
-}
-body.overlay-mode .ov {
-  /* biome-ignore lint/complexity/noImportantStyles: must beat inline display */
-  display: block !important;
-}
-/* biome-ignore lint/style/noDescendingSpecificity: the !important above always wins regardless of order */
 .ov {
   display: none;
 }
 
-/* The SDK applies display:flex to <body> with align-items:flex-start (left)
-   and justify-content:flex-end (bottom). .ov is one flex child; we let it
-   size to its own content rather than fill — that's what makes the iframe
-   look transparent in the empty parts. */
+/* In overlay mode the SDK flexes <body> to anchor us; .ov hugs its own
+   content so the surrounding iframe stays transparent. Asymmetric
+   padding gives the standout row's gold bleed room to breathe on the
+   right and bottom without pushing the anchor edge off the screen. */
 body.overlay-mode .ov {
-  /* Hug the longest row's content rather than fill the manifest surface.
-     The SDK's body flex centering pins .ov to the anchored corner with
-     the rest of the surface left transparent. */
   display: inline-flex;
   flex-direction: column;
   width: max-content;
   max-width: 100%;
   height: auto;
   max-height: 100%;
-  /* Asymmetric padding: returning-row gold glow extends ~1.2rem past
-     the row layout box. Right and bottom get that breathing room; left
-     stays flush (anchor edge); top is small (rows stack upward). */
   padding: 0.25rem 1.2rem 1.2rem 0;
-  animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  color: var(--rlt-txt);
+  font-family: var(--rlt-display);
 }
 
-/* The legacy .ov-card no longer wraps anything in overlay mode — keep a
-   no-op rule so accidental references don't paint a giant box. */
+/* The HTML carries an .ov-card wrapper from the template; in overlay
+   mode it has no chrome. The rows themselves are the slabs. */
 body.overlay-mode .ov-card {
   display: contents;
 }
 
-/* Section label for each team — small, condensed, military-radio feel. */
+/* Team block — stack of rows under a small condensed label. */
 .ov-team {
   display: flex;
   flex-direction: column;
@@ -711,159 +40,123 @@ body.overlay-mode .ov-card {
   margin-top: 0;
 }
 
+/* Team label pill. The 2px left rule takes the team color, the pill is
+   short, the letters wide-tracked — military-radio call-sign feel. */
 .ov-tname {
-  font-family: var(--display);
+  align-self: flex-start;
+  font-family: var(--rlt-display);
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.32em;
   text-transform: uppercase;
-  /* Tiny pill so the team label has a backing of its own. */
-  align-self: flex-start;
   padding: 0.12rem 0.5rem 0.12rem 0.42rem;
-  /* No backdrop-filter — bumping alpha is visually equivalent against
-     a moving game and avoids a per-frame compositor blur on every chip.
-     See plugins/demos/overlay.html for the same trade-off. */
   background: rgba(10, 12, 20, 0.78);
   border-left: 2px solid currentColor;
-  /* Subtle text-shadow keeps it legible on bright RL skies. */
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
-.ov-team.blue .ov-tname {
-  color: var(--blue);
-}
-.ov-team.orange .ov-tname {
-  color: var(--orange);
-}
+.ov-team.blue   .ov-tname { color: var(--rlt-blue); }
+.ov-team.orange .ov-tname { color: var(--rlt-orange); }
 
-/* The row itself — three-column tag: count | platform | name.
-   Background is per-row so the iframe shows through between rows. */
+/* Row — three columns: count | platform | name. Each row is its own
+   slab; the iframe shows through between rows. 2px left rule is the
+   row's structural edge (intentional, matches the original dejavu's
+   HUD vocabulary; not a generic accent stripe). */
 .ov-row {
   position: relative;
   display: grid;
   grid-template-columns: 1.8rem 1.1rem 1fr;
   gap: 0.5rem;
   align-items: center;
-  padding: 0.3rem 0.6rem 0.3rem 0.5rem;
+  /* Top padding is reserved for the DÉJÀ VU corner stamp on returner
+     rows. Applied to every row so first-meet and returner rows share
+     a height; otherwise the overlay's vertical rhythm breaks every
+     time a returner enters or leaves the lobby. */
+  padding: 0.85rem 0.6rem 0.3rem 0.5rem;
   background: rgba(10, 12, 20, 0.82);
   border-left: 2px solid rgba(255, 255, 255, 0.12);
-  /* Sharp HUD edges; only a hair of corner radius. */
   border-radius: 2px;
-  /* Animate each row in with a tiny stagger via the inline style index. */
-  animation: ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-  animation-delay: calc(var(--ov-i, 0) * 40ms);
 }
 
-/* Returning opponent (subtle tier) — every other player you've met
-   before. The recognition signal is a small DÉJÀ VU stamp in the top-
-   right corner; the row chrome stays identical to a first-meet row.
-   This handles the all-met case (everyone is a returner) gracefully:
-   five rows with corner stamps still read as five neutral rows, not a
-   wall of gold. The standout (when there is one) gets full chrome
-   below and pops because it's the only highlighted row.
+/* Returning opponent — subtle tier. Every other returner gets the
+   DÉJÀ VU corner stamp; the row chrome stays first-meet. This is what
+   makes the all-met case ("everyone is a returner") read as a row of
+   neutral slabs instead of a wall of gold. The standout below pops
+   precisely because it's the only one with full chrome.
 
-   Add top padding to returning rows so the name underneath sits BELOW
-   the DÉJÀ VU stamp instead of running into it. The stamp anchors at
-   top:4px (set below) so a long name with the row's default 0.3rem
-   top padding would render right behind it. */
-.ov-row.returning {
-  padding-top: 0.85rem;
-}
+   The base .ov-row already reserves space for the stamp via top
+   padding, so every row is the same height whether or not the stamp
+   is shown. */
 .ov-row.returning::after {
   content: "DÉJÀ VU";
   position: absolute;
   top: 4px;
   right: 6px;
-  font-family: var(--display);
+  font-family: var(--rlt-display);
   font-size: 0.5rem;
   font-weight: 700;
   letter-spacing: 0.18em;
-  color: var(--gold);
+  color: var(--rlt-gold);
   opacity: 0.55;
   pointer-events: none;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
-/* Standout returner (dramatic tier) — at most one row per match, gated by
-   classifyReturners() in lib/returners.js. Full-bleed gold with a soft
-   pulse so peripheral vision catches it.
-
-   Pulse architecture: a steady box-shadow lives on the row (cheap,
-   always painted once). A ::before pseudo-element holds the *brighter*
-   shadow and animates opacity 0..1 — opacity is GPU-composited, so the
-   compositor doesn't repaint the row's pixel grid every frame. This
-   replaced an earlier 4-stop box-shadow keyframe that re-rasterised the
-   shadow per frame and stuttered when the overlay was busy. */
+/* Standout returner — dramatic tier. At most one row per match; the
+   classifier in app.js gates this. Gold left rule, gold-bleed gradient
+   from the left, inset gold rim, outer gold halo. No pulse keyframe:
+   our render strategy rebuilds the row on each event, which would
+   restart any animation. The static treatment is loud enough. */
 .ov-row.returning-top {
-  border-left-color: var(--gold);
+  border-left-color: var(--rlt-gold);
   background: linear-gradient(90deg, rgba(251, 191, 36, 0.2), rgba(10, 12, 20, 0.82) 60%);
   box-shadow:
     0 0 0 1px rgba(251, 191, 36, 0.15) inset,
     0 0 18px -2px rgba(251, 191, 36, 0.35);
-  animation: ov-row-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
-.ov-row.returning-top::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  /* Brighter glow that fades on top of the steady one. Same shadow
-     geometry as the steady layer so the two read as one rim. */
-  box-shadow:
-    0 0 0 1px rgba(251, 191, 36, 0.3) inset,
-    0 0 26px -2px rgba(251, 191, 36, 0.55);
-  opacity: 0;
-  animation: ov-pulse 2.4s ease-in-out infinite 320ms;
 }
 
-/* Encounter count — looks like a target-lock readout. */
+/* Count cell — looks like a target-lock readout. Tabular, condensed,
+   tracked. Dim by default so the returners' gold (below) reads as
+   the active signal. */
 .ov-r-num {
-  font-family: var(--display);
+  font-family: var(--rlt-display);
   font-feature-settings: "tnum";
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--txt-3);
+  color: var(--rlt-txt-3);
   text-align: right;
   letter-spacing: 0.04em;
+  line-height: 1;
 }
-/* Standout count: full gold with a glow that ties to the row pulse.
-   The subtle tier intentionally inherits the default first-meet look —
-   the corner DÉJÀ VU stamp carries the recognition signal alone. */
 .ov-row.returning-top .ov-r-num {
-  color: var(--gold);
+  color: var(--rlt-gold);
   text-shadow: 0 0 8px rgba(251, 191, 36, 0.55);
 }
 
-/* Platform glyph column — small, dim by default; gold on returning rows
-   so the visual emphasis is consistent with the count. The empty state
-   keeps the column width so rows don't jitter when one player has a
-   known platform and the next doesn't. */
+/* Platform glyph — fixed width so rows don't jitter when one player
+   has a platform string and the next doesn't. Gold on the standout to
+   match the row's overall accent. */
 .ov-r-platform {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 1.1rem;
   height: 1.1rem;
-  color: var(--txt-3);
+  color: var(--rlt-txt-3);
 }
-.ov-r-platform .rlt-platform-icon {
+.ov-r-platform :is(svg, .rlt-platform-icon) {
   width: 1.05rem;
   height: 1.05rem;
   display: block;
 }
-/* Standout platform glyph follows the count's gold treatment. The subtle
-   tier keeps the default platform colour; the corner stamp is enough. */
 .ov-row.returning-top .ov-r-platform {
-  color: var(--gold);
-}
-.ov-r-platform-empty {
-  /* No icon — keep the slot transparent. The column still takes up its
-     1.1rem so the name column starts in the same place across rows. */
+  color: var(--rlt-gold);
 }
 
-/* Name + aliases share a column. */
+/* Name + aliases share a column. Name is the headline, alias is a
+   small mono sub-line — the contrast of widths (condensed display
+   above, narrow mono below) is intentional. */
 .ov-r-name {
-  font-family: var(--display);
+  font-family: var(--rlt-display);
   font-size: 0.95rem;
   font-weight: 600;
   color: #fff;
@@ -874,32 +167,32 @@ body.overlay-mode .ov-card {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
   line-height: 1.15;
 }
+
 .ov-r-aliases {
-  font-family: var(--mono);
+  font-family: var(--rlt-mono);
   font-size: 0.62rem;
-  color: var(--txt-3);
+  color: var(--rlt-txt-3);
   margin-top: 0.06rem;
   letter-spacing: 0.04em;
 }
 .ov-r-aliases .aka {
-  color: var(--txt-3);
+  color: var(--rlt-txt-3);
   margin-right: 0.25rem;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 0.55rem;
   opacity: 0.7;
 }
-/* Standout: aliases pick up gold so the row reads as one cohesive
-   highlight — number, platform, name area all in the same accent. */
 .ov-row.returning-top .ov-r-aliases {
   color: rgba(251, 191, 36, 0.75);
 }
 
 /* Empty state — single line, almost invisible until you look for it.
-   No card backing. */
+   Same slab geometry as the team-name pill so the surface reads as
+   "the overlay is here, nothing to report." */
 .ov-empty {
   align-self: flex-start;
-  font-family: var(--display);
+  font-family: var(--rlt-display);
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.28em;
@@ -909,49 +202,4 @@ body.overlay-mode .ov-card {
   background: rgba(10, 12, 20, 0.7);
   border-left: 2px solid rgba(255, 255, 255, 0.08);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-}
-
-/* ── Animations ─────────────────────────────────────────── */
-@keyframes ov-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes ov-row-in {
-  from {
-    opacity: 0;
-    transform: translateX(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-@keyframes ov-pulse {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* Honor reduced-motion — kill all the moving bits, keep the static look.
-   !important is correct here: the user's stated preference must win over
-   any explicit `animation:` declaration on the same element. */
-@media (prefers-reduced-motion: reduce) {
-  body.overlay-mode .ov,
-  .ov-row,
-  .ov-row.returning,
-  .ov-row.returning-top,
-  .ov-row.returning-top::before {
-    /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
-    animation: none !important;
-  }
 }
