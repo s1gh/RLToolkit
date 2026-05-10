@@ -64,7 +64,11 @@ input, textarea {
    background as the body so they read as one continuous surface,
    with a 1px hairline below as the seam. The wide drag-region in
    the middle gives users somewhere to grab even when the visible
-   controls fill most of the strip. */
+   controls fill most of the strip. Drag is wired via the
+   data-tauri-drag-region attribute on #strip and .drag-region in
+   the markup; Tauri's runtime intercepts mousedowns on those
+   elements (and ignores them when the target is an interactive
+   child like a button or input). */
 #strip {
   height: var(--strip-h);
   display: flex;
@@ -73,9 +77,6 @@ input, textarea {
   padding: 0 0 0 var(--pad); /* zero right pad — wc-close hugs the edge */
   border-bottom: 1px solid #20232a;
   background: var(--bg);
-}
-#strip button, #strip .switch, #strip details, #strip .wc {
-  -webkit-app-region: no-drag;
 }
 
 #brand {
@@ -105,14 +106,14 @@ input, textarea {
 
 /* Drag region: the wide stretch between the left status cluster and
    the right controls. Carries the centered window title; clicking
-   anywhere outside the title moves the window via -webkit-app-region. */
+   anywhere outside the title moves the window. The actual drag is
+   wired by the data-tauri-drag-region attribute in the markup. */
 .drag-region {
   flex: 1;
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100%;
-  -webkit-app-region: drag;
 }
 .window-title {
   font-size: 12px;

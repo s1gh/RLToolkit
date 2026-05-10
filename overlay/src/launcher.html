@@ -25,17 +25,20 @@
     <div class="rh rh-se" data-resize="SouthEast"></div>
   </div>
 
-  <header id="strip">
+  <header id="strip" data-tauri-drag-region>
     <div id="brand">RL</div>
 
     <span id="conn" class="conn" data-status="connecting">connecting…</span>
     <span id="ownership-badge" class="badge" hidden>external</span>
 
     <!-- Drag region: this fills the gap between the left status
-         cluster and the right controls. -webkit-app-region: drag is
-         set in CSS so click-drag on this empty stretch moves the
-         window. The title sits inside it as a non-interactive label. -->
-    <div class="drag-region">
+         cluster and the right controls. data-tauri-drag-region tells
+         Tauri to treat mousedowns on this element as a window drag,
+         which works on both WebView2 (Windows) and WebKitGTK (Linux).
+         The attribute does not bubble, so it is also set on #strip
+         above so the empty space around the brand/badges drags too.
+         The title sits inside it as a non-interactive label. -->
+    <div class="drag-region" data-tauri-drag-region>
       <span class="window-title">RL Toolkit</span>
     </div>
 
