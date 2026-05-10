@@ -165,3 +165,120 @@ body.overlay-mode .ov {
   text-shadow: var(--streak-glow, none);
   transition: color 220ms ease, text-shadow 220ms ease;
 }
+
+/* ─── Tier system ─────────────────────────────────────────────
+   Each tier sets three custom properties on the root or on the
+   BEST badge. .ov-streak / .ov-word / .ov-bar-fill consume them. */
+.ov[data-tier="tier-base"] {
+  --streak-color: #ff8c47;
+  --streak-glow:  0 0 8px rgba(255, 140, 71, 0.5);
+  --streak-scale: 1;
+}
+.ov[data-tier="tier-glow"] {
+  --streak-color: #ff8c47;
+  --streak-glow:  0 0 14px rgba(255, 140, 71, 0.8);
+  --streak-scale: 1;
+}
+.ov[data-tier="tier-hot"] {
+  --streak-color: #ff5e3a;
+  --streak-glow:  0 0 16px rgba(255, 94, 58, 0.75);
+  --streak-scale: 1.15;
+}
+.ov[data-tier="tier-bloom"] {
+  --streak-color: #ff3d8a;
+  --streak-glow:  0 0 20px rgba(255, 61, 138, 0.8);
+  --streak-scale: 1.3;
+}
+.ov[data-tier="tier-apocalypse"] {
+  --streak-color: #ff1f5a;
+  --streak-glow:  0 0 26px rgba(255, 31, 90, 0.9);
+  --streak-scale: 1.45;
+}
+.ov[data-tier="tier-armageddon"] {
+  --streak-color: #ff4040;
+  --streak-glow:  0 0 30px rgba(255, 64, 64, 0.95);
+  --streak-scale: 1.45;
+}
+.ov[data-tier="tier-extinction"] {
+  --streak-color: #ff8080;
+  --streak-glow:  0 0 36px rgba(255, 200, 200, 0.95);
+  --streak-scale: 1.45;
+}
+.ov[data-tier="tier-genocide"] {
+  --streak-color: #ffffff;
+  --streak-glow:  0 0 40px rgba(255, 255, 255, 0.95);
+  --streak-scale: 1.45;
+}
+
+/* BEST badge tracks the all-time best tier independently from .ov. */
+.ov-best[data-tier="tier-base"]       { color: var(--rlt-txt-2); }
+.ov-best[data-tier="tier-glow"]       { color: #ff8c47; }
+.ov-best[data-tier="tier-hot"]        { color: #ff5e3a; }
+.ov-best[data-tier="tier-bloom"]      { color: #ff3d8a; }
+.ov-best[data-tier="tier-apocalypse"] { color: #ff1f5a; }
+.ov-best[data-tier="tier-armageddon"] { color: #ff4040; }
+.ov-best[data-tier="tier-extinction"] { color: #ff8080; }
+.ov-best[data-tier="tier-genocide"]   { color: #ffffff; }
+.ov-best[data-tier="tier-base"] .ov-best-label,
+.ov-best[data-tier="tier-glow"] .ov-best-label,
+.ov-best[data-tier="tier-hot"] .ov-best-label,
+.ov-best[data-tier="tier-bloom"] .ov-best-label,
+.ov-best[data-tier="tier-apocalypse"] .ov-best-label,
+.ov-best[data-tier="tier-armageddon"] .ov-best-label,
+.ov-best[data-tier="tier-extinction"] .ov-best-label,
+.ov-best[data-tier="tier-genocide"] .ov-best-label {
+  color: var(--rlt-txt-3);
+}
+
+/* Pulse on apocalypse-and-above when actively combo'ing. Gated by both
+   tier and mode so it doesn't pulse on the idle screen. */
+.ov[data-tier="tier-apocalypse"][data-mode="active"] .ov-streak,
+.ov[data-tier="tier-armageddon"][data-mode="active"] .ov-streak,
+.ov[data-tier="tier-extinction"][data-mode="active"] .ov-streak,
+.ov[data-tier="tier-genocide"][data-mode="active"] .ov-streak {
+  animation: ov-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ov-pulse {
+  0%, 100% { transform: scale(var(--streak-scale, 1)); }
+  50%      { transform: scale(calc(var(--streak-scale, 1) * 1.04)); }
+}
+
+/* Shake animations — one-shot. The JS toggles .shake-light / .shake-hard
+   / .shake-extreme on .ov-streak and clears the class on animationend.
+   transform-origin sits on the left so the streak number wobbles in
+   place rather than drifting. */
+@keyframes ov-shake-light {
+  0%, 100% { transform: scale(var(--streak-scale, 1)) translateX(0); }
+  25%      { transform: scale(var(--streak-scale, 1)) translateX(-1.5px); }
+  75%      { transform: scale(var(--streak-scale, 1)) translateX(1.5px); }
+}
+@keyframes ov-shake-hard {
+  0%, 100% { transform: scale(var(--streak-scale, 1)) translate(0, 0); }
+  20%      { transform: scale(var(--streak-scale, 1)) translate(-3px, 1px); }
+  40%      { transform: scale(var(--streak-scale, 1)) translate(3px, -1px); }
+  60%      { transform: scale(var(--streak-scale, 1)) translate(-2px, 1px); }
+  80%      { transform: scale(var(--streak-scale, 1)) translate(2px, -1px); }
+}
+@keyframes ov-shake-extreme {
+  0%, 100% { transform: scale(var(--streak-scale, 1)) translate(0, 0); }
+  15%      { transform: scale(var(--streak-scale, 1)) translate(-5px, 2px); }
+  30%      { transform: scale(var(--streak-scale, 1)) translate(5px, -2px); }
+  45%      { transform: scale(var(--streak-scale, 1)) translate(-4px, 2px); }
+  60%      { transform: scale(var(--streak-scale, 1)) translate(4px, -2px); }
+  75%      { transform: scale(var(--streak-scale, 1)) translate(-3px, 1px); }
+}
+.ov-streak.shake-light   { animation: ov-shake-light 220ms ease-out; }
+.ov-streak.shake-hard    { animation: ov-shake-hard 280ms ease-out; }
+.ov-streak.shake-extreme { animation: ov-shake-extreme 320ms ease-out; }
+
+/* Respect user motion preferences. !important is correct here — user
+   preference must win over animation declarations on the same element. */
+@media (prefers-reduced-motion: reduce) {
+  body.overlay-mode .ov,
+  .ov-streak,
+  .ov-bar-fill {
+    /* biome-ignore lint/complexity/noImportantStyles: must beat animation declarations */
+    animation: none !important;
+    transition: none !important;
+  }
+}
