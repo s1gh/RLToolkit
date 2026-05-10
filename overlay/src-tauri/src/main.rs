@@ -760,10 +760,22 @@ fn main_overlay(args: Args) {
 /// Layer-shell setup shared by both modes: alpha-aware GTK surface,
 /// overlay layer, no keyboard focus, no exclusive zone. Sizing and
 /// anchoring are mode-specific.
+///
+/// `initial_size` is the (logical width, height) the GtkWindow should
+/// believe it is BEFORE layer-shell init and BEFORE realize(). This is
+/// load-bearing: if it isn't set first, GTK realizes the window at the
+/// Tauri/GTK default (e.g. 800x600) and the very first layer-surface
+/// commit paints one frame at that size. CSS that resolves against
+/// viewport width — `right: <px>`, `100vw`, etc. — then briefly
+/// computes against the wrong width and content visibly jumps once
+/// the compositor's configure event delivers the real geometry. See
+/// gtk-layer-shell issue #114 (the maintainer's recommendation is to
+/// set size_request on the GtkWindow before realize).
 #[cfg(target_os = "linux")]
 fn init_layer_shell_common(
     window: &tauri::WebviewWindow,
     monitor_index: Option<usize>,
+    initial_size: Option<(i32, i32)>,
 ) -> Option<gtk::Window> {
     use gtk::prelude::*;
     use gtk_layer_shell::{Layer, LayerShell};
@@ -782,6 +794,16 @@ fn init_layer_shell_common(
         }
     }
     gtk_window.set_app_paintable(true);
+
+    // Geometry FIRST, then layer-shell init, then realize. Both
+    // size_request and default_size are needed: size_request fixes
+    // the GTK toplevel's preferred size before the realize-time
+    // configure round-trip, default_size covers the rare GTK path
+    // that consults default_size during realize. See doc comment.
+    if let Some((w, h)) = initial_size {
+        gtk_window.set_size_request(w, h);
+        gtk_window.set_default_size(w, h);
+    }
 
     gtk_window.init_layer_shell();
 
@@ -845,12 +867,14 @@ fn apply_layer_shell_plugin(
     use gtk::prelude::*;
     use gtk_layer_shell::LayerShell;
 
-    let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else {
+    let Some(gtk_window) = init_layer_shell_common(
+        window,
+        monitor_index,
+        Some((cfg.width as i32, cfg.height as i32)),
+    ) else {
         return;
     };
 
-    gtk_window.set_size_request(cfg.width as i32, cfg.height as i32);
-    gtk_window.set_default_size(cfg.width as i32, cfg.height as i32);
     gtk_window.set_resizable(false);
 
     let (vert_edge, horiz_edge) = parse_anchor(&cfg.anchor);
@@ -895,7 +919,15 @@ fn apply_layer_shell_unified(
         report_detected_surface(toolkit, w, h);
     }
 
-    let Some(gtk_window) = init_layer_shell_common(window, monitor_index) else {
+    // Hand the monitor's logical size to init_layer_shell_common so it
+    // can pin set_size_request + set_default_size BEFORE realize().
+    // Without this, the first layer-surface commit paints one frame at
+    // the GTK default (e.g. 800×600), and right-anchored content
+    // resolves against that smaller width — flashing on the left half
+    // of the monitor until the compositor's configure event arrives.
+    let initial_size = chosen_size.map(|(w, h)| (w as i32, h as i32));
+
+    let Some(gtk_window) = init_layer_shell_common(window, monitor_index, initial_size) else {
         return;
     };
 
@@ -904,13 +936,12 @@ fn apply_layer_shell_unified(
         gtk_window.set_layer_shell_margin(e, 0);
     }
 
-    // Pin the GTK default size to the monitor's logical size:
-    // otherwise WebKitGTK lays out at Tauri's 800×600 default, and
-    // the CSS viewport can stick at that smaller value until the next
-    // reflow — bottom-anchored widgets at offset_y=0 then land
-    // mid-screen instead of at the monitor edge.
+    // Tauri-side size mirror. The GTK side is now sized correctly via
+    // the size_request/default_size pair in init_layer_shell_common
+    // (before realize). This call keeps Tauri's own state in sync with
+    // what GTK believes, which matters for code paths that read the
+    // window size from the Tauri API later.
     if let Some((w, h)) = chosen_size {
-        gtk_window.set_default_size(w as i32, h as i32);
         let _ = window.set_size(tauri::LogicalSize::new(w, h));
     }
 }
