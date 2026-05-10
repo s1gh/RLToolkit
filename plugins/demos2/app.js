@@ -225,6 +225,17 @@
     el.classList.add(cls);
   }
 
+  // Tracks the previously-rendered mode so we can detect the
+  // active|break → idle transition and run the fade-out hold (see
+  // .is-fading-out in styles.css). Seeded to 'idle' so the very first
+  // render (mode is already idle) doesn't trigger a fade.
+  let lastRenderedMode = 'idle';
+  // ms — kept just longer than the .ov-active / .ov-bar opacity
+  // transition (400ms) so the layout-hold class clears cleanly after
+  // the fade lands.
+  const FADE_OUT_HOLD_MS = 420;
+  let fadeOutTimer = 0;
+
   function renderOverlay() {
     const root = document.getElementById('ov');
     if (!root) return;
@@ -234,6 +245,31 @@
     // Bar width (per-frame writes from activeLoop go via the same path).
     const fill = document.getElementById('ov-bar-fill');
     if (fill) fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
+
+    // Hold the active layout (full width) while the active block fades
+    // out. Without this hold, switching data-mode to "idle" instantly
+    // snaps the root width to max-content, the right column collapses,
+    // and the centered streak number visibly slides left mid-fade.
+    // Class clears on a timer matched to the CSS transition; further
+    // mode flips before it expires reset the timer so we never get
+    // stuck holding the layout.
+    if ((lastRenderedMode === 'active' || lastRenderedMode === 'break') && ui.mode === 'idle') {
+      root.classList.add('is-fading-out');
+      if (fadeOutTimer) clearTimeout(fadeOutTimer);
+      fadeOutTimer = setTimeout(() => {
+        root.classList.remove('is-fading-out');
+        fadeOutTimer = 0;
+      }, FADE_OUT_HOLD_MS);
+    } else if (ui.mode !== 'idle') {
+      // New combo while we were still fading: drop the hold so the
+      // active layout takes over cleanly.
+      if (fadeOutTimer) {
+        clearTimeout(fadeOutTimer);
+        fadeOutTimer = 0;
+      }
+      root.classList.remove('is-fading-out');
+    }
+    lastRenderedMode = ui.mode;
 
     // Mode is an attribute (CSS keys `[data-mode]`); tier is a class
     // (CSS keys `.ov.tier-X` — verbatim from the original plugin so
