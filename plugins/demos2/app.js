@@ -128,6 +128,39 @@
     }[c]));
   }
 
+  // Derive renderable UI state. Pure read: no DOM, no side effects.
+  // mode rules use bank time (replay/menu pauses don't expire it):
+  //   idle    — no demo yet, or window+hold elapsed
+  //   active  — sinceDemo <= COMBO_WINDOW_MS
+  //   break   — window expired, hold still in effect, streak >= 1
+  function computeUiState() {
+    const sinceDemo = bankNow() - lastDemoAt;
+    let mode;
+    if (!lastDemoAt) {
+      mode = 'idle';
+    } else if (sinceDemo <= COMBO_WINDOW_MS) {
+      mode = 'active';
+    } else if (currentStreak >= 1 && sinceDemo <= COMBO_WINDOW_MS + BREAK_HOLD_MS) {
+      mode = 'break';
+    } else {
+      mode = 'idle';
+    }
+
+    const t = tierFor(currentStreak);
+    const bt = tierFor(bestStreak);
+    return {
+      mode,
+      streak: currentStreak,
+      word: t ? t.word : '',
+      tierClass: t ? t.cls : 'tier-base',
+      victim: lastVictimName,
+      bestStreak,
+      bestStreakWord,
+      bestTierClass: bt ? bt.cls : 'tier-base',
+      timerRemaining01: Math.max(0, Math.min(1, 1 - sinceDemo / COMBO_WINDOW_MS)),
+    };
+  }
+
   function render() {
     // Per-surface render branches land in later tasks.
   }
