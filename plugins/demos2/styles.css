@@ -1,0 +1,38 @@
+/* Demolitions 2 — overlay + dashboard styles. Tokens come from sdk.css
+   (--rlt-* prefix). Tier system later in this file uses CSS custom
+   properties driven by [data-tier]. */
+
+.ov {
+  display: none;
+}
+
+body.overlay-mode .ov {
+  display: inline-flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  padding: 0.25rem 1.2rem 1.2rem 0;
+  color: var(--rlt-txt);
+  font-family: var(--rlt-display);
+}
+
+body.overlay-mode .ov-empty,
+.ov-main,
+.ov-col-left,
+.ov-stack {
+  display: flex;
+}
+.ov-main {
+  gap: 0.8rem;
+}
+.ov-col-left {
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.ov-stack {
+  flex: 1;
+  flex-direction: column;
+  gap: 0.3rem;
+}
