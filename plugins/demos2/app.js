@@ -258,6 +258,80 @@
     // Dashboard render lands in a later task.
   }
 
+  // Per-demo bookkeeping. Two call sites:
+  //   - Live events (isReplay=false): bumps current + totals, runs combo
+  //     bookkeeping, fires shake, persists.
+  //   - Replay drain (isReplay=true): bumps only `current`. totals on
+  //     disk already reflect those demos from when they fired live;
+  //     re-incrementing would double-count. Combo / shake / persistence
+  //     are also skipped — replays are framing data, not real-time events.
+  function applyDemo(payload, isReplay) {
+    const { attacker, victim, isSelfDemo } = payload || {};
+    if (!attacker || !victim) return;
+    if (!attacker.isMe) return;
+    if (isSelfDemo) return;
+
+    const vid = victim.id;
+    const vname = victim.name || 'Player';
+
+    if (!current[vid]) current[vid] = { name: vname, count: 0 };
+    current[vid].count += 1;
+    current[vid].name = vname;
+
+    if (isReplay) {
+      render();
+      return;
+    }
+
+    if (!totals[vid]) totals[vid] = { name: vname, count: 0 };
+    totals[vid].count += 1;
+    totals[vid].name = vname;
+
+    // Combo bookkeeping. Bank time, not wall clock.
+    const now = bankNow();
+    const sinceLast = lastDemoAt ? now - lastDemoAt : Infinity;
+    if (sinceLast <= COMBO_WINDOW_MS) {
+      currentStreak += 1;
+    } else {
+      currentStreak = 1;
+    }
+    lastDemoAt = now;
+    lastVictimName = vname;
+    lastMatchVictim = vname;
+
+    if (currentStreak > bestStreak) {
+      bestStreak = currentStreak;
+      const t = tierFor(bestStreak);
+      bestStreakWord = t ? t.word : '';
+    }
+
+    // Shake intensity by tier.
+    const tier = tierFor(currentStreak);
+    if (tier && (tier.cls === 'tier-hot' || tier.cls === 'tier-bloom')) {
+      triggerShake('light');
+    } else if (tier && tier.cls === 'tier-apocalypse') {
+      triggerShake('hard');
+    } else if (tier && (
+      tier.cls === 'tier-armageddon' ||
+      tier.cls === 'tier-extinction' ||
+      tier.cls === 'tier-genocide'
+    )) {
+      triggerShake('extreme');
+    }
+
+    ensureActiveLoop();
+
+    // Fire-and-forget save. SDK gates writes by default so only the
+    // hosted overlay actually persists — the dashboard view runs the
+    // same handler so its panels live-update during play, but its
+    // store.set calls are no-ops. One key, one object.
+    RLT.store.set('state', { totals, bestStreak }).catch((e) => {
+      console.error('[demos2] save failed:', e);
+    });
+
+    render();
+  }
+
   RLT.plugin.register({
     init() {
       if (isOverlay && RLT.widget.isHosted()) {
