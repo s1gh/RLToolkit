@@ -204,11 +204,21 @@ input, textarea {
 .banner[hidden] { display: none; }
 
 #body { height: calc(100% - var(--strip-h)); position: relative; }
+/* The iframe carries the dark surface so its own canvas paints dark
+   while the embedded document is loading. We also keep the iframe
+   visually hidden until its first `load` event fires (see launcher.js
+   wireDashboardLoadGate) so an `about:blank` → real-URL navigation
+   doesn't expose white in between. The transition is short on purpose:
+   long enough to mask the navigation, short enough that a slow load
+   feels like a load, not a fade-in animation. */
 #dashboard {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   border: 0; background: var(--bg);
+  opacity: 0;
+  transition: opacity .12s ease-out;
 }
+#dashboard.loaded { opacity: 1; }
 .fallback {
   position: absolute; inset: 0;
   display: grid; place-items: center; gap: 12px;

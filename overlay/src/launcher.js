@@ -498,6 +498,8 @@ async function refreshStatus() {
 async function reloadDashboard() {
   const iframe = document.getElementById("dashboard");
   if (!iframe) return;
+  // Hide while the about:blank hop and the real-URL load complete.
+  iframe.classList.remove("loaded");
   let url = "http://localhost:49200/";
   try {
     url = (await invoke("get_toolkit_url")) || url;
@@ -766,11 +768,18 @@ document.getElementById("settings-save").addEventListener("click", async () => {
 });
 
 async function loadDashboard() {
+  const iframe = document.getElementById("dashboard");
+  // Clear the loaded class before navigating so the iframe fades back
+  // out for the navigation, then back in once the new document fires
+  // its load event. wireDashboardLoadGate (below) handles re-adding
+  // the class. Without this the first about:blank → real-URL hop
+  // would briefly show the iframe's default white canvas.
+  iframe?.classList.remove("loaded");
   try {
     const url = await invoke("get_toolkit_url");
-    document.getElementById("dashboard").src = url || "http://localhost:49200/";
+    iframe.src = url || "http://localhost:49200/";
   } catch (_) {
-    document.getElementById("dashboard").src = "http://localhost:49200/";
+    iframe.src = "http://localhost:49200/";
   }
   // Spin up background workers for any enabled plugin that declares
   // `background.file`. reloadDashboard does this too, but that's only
@@ -828,6 +837,24 @@ bootIdentityCheck();
   // contentWindow is non-null once the about:blank has parsed, which
   // is good enough — the dashboard's listener runs on its own load.
   if (iframe.contentWindow) post();
+})();
+
+// Reveal the dashboard iframe once a real document has loaded into
+// it. The CSS hides #dashboard at opacity:0 by default; we add the
+// `loaded` class on `load` so the iframe fades in. Ignoring
+// about:blank loads is important: reloadDashboard cycles through
+// about:blank to force a re-fetch, and that intermediate frame would
+// otherwise unhide the iframe and show a white canvas before the
+// real URL kicks in.
+(function wireDashboardLoadGate() {
+  const iframe = document.getElementById("dashboard");
+  if (!iframe) return;
+  iframe.addEventListener("load", () => {
+    let href = "";
+    try { href = iframe.contentWindow?.location?.href || ""; } catch (_) {}
+    if (href === "about:blank") return;
+    iframe.classList.add("loaded");
+  });
 })();
 
 // ─── Updater banner ─────────────────────────────────────────
