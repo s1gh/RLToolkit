@@ -402,6 +402,15 @@ const catalogData = [
     '2.0',
     'Backend-stored Identity (PrimaryID + Name) was Set or Cleared.',
   ],
+  [
+    '_SavedReplay',
+    'replay',
+    'saved-replay',
+    '*',
+    'provisional',
+    '1.2',
+    'User saved a .replay file from RL\'s post-match menu. Payload: matchGuid, fileName, path, sizeBytes, savedAt.',
+  ],
   // Plumbing / framing events intentionally NOT cataloged — they
   // fire regardless of subscription filter and aren't gameplay:
   // _ConnectionStatus, _RosterChanged, _DevPluginReload,
