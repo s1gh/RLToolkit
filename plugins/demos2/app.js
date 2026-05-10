@@ -211,8 +211,51 @@
     activeRafHandle = requestAnimationFrame(activeLoop);
   }
 
+  // Targeted writes — no innerHTML, no class-list strip. Shake/pulse
+  // classes live on .ov-streak via the data-tier attribute (pulse) or
+  // a one-shot shake-* class (shake) and are never touched here.
+  function renderOverlay() {
+    const root = document.getElementById('ov');
+    if (!root) return;
+
+    const ui = computeUiState();
+
+    // Bar width (per-frame writes from activeLoop go via the same path).
+    const fill = document.getElementById('ov-bar-fill');
+    if (fill) fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
+
+    // One attribute per axis. Replaces the 8-class swap from the
+    // original plugin. CSS selects per-tier values off [data-tier].
+    root.dataset.mode = ui.mode;
+    root.dataset.tier = ui.tierClass;
+
+    document.getElementById('ov-total').textContent = String(matchDemoCount());
+
+    const bestEl = document.getElementById('ov-best');
+    bestEl.hidden = false;
+    bestEl.dataset.tier = ui.bestTierClass;
+    document.getElementById('ov-best-streak').textContent = 'x' + ui.bestStreak;
+    document.getElementById('ov-best-word').textContent = ui.bestStreakWord;
+
+    const lastEl = document.getElementById('ov-last');
+    if (lastMatchVictim) {
+      lastEl.hidden = false;
+      document.getElementById('ov-last-name').textContent = '↳ ' + lastMatchVictim;
+    } else {
+      lastEl.hidden = true;
+    }
+
+    document.getElementById('ov-streak').textContent = 'x' + ui.streak;
+    document.getElementById('ov-word').textContent = ui.word || '';
+  }
+
   function render() {
-    // Per-surface render branches land in later tasks.
+    if (isOverlay) renderOverlay();
+    else renderControl();
+  }
+
+  function renderControl() {
+    // Dashboard render lands in a later task.
   }
 
   RLT.plugin.register({
