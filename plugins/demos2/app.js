@@ -161,6 +161,56 @@
     };
   }
 
+  // One-shot shake animation. The CSS class self-removes on animationend.
+  // intensity selects light/hard/extreme variants. Targets .ov-streak
+  // (not the root .ov) so chips on the left stay still.
+  function triggerShake(intensity) {
+    if (!isOverlay) return;
+    const el = document.getElementById('ov-streak');
+    if (!el) return;
+    const cls =
+      intensity === 'extreme' ? 'shake-extreme' :
+      intensity === 'hard'    ? 'shake-hard' :
+                                'shake-light';
+    el.classList.remove('shake-light', 'shake-hard', 'shake-extreme');
+    // Reflow so re-adding the same class restarts the animation when
+    // consecutive demos hit the same tier.
+    el.offsetWidth;
+    el.classList.add(cls);
+    const onEnd = () => {
+      el.classList.remove(cls);
+      el.removeEventListener('animationend', onEnd);
+    };
+    el.addEventListener('animationend', onEnd);
+  }
+
+  // rAF loop for the timer bar. Runs every frame while mode is active or
+  // break; the bar drains smoothly off the playable bank. Self-stops when
+  // mode flips to idle (renderOverlay still runs once to repaint the
+  // idle chrome). render() is called every frame — its writes are cheap
+  // textContent/dataset/style writes and the browser short-circuits
+  // unchanged values, so it's fine.
+  function activeLoop() {
+    activeRafHandle = 0;
+    if (!isOverlay) return;
+    render();
+    const fill = document.getElementById('ov-bar-fill');
+    if (fill) {
+      const ui = computeUiState();
+      fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
+    }
+    const ui = computeUiState();
+    if (ui.mode === 'active' || ui.mode === 'break') {
+      activeRafHandle = requestAnimationFrame(activeLoop);
+    }
+  }
+
+  function ensureActiveLoop() {
+    if (!isOverlay) return;
+    if (activeRafHandle) return;
+    activeRafHandle = requestAnimationFrame(activeLoop);
+  }
+
   function render() {
     // Per-surface render branches land in later tasks.
   }
