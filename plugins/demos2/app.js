@@ -255,7 +255,67 @@
   }
 
   function renderControl() {
-    // Dashboard render lands in a later task.
+    // Connection pill: managed by the SDK helper if available, else a
+    // no-op. Keeps the same surface as the original plugin so users
+    // running both side-by-side see identical chrome.
+    if (RLT.ui && typeof RLT.ui.bindStatusPill === 'function') {
+      RLT.ui.bindStatusPill('conn');
+    }
+
+    // Identity strip. demos2 doesn't own identity (Déjà Vu does); we
+    // just mirror whatever the SDK has claimed.
+    const idVal = document.getElementById('id-val');
+    const idHint = document.getElementById('id-hint');
+    const me = RLT.me || {};
+    if (me.id && me.name) {
+      idVal.textContent = me.name;
+      idVal.classList.remove('empty');
+      if (idHint) idHint.hidden = true;
+    } else {
+      idVal.textContent = 'unclaimed';
+      idVal.classList.add('empty');
+      if (idHint) idHint.hidden = false;
+    }
+
+    // Match badge — shows the phase if there is one, else "no match".
+    const badge = document.getElementById('match-badge');
+    if (badge) {
+      const phase = RLT.match?.state?.phase || 'none';
+      badge.textContent = (phase === 'none' || phase === 'lobby') ? 'no match' : phase;
+    }
+
+    // All-time chip values.
+    document.getElementById('total').textContent = String(totalCount());
+    const rivals = Object.keys(totals).length;
+    document.getElementById('all-count').textContent = String(rivals);
+
+    const bestWrap = document.getElementById('all-best-wrap');
+    const bestEl = document.getElementById('all-best');
+    const bestWordEl = document.getElementById('all-best-word');
+    if (bestStreak > 0) {
+      bestWrap.hidden = false;
+      bestEl.textContent = 'x' + bestStreak;
+      bestWordEl.textContent = bestStreakWord;
+    } else {
+      bestWrap.hidden = true;
+    }
+
+    // Per-list bodies.
+    document.getElementById('match-list').innerHTML = listHtml(current, 'no demos yet — go hunting');
+    document.getElementById('all-list').innerHTML = listHtml(totals, 'play a few matches and your rivals show up here');
+  }
+
+  function listHtml(map, emptyMsg) {
+    const rows = Object.entries(map)
+      .map(([id, e]) => ({ id, name: e.name || 'Unknown', count: e.count || 0 }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    if (rows.length === 0) {
+      return '<div class="card-empty">' + esc(emptyMsg) + '</div>';
+    }
+    return rows.map((r) =>
+      '<div class="row"><div class="r-count">x' + r.count + '</div>' +
+      '<div class="r-name">' + esc(r.name) + '</div></div>'
+    ).join('');
   }
 
   // Per-demo bookkeeping. Two call sites:
