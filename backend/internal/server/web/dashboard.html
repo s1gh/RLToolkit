@@ -5,10 +5,78 @@
 <title>RL Toolkit</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="/favicon.ico">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+/* Self-hosted fonts (woff2 served from /fonts/, embedded into the
+   backend binary). Previously this page pulled Inter / Inter Tight /
+   JetBrains Mono from fonts.googleapis.com with display=swap, so the
+   first paint rendered text in the system fallback and reflowed
+   noticeably the moment the web fonts arrived. The visible artifact
+   was the "Browser sources / Plugins" headings flashing on launcher
+   open. Self-hosting kills the network round-trip; the woff2s are
+   part of the embedded asset bundle and are ready by the time the
+   HTML parser gets here.
+
+   font-display:block pairs with the document.fonts.ready gate at the
+   bottom of this file: the shell stays hidden until the fonts are
+   ready, so the user never sees the FOIT period this would normally
+   cause.
+
+   `latin` covers ASCII; `latin-ext` covers accented Western European
+   so player names render correctly. Cyrillic / Greek / Vietnamese
+   subsets are intentionally omitted to keep the bundle small. The
+   system fallback still renders those characters readably.
+
+   Inter and Inter Tight are variable fonts: one woff2 per subset
+   covers the full weight range we declare. JetBrains Mono is the
+   same. One file per subset, weights 400 to 600. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: block;
+  src: url('/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: block;
+  src: url('/fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: block;
+  src: url('/fonts/inter-tight-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: block;
+  src: url('/fonts/inter-tight-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: block;
+  src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: block;
+  src: url('/fonts/jetbrains-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
 :root {
   /* Surfaces */
   --bg-0:#08090f; --bg-1:#0f1117; --bg-2:#161922; --bg-3:#1f232f;
@@ -30,13 +98,25 @@
   --mono:'JetBrains Mono', ui-monospace, monospace;
 }
 *{margin:0;padding:0;box-sizing:border-box}
+/* Hide the shell until fonts are ready and the first plugin fetch has
+   resolved. Without this gate the dashboard paints Browser sources
+   immediately (synchronous render) and the Plugins grid pops in once
+   the /api/plugins fetch lands, which the user sees as a flash. The
+   .ready class is set on <html> by the inline script at the bottom of
+   the page once both conditions hold, with a watchdog timeout so a
+   stalled fetch can't leave the shell hidden indefinitely. */
+html:not(.ready) .shell{ visibility:hidden; }
 /* html stays at full viewport height so the radial-gradient anchor
    percentages (`-10%`, `110%`) resolve consistently. body uses
    min-height instead of height — locking body to 100% would clip
    the background to the viewport, leaving the scrolled-into area
    (plugin grid below the fold when the launcher window is small)
    showing the underlying iframe color, not the dashboard's. */
-html{height:100%}
+/* Paint the dark surface on <html> as well as <body>. Without this
+   the webview briefly shows its default white canvas between mount
+   and the first body paint, which the user sees as a flash before
+   the dashboard fades in. */
+html{ height:100%; background:var(--bg-0); }
 body{
   font-family:var(--ui); font-size:14px; color:var(--txt);
   background:
@@ -742,7 +822,8 @@ async function refreshPluginList() {
   } catch (_) { /* best-effort */ }
 }
 
-refreshPluginList().then(() => {
+const initialPluginListReady = refreshPluginList();
+initialPluginListReady.then(() => {
   const es = new EventSource('/events?events=__none__');
   es.onmessage = (e) => {
     let env;
@@ -752,6 +833,30 @@ refreshPluginList().then(() => {
     renderPlugins();
   };
 });
+
+// Reveal the shell once both the fonts have loaded and the plugin
+// list has rendered for the first time. Stops the launcher from
+// painting in fallback fonts and an empty plugin grid before
+// snapping into final state. The 1500ms watchdog covers two
+// failure modes: document.fonts.ready never resolving (rare but
+// recoverable), and a stalled /api/plugins fetch (the catch in
+// refreshPluginList already swallows errors so the promise resolves
+// either way, but the watchdog belts-and-braces it regardless). Once
+// .ready is set we never unset it; subsequent re-renders shouldn't
+// re-hide the shell.
+(function gateInitialPaint() {
+  let revealed = false;
+  function reveal() {
+    if (revealed) return;
+    revealed = true;
+    document.documentElement.classList.add('ready');
+  }
+  Promise.all([
+    document.fonts ? document.fonts.ready : Promise.resolve(),
+    initialPluginListReady,
+  ]).then(reveal, reveal);
+  setTimeout(reveal, 1500);
+})();
 
 // Re-pull when the launcher window regains focus or the iframe becomes
 // visible — covers the "drop a folder into plugins/, then click back
