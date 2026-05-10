@@ -154,4 +154,4 @@ release/        Build outputs (gitignored)
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE)
