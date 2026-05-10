@@ -287,6 +287,32 @@ mod match_rule_tests {
         assert!(r.apply(&info(None, None)));
         assert!(r.is_disabled());
     }
+
+    /// Regression: with the previous "Rocket League" substring needle,
+    /// any browser tab/window whose title mentioned the words "rocket
+    /// league" tripped the focus watcher and made hide_when_unfocused
+    /// plugins visible outside the game. The actual RL window title
+    /// is always `Rocket League (64-bit, DX11, Cooked)` — the trailing
+    /// space + open-paren is a structural marker incidental mentions
+    /// don't reproduce. Pinning that here.
+    #[test]
+    fn default_linux_rule_rejects_browser_tab_mentioning_rl() {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let r = default_match_rule();
+            // Real RL window: matches.
+            assert!(r.apply(&info(None, Some("rocket league (64-bit, dx11, cooked)"))));
+            // Browser tab on the toolkit's own GitHub page: must NOT match.
+            assert!(!r.apply(&info(
+                None,
+                Some("s1gh/rltoolkit: plugin sdk and overlay framework for rocket league — zen browser")
+            )));
+            // Discord channel mentioning rocket league: must NOT match.
+            assert!(!r.apply(&info(None, Some("• discord | #rocket-league | foo"))));
+            // Random title without the structural marker: must NOT match.
+            assert!(!r.apply(&info(None, Some("rocket league wiki"))));
+        }
+    }
 }
 
 use std::thread;
@@ -303,6 +329,14 @@ use tauri::{AppHandle, Manager};
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Per-platform default needle, used when --game-match wasn't passed.
+///
+/// Linux/macOS use a tighter substring than just "Rocket League". The
+/// real RL window title is "Rocket League (64-bit, DX11, Cooked)", so
+/// matching the literal "rocket league (" still hits RL but won't trip
+/// on browser tabs, the toolkit's own dashboard, chat windows, or any
+/// other window that merely mentions the words "rocket league". The
+/// trailing space + "(" is a structural marker the in-game window
+/// always emits and incidental mentions almost never reproduce.
 pub fn default_match_rule() -> MatchRule {
     #[cfg(target_os = "windows")]
     {
@@ -310,7 +344,7 @@ pub fn default_match_rule() -> MatchRule {
     }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        MatchRule::new("Rocket League", MatchStrategy::TitleSubstring)
+        MatchRule::new("Rocket League (", MatchStrategy::TitleSubstring)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
