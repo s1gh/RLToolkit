@@ -1,7 +1,4 @@
-// Demolitions 2 — overlay + dashboard plugin. See
-// docs/superpowers/specs/2026-05-10-demos2-design.md for design.
-//
-// Loaded as a classic <script>, not an ES module.
+// Demolitions 2 — overlay + dashboard plugin.
 // biome-ignore lint/suspicious/noRedundantUseStrict: classic script
 'use strict';
 
@@ -11,18 +8,22 @@
   const COMBO_WINDOW_MS = 20000;
   const BREAK_HOLD_MS = 1000;
 
-  // Streak counts map to a tier. The first five tiers cover x2 → x6+;
-  // x8/x10/x12+ escalate further. tierFor(streak) returns the highest
-  // tier whose `min` is <= streak, or null when streak < 2.
+  // Streak → tier. CSS plateaus at tier-genocide; words keep escalating
+  // past x12. Gap streaks fall back to the previous tier via tierFor().
   const TIERS = [
-    { min: 2,  word: 'TAGGED',      cls: 'tier-base' },
-    { min: 3,  word: 'SMOKED',      cls: 'tier-glow' },
-    { min: 4,  word: 'ANNIHILATED', cls: 'tier-hot' },
-    { min: 5,  word: 'OBLITERATED', cls: 'tier-bloom' },
-    { min: 6,  word: 'APOCALYPSE',  cls: 'tier-apocalypse' },
-    { min: 8,  word: 'ARMAGEDDON',  cls: 'tier-armageddon' },
-    { min: 10, word: 'EXTINCTION',  cls: 'tier-extinction' },
-    { min: 12, word: 'GENOCIDE',    cls: 'tier-genocide' },
+    { min: 2,  word: 'DOUBLE TAP',       cls: 'tier-base' },
+    { min: 3,  word: 'TRIFECTA',         cls: 'tier-glow' },
+    { min: 4,  word: 'RAMPAGE',          cls: 'tier-hot' },
+    { min: 5,  word: 'UNREAL',           cls: 'tier-bloom' },
+    { min: 6,  word: 'NO MERCY',         cls: 'tier-apocalypse' },
+    { min: 7,  word: 'FORFEIT INCOMING', cls: 'tier-apocalypse' },
+    { min: 8,  word: 'MASSACRE',         cls: 'tier-armageddon' },
+    { min: 10, word: 'BLACKLISTED',      cls: 'tier-extinction' },
+    { min: 11, word: 'MENACE',           cls: 'tier-extinction' },
+    { min: 12, word: 'TOXIC',            cls: 'tier-genocide' },
+    { min: 14, word: 'NEMESIS',          cls: 'tier-genocide' },
+    { min: 16, word: 'UNHINGED',         cls: 'tier-genocide' },
+    { min: 20, word: 'WAR CRIME',        cls: 'tier-genocide' },
   ];
 
   function tierFor(streak) {
@@ -33,10 +34,8 @@
     return hit;
   }
 
-  // Bank time — only ticks during `live`. Replays, kickoff countdowns,
-  // and pauses do not burn the combo window. lastTickAt is performance.now()
-  // at the last bank advance; bankNow() advances the bank to "now" if we
-  // are currently in a playable phase, then returns the bank value.
+  // Bank time — only ticks during `live`. Replays, countdowns, and
+  // pauses don't burn the combo window.
   let playableElapsed = 0;
   let lastTickAt = performance.now();
   let inPlayablePhase = false;
@@ -52,25 +51,21 @@
 
   function setPlayablePhase(active) {
     if (active === inPlayablePhase) return;
-    // Settle the bank up to current time before flipping the gate.
+    // Settle the bank before flipping the gate.
     if (inPlayablePhase) bankNow();
     inPlayablePhase = active;
     lastTickAt = performance.now();
   }
 
-  // Combo state. lastDemoAt is bank time (not wall clock) so the
-  // 20s window only burns during `live`. currentStreak is 0 between
-  // combos and 1..N during an active streak. lastVictimName is the
-  // victim of the most recent demo of the active streak. lastMatchVictim
-  // survives streak resets and is only cleared on match-guid change.
+  // Combo state. lastDemoAt is bank time. lastMatchVictim survives
+  // streak resets and is only cleared on match-guid change.
   let currentStreak = 0;
   let lastDemoAt = 0;
   let lastVictimName = '';
   let lastMatchVictim = '';
 
-  // All-time persistent state, hydrated from the per-plugin store in
-  // ready(). bestStreakWord is derived from bestStreak via tierFor() and
-  // NOT persisted separately.
+  // All-time persistent state, hydrated in ready(). bestStreakWord is
+  // derived from bestStreak via tierFor() and not persisted separately.
   let totals = {};                // { [playerId]: { name, count } }
   let bestStreak = 0;
   let bestStreakWord = '';
@@ -79,18 +74,15 @@
   let current = {};               // { [playerId]: { name, count } }
   let currentGuid = null;
 
-  // Hydration gate. _PlayerDemolished events that arrive before the
-  // store load resolves are buffered here and drained at the end of
-  // ready() with isReplay=true so they don't double-count against
-  // totals (those demos already fired live when they originally happened).
+  // Demos arriving before the store load resolves are buffered and
+  // drained with isReplay=true so they don't double-count totals.
   let hydrated = false;
   const pendingDemos = [];
 
-  // Streak survives these phases. Anything else (ended/none/lobby/podium)
-  // resets the combo state.
+  // Streak survives these phases; anything else resets it.
   const KEEP_STREAK = new Set(['live', 'countdown', 'replay', 'paused']);
 
-  // rAF handle for the active drain loop. Non-zero means the loop is armed.
+  // Non-zero means the drain loop is armed.
   let activeRafHandle = 0;
 
   function totalCount() {
@@ -128,11 +120,10 @@
     }[c]));
   }
 
-  // Derive renderable UI state. Pure read: no DOM, no side effects.
-  // mode rules use bank time (replay/menu pauses don't expire it):
-  //   idle    — no demo yet, or window+hold elapsed
-  //   active  — sinceDemo <= COMBO_WINDOW_MS
-  //   break   — window expired, hold still in effect, streak >= 1
+  // Pure read of renderable UI state.
+  //   idle   — no demo yet, or window+hold elapsed
+  //   active — sinceDemo <= COMBO_WINDOW_MS
+  //   break  — window expired, hold still in effect, streak >= 1
   function computeUiState() {
     const sinceDemo = bankNow() - lastDemoAt;
     let mode;
@@ -161,9 +152,7 @@
     };
   }
 
-  // One-shot shake animation. The CSS class self-removes on animationend.
-  // intensity selects light/hard/extreme variants. Targets .ov-streak
-  // (not the root .ov) so chips on the left stay still.
+  // One-shot shake on .ov-streak. CSS class self-removes on animationend.
   function triggerShake(intensity) {
     if (!isOverlay) return;
     const el = document.getElementById('ov-streak');
@@ -173,8 +162,7 @@
       intensity === 'hard'    ? 'shake-hard' :
                                 'shake-light';
     el.classList.remove('shake-light', 'shake-hard', 'shake-extreme');
-    // Reflow so re-adding the same class restarts the animation when
-    // consecutive demos hit the same tier.
+    // Reflow so re-adding the same class restarts the animation.
     el.offsetWidth;
     el.classList.add(cls);
     const onEnd = () => {
@@ -184,16 +172,28 @@
     el.addEventListener('animationend', onEnd);
   }
 
-  // rAF loop for the timer bar. Runs every frame while mode is active or
-  // break; the bar drains smoothly off the playable bank. Self-stops when
-  // mode flips to idle (renderOverlay still runs once to repaint the
-  // idle chrome). renderOverlay accepts a precomputed ui so we don't
-  // walk computeUiState twice per frame.
+  // Drain loop. Armed every frame while active/break, but renderOverlay
+  // only runs when a visible value changed — most frames are no-ops.
+  let lastRenderedTimerPx = -1;
+  let lastRenderedStreak = -1;
+  let lastRenderedTier = '';
   function activeLoop() {
     activeRafHandle = 0;
     if (!isOverlay) return;
     const ui = computeUiState();
-    renderOverlay(ui);
+    const barWidth = ovEls?.fill?.parentElement?.clientWidth || 320;
+    const timerPx = Math.round(ui.timerRemaining01 * barWidth);
+    if (
+      timerPx !== lastRenderedTimerPx ||
+      ui.streak !== lastRenderedStreak ||
+      ui.tierClass !== lastRenderedTier ||
+      ui.mode !== lastRenderedMode
+    ) {
+      renderOverlay(ui);
+      lastRenderedTimerPx = timerPx;
+      lastRenderedStreak = ui.streak;
+      lastRenderedTier = ui.tierClass;
+    }
     if (ui.mode === 'active' || ui.mode === 'break') {
       activeRafHandle = requestAnimationFrame(activeLoop);
     }
@@ -205,9 +205,6 @@
     activeRafHandle = requestAnimationFrame(activeLoop);
   }
 
-  // Targeted writes — no innerHTML on the live overlay. Shake/pulse
-  // animation classes live on .ov-streak and are managed by triggerShake;
-  // renderOverlay never touches them.
   const TIER_CLASSES = [
     'tier-base', 'tier-glow', 'tier-hot', 'tier-bloom',
     'tier-apocalypse', 'tier-armageddon', 'tier-extinction', 'tier-genocide',
@@ -219,21 +216,13 @@
     el.classList.add(cls);
   }
 
-  // Tracks the previously-rendered mode so we can detect the
-  // active|break → idle transition and run the fade-out hold (see
-  // .is-fading-out in styles.css). Seeded to 'idle' so the very first
-  // render (mode is already idle) doesn't trigger a fade.
+  // Detects active|break → idle to drive the fade-out hold class.
   let lastRenderedMode = 'idle';
-  // ms — kept just longer than the .ov-active / .ov-bar opacity
-  // transition (400ms) so the layout-hold class clears cleanly after
-  // the fade lands.
+  // Just over the .ov-active / .ov-bar opacity transition (400ms).
   const FADE_OUT_HOLD_MS = 420;
   let fadeOutTimer = 0;
 
-  // Element cache for the overlay's per-frame writes. Populated on the
-  // first renderOverlay call. The overlay's DOM is static (defined in
-  // overlay.html) so caching lookups eliminates ~9 getElementById calls
-  // per frame during an active streak (60 fps × hot path).
+  // Cached element refs, populated on first renderOverlay.
   let ovEls = null;
   function bindOvEls() {
     const root = document.getElementById('ov');
@@ -257,16 +246,11 @@
     if (!ovEls) return;
     const ui = uiArg || computeUiState();
 
-    // Bar width.
     if (ovEls.fill) ovEls.fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
 
-    // Hold the active layout (full width) while the active block fades
-    // out. Without this hold, switching data-mode to "idle" instantly
-    // snaps the root width to max-content, the right column collapses,
-    // and the centered streak number visibly slides left mid-fade.
-    // Class clears on a timer matched to the CSS transition; further
-    // mode flips before it expires reset the timer so we never get
-    // stuck holding the layout.
+    // Hold full width while the active block fades out, otherwise
+    // data-mode=idle snaps the root to max-content mid-fade and the
+    // streak number visibly slides left.
     if ((lastRenderedMode === 'active' || lastRenderedMode === 'break') && ui.mode === 'idle') {
       ovEls.root.classList.add('is-fading-out');
       if (fadeOutTimer) clearTimeout(fadeOutTimer);
@@ -275,8 +259,7 @@
         fadeOutTimer = 0;
       }, FADE_OUT_HOLD_MS);
     } else if (ui.mode !== 'idle') {
-      // New combo while we were still fading: drop the hold so the
-      // active layout takes over cleanly.
+      // New combo mid-fade: drop the hold immediately.
       if (fadeOutTimer) {
         clearTimeout(fadeOutTimer);
         fadeOutTimer = 0;
@@ -286,16 +269,13 @@
     lastRenderedMode = ui.mode;
 
     // Mode is an attribute (CSS keys `[data-mode]`); tier is a class
-    // (CSS keys `.ov.tier-X` — verbatim from the original plugin so
-    // the visual treatment carries over without any tweaks).
+    // (CSS keys `.ov.tier-X`).
     ovEls.root.dataset.mode = ui.mode;
     setTierClass(ovEls.root, ui.tierClass);
 
     ovEls.total.textContent = String(matchDemoCount());
 
-    // BEST badge is always visible after first paint. Setting hidden=false
-    // every frame is a no-op the browser short-circuits, but we still
-    // burn the property read; only flip it when we know it's needed.
+    // Only flip `hidden` when it actually needs to change.
     if (ovEls.best.hidden) ovEls.best.hidden = false;
     setTierClass(ovEls.best, ui.bestTierClass);
     ovEls.bestStreak.textContent = 'x' + ui.bestStreak;
@@ -318,10 +298,8 @@
   }
 
   function renderControl() {
-    // Identity strip. demos2 doesn't own identity (Déjà Vu does); we
-    // just mirror whatever the SDK has claimed. RLT.me is the identity
-    // module — it has .id but no .name. The display name lives in the
-    // shared encounter ledger under that id; pull the most recent.
+    // Identity strip — read-only mirror of the SDK's current claim.
+    // Display name comes from the encounter ledger keyed by RLT.me.id.
     const idVal = document.getElementById('id-val');
     const idHint = document.getElementById('id-hint');
     const myId = RLT.me && RLT.me.id ? RLT.me.id : '';
@@ -339,14 +317,12 @@
       if (idHint) idHint.hidden = false;
     }
 
-    // Match badge — shows the phase if there is one, else "no match".
     const badge = document.getElementById('match-badge');
     if (badge) {
       const phase = RLT.match?.state?.phase || 'none';
       badge.textContent = (phase === 'none' || phase === 'lobby') ? 'no match' : phase;
     }
 
-    // All-time chip values.
     document.getElementById('total').textContent = String(totalCount());
     const rivals = Object.keys(totals).length;
     document.getElementById('all-count').textContent = String(rivals);
@@ -362,7 +338,6 @@
       bestWrap.hidden = true;
     }
 
-    // Per-list bodies.
     document.getElementById('match-list').innerHTML = listHtml(current, 'no demos yet — go hunting');
     document.getElementById('all-list').innerHTML = listHtml(totals, 'play a few matches and your rivals show up here');
   }
@@ -380,13 +355,9 @@
     ).join('');
   }
 
-  // Per-demo bookkeeping. Two call sites:
-  //   - Live events (isReplay=false): bumps current + totals, runs combo
-  //     bookkeeping, fires shake, persists.
-  //   - Replay drain (isReplay=true): bumps only `current`. totals on
-  //     disk already reflect those demos from when they fired live;
-  //     re-incrementing would double-count. Combo / shake / persistence
-  //     are also skipped — replays are framing data, not real-time events.
+  // Per-demo bookkeeping.
+  //   isReplay=false: bumps current + totals, runs combo, shakes, persists.
+  //   isReplay=true:  bumps only `current` — totals are already on disk.
   function applyDemo(payload, isReplay) {
     const { attacker, victim, isSelfDemo } = payload || {};
     if (!attacker || !victim) return;
@@ -409,7 +380,7 @@
     totals[vid].count += 1;
     totals[vid].name = vname;
 
-    // Combo bookkeeping. Bank time, not wall clock.
+    // Combo window uses bank time, not wall clock.
     const now = bankNow();
     const sinceLast = lastDemoAt ? now - lastDemoAt : Infinity;
     if (sinceLast <= COMBO_WINDOW_MS) {
@@ -427,7 +398,6 @@
       bestStreakWord = t ? t.word : '';
     }
 
-    // Shake intensity by tier.
     const tier = tierFor(currentStreak);
     if (tier && (tier.cls === 'tier-hot' || tier.cls === 'tier-bloom')) {
       triggerShake('light');
@@ -443,12 +413,9 @@
 
     ensureActiveLoop();
 
-    // Fire-and-forget save. SDK gates writes by default so only the
-    // hosted overlay actually persists — the dashboard view runs the
-    // same handler so its panels live-update during play, but its
-    // store.set calls are no-ops. One key, one object.
+    // SDK gates writes — only the hosted overlay actually persists.
     RLT.store.set('state', { totals, bestStreak }).catch((e) => {
-      console.error('[demos2] save failed:', e);
+      console.error('[demos] save failed:', e);
     });
 
     render();
@@ -459,21 +426,15 @@
       if (isOverlay && RLT.widget.isHosted()) {
         RLT.widget.fitWidth({ target: '.ov', maxWidth: 600, extra: 8 });
       }
-      // Bind the dashboard's connection pill once. The helper attaches
-      // its own SSE listener — running it on every render would leak
-      // subscriptions.
+      // Bind once — bindStatusPill attaches its own SSE listener.
       if (!isOverlay && RLT.ui && typeof RLT.ui.bindStatusPill === 'function') {
         RLT.ui.bindStatusPill('conn');
       }
-      // Seed the bank gate from the current phase so a plugin loading
-      // mid-match doesn't start with the gate flipped wrong.
+      // Seed the bank gate for plugins loading mid-match.
       setPlayablePhase((RLT.match?.state?.phase || 'none') === 'live');
     },
 
     async ready(handle) {
-      // Hydrate persisted state before processing buffered demos. Read
-      // the single 'state' key written by applyDemo. Missing key returns
-      // null (404 in the backend; the SDK swallows it).
       try {
         const s = await handle.store.get('state');
         if (s && typeof s === 'object') {
@@ -483,16 +444,15 @@
           bestStreakWord = t ? t.word : '';
         }
       } catch (e) {
-        console.error('[demos2] load failed:', e);
+        console.error('[demos] load failed:', e);
       }
 
       // Seed the current match if one is already in progress.
       const m = RLT.match && RLT.match.current;
       if (m) currentGuid = m.guid;
 
-      // Drain any _PlayerDemolished events the SSE replay delivered
-      // while we were awaiting the store fetch. Marked isReplay=true so
-      // totals don't double-bump.
+      // Drain demos buffered during the store fetch. isReplay=true
+      // prevents totals double-bumping.
       hydrated = true;
       while (pendingDemos.length > 0) {
         applyDemo(pendingDemos.shift(), true);
@@ -501,11 +461,6 @@
       render();
     },
 
-    // Single phase handler:
-    //   - flips the bank-time gate (only `live` is playable)
-    //   - resets the streak on out-of-match transitions
-    //   - anchors currentGuid on refresh (when MatchCreated has already fired)
-    //   - triggers a repaint
     onState() {
       const phase = RLT.match?.state?.phase || 'none';
       setPlayablePhase(phase === 'live');
@@ -517,9 +472,7 @@
       render();
     },
 
-    // Backstop for the "user backed out without MatchDestroyed" path:
-    // the lifecycle silence watchdog flips matchActive=false when
-    // UpdateState stops arriving. Mirror the cleanup here.
+    // Backstop for "user backed out without MatchDestroyed".
     onMatchActive(active) {
       if (!active) {
         cleanupMatchState();
@@ -527,9 +480,6 @@
       }
     },
 
-    // Identity changed — the strip on the dashboard needs to reflect
-    // the new claim. Demos doesn't own identity (Déjà Vu does); this
-    // is purely a display update.
     onIdentity() {
       render();
     },
@@ -542,7 +492,6 @@
         }
         applyDemo(payload, false);
       },
-      // Match boundaries — bypass the UpdateState filter (baseline events).
       MatchCreated(e) {
         currentGuid = e?.matchGuid || null;
         render();

@@ -14,5 +14,6 @@
     "opacity": 1.0,
     "hide_when_unfocused": true,
     "show_during_phase": ["countdown", "live", "paused", "replay", "ended"]
-  }
+  },
+  "dashboard": { "file": "dashboard.html" }
 }

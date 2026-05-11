@@ -1,9 +1,4 @@
-      /* ──────────────────────────────────────────────────────────────────
-         All colors, fonts, and radii come from sdk.css custom properties
-         (--rlt-*). That's the toolkit's design language — use those tokens
-         and your plugin will look like part of the dashboard. Demolitions
-         are violent, so we lean on --rlt-orange as the accent.
-         ────────────────────────────────────────────────────────────────── */
+      /* Tokens (--rlt-*) come from sdk.css. Accent is --rlt-orange. */
       * {
         margin: 0;
         padding: 0;
@@ -30,17 +25,13 @@
         overflow: hidden;
       }
 
-      /* ════════════════════════════════════════════════════════
-         CONTROL PAGE  (dashboard tab)
-         ════════════════════════════════════════════════════════ */
+      /* ─── Control page (dashboard tab) ──────────────────────── */
       .page {
         max-width: 1280px;
         margin: 0 auto;
         padding: 28px 24px 48px;
       }
 
-      /* Topbar — same card-on-card treatment dejavu uses, so the dashboard
-         tab reads as one toolkit even when you switch between plugins. */
       .topbar {
         display: flex;
         align-items: center;
@@ -95,8 +86,6 @@
         gap: 12px;
       }
 
-      /* Connection pill — mirrors dejavu's so a player running both
-         plugins gets one consistent live/offline status indicator. */
       .conn-pill {
         display: inline-flex;
         align-items: center;
@@ -154,9 +143,7 @@
         box-shadow: 0 0 16px var(--rlt-orange-glow);
       }
 
-      /* Identity strip — read-only here. Demos doesn't claim identity;
-         that's dejavu's job. We show the current claim (or a hint to go
-         claim one) so the player knows why their demos aren't counting. */
+      /* Identity strip — read-only mirror of the SDK's current claim. */
       .identity-strip {
         background: var(--rlt-bg-1);
         border: 1px solid var(--rlt-line);
@@ -195,9 +182,7 @@
         font-size: 12px;
       }
 
-      /* Two-column grid: this match (left) + all time (right). Same shape
-         and breakpoint as dejavu's grid so the dashboard tabs feel like
-         one app rather than two. */
+      /* This match (left) + all time (right). */
       .grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -246,9 +231,7 @@
         letter-spacing: 0.1em;
       }
 
-      /* Victim row — flush list, separator above each row except first.
-         Mirrors dejavu's leaderboard rhythm: list reads as one composed
-         column rather than a wall of mini-cards. */
+      /* Victim row — flush list with separators between rows. */
       .row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -286,7 +269,6 @@
         margin-right: 2px;
       }
 
-      /* Empty state — same em-icon pattern dejavu uses. */
       .card-empty {
         padding: 40px 16px;
         text-align: center;
@@ -301,25 +283,13 @@
         line-height: 1;
       }
 
-      /* ════════════════════════════════════════════════════════
-         OVERLAY MODE  (?overlay=1) — "Kill feed" HUD
-         ════════════════════════════════════════════════════════
-         Design intent: a HUD readout, not a webpage.
-         - No outer card: each row carries its own translucent backing
-           so the game shows through between rows.
-         - Header tag mirrors the team labels in dejavu's overlay so a
-           player running both plugins sees one consistent HUD language.
-         - rem-based sizing rooted at <html>; bump body font-size to
-           rescale the whole widget in one place.
-         ════════════════════════════════════════════════════════ */
+      /* ─── Overlay mode (?overlay=1) ─────────────────────────
+         HUD readout. Rem-based; bump body font-size to rescale. */
       body.overlay-mode {
         font-size: 16px;
       }
-      /* Padding stays constant across modes so the chip column
-         doesn't shift vertically when the drain bar spawns in or
-         out. Earlier the idle mode added a 0.25rem top inset and 0
-         in active — the chips visibly jumped up on combo start and
-         back down on streak end. */
+      /* Keep padding constant across modes so chips don't jump
+         vertically when the drain bar appears/disappears. */
       .ov {
         display: inline-flex;
         flex-direction: column;
@@ -329,26 +299,19 @@
         padding: 0;
         animation: ov-fade-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
-      /* In active/break mode the widget needs the full iframe width
-         so the bar reaches the right edge. Idle mode keeps
-         `width: max-content` so the chip column hugs its content
-         (looks weird floated as a wide bar). `.is-fading-out` is set
-         transiently by JS during break→idle so the active layout
-         holds until the active block finishes its opacity fade —
-         without this hold the root width snaps to max-content
-         mid-fade and the streak number visibly jumps left before
-         disappearing. */
+      /* Active/break: full width so the bar reaches the edge.
+         Idle: max-content so the chip column hugs its contents.
+         .is-fading-out (set by JS during break→idle) holds the
+         active layout until the opacity fade lands; without it
+         the streak number visibly jumps left mid-fade. */
       .ov[data-mode="active"],
       .ov[data-mode="break"],
       .ov.is-fading-out {
         width: 100%;
       }
 
-      /* Header tag — same backing/border-left treatment as dejavu's team
-         labels. Orange because that's the demos accent. */
-      /* No backdrop-filter — webkit2gtk over Wayland layer-shell repaints
-         every blurred chip per frame. Opaquer background reads almost the
-         same against a moving game and stays on the GPU. */
+      /* Header tag. No backdrop-filter — it forces per-frame repaints
+         on webkit2gtk + Wayland layer-shell. */
       .ov-head {
         display: flex;
         align-items: baseline;
@@ -386,51 +349,31 @@
           transform: translateY(0);
         }
       }
-      /* ─── Mode toggle ───────────────────────────────────────────
-         Just an opacity fade on the active subtree. Earlier iterations
-         also swapped position to absolute on the hidden block,
-         animated a desaturation filter, and toggled pointer-events —
-         all firing on the same frame produced a staggered glitch on
-         break → idle. Plain opacity reads as a clean fade. */
+      /* Mode toggle — opacity fade on the active subtree. */
       .ov-active {
         transition: opacity 400ms ease;
       }
       .ov[data-mode="idle"] .ov-active {
         opacity: 0;
       }
-      /* Active layout fills the widget; idle uses inline-flex from .ov.
-         No background, no border, no border-radius — the rectangle of
-         this element must stay invisible. Tier "heat" is painted via
-         text-shadow on the streak number and word (see tier rules
-         below); we tried filter:drop-shadow first but it caused
-         compositor-stall artifacts on the wry/webkit overlay surface
-         (rectangular flash, lag during pulse animations). The
-         center-alignment matters too: at genocide tier the text-
-         shadow stack is wide enough that flex-start alignment lets
-         the halo bleed against the iframe edge and triggers the same
-         rectangular box-flash. Centering keeps the shadow inside
-         the active block's safe rectangle. */
+      /* Background/border must stay invisible — heat is painted via
+         text-shadow only. filter:drop-shadow trips webkit2gtk's
+         box-flash artifact on the overlay surface, so don't use it. */
       .ov-active {
         position: relative;
         align-self: stretch;
         display: flex;
         flex-direction: column;
-        /* Horizontal center for shadow safety — at genocide tier the
-           text-shadow stack is wide enough that flex-start lets the
-           halo bleed against the iframe edge and trips webkit2gtk's
-           rectangular box-flash artifact. Centering keeps the shadow
-           inside the active block's safe rectangle.
-           Streak block lives directly under the drain bar in the
-           right column (.ov-stack), so vertical-flush is fine — no
-           empty gap to "center within". */
+        /* Center horizontally so the genocide-tier shadow stack
+           doesn't bleed against the iframe edge and trigger the
+           box-flash artifact. */
         align-items: center;
         gap: 0.1rem;
         padding: 0.4rem 0.5rem 0.5rem;
       }
 
       /* ─── BEST badge (idle) ─────────────────────────────────────
-         Color is the tier color of the streak it represents — set via
-         tier classes on .ov. Tag style mirrors the dejavu team labels. */
+         Color is the tier color of the streak it represents. */
       .ov-best {
         align-self: stretch;
         display: flex;
@@ -441,17 +384,12 @@
         border-left: 2px solid var(--rlt-orange);
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
       }
-      /* The author rule above sets `display: flex`, which beats the
-         UA stylesheet's `[hidden] { display: none }` by source order
-         at equal specificity. Restore the hidden behaviour explicitly
-         so JS toggling `el.hidden` works as expected. */
+      /* Restore `[hidden] { display: none }` — `display: flex` above
+         overrides the UA stylesheet at equal specificity. */
       .ov-best[hidden] {
         display: none;
       }
-      /* The BEST label is intentionally neutral (cream-toned, not tier-
-         colored) so it reads as "this is what comes next is a record",
-         not as part of the tier word that follows it. The streak number
-         and tier word carry the heat. */
+      /* Neutral label so the tier word carries the heat. */
       .ov-best-label {
         font-family: var(--rlt-display);
         font-size: 0.62rem;
@@ -479,12 +417,7 @@
       }
 
       /* ─── LAST chip (most-recent victim) ─────────────────────────
-         Same chip chrome as BEST. Mounts on the first demo of a
-         match and updates each subsequent demo. Intentionally
-         neutral (cream, no tier coloring) — it's a name, not a
-         record being broken. The streak number and tier word in the
-         right column carry the moment-to-moment heat; this chip is
-         steady context. */
+         Same chrome as BEST. Neutral coloring — a name, not a record. */
       .ov-last {
         align-self: stretch;
         display: flex;
@@ -520,11 +453,8 @@
         min-width: 0;
       }
 
-      /* ─── Main two-column layout ─────────────────────────────────
-         Left column: DEMOS + BEST chips stacked. Hugs content.
-         Right column (.ov-stack): drain bar at top, streak readout
-           below — they share a horizontal track so the streak number
-           sits directly under the bar, not floating elsewhere. */
+      /* Left column: DEMOS + BEST chips, hugs content.
+         Right column (.ov-stack): drain bar above streak readout. */
       .ov-main {
         display: flex;
         align-items: flex-start;
@@ -542,29 +472,16 @@
         flex-direction: column;
         align-items: center;
         gap: 0.1rem;
-        /* Top padding aligns the bar with the top edge of the DEMOS
-           chip (chip border + chip top-padding ≈ this offset). */
+        /* Align the bar with the top edge of the DEMOS chip. */
         padding-top: 0.15rem;
       }
 
       /* ─── Drain bar ─────────────────────────────────────────────
-         JS-driven drain: renderOverlay sets the fill's inline width
-         each frame from computeUiState's timerRemaining01 (driven off
-         the playable bank, not wall-clock). No CSS transition — the
-         rAF loop interpolates the width directly, and replay/menu
-         pauses freeze the bar naturally because the bank itself
-         freezes. A 20s CSS transition here was double-animating every
-         JS write, slowing the bar to a crawl. Drain bar fills
-         whatever width remains after the DEMOS chip. Hidden in idle
-         (no streak to drain — empty bar would just be visual noise). */
-      /* Bar opacity tweens 1→0 in lockstep with the active block
-         during break→idle so the readout disappears as a single
-         unit instead of the bar snapping out a frame before the
-         multiplier. `visibility: hidden` only kicks in once the
-         transient `is-fading-out` class has cleared, which keeps
-         the bar occupying its row for the duration of the fade
-         (avoids streak text jumping up). Width is JS-driven and
-         intentionally untransitioned — see drain-bar comment above. */
+         Width is JS-driven from the rAF loop. No CSS transition on
+         width — would double-animate every frame's write.
+         Opacity tweens 1→0 with the active block during break→idle.
+         `visibility: hidden` only applies after `.is-fading-out`
+         clears, so the bar holds its row during the fade. */
       .ov-bar {
         align-self: stretch;
         height: 3px;
@@ -587,17 +504,9 @@
         box-shadow: 0 0 6px rgba(251, 124, 60, 0.6);
       }
 
-      /* ─── Active: number + word ─────────────────────────────────
-         Sizing is base here; tier classes in Task 6 scale up. */
-      /* No transitions on font-size / color here — they used to
-         tween tier escalations (x4 → x5 grew the number smoothly).
-         But on the streak-lost transition, the tier class flips back
-         to tier-base while the parent .ov-active is fading via
-         opacity. The font-size/color tween then runs IN PARALLEL
-         with the fade, so the number visibly shrinks and color-
-         shifts mid-disappearance. That's the staggered glitch.
-         Snapping tier changes is a small visual loss; a clean fade
-         is worth more. */
+      /* Active: number + word. Tier classes below scale up the size.
+         No transitions on font-size/color — tweening tier changes
+         conflicts with the .ov-active opacity fade on streak-lost. */
       .ov-streak {
         font-family: var(--rlt-display);
         font-feature-settings: "tnum";
@@ -617,25 +526,17 @@
         color: var(--rlt-orange);
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      /* Break mode: leave the colors alone. Earlier iterations
-         desaturated the streak/word in break to "cool off" the
-         combo, but combined with the active block's opacity fade
-         and position-absolute swap on the next mode flip it produced
-         a staggered, glitchy disappearance. Cleaner to just let the
-         block fade out with its tier colors intact. */
-
       /* ─── Tier escalation ───────────────────────────────────────
          Each tier class on .ov drives color/size for the active
-         subtree and rim-bloom on the .ov itself. Sizes are relative
-         to the base set in Task 5 (.ov-streak 2.6rem, .ov-word 1rem). */
+         subtree. Sizes are relative to .ov-streak 2.6rem / .ov-word 1rem. */
 
-      /* tier-base (x2 TAGGED) — base orange, no escalation */
+      /* tier-base (x2 DOUBLE TAP) — base orange, no escalation */
       .ov.tier-base .ov-streak,
       .ov.tier-base .ov-word {
         color: var(--rlt-orange);
       }
 
-      /* tier-glow (x3 SMOKED) — orange + extra glow + steady rim */
+      /* tier-glow (x3 TRIFECTA) — orange + extra glow + steady rim */
       .ov.tier-glow .ov-streak {
         color: var(--rlt-orange);
         text-shadow: 0 0 20px rgba(251, 124, 60, 0.7);
@@ -644,12 +545,8 @@
         color: var(--rlt-orange);
         text-shadow: 0 0 12px rgba(251, 124, 60, 0.6), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      /* No drop-shadow — heat carried entirely by text-shadow above.
-         drop-shadow filters were causing compositor-stall artifacts
-         (rectangular flash, lag) on the wry/webkit overlay surface. */
 
-      /* tier-hot (x4 ANNIHILATED) — hotter orange, +15% size,
-         steady rim + shake-on-demo class */
+      /* tier-hot (x4 RAMPAGE) — hotter orange, +15% size */
       .ov.tier-hot .ov-streak {
         font-size: 3rem;
         color: #ff6a1f;
@@ -660,11 +557,8 @@
         color: #ff6a1f;
         text-shadow: 0 0 14px rgba(255, 106, 31, 0.7), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      /* No drop-shadow — see tier-glow note. */
 
-      /* tier-bloom (x5 OBLITERATED) — magenta-orange, +30% size.
-         Text-shadow only; large drop-shadow filters were causing
-         compositor lag and box-flash artifacts. */
+      /* tier-bloom (x5 UNREAL) — magenta-orange, +30% size */
       .ov.tier-bloom .ov-streak {
         font-size: 3.4rem;
         color: #ff4d8a;
@@ -678,12 +572,8 @@
         text-shadow: 0 0 10px rgba(255, 77, 138, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
 
-      /* tier-apocalypse (x6+) — red-magenta, +45% size, with a slow
-         text-shadow pulse for the "energy alive between demos" feel.
-         The pulse animates text-shadow rather than filter:drop-shadow:
-         text-shadow stays inside the rendering layer's bounds, so it
-         doesn't trigger compositor-stall box-flashes the way a heavy
-         drop-shadow keyframe did. */
+      /* tier-apocalypse (x6 NO MERCY, x7 FORFEIT INCOMING) —
+         red-magenta, +45% size. */
       .ov.tier-apocalypse .ov-streak {
         font-size: 3.8rem;
         color: #ff2d62;
@@ -697,37 +587,15 @@
         letter-spacing: 0.24em;
         text-shadow: 0 0 12px rgba(255, 45, 98, 1), 0 1px 2px rgba(0, 0, 0, 0.7);
       }
-      .ov.tier-apocalypse[data-mode="active"] .ov-streak {
-        animation: ov-apocalypse-streak-pulse 1.6s ease-in-out infinite;
-      }
-      @keyframes ov-apocalypse-streak-pulse {
-        0%, 100% {
-          text-shadow:
-            0 0 16px rgba(255, 45, 98, 1),
-            0 0 10px rgba(244, 114, 182, 0.7);
-        }
-        50% {
-          text-shadow:
-            0 0 22px rgba(255, 45, 98, 1),
-            0 0 14px rgba(244, 114, 182, 0.9);
-        }
-      }
 
-      /* ─── Ultra tiers ──────────────────────────────────────────
-         x8 ARMAGEDDON, x10 EXTINCTION, x12 GENOCIDE — for the chasers
-         who keep the streak alive past x6. Size stays at +45% (further
-         growth overflows the 320×240 iframe), but color escalates from
-         red-magenta toward white-hot, pulse accelerates, and shake gets
-         meaner. The text starts to look like it's burning out. */
+      /* ─── Ultra tiers (x8+) ────────────────────────────────────
+         Size holds at +45% (further growth overflows the iframe).
+         Color escalates from red-magenta toward white-hot. Words
+         keep changing past x12 even though the visual plateaus.
+         Text-shadow radii stay inside .ov-active padding to avoid
+         bleeding against the iframe edge. */
 
-      /* Ultra tiers — heat carried entirely by text-shadow. The
-         filter:drop-shadow approach we tried earlier caused compositor
-         lag and rectangular box-flash artifacts on the wry/webkit
-         overlay surface, even with single (non-stacked) shadows. We
-         keep text-shadow radii small enough to stay inside the .ov-
-         active padding so they don't bleed against the iframe edge. */
-
-      /* tier-armageddon (x8) — deeper, more aggressive red */
+      /* tier-armageddon (x8 MASSACRE) — deeper red */
       .ov.tier-armageddon .ov-streak {
         font-size: 3.8rem;
         color: #ff1a4d;
@@ -745,9 +613,8 @@
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
 
-      /* tier-extinction (x10) — color blowing out toward white with a
-         layered red+pink inner shadow. The white text plus a tight
-         magenta core reads as "burning out" without big radii. */
+      /* tier-extinction (x10 BLACKLISTED, x11 MENACE) — white text
+         with layered red+pink inner shadow. */
       .ov.tier-extinction .ov-streak {
         font-size: 3.8rem;
         color: #fff0f5;
@@ -767,10 +634,8 @@
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
 
-      /* tier-genocide (x12+) — pure white text with the brightest
-         layered glow available without straying outside text-shadow.
-         The streak number gets a four-stop chain: white core, tight
-         pink, slightly wider red, sharp drop. */
+      /* tier-genocide (x12+ TOXIC / NEMESIS / UNHINGED / WAR CRIME)
+         — pure white with a four-stop shadow chain. */
       .ov.tier-genocide .ov-streak {
         font-size: 3.8rem;
         color: #ffffff;
@@ -790,10 +655,8 @@
           0 1px 2px rgba(0, 0, 0, 0.7);
       }
 
-      /* BEST badge picks up the tier color of the all-time best streak
-         it represents — independent of the current streak's tier so the
-         badge stays styled correctly between matches when the live tier
-         resets to base. The tier class is set on .ov-best directly. */
+      /* BEST badge takes the tier color of the all-time best streak,
+         set on .ov-best directly (independent of the live tier). */
       .ov-best.tier-hot,
       .ov-best.tier-bloom,
       .ov-best.tier-apocalypse,
@@ -816,16 +679,8 @@
       .ov-best.tier-genocide .ov-best-word { color: #ffffff; }
 
       /* ─── Shake on demo ────────────────────────────────────────
-         JS adds .shake-light / .shake-hard on every demo at tier-hot+;
-         self-removed on animationend. Translate-only so it doesn't
-         compound with the apocalypse rim-pulse box-shadow. */
-      /* Shake amplitudes tuned so each tier is visibly distinct on a
-         3-4rem glyph. Earlier amplitudes (±2/±4/±6) were geometrically
-         escalated but the relative motion at the smaller glyph sizes
-         (3rem at tier-hot) was too subtle to read as "this row just
-         shook" — only the extreme shake at the largest glyphs landed.
-         Doubling the lower-tier amplitudes makes the escalation
-         readable on a glance. */
+         JS adds shake-{light,hard,extreme} at tier-hot+; classes
+         self-remove on animationend. Translate-only. */
       @keyframes ov-shake-light {
         0%, 100% { transform: translate(0, 0); }
         25% { transform: translate(-4px, 2px); }
@@ -840,10 +695,8 @@
         60% { transform: translate(5px, 4px); }
         80% { transform: translate(-3px, 2px); }
       }
-      /* shake-extreme — for ultra tiers (x8+). Bigger amplitude, longer
-         duration, more jitter steps. The base keyframe is shared across
-         armageddon/extinction/genocide; per-tier rules below apply
-         escalating durations and amplitude scales. */
+      /* shake-extreme — ultra tiers (x8+). Per-tier rules below
+         scale duration to keep escalation readable. */
       @keyframes ov-shake-extreme {
         0%, 100% { transform: translate(0, 0); }
         10% { transform: translate(-10px, 4px); }
@@ -854,32 +707,26 @@
         70% { transform: translate(6px, -3px); }
         85% { transform: translate(-4px, 2px); }
       }
-      /* Shake animates ONLY the streak number — the big "xN" the
-         player's eye is locked on during a combo. Earlier the shake
-         was on .ov (the whole widget) which jiggled the chip column
-         too, including the steady DEMOS / BEST / LAST chips that
-         have no business moving. Confined to .ov-streak the shake
-         reads as kinetic feedback on the focal element rather than
-         the whole HUD vibrating. */
-      /* Shake selectors prefix with `.ov[data-mode]` so they reach the
-         same specificity as the tier-apocalypse[data-mode="active"]
-         pulse selector above. Source order then decides: shake comes
-         later, shake wins for the duration of the one-shot animation,
-         pulse resumes when the shake class is removed on animationend.
-         Without this prefix, the pulse animation kept its `animation`
-         property at apocalypse+ tiers and the shake silently lost. */
+      /* Shake animates only .ov-streak (not the whole widget) so
+         the chip column stays still. will-change promotes the
+         streak to its own compositor layer for the shake's
+         duration so the heavy text-shadow doesn't re-rasterize
+         every frame. Set only while shaking — will-change on a
+         static element costs memory. */
+      .ov[data-mode] .ov-streak.shake-light,
+      .ov[data-mode] .ov-streak.shake-hard,
+      .ov[data-mode] .ov-streak.shake-extreme {
+        will-change: transform;
+      }
       .ov[data-mode] .ov-streak.shake-light   { animation: ov-shake-light 120ms ease-out; }
       .ov[data-mode] .ov-streak.shake-hard    { animation: ov-shake-hard 160ms ease-out; }
       .ov[data-mode] .ov-streak.shake-extreme { animation: ov-shake-extreme 200ms ease-out; }
-      /* Per-tier amplitude scaling: each ultra tier shakes a bit
-         harder by stretching the duration. Genocide gets the
-         longest, most visible jitter so x12+ feels distinct from
-         x8/x10. Matching specificity bump so these still apply. */
+      /* Ultra tiers stretch duration so x12+ reads distinct from x8/x10. */
       .ov.tier-armageddon[data-mode] .ov-streak.shake-extreme { animation-duration: 180ms; }
       .ov.tier-extinction[data-mode] .ov-streak.shake-extreme { animation-duration: 220ms; }
       .ov.tier-genocide[data-mode]   .ov-streak.shake-extreme { animation-duration: 260ms; }
 
-      /* Honor reduced-motion — keep the static look. */
+      /* Reduced-motion: skip animations. */
       @media (prefers-reduced-motion: reduce) {
         body.overlay-mode .ov,
         .ov-streak {
@@ -888,10 +735,7 @@
         }
       }
 
-      /* ?overlay=1 hides the control page, no-overlay hides the widget.
-         The SDK adds .overlay-mode to <body> when the URL has ?overlay=1.
-         Placed last so the high-specificity selectors below win against
-         the base .page / .ov rules above (descending-specificity rule). */
+      /* Mode gates. SDK adds .overlay-mode on body when ?overlay=1. */
       body.overlay-mode .page {
         display: none;
       }
