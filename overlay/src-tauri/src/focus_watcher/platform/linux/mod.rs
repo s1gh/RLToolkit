@@ -37,3 +37,21 @@ pub fn query_foreground() -> Option<ForegroundInfo> {
         Backend::Wayland => linux_wayland::query_foreground(),
     }
 }
+
+/// Block until the next focus-relevant event or `timeout`. Wayland
+/// waits on the compositor socket fd, so Alt-Tab is observed within
+/// ~1ms instead of up to the run loop's prior 100ms tick. X11 has no
+/// equivalent wired up yet — falls back to a capped sleep so it keeps
+/// the old 10 Hz polling cadence (the run loop hands us a bigger
+/// idle-ceiling timeout that's only appropriate for event-driven
+/// backends).
+pub fn wait_for_event(timeout: std::time::Duration) {
+    let backend = *BACKEND.get_or_init(pick_backend);
+    match backend {
+        Backend::Wayland => linux_wayland::wait_for_event(timeout),
+        Backend::X11 => {
+            let capped = timeout.min(crate::focus_watcher::POLL_INTERVAL);
+            std::thread::sleep(capped);
+        }
+    }
+}

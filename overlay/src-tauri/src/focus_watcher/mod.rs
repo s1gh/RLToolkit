@@ -72,10 +72,14 @@ impl MatchRule {
 use std::time::{Duration, Instant};
 
 /// Wait window before firing the hide event after "RL not foreground".
-/// Long enough to absorb sub-frame focus blips (Wayland tooltips,
-/// notification daemons), short enough that intentional Alt-Tabs feel
-/// responsive.
-pub const HIDE_DEBOUNCE: Duration = Duration::from_millis(150);
+/// Zero = instant hide. Previously set to 150ms to absorb sub-frame
+/// focus blips (Wayland tooltips, notification daemons), but the user
+/// explicitly wants Alt-Tab to feel instant; a brief flicker on a
+/// notification grabbing focus is acceptable in trade. If tooltip
+/// flicker becomes a problem, the right fix is to detect "is the new
+/// foreground a real top-level window or a transient popup" — not to
+/// reintroduce a blanket delay.
+pub const HIDE_DEBOUNCE: Duration = Duration::from_millis(0);
 
 /// Internal state of the debouncer. The watcher owns one of these and feeds
 /// query results in via `step()`.
@@ -186,6 +190,10 @@ mod debounce_tests {
     #[test]
     fn pending_holds_inside_debounce_window() {
         // Anything strictly less than HIDE_DEBOUNCE keeps us pending.
+        // No-op when debounce is zero (current setting: instant hide).
+        if HIDE_DEBOUNCE.is_zero() {
+            return;
+        }
         let s = DebounceState::PendingHide { since: at(0) };
         let r = s.step(false, at(HIDE_DEBOUNCE.as_millis() as u64 / 2));
         assert!(matches!(r.next, DebounceState::PendingHide { .. }));
@@ -323,9 +331,10 @@ use tauri::{AppHandle, Manager};
 // the @tauri-apps/api JS package, which the toolkit's plain-JS SDK
 // doesn't bundle. The SDK filters by `data.__rlt_focus__ === true`.
 
-/// How often we ask the OS what's foreground. 10 Hz keeps CPU below
-/// 1% on every supported platform while holding felt hide latency
-/// under ~250ms (paired with HIDE_DEBOUNCE).
+/// Polling fallback cadence. The Wayland backend wakes on the
+/// compositor socket fd (see platform::wait_for_event), so it doesn't
+/// burn this — it's only the ceiling on the wait when no events are
+/// arriving. Other backends use this as the real poll cadence.
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Per-platform default needle, used when --game-match wasn't passed.
@@ -376,8 +385,8 @@ pub fn spawn(app: AppHandle, rule: MatchRule) {
         crate::log_info!("[rl-widget] focus-gating disabled (--game-match=\"\")");
         return;
     }
-    crate::log_info!("[rl-widget] focus watcher: poll every {:?}, hide debounce {:?}",
-              POLL_INTERVAL, HIDE_DEBOUNCE);
+    crate::log_info!("[rl-widget] focus watcher: event-driven (idle ceiling {:?}), hide debounce {:?}",
+              IDLE_WAIT_CEILING, HIDE_DEBOUNCE);
 
     let self_pid = std::process::id();
     thread::Builder::new()
@@ -394,6 +403,15 @@ pub fn spawn(app: AppHandle, rule: MatchRule) {
         })
         .expect("focus watcher thread spawn failed");
 }
+
+/// Hard cap on a single wait, applied when nothing time-sensitive is
+/// pending. Long enough that an idle watcher doesn't wake unnecessarily
+/// (event-driven platforms truly sleep here), short enough that if the
+/// compositor connection silently drops we'll retry within a second
+/// rather than getting stuck forever. The wait_for_event call also
+/// returns immediately on EINTR / spurious wake, so this is a ceiling
+/// not a floor.
+const IDLE_WAIT_CEILING: Duration = Duration::from_secs(1);
 
 fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
     let mut state = DebounceState::initial();
@@ -419,21 +437,89 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
                 let _ = active;
             }
         }
-        thread::sleep(POLL_INTERVAL);
+        // Block until the OS pushes a focus event or the next
+        // time-sensitive state transition is due. In PendingHide we
+        // need to wake by `since + HIDE_DEBOUNCE` so the hide actually
+        // fires when the user has truly Alt-Tabbed away (no further
+        // compositor event will arrive — the new window is just
+        // sitting there with `activated`). Other states have no
+        // pending timeout, so we wait up to IDLE_WAIT_CEILING.
+        let timeout = match &state {
+            DebounceState::PendingHide { since } => {
+                let elapsed = Instant::now().saturating_duration_since(*since);
+                HIDE_DEBOUNCE.saturating_sub(elapsed)
+            }
+            _ => IDLE_WAIT_CEILING,
+        };
+        platform::wait_for_event(timeout);
     }
 }
 
 /// Dispatch a focus-change postMessage into every webview the app
-/// owns. The SDK listens for `message` events shaped
-/// `{ __rlt_focus__: true, active: <bool> }`.
+/// owns AND map/unmap the overlay window at the compositor level.
+///
+/// The JS postMessage drives plugin-side logic (focus.onChange in the
+/// SDK — plugins pause timers, hide their bodies via display:none,
+/// etc.). On its own that's not enough: even after every plugin body
+/// goes display:none, the overlay Tauri window is still mapped on top
+/// of whatever the user Alt-Tabbed to, and anything an iframe paints
+/// (an outline, an in-flight animation frame, a plugin that doesn't
+/// honour hide_when_unfocused) lingers visibly for the duration of
+/// the eval → postMessage → iframe-postMessage → repaint chain.
+///
+/// Calling `window.hide()` on the overlay surface here removes that
+/// chain entirely from the felt-latency budget: the compositor
+/// unmaps the surface on the next commit, ~1 frame. On focus regain,
+/// `window.show()` re-maps. We respect the launcher's overlay-enabled
+/// toggle so we don't auto-show a window the user explicitly turned
+/// off via the tray / overflow menu.
 fn post_focus_message(app: &AppHandle, active: bool) -> Result<(), String> {
-    let js = format!(
+    // Hide via the WebView, not the window. Calling win.hide() on
+    // Hyprland triggers the compositor's window-close animation (fade
+    // out over ~150ms), so the overlay visibly lingers even though the
+    // surface IS unmapping. Toggling display on the root element instead
+    // keeps the surface mapped — WebKit just paints an empty transparent
+    // frame on the next commit, no compositor animation involved.
+    //
+    // We respect the launcher's overlay-enabled toggle on the show path
+    // so we don't auto-show contents that the user explicitly turned off
+    // via the tray. On the hide path we don't gate: if the user already
+    // disabled the overlay, the contents are already hidden and a second
+    // hide is a no-op.
+    let user_wants_overlay = app
+        .try_state::<crate::launcher::ipc::LauncherState>()
+        .map(|state| state.lock().map(|ctx| ctx.overlay_enabled).unwrap_or(true))
+        .unwrap_or(true);
+    let should_show_contents = active && user_wants_overlay;
+    let display_js = if should_show_contents {
+        // Empty string lets the stylesheet's default win again.
+        "document.documentElement.style.display='';"
+    } else {
+        "document.documentElement.style.display='none';"
+    };
+
+    let post_js = format!(
         "window.postMessage({{ __rlt_focus__: true, active: {} }}, '*');",
         if active { "true" } else { "false" }
     );
+
     let mut errors: Vec<String> = Vec::new();
     let mut sent_to_at_least_one = false;
     for (label, webview) in app.webviews().iter() {
+        // Only flip display on the overlay webview ("main"). Other
+        // webviews (the launcher) get the focus postMessage only —
+        // applying display:none to the launcher would hide the
+        // launcher whenever RL loses focus, which is plainly wrong.
+        // Order matters for the overlay: flip display FIRST so the
+        // next compositor commit already reflects the new visibility,
+        // THEN post the focus event for plugin-side logic (pause
+        // timers, etc). The reverse order would let plugin handlers
+        // run a frame before the visual change landed.
+        let js = if label == "main" {
+            format!("{display_js}{post_js}")
+        } else {
+            post_js.clone()
+        };
         match webview.eval(&js) {
             Ok(_) => sent_to_at_least_one = true,
             Err(e) => errors.push(format!("{label}: {e}")),

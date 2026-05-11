@@ -5,10 +5,12 @@
 //! stays visible).
 
 use crate::focus_watcher::ForegroundInfo;
+use std::os::fd::AsRawFd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex, OnceLock,
 };
+use std::time::Duration;
 use wayland_client::protocol::wl_registry;
 use wayland_client::{
     globals::{registry_queue_init, GlobalListContents},
@@ -96,6 +98,80 @@ fn state() -> Option<&'static Mutex<WaylandState>> {
             }
         })
         .as_ref()
+}
+
+/// Block until the compositor sends us an event or `timeout` elapses.
+/// Returns immediately if there are events already buffered. The run
+/// loop calls this in place of `thread::sleep(POLL_INTERVAL)` so a
+/// focus change wakes the watcher within ~1ms of the compositor
+/// dispatching the activated/title/closed event, instead of waiting
+/// for the next 100ms tick. `timeout` is a hard cap so the debounce
+/// state machine still gets a chance to step even when the compositor
+/// is silent (e.g. the PendingHide → Inactive transition needs to fire
+/// after HIDE_DEBOUNCE with no further events).
+///
+/// Behaviour notes:
+/// - Returns Ok(()) on event, timeout, or signal — all "loop should
+///   make a pass now" cases. The caller already tolerates spurious
+///   wakes (it just runs query_foreground + step again).
+/// - If state init failed earlier (compositor doesn't advertise the
+///   foreign-toplevel manager) this falls back to sleeping for the
+///   timeout, matching the always-None query behaviour.
+pub fn wait_for_event(timeout: Duration) {
+    let Some(m) = state() else {
+        std::thread::sleep(timeout);
+        return;
+    };
+    let Ok(mut s) = m.lock() else {
+        std::thread::sleep(timeout);
+        return;
+    };
+
+    // Drain anything already buffered first. dispatch_pending may also
+    // produce more outgoing requests (e.g. acks); flush after.
+    {
+        let WaylandState { queue, app_data, conn } = &mut *s;
+        let _ = conn.flush();
+        if let Err(e) = queue.dispatch_pending(app_data) {
+            log_dispatch_error(&e);
+        }
+        let _ = conn.flush();
+    }
+
+    // prepare_read returns None if there are still un-dispatched events
+    // in the local queue — in that case there's nothing to wait for,
+    // the caller should loop and process them. We held the lock across
+    // both the dispatch_pending above and the prepare_read here, so no
+    // other thread can race events in between (only this watcher thread
+    // ever touches the Wayland connection).
+    let raw_fd = {
+        let guard = match s.conn.prepare_read() {
+            Some(g) => g,
+            None => return,
+        };
+        guard.connection_fd().as_raw_fd()
+    };
+
+    // Drop the lock before blocking on poll. Holding it while blocking
+    // would deadlock query_foreground (called immediately after this
+    // returns from the run loop) — they both want the same Mutex.
+    drop(s);
+
+    // poll(2) with POLLIN on the Wayland fd. Timeout is in milliseconds;
+    // -1 would block forever, but we always have a finite cap from the
+    // caller. Saturating cast covers the (unrealistic) >24-day case.
+    let ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+    let mut pfd = libc::pollfd {
+        fd: raw_fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // Safety: pfd is a valid &mut, count is 1, timeout is an i32 ms
+    // value. poll's return value is ignored — Ok(()) covers event,
+    // timeout, and EINTR equally.
+    unsafe {
+        libc::poll(&mut pfd as *mut libc::pollfd, 1, ms);
+    }
 }
 
 pub fn query_foreground() -> Option<ForegroundInfo> {
