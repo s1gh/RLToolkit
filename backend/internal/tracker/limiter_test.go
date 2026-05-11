@@ -121,6 +121,30 @@ func TestBreaker_HalfOpenAfterCooldown(t *testing.T) {
 	}
 }
 
+func TestBreaker_HalfOpenReopensOnNextBlock(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	b := newBreaker(3, 5*time.Minute, clk.Now)
+
+	b.RecordBlocked()
+	b.RecordBlocked()
+	b.RecordBlocked()
+
+	// Past cooldown: half-open (the fault counter is intentionally
+	// preserved — a flapping upstream should not get three fresh
+	// strikes).
+	clk.tick(5*time.Minute + time.Second)
+	if b.IsOpen() {
+		t.Fatal("expected half-open after cooldown")
+	}
+
+	// One more block without an intervening success must re-open
+	// immediately because count was preserved.
+	b.RecordBlocked()
+	if !b.IsOpen() {
+		t.Fatal("half-open + 1 block should re-open the breaker")
+	}
+}
+
 func TestBreaker_RemainingOpen(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
 	b := newBreaker(3, 5*time.Minute, clk.Now)

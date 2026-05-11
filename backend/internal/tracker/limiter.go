@@ -95,7 +95,11 @@ func newBreaker(threshold int, cooldown time.Duration, now func() time.Time) *br
 	return &breaker{threshold: threshold, cooldown: cooldown, now: now}
 }
 
-// IsOpen reports whether the breaker should short-circuit calls.
+// IsOpen reports whether the breaker should short-circuit calls. The
+// first call after the cooldown has elapsed has a side effect: it
+// clears the open marker so the breaker transitions to half-open.
+// The fault counter is intentionally not reset; the next RecordBlocked
+// re-opens the breaker immediately.
 func (b *breaker) IsOpen() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
