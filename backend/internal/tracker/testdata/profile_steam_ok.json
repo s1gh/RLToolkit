@@ -1,0 +1,101 @@
+{
+  "data": {
+    "segments": [
+      {
+        "type": "overview",
+        "metadata": {"name": "Lifetime"},
+        "stats": {}
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Casual"},
+        "stats": {
+          "rating": {"value": 1405},
+          "tier": {"metadata": {"name": "Unranked"}},
+          "division": {"metadata": {"name": "Division I"}},
+          "matchesPlayed": {"value": 0}
+        }
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Ranked Duel 1v1"},
+        "stats": {
+          "rating": {"value": 785},
+          "tier": {"metadata": {"name": "Platinum III"}},
+          "division": {"metadata": {"name": "Division III"}},
+          "matchesPlayed": {"value": 0}
+        }
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Ranked Doubles 2v2"},
+        "stats": {
+          "rating": {"value": 1005},
+          "tier": {"metadata": {"name": "Diamond III"}},
+          "division": {"metadata": {"name": "Division II"}},
+          "matchesPlayed": {"value": 0}
+        }
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Ranked Standard 3v3"},
+        "stats": {
+          "rating": {"value": 1067},
+          "tier": {"metadata": {"name": "Diamond III"}},
+          "division": {"metadata": {"name": "Division IV"}},
+          "matchesPlayed": {"value": 10}
+        }
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Hoops"},
+        "stats": {
+          "rating": {"value": 719},
+          "tier": {"metadata": {"name": "Platinum II"}},
+          "division": {"metadata": {"name": "Division IV"}},
+          "matchesPlayed": {"value": 0}
+        }
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Rumble"},
+        "stats": {
+          "rating": {"value": 736},
+          "tier": {"metadata": {"name": "Platinum II"}},
+          "division": {"metadata": {"name": "Division III"}},
+          "matchesPlayed": {"value": 0}
+        }
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Dropshot"},
+        "stats": {
+          "rating": {"value": 765},
+          "tier": {"metadata": {"name": "Diamond I"}},
+          "division": {"metadata": {"name": "Division II"}},
+          "matchesPlayed": {"value": 0}
+        }
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Snowday"},
+        "stats": {
+          "rating": {"value": 657},
+          "tier": {"metadata": {"name": "Platinum I"}},
+          "division": {"metadata": {"name": "Division III"}},
+          "matchesPlayed": {"value": 0}
+        }
+      },
+      {
+        "type": "playlist",
+        "metadata": {"name": "Ranked Tournament 4v4"},
+        "stats": {
+          "rating": {"value": 999},
+          "tier": {"metadata": {"name": "Champion I"}},
+          "division": {"metadata": {"name": "Division I"}},
+          "matchesPlayed": {"value": 5}
+        }
+      }
+    ]
+  }
+}
