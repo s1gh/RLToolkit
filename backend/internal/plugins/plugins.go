@@ -446,6 +446,19 @@ func (pm *Manager) DevPath(name string) string {
 	return pm.dev[name]
 }
 
+// DevNames returns the names of every dev-registered plugin. Order is
+// unspecified; callers that need stability should sort. Used by the
+// plugin catalog to exclude dev plugins from update diffs.
+func (pm *Manager) DevNames() []string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	out := make([]string, 0, len(pm.dev))
+	for name := range pm.dev {
+		out = append(out, name)
+	}
+	return out
+}
+
 // AttachBroadcaster wires a publisher so dev-reload notifications
 // reach SSE subscribers. Optional — without it, NotifyReload degrades
 // to "log + invalidate cache".
