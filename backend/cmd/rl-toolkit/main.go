@@ -32,6 +32,7 @@ import (
 	"rl-toolkit/backend/internal/replaywatch"
 	"rl-toolkit/backend/internal/roster"
 	"rl-toolkit/backend/internal/scaffold"
+	"rl-toolkit/backend/internal/tracker"
 	"rl-toolkit/backend/internal/server"
 	"rl-toolkit/backend/internal/source"
 	"rl-toolkit/backend/internal/state"
@@ -258,6 +259,11 @@ func runServe() {
 		}
 	}
 
+	trk, err := tracker.New(tracker.Options{DataDir: cfg.DataDir})
+	if err != nil {
+		log.Fatalf("[tracker] %v", err)
+	}
+
 	srv := server.New(server.Deps{
 		Bus:           eventBus,
 		Store:         store,
@@ -272,6 +278,7 @@ func runServe() {
 		Identity:      idStore,
 		Catalog:       pluginCatalog,
 		ReplayWatcher: rwWatcher,
+		Tracker:       trk,
 		PluginDir:     cfg.PluginDir,
 	})
 	go src.Run(ctx)
