@@ -2,6 +2,7 @@ package install
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -214,5 +215,34 @@ func TestInstallFromURL_HTTPError(t *testing.T) {
 	zero := strings.Repeat("0", 64)
 	if _, err := InstallFromURL(context.Background(), srv.URL, zero, t.TempDir()); err == nil {
 		t.Fatal("expected HTTP error")
+	}
+}
+
+func TestInstallFromURL_NonHexExpectedSHA(t *testing.T) {
+	notHex := strings.Repeat("Z", 64)
+	_, err := InstallFromURL(context.Background(), "https://example.com/x.rltp", notHex, t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for non-hex sha256")
+	}
+	if !strings.Contains(err.Error(), "hex") {
+		t.Fatalf("expected hex error, got %v", err)
+	}
+}
+
+func TestInstallFromURL_BodyTooLarge(t *testing.T) {
+	// Serve MaxArchiveBytes+1 bytes so the size cap fires before the
+	// hash comparison.
+	big := bytes.Repeat([]byte("a"), MaxArchiveBytes+1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(big)
+	}))
+	defer srv.Close()
+	zero := strings.Repeat("0", 64)
+	_, err := InstallFromURL(context.Background(), srv.URL, zero, t.TempDir())
+	if err == nil {
+		t.Fatal("expected over-limit error")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected 'exceeds' error, got %v", err)
 	}
 }

@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 type manifest struct {
@@ -150,23 +149,38 @@ func writeZipEntry(f *zip.File, outPath string) error {
 // causing a runaway download.
 const MaxArchiveBytes = 50 << 20
 
+// downloadClient is shared across InstallFromURL calls so connections
+// can be reused for back-to-back "Update all" downloads. No Timeout is
+// set: cancellation is driven by the ctx passed in by callers.
+var downloadClient = &http.Client{
+	// Disable redirects: the catalog URL is the trust anchor; a 30x
+	// chain could lead anywhere. If a real catalog needs redirects in
+	// the future, validate the redirect target host explicitly.
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 // InstallFromURL downloads a .rltp from url, verifies SHA-256 against
 // expectedSHA256 (lowercase hex, 64 chars), and unpacks it into
 // pluginsDir/<name>/. Returns the unpacked plugin name on success.
 //
 // The download streams to a temp file so the whole archive never
 // lives in memory. Hash mismatches abort before unpacking; the temp
-// file is removed in either case.
+// file is removed in either case. The caller's ctx governs timeouts;
+// no per-call client timeout is applied here.
 func InstallFromURL(ctx context.Context, url, expectedSHA256, pluginsDir string) (string, error) {
 	if len(expectedSHA256) != 64 {
 		return "", fmt.Errorf("install: expected sha256 must be 64 hex chars")
+	}
+	if _, err := hex.DecodeString(expectedSHA256); err != nil {
+		return "", fmt.Errorf("install: expected sha256 must be hex: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("install: build request: %w", err)
 	}
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(req)
+	resp, err := downloadClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("install: download: %w", err)
 	}
