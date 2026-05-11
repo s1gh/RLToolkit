@@ -67,5 +67,24 @@ func TestRefreshCatalogEndpointRoundtrip(t *testing.T) {
 	if _, ok := cat.Find("demos2"); !ok {
 		t.Fatal("expected demos2 in catalog after refresh")
 	}
-	_ = strings.TrimSpace // keep import used; can be removed once another use lands
+}
+
+func TestInstallUpdateUnknownPlugin(t *testing.T) {
+	pluginsDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	cat := plugincatalog.New("http://127.0.0.1:0", "1.0.0", pm)
+	s := New(Deps{Plugins: pm, Catalog: cat, PluginDir: pluginsDir})
+
+	ts := httptest.NewServer(s.Routes())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/plugins/install-update",
+		"application/json", strings.NewReader(`{"name":"nope"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
 }
