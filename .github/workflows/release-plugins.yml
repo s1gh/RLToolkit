@@ -62,11 +62,20 @@ jobs:
           ls -la dist/
 
       - name: Ensure plugins-latest release exists
+        # Created (and re-asserted) with --latest=false so this rolling
+        # release never claims GitHub's /releases/latest/ alias. The app
+        # updater fetches latest.json via that alias from the v<X.Y.Z>
+        # app release; if plugins-latest steals the alias the updater
+        # gets a 404 and silently logs "Could not fetch a valid release
+        # JSON from the remote".
         run: |
-          gh release view plugins-latest >/dev/null 2>&1 || \
+          if ! gh release view plugins-latest >/dev/null 2>&1; then
             gh release create plugins-latest \
               --title "Latest plugin catalog" \
-              --notes "Rolling release of packaged plugins. Updated by the release-plugins workflow."
+              --notes "Rolling release of packaged plugins. Updated by the release-plugins workflow." \
+              --latest=false
+          fi
+          gh release edit plugins-latest --latest=false
 
       - name: Generate plugins.json
         env:
