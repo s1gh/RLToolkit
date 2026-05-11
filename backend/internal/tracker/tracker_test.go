@@ -358,3 +358,56 @@ func TestLookup_CacheHitBypassesOpenBreaker(t *testing.T) {
 		t.Error("expected cached hit")
 	}
 }
+
+func TestLookup_404DoesNotTripBreaker(t *testing.T) {
+	d := &fakeDoer{status: 404}
+	c := newTestClient(d)
+	// Three calls is enough: the breaker threshold is 3. If 404
+	// incremented the counter, the third call would open it. We stay
+	// at three because the limiter burst is three; a fourth call would
+	// pay a real-time second waiting for refill.
+	for i := 0; i < 3; i++ {
+		_, _ = c.Lookup(context.Background(), "steam", "1")
+	}
+	if c.breakerOpenForTest() {
+		t.Fatal("404s should not increment the breaker")
+	}
+}
+
+func TestLookup_500DoesNotTripBreaker(t *testing.T) {
+	d := &fakeDoer{status: 500}
+	c := newTestClient(d)
+	for i := 0; i < 3; i++ {
+		_, _ = c.Lookup(context.Background(), "steam", "1")
+	}
+	if c.breakerOpenForTest() {
+		t.Fatal("5xx errors should not increment the breaker")
+	}
+}
+
+func TestLookup_ReturnedPlaylistsMapIsCallerSafe(t *testing.T) {
+	// Regression guard: Lookup must return a deep copy of the cached
+	// Result so a caller mutating Playlists does not poison the cache.
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	d := &fakeDoer{status: 200, body: mustReadFixture(t)}
+	c := newTestClientWithClock(d, clk.Now)
+
+	r1, err := c.Lookup(context.Background(), "steam", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Mutate the returned map.
+	r1.Playlists["3v3"] = Rating{MMR: -1, Tier: "POISONED"}
+
+	clk.tick(30 * time.Second)
+	r2, err := c.Lookup(context.Background(), "steam", "1") // cache hit
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r2.Cached {
+		t.Fatal("expected cache hit")
+	}
+	if r2.Playlists["3v3"].MMR == -1 || r2.Playlists["3v3"].Tier == "POISONED" {
+		t.Fatalf("cache poisoned by caller mutation: %+v", r2.Playlists["3v3"])
+	}
+}

@@ -40,6 +40,7 @@ func newSurfDoer(_ time.Duration) doer {
 // Do performs a GET against url using surf with Chrome impersonation
 // and returns (status, body bytes, err). No extra headers are set;
 // Impersonate().Chrome() already produces a full Chrome header set.
+// When err != nil, status and body are not meaningful.
 func (s *surfDoer) Do(ctx context.Context, url string) (int, []byte, error) {
 	resp := s.client.Get(g.String(url)).WithContext(ctx).Do()
 	if resp.IsErr() {
@@ -48,7 +49,7 @@ func (s *surfDoer) Do(ctx context.Context, url string) (int, []byte, error) {
 	r := resp.Ok()
 	bodyRes := r.Body.Bytes()
 	if bodyRes.IsErr() {
-		return int(r.StatusCode), nil, bodyRes.Err()
+		return 0, nil, bodyRes.Err()
 	}
 	return int(r.StatusCode), []byte(bodyRes.Ok()), nil
 }

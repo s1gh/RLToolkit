@@ -134,8 +134,8 @@ func (b *breaker) RecordSuccess() {
 	b.openedAt = time.Time{}
 }
 
-// RemainingOpen returns the duration until the breaker re-opens, or 0
-// if it's already closed.
+// RemainingOpen returns the duration until the breaker half-opens
+// (cooldown elapses), or 0 if it's already closed or half-open.
 func (b *breaker) RemainingOpen() time.Duration {
 	b.mu.Lock()
 	defer b.mu.Unlock()
