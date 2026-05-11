@@ -22,7 +22,7 @@ func TestResolveSlug(t *testing.T) {
 		{"nswitch identity", "NSwitch|name|0", "switch", "name", nil},
 		{"switch identity", "Switch|name|0", "switch", "name", nil},
 		{"already-slug steam", "steam", "", "", ErrUnsupportedPlatform}, // no id present
-		{"epic identity", "Epic|name|0", "", "", ErrUnsupportedPlatform},
+		{"epic identity", "Epic|Jhzer|0", "epic", "Jhzer", nil},
 		{"empty input", "", "", "", ErrUnsupportedPlatform},
 		{"garbage", "garbage", "", "", ErrUnsupportedPlatform},
 		{"missing id", "Steam||0", "", "", ErrUnsupportedPlatform},
@@ -42,12 +42,12 @@ func TestResolveSlug(t *testing.T) {
 }
 
 func TestValidExplicitSlug(t *testing.T) {
-	for _, ok := range []string{"steam", "psn", "xbl", "switch", "STEAM", "Psn"} {
+	for _, ok := range []string{"steam", "psn", "xbl", "switch", "epic", "STEAM", "Psn", "EPIC"} {
 		if !ValidExplicitSlug(ok) {
 			t.Errorf("%q should be valid", ok)
 		}
 	}
-	for _, bad := range []string{"epic", "foo", "", "  steam  "} {
+	for _, bad := range []string{"foo", "", "  steam  "} {
 		if ValidExplicitSlug(bad) {
 			t.Errorf("%q should be invalid", bad)
 		}

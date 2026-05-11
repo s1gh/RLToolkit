@@ -122,8 +122,33 @@ func TestMMRSelf_SteamIdentity(t *testing.T) {
 }
 
 func TestMMRSelf_EpicIdentity(t *testing.T) {
+	// Epic is keyed by display name on tracker.gg, but the URL shape
+	// is the same as other platforms; the self route serves it like
+	// any other identity.
 	upstream := upstreamFixture(t, 200, "../tracker/testdata/profile_steam_ok.json")
-	srv, done := newMMRTestServer(t, upstream, "Epic|some-display-name|0")
+	srv, done := newMMRTestServer(t, upstream, "Epic|Jhzer|0")
+	defer done()
+	res, err := http.Get(srv.URL + "/api/mmr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 200 {
+		t.Fatalf("status: got %d want 200", res.StatusCode)
+	}
+	var body struct {
+		Platform string `json:"platform"`
+		PlayerID string `json:"playerId"`
+	}
+	_ = json.NewDecoder(res.Body).Decode(&body)
+	if body.Platform != "epic" || body.PlayerID != "Jhzer" {
+		t.Fatalf("identity wrong: %+v", body)
+	}
+}
+
+func TestMMRSelf_UnknownPlatformIdentity(t *testing.T) {
+	// An identity prefix we don't know how to map should map to a 501.
+	upstream := upstreamFixture(t, 200, "../tracker/testdata/profile_steam_ok.json")
+	srv, done := newMMRTestServer(t, upstream, "Stadia|whoever|0")
 	defer done()
 	res, err := http.Get(srv.URL + "/api/mmr")
 	if err != nil {

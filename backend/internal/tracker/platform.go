@@ -8,13 +8,15 @@ import (
 )
 
 // ErrUnsupportedPlatform indicates the input identity is not one of the
-// platforms we know how to look up on tracker.gg (Epic, in particular,
-// is keyed by display name and not supported in v1).
+// platforms we know how to look up on tracker.gg.
 var ErrUnsupportedPlatform = errors.New("tracker: unsupported platform")
 
 // platformPrefixToSlug maps the leading segment of an EnrichedPlayer.ID
 // (e.g. "Steam|76561…|0") to a tracker.gg URL slug. Keys are matched
-// case-insensitively.
+// case-insensitively. Epic is keyed by display name on tracker.gg
+// rather than account ID, but the second segment of an Epic identity
+// already carries the display name so the mapping is straight
+// passthrough.
 var platformPrefixToSlug = map[string]string{
 	"steam":   "steam",
 	"sony":    "psn",
@@ -24,11 +26,12 @@ var platformPrefixToSlug = map[string]string{
 	"xbox":    "xbl",
 	"nswitch": "switch",
 	"switch":  "switch",
+	"epic":    "epic",
 }
 
 // ResolveSlug parses an "Platform|UserId|SubId" identity string into a
 // tracker.gg slug + the user id segment. Returns ErrUnsupportedPlatform
-// for unknown prefixes (notably Epic) or malformed input.
+// for unknown prefixes or malformed input.
 func ResolveSlug(input string) (slug, id string, err error) {
 	if input == "" {
 		return "", "", ErrUnsupportedPlatform
@@ -48,7 +51,7 @@ func ResolveSlug(input string) (slug, id string, err error) {
 // explicit /api/mmr/{platform}/{id} route, comparing case-insensitively.
 func ValidExplicitSlug(s string) bool {
 	switch strings.ToLower(s) {
-	case "steam", "psn", "xbl", "switch":
+	case "steam", "psn", "xbl", "switch", "epic":
 		return true
 	}
 	return false
