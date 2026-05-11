@@ -13,13 +13,13 @@ var ErrRateLimited = errors.New("tracker: rate limited")
 // limiter is a token bucket with a per-call wait budget. The clock is
 // injectable so tests don't sleep.
 type limiter struct {
-	mu     sync.Mutex
-	rate   float64       // tokens per second
-	cap    float64       // burst capacity
-	budget time.Duration // max wait per Acquire
-	now    func() time.Time
-	tokens float64
-	last   time.Time
+	mu       sync.Mutex
+	rate     float64       // tokens per second
+	capacity float64       // burst capacity
+	budget   time.Duration // max wait per Acquire
+	now      func() time.Time
+	tokens   float64
+	last     time.Time
 }
 
 func newLimiter(rate float64, burst int, budget time.Duration, now func() time.Time) *limiter {
@@ -27,12 +27,12 @@ func newLimiter(rate float64, burst int, budget time.Duration, now func() time.T
 		now = time.Now
 	}
 	return &limiter{
-		rate:   rate,
-		cap:    float64(burst),
-		budget: budget,
-		now:    now,
-		tokens: float64(burst),
-		last:   now(),
+		rate:     rate,
+		capacity: float64(burst),
+		budget:   budget,
+		now:      now,
+		tokens:   float64(burst),
+		last:     now(),
 	}
 }
 
@@ -46,8 +46,8 @@ func (l *limiter) Acquire(ctx context.Context) error {
 		elapsed := now.Sub(l.last).Seconds()
 		if elapsed > 0 {
 			l.tokens += elapsed * l.rate
-			if l.tokens > l.cap {
-				l.tokens = l.cap
+			if l.tokens > l.capacity {
+				l.tokens = l.capacity
 			}
 			l.last = now
 		}

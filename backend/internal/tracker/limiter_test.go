@@ -32,13 +32,19 @@ func TestLimiter_FourthBlocksUntilRefill(t *testing.T) {
 		_ = l.Acquire(context.Background())
 	}
 
+	// Drained: with no clock advance the 4th call has no token and a
+	// 1s wait ahead of it. A pre-cancelled context must surface as
+	// ctx.Err(), not ErrRateLimited (the 1s wait is well within the
+	// 5s budget).
 	clk.tick(0)
 	tightCtx, cancel := context.WithTimeout(context.Background(), 0)
 	cancel()
-	if err := l.Acquire(tightCtx); err == nil {
-		t.Fatal("expected error when no token and ctx already done")
+	err := l.Acquire(tightCtx)
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.{DeadlineExceeded,Canceled}, got %v", err)
 	}
 
+	// Advance one second so a token refills, then Acquire must succeed.
 	clk.tick(1 * time.Second)
 	if err := l.Acquire(context.Background()); err != nil {
 		t.Fatalf("after 1s refill: %v", err)
