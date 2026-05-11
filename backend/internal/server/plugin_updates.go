@@ -75,7 +75,7 @@ func (s *Server) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.deps.Catalog == nil || s.deps.Plugins == nil {
-		writeJSONStatus(w, http.StatusFailedDependency,
+		writeJSONStatus(w, http.StatusInternalServerError,
 			map[string]string{"error": "catalog or plugins not configured"})
 		return
 	}
@@ -99,11 +99,20 @@ func (s *Server) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.deps.Plugins.NotifyUpdated(body.Name)
-	resp := map[string]string{"name": body.Name}
-	if m := s.deps.Plugins.Get(body.Name); m != nil {
-		resp["installed_version"] = m.Version
+	m := s.deps.Plugins.Get(body.Name)
+	if m == nil {
+		// Install reported success but the freshly-unpacked manifest
+		// can't be read back. The dashboard relies on installed_version
+		// to swap the card label, so this is a corrupt-plugin signal,
+		// not a partial success.
+		writeJSONStatus(w, http.StatusInternalServerError,
+			map[string]string{"error": "installed but manifest unreadable"})
+		return
 	}
-	writeJSON(w, resp)
+	writeJSON(w, map[string]string{
+		"name":              body.Name,
+		"installed_version": m.Version,
+	})
 }
 
 // writeJSONStatus is a companion to writeJSON for non-200 responses.
