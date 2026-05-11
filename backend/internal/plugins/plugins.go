@@ -459,6 +459,30 @@ func (pm *Manager) DevNames() []string {
 	return out
 }
 
+// InstalledVersions returns name -> version for every installed
+// plugin, excluding dev-registered ones. Used by the plugin catalog
+// to compute updates available.
+func (pm *Manager) InstalledVersions() map[string]string {
+	list := pm.List()
+	pm.mu.Lock()
+	devSet := make(map[string]struct{}, len(pm.dev))
+	for n := range pm.dev {
+		devSet[n] = struct{}{}
+	}
+	pm.mu.Unlock()
+	out := make(map[string]string, len(list))
+	for _, m := range list {
+		if m == nil {
+			continue
+		}
+		if _, isDev := devSet[m.Name]; isDev {
+			continue
+		}
+		out[m.Name] = m.Version
+	}
+	return out
+}
+
 // AttachBroadcaster wires a publisher so dev-reload notifications
 // reach SSE subscribers. Optional — without it, NotifyReload degrades
 // to "log + invalidate cache".
