@@ -62,3 +62,79 @@ func TestLimiter_BudgetExceededReturnsErrRateLimited(t *testing.T) {
 		t.Fatalf("want ErrRateLimited, got %v", err)
 	}
 }
+
+func TestBreaker_OpensAfterThreeBlocks(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	b := newBreaker(3, 5*time.Minute, clk.Now)
+
+	b.RecordBlocked()
+	b.RecordBlocked()
+	if b.IsOpen() {
+		t.Fatal("breaker opened after 2 blocks")
+	}
+
+	b.RecordBlocked()
+	if !b.IsOpen() {
+		t.Fatal("breaker did not open after 3 blocks")
+	}
+}
+
+func TestBreaker_SuccessResetsCounter(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	b := newBreaker(3, 5*time.Minute, clk.Now)
+
+	b.RecordBlocked()
+	b.RecordBlocked()
+	b.RecordSuccess()
+	b.RecordBlocked()
+	b.RecordBlocked()
+	if b.IsOpen() {
+		t.Fatal("two blocks after a success should not open the breaker")
+	}
+}
+
+func TestBreaker_HalfOpenAfterCooldown(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	b := newBreaker(3, 5*time.Minute, clk.Now)
+
+	b.RecordBlocked()
+	b.RecordBlocked()
+	b.RecordBlocked()
+	if !b.IsOpen() {
+		t.Fatal("breaker should be open")
+	}
+
+	clk.tick(4*time.Minute + 59*time.Second)
+	if !b.IsOpen() {
+		t.Fatal("breaker should still be open at 4m59s")
+	}
+
+	clk.tick(2 * time.Second)
+	if b.IsOpen() {
+		t.Fatal("breaker should be half-open after 5 min")
+	}
+	b.RecordSuccess()
+	b.RecordBlocked()
+	b.RecordBlocked()
+	if b.IsOpen() {
+		t.Fatal("breaker tripped on 2 blocks after success close")
+	}
+}
+
+func TestBreaker_RemainingOpen(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	b := newBreaker(3, 5*time.Minute, clk.Now)
+
+	if got := b.RemainingOpen(); got != 0 {
+		t.Fatalf("closed breaker RemainingOpen: got %s want 0", got)
+	}
+	b.RecordBlocked()
+	b.RecordBlocked()
+	b.RecordBlocked()
+	clk.tick(1 * time.Minute)
+	got := b.RemainingOpen()
+	want := 4 * time.Minute
+	if got != want {
+		t.Fatalf("RemainingOpen: got %s want %s", got, want)
+	}
+}

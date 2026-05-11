@@ -73,3 +73,74 @@ func (l *limiter) Acquire(ctx context.Context) error {
 		}
 	}
 }
+
+// breaker is a consecutive-failure circuit breaker. Calls to
+// RecordBlocked count toward the threshold; RecordSuccess resets the
+// counter and closes the breaker. When open, IsOpen returns true until
+// `cooldown` elapses, at which point it half-opens (IsOpen returns
+// false but the counter is unchanged — the next success closes it).
+type breaker struct {
+	mu        sync.Mutex
+	threshold int
+	cooldown  time.Duration
+	now       func() time.Time
+	count     int
+	openedAt  time.Time // zero when closed
+}
+
+func newBreaker(threshold int, cooldown time.Duration, now func() time.Time) *breaker {
+	if now == nil {
+		now = time.Now
+	}
+	return &breaker{threshold: threshold, cooldown: cooldown, now: now}
+}
+
+// IsOpen reports whether the breaker should short-circuit calls.
+func (b *breaker) IsOpen() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.openedAt.IsZero() {
+		return false
+	}
+	if b.now().Sub(b.openedAt) >= b.cooldown {
+		// Half-open: stop short-circuiting, but leave the counter alone
+		// so a fresh block re-opens immediately.
+		b.openedAt = time.Time{}
+		return false
+	}
+	return true
+}
+
+// RecordBlocked increments the failure counter. If we hit the
+// threshold, the breaker opens for `cooldown`.
+func (b *breaker) RecordBlocked() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.count++
+	if b.count >= b.threshold {
+		b.openedAt = b.now()
+	}
+}
+
+// RecordSuccess resets the counter and closes the breaker.
+func (b *breaker) RecordSuccess() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.count = 0
+	b.openedAt = time.Time{}
+}
+
+// RemainingOpen returns the duration until the breaker re-opens, or 0
+// if it's already closed.
+func (b *breaker) RemainingOpen() time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.openedAt.IsZero() {
+		return 0
+	}
+	left := b.cooldown - b.now().Sub(b.openedAt)
+	if left < 0 {
+		return 0
+	}
+	return left
+}
