@@ -152,14 +152,13 @@ const MaxArchiveBytes = 50 << 20
 // downloadClient is shared across InstallFromURL calls so connections
 // can be reused for back-to-back "Update all" downloads. No Timeout is
 // set: cancellation is driven by the ctx passed in by callers.
-var downloadClient = &http.Client{
-	// Disable redirects: the catalog URL is the trust anchor; a 30x
-	// chain could lead anywhere. If a real catalog needs redirects in
-	// the future, validate the redirect target host explicitly.
-	CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	},
-}
+//
+// Redirects are followed (Go default: up to 10). GitHub Releases always
+// 302 from github.com to objects.githubusercontent.com, so refusing
+// redirects would make the catalog URLs unusable. Safety is not the
+// URL chain but the catalog-provided SHA-256: a redirect to a different
+// blob fails the hash check before the archive is unpacked.
+var downloadClient = &http.Client{}
 
 // InstallFromURL downloads a .rltp from url, verifies SHA-256 against
 // expectedSHA256 (lowercase hex, 64 chars), and unpacks it into
