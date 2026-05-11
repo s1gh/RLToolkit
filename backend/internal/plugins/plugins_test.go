@@ -627,6 +627,27 @@ func TestManagerNotifyUpdated(t *testing.T) {
 	}
 }
 
+func TestManagerInstalledVersions(t *testing.T) {
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "foo")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"),
+		[]byte(`{"name":"foo","version":"1.2.3","overlay":{"file":"o.html","width":10,"height":10}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "o.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pm := New(dir)
+	got := pm.InstalledVersions()
+	if v, ok := got["foo"]; !ok || v != "1.2.3" {
+		t.Fatalf("InstalledVersions() = %v, want foo=1.2.3", got)
+	}
+}
+
 func TestManagerDevNames(t *testing.T) {
 	dir := t.TempDir()
 	pm := New(dir)
