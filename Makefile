@@ -4,6 +4,13 @@ LAUNCHER    := RLT-Launcher
 
 GO_FLAGS    := -trimpath
 LD_FLAGS    := -s -w
+# Embed the build version into rl-toolkit so the plugin catalog can
+# enforce min_launcher_version. Pre-release / dev builds compile with
+# whatever VERSION is set in the environment; release targets pass it
+# explicitly (see make release-linux / release-windows).
+ifneq ($(VERSION),)
+LD_FLAGS    += -X main.Version=$(VERSION)
+endif
 
 BIOME       := ./node_modules/.bin/biome
 
