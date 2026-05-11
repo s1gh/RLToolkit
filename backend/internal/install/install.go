@@ -5,13 +5,18 @@ package install
 
 import (
 	"archive/zip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type manifest struct {
@@ -138,4 +143,61 @@ func writeZipEntry(f *zip.File, outPath string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// MaxArchiveBytes caps the .rltp download size. 50 MiB is generous
+// for HTML/JS plugins and prevents a malformed catalog entry from
+// causing a runaway download.
+const MaxArchiveBytes = 50 << 20
+
+// InstallFromURL downloads a .rltp from url, verifies SHA-256 against
+// expectedSHA256 (lowercase hex, 64 chars), and unpacks it into
+// pluginsDir/<name>/. Returns the unpacked plugin name on success.
+//
+// The download streams to a temp file so the whole archive never
+// lives in memory. Hash mismatches abort before unpacking; the temp
+// file is removed in either case.
+func InstallFromURL(ctx context.Context, url, expectedSHA256, pluginsDir string) (string, error) {
+	if len(expectedSHA256) != 64 {
+		return "", fmt.Errorf("install: expected sha256 must be 64 hex chars")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("install: build request: %w", err)
+	}
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("install: download: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("install: HTTP %d", resp.StatusCode)
+	}
+
+	tmp, err := os.CreateTemp("", "rltp-*.zip")
+	if err != nil {
+		return "", fmt.Errorf("install: temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	h := sha256.New()
+	limited := io.LimitReader(resp.Body, MaxArchiveBytes+1)
+	n, err := io.Copy(io.MultiWriter(tmp, h), limited)
+	closeErr := tmp.Close()
+	if err != nil {
+		return "", fmt.Errorf("install: write temp: %w", err)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("install: close temp: %w", closeErr)
+	}
+	if n > MaxArchiveBytes {
+		return "", fmt.Errorf("install: archive exceeds %d bytes", MaxArchiveBytes)
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, expectedSHA256) {
+		return "", fmt.Errorf("install: sha256 mismatch (want %s, got %s)", expectedSHA256, got)
+	}
+	return Install(tmpPath, pluginsDir)
 }

@@ -2,7 +2,12 @@ package install
 
 import (
 	"archive/zip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,5 +144,75 @@ func TestUninstall_RejectsPathTraversal(t *testing.T) {
 	pluginsDir := t.TempDir()
 	if err := Uninstall("../etc", pluginsDir); err == nil {
 		t.Fatal("Uninstall accepted path-traversal name; want error")
+	}
+}
+
+func TestInstallFromURL_HappyPath(t *testing.T) {
+	pluginsDir := t.TempDir()
+	rltp := filepath.Join(t.TempDir(), "foo.rltp")
+	writeRltp(t, rltp, map[string]string{
+		"manifest.json": `{"name":"foo","version":"1.0.0","overlay":{"file":"o.html"}}`,
+		"o.html":        "<html></html>",
+	})
+	archiveBytes, err := os.ReadFile(rltp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(archiveBytes)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archiveBytes)
+	}))
+	defer srv.Close()
+
+	name, err := InstallFromURL(context.Background(), srv.URL, hex.EncodeToString(sum[:]), pluginsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "foo" {
+		t.Fatalf("name = %q, want foo", name)
+	}
+	if _, err := os.Stat(filepath.Join(pluginsDir, "foo", "manifest.json")); err != nil {
+		t.Fatalf("manifest missing: %v", err)
+	}
+}
+
+func TestInstallFromURL_HashMismatch(t *testing.T) {
+	pluginsDir := t.TempDir()
+	rltp := filepath.Join(t.TempDir(), "foo.rltp")
+	writeRltp(t, rltp, map[string]string{
+		"manifest.json": `{"name":"foo","version":"1.0.0","overlay":{"file":"o.html"}}`,
+		"o.html":        "<html></html>",
+	})
+	archiveBytes, _ := os.ReadFile(rltp)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archiveBytes)
+	}))
+	defer srv.Close()
+
+	zero := strings.Repeat("0", 64)
+	if _, err := InstallFromURL(context.Background(), srv.URL, zero, pluginsDir); err == nil {
+		t.Fatal("expected hash mismatch error")
+	}
+	if _, err := os.Stat(filepath.Join(pluginsDir, "foo")); !os.IsNotExist(err) {
+		t.Fatalf("plugin folder should not exist after hash mismatch: %v", err)
+	}
+}
+
+func TestInstallFromURL_InvalidExpectedSHA(t *testing.T) {
+	_, err := InstallFromURL(context.Background(), "https://example.com/x.rltp", "tooshort", t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for short sha256")
+	}
+}
+
+func TestInstallFromURL_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+	zero := strings.Repeat("0", 64)
+	if _, err := InstallFromURL(context.Background(), srv.URL, zero, t.TempDir()); err == nil {
+		t.Fatal("expected HTTP error")
 	}
 }
