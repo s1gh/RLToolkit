@@ -41,6 +41,7 @@ overlays on top of the game.
   - [Identity & boot signals](#identity--boot-signals)
 - [Phase gating](#phase-gating)
 - [Settings panel](#settings-panel)
+- [Player MMR (`/api/mmr`)](#player-mmr-apimmr)
 - [Best practices](#best-practices)
 
 ---
@@ -1630,6 +1631,88 @@ The settings view shares the SDK with the overlay and dashboard, so
 the moment you call `RLT.store.set(...)`, those views' `RLT.store.onChange`
 handlers fire and they re-read fresh config. See [Per-plugin
 storage](#per-plugin-storage-rltstore) for the `onChange` API.
+
+---
+
+## Player MMR (`/api/mmr`)
+
+Plugins can fetch live Rocket League MMR for the current player or any
+other player by platform + id. Data comes from tracker.gg. The backend
+caches successful lookups in memory and on disk for 5 minutes per
+`(platform, id)`, so repeated calls inside the window do not hit
+tracker.gg again.
+
+### Endpoints
+
+- `GET /api/mmr` — returns MMR for the current `RLT.me`. Requires
+  identity to be set on the dashboard.
+- `GET /api/mmr/{platform}/{id}` — explicit lookup. `platform` is one
+  of `steam`, `psn`, `xbl`, `switch` (case-insensitive). Epic Games is
+  not supported; tracker.gg keys those by display name.
+
+### Response (200)
+
+```json
+{
+  "platform": "steam",
+  "playerId": "76561197960287930",
+  "playlists": {
+    "1v1":    {"mmr": 785,  "tier": "Platinum III", "division": "Division III", "matches": 0},
+    "2v2":    {"mmr": 1005, "tier": "Diamond III",  "division": "Division II",  "matches": 0},
+    "3v3":    {"mmr": 1067, "tier": "Diamond III",  "division": "Division IV",  "matches": 10},
+    "casual": {"mmr": 1405, "tier": "Unranked",     "division": "Division I",   "matches": 0}
+  },
+  "fetchedAt": "2026-05-09T17:18:00Z",
+  "cached": false,
+  "age": 0
+}
+```
+
+Only the three core ranked playlists and Casual are returned. The
+extra modes (Hoops, Rumble, Dropshot, Snowday) and any unknown segment
+are dropped; plugins that need them should fetch tracker.gg directly
+through `/api/plugin-fetch/`.
+
+`cached` and `age` reflect cache state. A fresh upstream fetch returns
+`cached: false, age: 0`. A repeat call within the 5-minute window
+returns `cached: true` with `age` set to the number of seconds since
+`fetchedAt`, so plugins can display a "stale by N seconds" indicator
+without doing the math themselves.
+
+### Errors
+
+| Status | When | Body |
+|---|---|---|
+| 400 | Bad path or unsupported `platform` on the explicit route | `{"error":"bad request"}` |
+| 404 | Player has no tracker.gg profile | `{"error":"player not found","platform":"…","playerId":"…"}` |
+| 405 | Method not GET | `{"error":"method not allowed"}` |
+| 409 | `/api/mmr` called with no identity set | `{"error":"identity not set"}` |
+| 501 | Self route, identity uses an unsupported platform (Epic) | `{"error":"platform not supported","platform":"epic"}` |
+| 502 | Cloudflare blocked us, or upstream returned an unexpected status | `{"error":"upstream blocked","upstreamStatus":403}` or `{"error":"upstream error"}` |
+| 503 + `Retry-After` | Local rate limit or breaker is open | `{"error":"rate limited"}` or `{"error":"upstream temporarily unavailable"}` |
+
+### Backend safety
+
+- Successful lookups are cached for 5 minutes per `(platform, id)`, in
+  memory and at `<dataDir>/tracker-mmr-cache.json`. The cache survives
+  launcher restarts.
+- Outbound calls are rate-limited to 1 request per second (burst of
+  3). Cache hits bypass the rate limiter entirely.
+- After 3 consecutive Cloudflare blocks (403/429), a circuit breaker
+  opens for 5 minutes. Calls during that window return 503 immediately
+  with a `Retry-After` header. Cache hits bypass the breaker too.
+- The backend does not retry. Plugins decide their own retry policy.
+- There is no force-refresh or cache-bypass parameter.
+
+### Example (from a plugin)
+
+```js
+const res = await fetch('/api/mmr');
+if (res.ok) {
+  const { playlists, cached, age } = await res.json();
+  console.log('2v2 MMR:', playlists['2v2']?.mmr, cached ? `(cached ${age}s ago)` : '(live)');
+}
+```
 
 ---
 
