@@ -610,6 +610,8 @@ func TestManagerNotifyUpdated(t *testing.T) {
 	}
 	pm.NotifyUpdated("foo")
 
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
 	if len(stub.events) != 1 || stub.events[0].Name != "_PluginUpdated" {
 		t.Fatalf("expected one _PluginUpdated event, got %+v", stub.events)
 	}
