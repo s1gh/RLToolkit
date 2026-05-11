@@ -814,8 +814,71 @@ window.addEventListener("message", event => {
   invoke("open_external_url", { url }).catch(() => {});
 });
 
-setInterval(refreshStatus, 2000);
+// Adaptive status polling. The launcher doesn't need 2s cadence in
+// steady state — once we've seen "connected" we slow to 10s, and only
+// tighten back to 2s when something goes wrong (disconnect, "starting"
+// transitions). The whole timer also pauses while the window is hidden
+// (minimized / on another workspace) so the launcher doesn't compete
+// with Rocket League for the same GPU/CPU when the user can't see it
+// anyway.
+const POLL_FAST_MS = 2000;
+const POLL_SLOW_MS = 10000;
+let pollTimer = null;
+let pollCurrentMs = POLL_FAST_MS;
+
+function desiredPollInterval() {
+  // Slow path only when everything's nominal AND the dashboard is up.
+  // Anything else (splash, starting, disconnected, attached races)
+  // wants the faster cadence so the UI reacts promptly.
+  const status = conn.dataset.status;
+  if (splashState === "dashboard" && status === "connected") return POLL_SLOW_MS;
+  return POLL_FAST_MS;
+}
+
+function schedulePoll() {
+  if (document.hidden) return;
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  pollCurrentMs = desiredPollInterval();
+  pollTimer = setInterval(() => {
+    refreshStatus().then(() => {
+      // Re-evaluate cadence after each tick; reschedule if the
+      // desired interval changed.
+      const want = desiredPollInterval();
+      if (want !== pollCurrentMs) schedulePoll();
+    });
+  }, pollCurrentMs);
+}
+
+function stopPoll() {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    // Window minimized / hidden — pause the status poll and the SSE
+    // stream. Both wake back up on visible. refreshStatus already
+    // returns silently on Tauri errors, so any in-flight tick that
+    // finishes after we stop is harmless.
+    stopPoll();
+    closeSse();
+  } else {
+    // Resume. Run an immediate refresh so the UI catches up to any
+    // backend state change that happened while we were hidden, then
+    // resume the timer. Re-open SSE if we're back on the splash.
+    refreshStatus();
+    schedulePoll();
+    if (splashState === "splash") openSse();
+  }
+});
+
 refreshStatus();
+schedulePoll();
 bootIdentityCheck();
 
 // Forward the launcher version into the embedded dashboard so the
