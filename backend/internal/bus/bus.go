@@ -121,6 +121,7 @@ var framingSignals = map[string]struct{}{
 	"_IdentityChanged":  {},
 	"_DevPluginReload":  {},
 	"_OverridesChanged": {},
+	"_PluginUpdated":    {},
 }
 
 func isFramingSignal(eventName string) bool {
