@@ -489,6 +489,40 @@ func (pm *Manager) NotifyReload(name string) {
 	}
 }
 
+// NotifyUpdated invalidates the installed-manifest cache for `name`
+// and broadcasts `_PluginUpdated` with the post-update installed
+// version. Called by the install-update HTTP handler so open
+// iframes can hot-reload and the dashboard re-renders. Unlike
+// NotifyReload (which targets dev-registered plugins), this clears
+// the entry from pm.cache, where installed plugins live.
+func (pm *Manager) NotifyUpdated(name string) {
+	pm.mu.Lock()
+	for folder, entry := range pm.cache {
+		if entry.manifest != nil && entry.manifest.Name == name {
+			delete(pm.cache, folder)
+		}
+	}
+	b := pm.bus
+	pm.mu.Unlock()
+
+	// Re-read the manifest so the broadcast carries the new version.
+	var installed string
+	if m := pm.Get(name); m != nil {
+		installed = m.Version
+	}
+
+	log.Printf("[plugins] Updated: %s -> %s", name, installed)
+	if b != nil {
+		body, err := json.Marshal(map[string]string{
+			"name":              name,
+			"installed_version": installed,
+		})
+		if err == nil {
+			b.Broadcast(bus.Event{Name: "_PluginUpdated", Data: body})
+		}
+	}
+}
+
 // sanitizeConnectPermissions filters a Permissions.Connect list down
 // to entries that are valid bare https origins. Each dropped entry
 // is logged once with the plugin name so authors can spot typos.
