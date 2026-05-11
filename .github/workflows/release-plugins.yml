@@ -28,6 +28,18 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Build SDK bundle (esbuild)
+        # backend/internal/server/assets.go embeds web/sdk/dist/sdk.js;
+        # the dist file is gitignored and built fresh per run.
+        run: |
+          npm install
+          make sdk
+
       - name: Build rl-toolkit
         run: go build -o ./bin/rl-toolkit ./backend/cmd/rl-toolkit
 
