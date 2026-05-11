@@ -46,7 +46,7 @@ jobs:
         # the tag doesn't exist as a git ref yet. Discipline: don't
         # merge to main between `make release-windows` and clicking
         # Run workflow.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install build dependencies
         run: |
