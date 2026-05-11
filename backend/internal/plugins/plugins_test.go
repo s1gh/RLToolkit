@@ -578,3 +578,28 @@ func TestValidateManifest_BackgroundLoadsWhenPresent(t *testing.T) {
 		t.Errorf("expected background.file=background.html, got %+v", got)
 	}
 }
+
+func TestManagerDevNames(t *testing.T) {
+	dir := t.TempDir()
+	pm := New(dir)
+	if got := pm.DevNames(); len(got) != 0 {
+		t.Fatalf("expected empty DevNames, got %v", got)
+	}
+
+	devDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(devDir, "manifest.json"),
+		[]byte(`{"name":"foo","version":"1.0.0","overlay":{"file":"o.html","width":10,"height":10}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(devDir, "o.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.RegisterDev("foo", devDir); err != nil {
+		t.Fatal(err)
+	}
+	got := pm.DevNames()
+	if len(got) != 1 || got[0] != "foo" {
+		t.Fatalf("DevNames() = %v, want [foo]", got)
+	}
+}
