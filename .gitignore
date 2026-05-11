@@ -36,3 +36,6 @@ docs/superpowers/
 
 # Local git worktrees
 .worktrees/
+
+# Local helper scripts (not for distribution)
+/scripts/
