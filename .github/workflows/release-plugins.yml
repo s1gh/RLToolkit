@@ -1,0 +1,70 @@
+# Packages every plugin under plugins/ into a .rltp, generates a
+# schema-1 plugins.json, and uploads the lot to the long-lived
+# `plugins-latest` GitHub release. The launcher fetches plugins.json
+# from this release and surfaces "update available" pills.
+#
+# Plugins that should NOT ship to users can place a top-level
+# .norelease file in their folder; the loop below skips them.
+
+name: release-plugins
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build rl-toolkit
+        run: go build -o ./bin/rl-toolkit ./backend/cmd/rl-toolkit
+
+      - name: Build gen-plugin-catalog
+        run: go build -o ./bin/gen-plugin-catalog ./backend/cmd/gen-plugin-catalog
+
+      - name: Pack every plugin (skipping .norelease)
+        run: |
+          mkdir -p dist
+          for dir in plugins/*/; do
+            name=$(basename "$dir")
+            if [ -f "$dir/.norelease" ]; then
+              echo "Skipping $name (.norelease)"; continue
+            fi
+            if [ ! -f "$dir/manifest.json" ]; then
+              echo "Skipping $name (no manifest.json)"; continue
+            fi
+            ./bin/rl-toolkit pack "$dir" -out dist/
+          done
+          ls -la dist/
+
+      - name: Ensure plugins-latest release exists
+        run: |
+          gh release view plugins-latest >/dev/null 2>&1 || \
+            gh release create plugins-latest \
+              --title "Latest plugin catalog" \
+              --notes "Rolling release of packaged plugins. Updated by the release-plugins workflow."
+
+      - name: Generate plugins.json
+        env:
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          BASE="https://github.com/${OWNER}/${REPO}/releases/download/plugins-latest/"
+          ./bin/gen-plugin-catalog -in dist -base-url "$BASE" -out dist/plugins.json
+          cat dist/plugins.json
+
+      - name: Upload assets to plugins-latest (clobber)
+        run: |
+          gh release upload plugins-latest dist/*.rltp dist/plugins.json --clobber
