@@ -209,6 +209,8 @@ button{font-family:inherit}
 .section-head-right{
   display:flex; align-items:center; gap:12px;
 }
+.section-head-right .btn{ flex:0 0 auto; white-space:nowrap; }
+.section-head-right .btn[hidden]{ display:none; }
 
 /* ─── Plugin grid ──────────────────────────────────────────── */
 .plugins{
@@ -289,7 +291,7 @@ button{font-family:inherit}
 .card-sub .update-pill:hover{ filter:brightness(1.07); }
 .card-sub .update-pill:disabled{ opacity:.6; cursor:default; }
 .btn.update-all{ background:#ffc857; color:#1d1300; border-color:#ffc857; }
-.btn.update-all:hover{ filter:brightness(1.07); }
+.btn.update-all:hover{ background:#ffd166; color:#1d1300; border-color:#ffd166; }
 .btn.update-all:disabled{ opacity:.6; cursor:default; }
 .section-head-right .catalog-error{
   font-size:11px; color:var(--txt-3); cursor:pointer; user-select:none;
