@@ -7,6 +7,7 @@
 
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 /// True when the named env var is set to a recognized truthy value
@@ -47,15 +48,19 @@ struct StatusEnvelope {
 }
 
 pub fn probe_status(url: &str, timeout: Duration) -> ProbeOutcome {
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return ProbeOutcome::Unreachable,
-    };
+    // Reuse a single client across polls. Building a fresh
+    // reqwest::blocking::Client every 2s allocates a tokio runtime, a
+    // connection pool, and re-parses the rustls config — pointless for
+    // a localhost loop. The per-request timeout is applied below so the
+    // client's own timeout is left unset.
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    let client = CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .build()
+            .expect("build reqwest client")
+    });
 
-    let resp = match client.get(url).send() {
+    let resp = match client.get(url).timeout(timeout).send() {
         Ok(r) => r,
         Err(_) => return ProbeOutcome::Unreachable,
     };
