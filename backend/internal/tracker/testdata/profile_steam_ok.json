@@ -40,10 +40,10 @@
         "type": "playlist",
         "metadata": {"name": "Ranked Standard 3v3"},
         "stats": {
-          "rating": {"value": 1067},
+          "rating": {"value": 1067.0},
           "tier": {"metadata": {"name": "Diamond III"}},
           "division": {"metadata": {"name": "Division IV"}},
-          "matchesPlayed": {"value": 10}
+          "matchesPlayed": {"value": 10.0}
         }
       },
       {

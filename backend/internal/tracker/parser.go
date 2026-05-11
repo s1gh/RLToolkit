@@ -31,9 +31,11 @@ type upstreamSegment struct {
 	Metadata struct {
 		Name string `json:"name"`
 	} `json:"metadata"`
+	// tracker.gg ships numeric stats as JSON floats (e.g. "value":1067.0),
+	// even for integers like MMR. We decode as float64 and cast on output.
 	Stats struct {
 		Rating struct {
-			Value int `json:"value"`
+			Value float64 `json:"value"`
 		} `json:"rating"`
 		Tier struct {
 			Metadata struct {
@@ -46,7 +48,7 @@ type upstreamSegment struct {
 			} `json:"metadata"`
 		} `json:"division"`
 		MatchesPlayed struct {
-			Value int `json:"value"`
+			Value float64 `json:"value"`
 		} `json:"matchesPlayed"`
 	} `json:"stats"`
 }
@@ -78,10 +80,10 @@ func parseProfile(body []byte, platform, id string, now time.Time) (*Result, err
 			continue
 		}
 		out.Playlists[key] = Rating{
-			MMR:      seg.Stats.Rating.Value,
+			MMR:      int(seg.Stats.Rating.Value),
 			Tier:     seg.Stats.Tier.Metadata.Name,
 			Division: seg.Stats.Division.Metadata.Name,
-			Matches:  seg.Stats.MatchesPlayed.Value,
+			Matches:  int(seg.Stats.MatchesPlayed.Value),
 		}
 	}
 	return out, nil
