@@ -203,6 +203,9 @@ button{font-family:inherit}
   color:var(--txt-3);
   font-feature-settings:'tnum';
 }
+.section-head-left{
+  display:flex; align-items:baseline; gap:10px;
+}
 .section-head-right{
   display:flex; align-items:center; gap:12px;
 }
@@ -553,8 +556,7 @@ button{font-family:inherit}
 /* ─── Settings modal ───────────────────────────────────────── */
 .modal-backdrop{
   position:fixed; inset:0;
-  background:rgba(8,9,15,0.78);
-  backdrop-filter:blur(4px);
+  background:rgba(8,9,15,0.86);
   display:none;
   align-items:center; justify-content:center;
   z-index:1000;
@@ -696,9 +698,11 @@ button{font-family:inherit}
 
   <section>
     <div class="section-head">
-      <h2>Plugins</h2>
-      <div class="section-head-right">
+      <div class="section-head-left">
+        <h2>Plugins</h2>
         <span class="count" id="stat-count">0</span>
+      </div>
+      <div class="section-head-right">
         <button class="btn" type="button" id="install-plugin-btn">Install plugin…</button>
         <input type="file" id="install-plugin-input" accept=".rltp" hidden />
       </div>
