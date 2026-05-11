@@ -10,7 +10,7 @@
     "lint:fix": "biome lint --write ."
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.14",
-    "esbuild": "^0.24.0"
+    "@biomejs/biome": "2.4.15",
+    "esbuild": "^0.28.0"
   }
 }
