@@ -66,8 +66,7 @@ func (s *Server) runMMRLookup(w http.ResponseWriter, r *http.Request, platform, 
 	res, err := s.deps.Tracker.Lookup(r.Context(), platform, id)
 	switch {
 	case err == nil:
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(res)
+		writeJSON(w, res)
 	case errors.Is(err, tracker.ErrCircuitOpen):
 		retry := int(s.deps.Tracker.BreakerRetryAfter().Seconds())
 		if retry < 1 {
@@ -81,7 +80,7 @@ func (s *Server) runMMRLookup(w http.ResponseWriter, r *http.Request, platform, 
 	case errors.Is(err, tracker.ErrUpstreamBlocked):
 		writeMMRError(w, http.StatusBadGateway, map[string]any{
 			"error":          "upstream blocked",
-			"upstreamStatus": parseUpstreamStatus(err),
+			"upstreamStatus": upstreamStatus(err),
 		})
 	case errors.Is(err, tracker.ErrPlayerNotFound):
 		writeMMRError(w, http.StatusNotFound, map[string]any{
@@ -100,17 +99,12 @@ func writeMMRError(w http.ResponseWriter, status int, body map[string]any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// parseUpstreamStatus pulls the "status N" tail off the wrapped error
-// message produced by tracker.Lookup. Used only for response shaping.
-func parseUpstreamStatus(err error) int {
-	msg := err.Error()
-	i := strings.LastIndex(msg, "status ")
-	if i < 0 {
-		return 0
+// upstreamStatus extracts the HTTP status code from a tracker upstream
+// failure. Returns 0 when the error doesn't carry one.
+func upstreamStatus(err error) int {
+	var ue *tracker.UpstreamError
+	if errors.As(err, &ue) {
+		return ue.Status
 	}
-	n, perr := strconv.Atoi(strings.TrimSpace(msg[i+len("status "):]))
-	if perr != nil {
-		return 0
-	}
-	return n
+	return 0
 }

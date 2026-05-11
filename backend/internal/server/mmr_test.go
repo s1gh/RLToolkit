@@ -219,6 +219,29 @@ func TestMMRLookup_Upstream403Maps502(t *testing.T) {
 	}
 }
 
+func TestMMRLookup_Upstream429Maps502(t *testing.T) {
+	upstream := upstreamFixture(t, 429, "")
+	srv, done := newMMRTestServer(t, upstream, "")
+	defer done()
+	res, err := http.Get(srv.URL + "/api/mmr/steam/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 502 {
+		t.Fatalf("status: got %d want 502", res.StatusCode)
+	}
+	// Pin the typed-error contract: the body's upstreamStatus is the
+	// real upstream code, recovered via errors.As against
+	// tracker.UpstreamError, not by parsing the error message.
+	var body struct {
+		UpstreamStatus int `json:"upstreamStatus"`
+	}
+	_ = json.NewDecoder(res.Body).Decode(&body)
+	if body.UpstreamStatus != 429 {
+		t.Fatalf("body upstreamStatus: got %d want 429", body.UpstreamStatus)
+	}
+}
+
 func TestMMRLookup_Upstream404Maps404(t *testing.T) {
 	upstream := upstreamFixture(t, 404, "")
 	srv, done := newMMRTestServer(t, upstream, "")

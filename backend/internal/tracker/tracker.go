@@ -7,13 +7,30 @@ import (
 	"time"
 )
 
-// Errors. Use errors.Is at call sites.
+// Errors. Use errors.Is at call sites; errors.As for UpstreamError when
+// you want the recoverable HTTP status of an upstream failure.
 var (
 	ErrUpstream        = errors.New("tracker: upstream error")
 	ErrUpstreamBlocked = errors.New("tracker: upstream blocked")
 	ErrPlayerNotFound  = errors.New("tracker: player not found")
 	ErrCircuitOpen     = errors.New("tracker: circuit open")
 )
+
+// UpstreamError wraps an upstream failure with the HTTP status code
+// tracker.gg returned, so callers can use errors.As to inspect the
+// code without parsing strings. It also satisfies errors.Is against
+// either ErrUpstreamBlocked (for 403/429) or ErrUpstream (other
+// non-200, non-404 statuses) via Unwrap.
+type UpstreamError struct {
+	Status int
+	base   error // ErrUpstreamBlocked or ErrUpstream
+}
+
+func (e *UpstreamError) Error() string {
+	return fmt.Sprintf("%s: status %d", e.base.Error(), e.Status)
+}
+
+func (e *UpstreamError) Unwrap() error { return e.base }
 
 // defaultBaseURL is the production tracker.gg API origin.
 const defaultBaseURL = "https://api.tracker.gg"
@@ -133,11 +150,11 @@ func (c *Client) Lookup(ctx context.Context, platform, id string) (*Result, erro
 		return out, nil
 	case status == 403 || status == 429:
 		c.breaker.RecordBlocked()
-		return nil, fmt.Errorf("%w: status %d", ErrUpstreamBlocked, status)
+		return nil, &UpstreamError{Status: status, base: ErrUpstreamBlocked}
 	case status == 404:
 		return nil, ErrPlayerNotFound
 	default:
-		return nil, fmt.Errorf("%w: status %d", ErrUpstream, status)
+		return nil, &UpstreamError{Status: status, base: ErrUpstream}
 	}
 }
 
