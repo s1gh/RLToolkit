@@ -33,7 +33,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["unstable", "tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "3", features = ["json"] }
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = [
   "blocking",
