@@ -446,6 +446,43 @@ func (pm *Manager) DevPath(name string) string {
 	return pm.dev[name]
 }
 
+// DevNames returns the names of every dev-registered plugin. Order is
+// unspecified; callers that need stability should sort. Used by the
+// plugin catalog to exclude dev plugins from update diffs.
+func (pm *Manager) DevNames() []string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	out := make([]string, 0, len(pm.dev))
+	for name := range pm.dev {
+		out = append(out, name)
+	}
+	return out
+}
+
+// InstalledVersions returns name -> version for every installed
+// plugin, excluding dev-registered ones. Used by the plugin catalog
+// to compute updates available.
+func (pm *Manager) InstalledVersions() map[string]string {
+	list := pm.List()
+	pm.mu.Lock()
+	devSet := make(map[string]struct{}, len(pm.dev))
+	for n := range pm.dev {
+		devSet[n] = struct{}{}
+	}
+	pm.mu.Unlock()
+	out := make(map[string]string, len(list))
+	for _, m := range list {
+		if m == nil {
+			continue
+		}
+		if _, isDev := devSet[m.Name]; isDev {
+			continue
+		}
+		out[m.Name] = m.Version
+	}
+	return out
+}
+
 // AttachBroadcaster wires a publisher so dev-reload notifications
 // reach SSE subscribers. Optional — without it, NotifyReload degrades
 // to "log + invalidate cache".
@@ -472,6 +509,40 @@ func (pm *Manager) NotifyReload(name string) {
 		body, err := json.Marshal(map[string]string{"name": name})
 		if err == nil {
 			b.Broadcast(bus.Event{Name: "_DevPluginReload", Data: body})
+		}
+	}
+}
+
+// NotifyUpdated invalidates the installed-manifest cache for `name`
+// and broadcasts `_PluginUpdated` with the post-update installed
+// version. Called by the install-update HTTP handler so open
+// iframes can hot-reload and the dashboard re-renders. Unlike
+// NotifyReload (which targets dev-registered plugins), this clears
+// the entry from pm.cache, where installed plugins live.
+func (pm *Manager) NotifyUpdated(name string) {
+	pm.mu.Lock()
+	for folder, entry := range pm.cache {
+		if entry.manifest != nil && entry.manifest.Name == name {
+			delete(pm.cache, folder)
+		}
+	}
+	b := pm.bus
+	pm.mu.Unlock()
+
+	// Re-read the manifest so the broadcast carries the new version.
+	var installed string
+	if m := pm.Get(name); m != nil {
+		installed = m.Version
+	}
+
+	log.Printf("[plugins] Updated: %s -> %s", name, installed)
+	if b != nil {
+		body, err := json.Marshal(map[string]string{
+			"name":              name,
+			"installed_version": installed,
+		})
+		if err == nil {
+			b.Broadcast(bus.Event{Name: "_PluginUpdated", Data: body})
 		}
 	}
 }

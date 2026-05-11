@@ -578,3 +578,97 @@ func TestValidateManifest_BackgroundLoadsWhenPresent(t *testing.T) {
 		t.Errorf("expected background.file=background.html, got %+v", got)
 	}
 }
+
+func TestManagerNotifyUpdated(t *testing.T) {
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "foo")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"),
+		[]byte(`{"name":"foo","version":"1.0.0","overlay":{"file":"o.html","width":10,"height":10}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "o.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pm := New(dir)
+	if got := pm.Get("foo"); got == nil || got.Version != "1.0.0" {
+		t.Fatalf("Get foo = %v, want version 1.0.0", got)
+	}
+
+	stub := &stubBroadcaster{}
+	pm.AttachBroadcaster(stub)
+
+	// Overwrite manifest with v1.1.0 then notify. The notify must
+	// invalidate the cache so the next Get returns the new version.
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"),
+		[]byte(`{"name":"foo","version":"1.1.0","overlay":{"file":"o.html","width":10,"height":10}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	pm.NotifyUpdated("foo")
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.events) != 1 || stub.events[0].Name != "_PluginUpdated" {
+		t.Fatalf("expected one _PluginUpdated event, got %+v", stub.events)
+	}
+	var payload struct {
+		Name             string `json:"name"`
+		InstalledVersion string `json:"installed_version"`
+	}
+	if err := json.Unmarshal(stub.events[0].Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Name != "foo" || payload.InstalledVersion != "1.1.0" {
+		t.Fatalf("payload = %+v, want {foo 1.1.0}", payload)
+	}
+}
+
+func TestManagerInstalledVersions(t *testing.T) {
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "foo")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.json"),
+		[]byte(`{"name":"foo","version":"1.2.3","overlay":{"file":"o.html","width":10,"height":10}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "o.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pm := New(dir)
+	got := pm.InstalledVersions()
+	if v, ok := got["foo"]; !ok || v != "1.2.3" {
+		t.Fatalf("InstalledVersions() = %v, want foo=1.2.3", got)
+	}
+}
+
+func TestManagerDevNames(t *testing.T) {
+	dir := t.TempDir()
+	pm := New(dir)
+	if got := pm.DevNames(); len(got) != 0 {
+		t.Fatalf("expected empty DevNames, got %v", got)
+	}
+
+	devDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(devDir, "manifest.json"),
+		[]byte(`{"name":"foo","version":"1.0.0","overlay":{"file":"o.html","width":10,"height":10}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(devDir, "o.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.RegisterDev("foo", devDir); err != nil {
+		t.Fatal(err)
+	}
+	got := pm.DevNames()
+	if len(got) != 1 || got[0] != "foo" {
+		t.Fatalf("DevNames() = %v, want [foo]", got)
+	}
+}

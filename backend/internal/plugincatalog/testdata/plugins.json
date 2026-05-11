@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "generated_at": "2026-05-11T14:00:00Z",
+  "plugins": [
+    {
+      "name": "demos2",
+      "version": "1.1.0",
+      "title": "Demolitions 2",
+      "author": "rl-toolkit",
+      "description": "Demos demo.",
+      "url": "https://example.com/demos2-1.1.0.rltp",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "size_bytes": 1234
+    },
+    {
+      "name": "needs-newer",
+      "version": "2.0.0",
+      "title": "Needs Newer",
+      "author": "x",
+      "url": "https://example.com/needs-newer-2.0.0.rltp",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "size_bytes": 100,
+      "min_launcher_version": "99.0.0"
+    },
+    {
+      "name": "bad-hash",
+      "version": "1.0.0",
+      "url": "https://example.com/bad.rltp",
+      "sha256": "not-hex"
+    }
+  ]
+}
