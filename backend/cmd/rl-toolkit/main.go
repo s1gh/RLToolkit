@@ -27,6 +27,7 @@ import (
 	"rl-toolkit/backend/internal/overrides"
 	"rl-toolkit/backend/internal/paths"
 	"rl-toolkit/backend/internal/pipeline"
+	"rl-toolkit/backend/internal/plugincatalog"
 	"rl-toolkit/backend/internal/plugins"
 	"rl-toolkit/backend/internal/replaywatch"
 	"rl-toolkit/backend/internal/roster"
@@ -141,6 +142,17 @@ func runServe() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	pluginCatalog := plugincatalog.New(PluginCatalogURL, Version, pm)
+	// Refresh asynchronously so a slow GitHub doesn't delay startup;
+	// the dashboard also re-fetches on first paint.
+	go func() {
+		rctx, rcancel := context.WithTimeout(ctx, 15*time.Second)
+		defer rcancel()
+		if err := pluginCatalog.Refresh(rctx); err != nil {
+			log.Printf("[plugincatalog] initial refresh: %v", err)
+		}
+	}()
 
 	// Dev API is opt-in: a localhost listener for `rl-toolkit dev`
 	// to register and hot-reload plugin folders.
@@ -258,6 +270,7 @@ func runServe() {
 		Surface:       surf,
 		Discoveries:   disc,
 		Identity:      idStore,
+		Catalog:       pluginCatalog,
 		ReplayWatcher: rwWatcher,
 		PluginDir:     cfg.PluginDir,
 	})
