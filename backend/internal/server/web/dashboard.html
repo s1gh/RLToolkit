@@ -278,6 +278,23 @@ button{font-family:inherit}
 .card-sub .author{
   font-family:var(--mono); color:var(--txt-3);
 }
+.card-sub .update-pill{
+  display:inline-flex; align-items:center; gap:.25em;
+  margin-left:.5em; padding:.1em .55em;
+  font: inherit; font-size:11px; font-weight:600; line-height:1.4;
+  color:#1d1300; background:#ffc857;
+  border:none; border-radius:999px; cursor:pointer;
+  transition:filter .12s;
+}
+.card-sub .update-pill:hover{ filter:brightness(1.07); }
+.card-sub .update-pill:disabled{ opacity:.6; cursor:default; }
+.btn.update-all{ background:#ffc857; color:#1d1300; border-color:#ffc857; }
+.btn.update-all:hover{ filter:brightness(1.07); }
+.btn.update-all:disabled{ opacity:.6; cursor:default; }
+.section-head-right .catalog-error{
+  font-size:11px; color:var(--txt-3); cursor:pointer; user-select:none;
+  text-decoration:underline; text-decoration-style:dotted;
+}
 
 .card-desc{
   font-size:13px; line-height:1.55;
@@ -703,6 +720,8 @@ button{font-family:inherit}
         <span class="count" id="stat-count">0</span>
       </div>
       <div class="section-head-right">
+        <span id="catalog-error" class="catalog-error" hidden>Couldn’t check for updates · retry</span>
+        <button class="btn update-all" type="button" id="update-all-btn" hidden>Update all</button>
         <button class="btn" type="button" id="install-plugin-btn">Install plugin…</button>
         <input type="file" id="install-plugin-input" accept=".rltp" hidden />
       </div>
@@ -788,6 +807,45 @@ if (window.parent !== window) {
 let plugins = [];
 let overrides = {};
 let pluginsFp = '';
+let pluginUpdates = []; // [{name, installed_version, latest_version, size_bytes}]
+let catalogError = null;
+
+async function refreshPluginUpdates({ trigger } = {}) {
+  try {
+    const isWriteTrigger = trigger === 'startup' || trigger === 'manual';
+    const url = isWriteTrigger ? '/api/plugins/refresh-catalog' : '/api/plugins/updates';
+    const opts = isWriteTrigger ? { method: 'POST' } : undefined;
+    const r = await fetch(url, opts);
+    const body = await r.json().catch(() => ({}));
+    pluginUpdates = Array.isArray(body.updates) ? body.updates : [];
+    catalogError = body.last_error || null;
+  } catch (err) {
+    pluginUpdates = [];
+    catalogError = String(err && err.message || err);
+  }
+  renderUpdateHeader();
+  renderPlugins();
+}
+
+function renderUpdateHeader() {
+  const btn = document.getElementById('update-all-btn');
+  const err = document.getElementById('catalog-error');
+  if (!btn || !err) return;
+  if (pluginUpdates.length > 0) {
+    btn.hidden = false;
+    btn.textContent = 'Update all (' + pluginUpdates.length + ')';
+  } else {
+    btn.hidden = true;
+  }
+  // Show the retry hint only when there's a catalog error AND we have
+  // no pending updates to display. When updates exist, the row is
+  // already visually busy.
+  err.hidden = !(catalogError && pluginUpdates.length === 0);
+}
+
+function updateForName(name) {
+  return pluginUpdates.find(u => u.name === name) || null;
+}
 
 function pluginsFingerprint(list) {
   if (!Array.isArray(list)) return '';
@@ -826,15 +884,31 @@ async function refreshPluginList() {
   } catch (_) { /* best-effort */ }
 }
 
-const initialPluginListReady = refreshPluginList();
+const initialPluginListReady = Promise.all([
+  refreshPluginList(),
+  refreshPluginUpdates({ trigger: 'startup' }),
+]);
 initialPluginListReady.then(() => {
   const es = new EventSource('/events?events=__none__');
   es.onmessage = (e) => {
     let env;
     try { env = JSON.parse(e.data); } catch (_) { return; }
-    if (!env || env.Event !== '_OverridesChanged') return;
-    overrides = env.Data || {};
-    renderPlugins();
+    if (!env) return;
+    if (env.Event === '_OverridesChanged') {
+      overrides = env.Data || {};
+      renderPlugins();
+      return;
+    }
+    if (env.Event === '_PluginUpdated') {
+      // Re-fetch the plugin list so the new version renders on the
+      // card, and drop the now-installed entry from the updates state.
+      refreshPluginList();
+      const data = env.Data || {};
+      if (data.name) {
+        pluginUpdates = pluginUpdates.filter(u => u.name !== data.name);
+        renderUpdateHeader();
+      }
+    }
   };
 });
 
@@ -993,6 +1067,9 @@ function renderPlugins() {
           + '<div class="card-sub">'
             + (p.version ? '<span class="v">v' + esc(p.version) + '</span>' : '')
             + (p.author ? '<span class="author">@' + esc(p.author) + '</span>' : '')
+            + (updateForName(p.name)
+                ? '<button class="update-pill" type="button" data-role="update-one" data-name="' + esc(p.name) + '" title="Click to update">↑ Update to ' + esc(updateForName(p.name).latest_version) + '</button>'
+                : '')
           + '</div>'
         + '</div>'
         + '<label class="toggle" title="' + (enabled ? 'Disable' : 'Enable') + ' overlay">'
@@ -1054,6 +1131,13 @@ function renderPlugins() {
     if (uninstallBtn && !uninstallBtn.disabled) {
       uninstallPlugin(name);
     }
+    const updPill = ev.target.closest('button[data-role="update-one"]');
+    if (updPill && !updPill.disabled) {
+      ev.preventDefault();
+      const name = updPill.getAttribute('data-name');
+      runUpdateOne(name, updPill).catch(() => {});
+      return;
+    }
   });
   c.addEventListener('change', (ev) => {
     const cb = ev.target.closest('input[data-role="enabled"]');
@@ -1064,6 +1148,66 @@ function renderPlugins() {
     setEnabled(name, cb.checked, cb);
   });
 })();
+
+async function runUpdateOne(name, pillEl) {
+  if (!name) return;
+  if (pillEl) { pillEl.disabled = true; pillEl.textContent = 'Updating…'; }
+  try {
+    const r = await fetch('/api/plugins/install-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || ('HTTP ' + r.status));
+    }
+  } catch (err) {
+    spawnInstallToast({
+      kind: 'failed',
+      title: 'Update failed: ' + name,
+      detail: err && err.message || String(err),
+    });
+    if (pillEl) {
+      pillEl.disabled = false;
+      pillEl.textContent = '↑ Retry';
+    }
+    throw err;
+  }
+  // Success: drop optimistically. SSE _PluginUpdated will re-fetch
+  // the plugin list so the card's version label updates.
+  pluginUpdates = pluginUpdates.filter(u => u.name !== name);
+  renderUpdateHeader();
+}
+
+async function runUpdateAll() {
+  const btn = document.getElementById('update-all-btn');
+  if (btn) btn.disabled = true;
+  const names = pluginUpdates.map(u => u.name);
+  let failed = 0;
+  for (const name of names) {
+    const pill = document.querySelector(
+      '[data-role="update-one"][data-name="' + cssIdentEscape(name) + '"]'
+    );
+    try {
+      await runUpdateOne(name, pill);
+    } catch (_) { failed++; }
+  }
+  if (btn) btn.disabled = false;
+  if (failed > 0) {
+    spawnInstallToast({
+      kind: 'failed',
+      title: failed + ' update' + (failed === 1 ? '' : 's') + ' failed',
+    });
+  }
+}
+
+// Minimal CSS attribute-selector escape. Plugin names are validated
+// server-side to safe characters, but defend against the edge cases
+// (digits, hyphens) regardless.
+function cssIdentEscape(s) {
+  return String(s).replace(/[^a-zA-Z0-9_-]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' ');
+}
 
 async function setEnabled(name, enabled, cb) {
   try {
@@ -1257,6 +1401,17 @@ if (inLauncher) {
     window.parent.postMessage({ type: 'rl-launcher:open-external', url: absolute }, '*');
   });
 }
+
+(function wireUpdateButtons() {
+  const updateAllBtn = document.getElementById('update-all-btn');
+  if (updateAllBtn) {
+    updateAllBtn.addEventListener('click', () => runUpdateAll());
+  }
+  const catalogErrEl = document.getElementById('catalog-error');
+  if (catalogErrEl) {
+    catalogErrEl.addEventListener('click', () => refreshPluginUpdates({ trigger: 'manual' }));
+  }
+})();
 
 // ─── Install plugin from file ───────────────────────────────
 //
