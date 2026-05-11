@@ -42,7 +42,10 @@ func splitVer(v string) ([]int, string) {
 	for _, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil {
-			return nil, pre
+			// Whole version is unparseable; wipe the pre-release too
+			// so Compare's nil-guard short-circuits to "equal" rather
+			// than leaking a pre-release suffix from a junk string.
+			return nil, ""
 		}
 		out = append(out, n)
 	}
@@ -95,6 +98,14 @@ func cmpPre(a, b string) int {
 				return 1
 			}
 			continue
+		}
+		// Per semver: numeric identifiers have lower precedence than
+		// alphanumeric ones. Treat one-side-numeric as "less than".
+		if aerr == nil {
+			return -1
+		}
+		if berr == nil {
+			return 1
 		}
 		if ap[i] != bp[i] {
 			if ap[i] < bp[i] {
