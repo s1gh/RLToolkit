@@ -254,3 +254,30 @@ func TestMMRLookup_Upstream404Maps404(t *testing.T) {
 		t.Fatalf("status: got %d want 404", res.StatusCode)
 	}
 }
+
+func TestMMRLookup_Upstream500CarriesStatus(t *testing.T) {
+	// Other 5xx responses produce ErrUpstream wrapped in
+	// tracker.UpstreamError; the handler should surface the upstream
+	// status in the response body so plugins can branch on it.
+	upstream := upstreamFixture(t, 500, "")
+	srv, done := newMMRTestServer(t, upstream, "")
+	defer done()
+	res, err := http.Get(srv.URL + "/api/mmr/steam/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 502 {
+		t.Fatalf("status: got %d want 502", res.StatusCode)
+	}
+	var body struct {
+		Error          string `json:"error"`
+		UpstreamStatus int    `json:"upstreamStatus"`
+	}
+	_ = json.NewDecoder(res.Body).Decode(&body)
+	if body.Error != "upstream error" {
+		t.Errorf("body.error: got %q want 'upstream error'", body.Error)
+	}
+	if body.UpstreamStatus != 500 {
+		t.Errorf("body.upstreamStatus: got %d want 500", body.UpstreamStatus)
+	}
+}

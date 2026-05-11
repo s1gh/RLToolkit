@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -88,8 +89,17 @@ func (s *Server) runMMRLookup(w http.ResponseWriter, r *http.Request, platform, 
 			"platform": platform,
 			"playerId": id,
 		})
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		// Client gave up or the request timed out before tracker.gg
+		// could respond. Distinct from a tracker.gg failure so plugins
+		// can tell the two apart.
+		writeMMRError(w, http.StatusGatewayTimeout, map[string]any{"error": "upstream timeout"})
 	default: // ErrUpstream and anything else
-		writeMMRError(w, http.StatusBadGateway, map[string]any{"error": "upstream error"})
+		body := map[string]any{"error": "upstream error"}
+		if s := upstreamStatus(err); s != 0 {
+			body["upstreamStatus"] = s
+		}
+		writeMMRError(w, http.StatusBadGateway, body)
 	}
 }
 

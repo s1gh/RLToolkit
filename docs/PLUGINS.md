@@ -1688,8 +1688,9 @@ without doing the math themselves.
 | 405 | Method not GET | `{"error":"method not allowed"}` |
 | 409 | `/api/mmr` called with no identity set | `{"error":"identity not set"}` |
 | 501 | Self route, identity uses an unsupported platform (Epic) | `{"error":"platform not supported","platform":"epic"}` |
-| 502 | Cloudflare blocked us, or upstream returned an unexpected status | `{"error":"upstream blocked","upstreamStatus":403}` or `{"error":"upstream error"}` |
+| 502 | Cloudflare blocked us, or upstream returned an unexpected status | `{"error":"upstream blocked","upstreamStatus":403}` or `{"error":"upstream error","upstreamStatus":500}` (status omitted for network / parse failures) |
 | 503 + `Retry-After` | Local rate limit or breaker is open | `{"error":"rate limited"}` or `{"error":"upstream temporarily unavailable"}` |
+| 504 | Request context cancelled or timed out before tracker.gg responded | `{"error":"upstream timeout"}` |
 
 ### Backend safety
 

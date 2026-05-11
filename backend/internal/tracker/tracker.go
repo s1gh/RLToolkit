@@ -130,6 +130,11 @@ func (c *Client) Lookup(ctx context.Context, platform, id string) (*Result, erro
 	url := fmt.Sprintf("%s/api/v2/rocket-league/standard/profile/%s/%s", c.baseURL, platform, id)
 	status, body, err := c.d.Do(ctx, url)
 	if err != nil {
+		// Preserve context errors unwrapped so the HTTP layer can map
+		// "client gave up" to 504 instead of a generic upstream error.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 
