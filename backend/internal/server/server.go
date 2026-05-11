@@ -29,6 +29,7 @@ import (
 	"rl-toolkit/backend/internal/source"
 	"rl-toolkit/backend/internal/state"
 	"rl-toolkit/backend/internal/surface"
+	"rl-toolkit/backend/internal/tracker"
 	"rl-toolkit/backend/internal/types"
 	"strings"
 	"sync"
@@ -62,6 +63,7 @@ type Deps struct {
 	Identity      *identity.Store
 	Catalog       *plugincatalog.Manager
 	ReplayWatcher *replaywatch.Watcher
+	Tracker       *tracker.Client
 	PluginDir     string
 }
 
@@ -98,6 +100,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/overlay/surface", s.handleOverlaySurface)
 	mux.HandleFunc("/api/overlay/surface/detected", s.handleOverlaySurfaceDetected)
 	mux.HandleFunc("/api/replay-watcher", s.handleReplayWatcher)
+	mux.HandleFunc("/api/mmr", s.handleMMRSelf)
+	mux.HandleFunc("/api/mmr/", s.handleMMRLookup)
 	mux.HandleFunc("/api/replay-file", s.handleReplayFile)
 	mux.HandleFunc("/api/plugin-fetch/", s.handlePluginFetch)
 	mux.HandleFunc("/overlay", s.handleOverlay)
