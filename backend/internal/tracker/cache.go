@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -98,7 +99,14 @@ func newCache(ttl time.Duration, now func() time.Time, dataDir string) (*cache, 
 	return c, nil
 }
 
-func cacheKey(platform, id string) string { return platform + "/" + id }
+// cacheKey lowercases the platform half so case variants of the slug
+// collide on the same entry. The id half is left alone: Steam IDs are
+// numeric, and gamertags / PSN IDs are case-preserved by tracker.gg.
+// Callers that want case-insensitive id matching should normalize
+// before calling.
+func cacheKey(platform, id string) string {
+	return strings.ToLower(platform) + "/" + id
+}
 
 // Get returns (result, fetchedAt, true) when an entry exists and is
 // still fresh. Expired entries are evicted lazily.
@@ -149,6 +157,16 @@ func (c *cache) flushLocked() {
 	tmp := c.path + ".tmp"
 	if err := os.WriteFile(tmp, body, 0o644); err != nil {
 		log.Printf("[tracker] cache write %s failed: %v", tmp, err)
+		return
+	}
+	// os.Rename atomically replaces an existing destination on POSIX but
+	// fails with "file exists" on Windows. Remove the destination first
+	// so the second and subsequent writes succeed on every platform.
+	// Loses atomicity on Windows; acceptable because a crash between
+	// Remove and Rename leaves no file, which the corrupt/missing-file
+	// path on load already tolerates.
+	if err := os.Remove(c.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("[tracker] cache remove %s failed: %v", c.path, err)
 		return
 	}
 	if err := os.Rename(tmp, c.path); err != nil {
