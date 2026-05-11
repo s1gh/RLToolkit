@@ -11,19 +11,19 @@
   // Streak → tier. CSS plateaus at tier-genocide; words keep escalating
   // past x12. Gap streaks fall back to the previous tier via tierFor().
   const TIERS = [
-    { min: 2,  word: 'DOUBLE TAP',       cls: 'tier-base' },
-    { min: 3,  word: 'TRIFECTA',         cls: 'tier-glow' },
-    { min: 4,  word: 'RAMPAGE',          cls: 'tier-hot' },
-    { min: 5,  word: 'UNREAL',           cls: 'tier-bloom' },
-    { min: 6,  word: 'NO MERCY',         cls: 'tier-apocalypse' },
-    { min: 7,  word: 'FORFEIT INCOMING', cls: 'tier-apocalypse' },
-    { min: 8,  word: 'MASSACRE',         cls: 'tier-armageddon' },
-    { min: 10, word: 'BLACKLISTED',      cls: 'tier-extinction' },
-    { min: 11, word: 'MENACE',           cls: 'tier-extinction' },
-    { min: 12, word: 'TOXIC',            cls: 'tier-genocide' },
-    { min: 14, word: 'NEMESIS',          cls: 'tier-genocide' },
-    { min: 16, word: 'UNHINGED',         cls: 'tier-genocide' },
-    { min: 20, word: 'WAR CRIME',        cls: 'tier-genocide' },
+    { min: 2, word: 'DOUBLE TAP', cls: 'tier-base' },
+    { min: 3, word: 'TRIFECTA', cls: 'tier-glow' },
+    { min: 4, word: 'RAMPAGE', cls: 'tier-hot' },
+    { min: 5, word: 'UNREAL', cls: 'tier-bloom' },
+    { min: 6, word: 'NO MERCY', cls: 'tier-apocalypse' },
+    { min: 7, word: 'FORFEIT INCOMING', cls: 'tier-apocalypse' },
+    { min: 8, word: 'MASSACRE', cls: 'tier-armageddon' },
+    { min: 10, word: 'BLACKLISTED', cls: 'tier-extinction' },
+    { min: 11, word: 'MENACE', cls: 'tier-extinction' },
+    { min: 12, word: 'TOXIC', cls: 'tier-genocide' },
+    { min: 14, word: 'NEMESIS', cls: 'tier-genocide' },
+    { min: 16, word: 'UNHINGED', cls: 'tier-genocide' },
+    { min: 20, word: 'WAR CRIME', cls: 'tier-genocide' },
   ];
 
   function tierFor(streak) {
@@ -66,12 +66,12 @@
 
   // All-time persistent state, hydrated in ready(). bestStreakWord is
   // derived from bestStreak via tierFor() and not persisted separately.
-  let totals = {};                // { [playerId]: { name, count } }
+  let totals = {}; // { [playerId]: { name, count } }
   let bestStreak = 0;
   let bestStreakWord = '';
 
   // Per-match state. Reset on match-guid change.
-  let current = {};               // { [playerId]: { name, count } }
+  let current = {}; // { [playerId]: { name, count } }
   let currentGuid = null;
 
   // Demos arriving before the store load resolves are buffered and
@@ -111,13 +111,17 @@
   }
 
   function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-    }[c]));
+    return String(s == null ? '' : s).replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        })[c],
+    );
   }
 
   // Pure read of renderable UI state.
@@ -158,9 +162,11 @@
     const el = document.getElementById('ov-streak');
     if (!el) return;
     const cls =
-      intensity === 'extreme' ? 'shake-extreme' :
-      intensity === 'hard'    ? 'shake-hard' :
-                                'shake-light';
+      intensity === 'extreme'
+        ? 'shake-extreme'
+        : intensity === 'hard'
+          ? 'shake-hard'
+          : 'shake-light';
     el.classList.remove('shake-light', 'shake-hard', 'shake-extreme');
     // Reflow so re-adding the same class restarts the animation.
     el.offsetWidth;
@@ -206,8 +212,14 @@
   }
 
   const TIER_CLASSES = [
-    'tier-base', 'tier-glow', 'tier-hot', 'tier-bloom',
-    'tier-apocalypse', 'tier-armageddon', 'tier-extinction', 'tier-genocide',
+    'tier-base',
+    'tier-glow',
+    'tier-hot',
+    'tier-bloom',
+    'tier-apocalypse',
+    'tier-armageddon',
+    'tier-extinction',
+    'tier-genocide',
   ];
 
   function setTierClass(el, cls) {
@@ -229,15 +241,15 @@
     if (!root) return null;
     return {
       root,
-      fill:       document.getElementById('ov-bar-fill'),
-      total:      document.getElementById('ov-total'),
-      best:       document.getElementById('ov-best'),
+      fill: document.getElementById('ov-bar-fill'),
+      total: document.getElementById('ov-total'),
+      best: document.getElementById('ov-best'),
       bestStreak: document.getElementById('ov-best-streak'),
-      bestWord:   document.getElementById('ov-best-word'),
-      last:       document.getElementById('ov-last'),
-      lastName:   document.getElementById('ov-last-name'),
-      streak:     document.getElementById('ov-streak'),
-      word:       document.getElementById('ov-word'),
+      bestWord: document.getElementById('ov-best-word'),
+      last: document.getElementById('ov-last'),
+      lastName: document.getElementById('ov-last-name'),
+      streak: document.getElementById('ov-streak'),
+      word: document.getElementById('ov-word'),
     };
   }
 
@@ -305,9 +317,8 @@
     const myId = RLT.me && RLT.me.id ? RLT.me.id : '';
     if (myId) {
       const enc = RLT.encounters && RLT.encounters.get ? RLT.encounters.get(myId) : null;
-      const name = enc && enc.names && enc.names.length
-        ? enc.names[enc.names.length - 1]
-        : 'Player';
+      const name =
+        enc && enc.names && enc.names.length ? enc.names[enc.names.length - 1] : 'Player';
       idVal.textContent = name;
       idVal.classList.remove('empty');
       if (idHint) idHint.hidden = true;
@@ -320,7 +331,7 @@
     const badge = document.getElementById('match-badge');
     if (badge) {
       const phase = RLT.match?.state?.phase || 'none';
-      badge.textContent = (phase === 'none' || phase === 'lobby') ? 'no match' : phase;
+      badge.textContent = phase === 'none' || phase === 'lobby' ? 'no match' : phase;
     }
 
     document.getElementById('total').textContent = String(totalCount());
@@ -338,8 +349,14 @@
       bestWrap.hidden = true;
     }
 
-    document.getElementById('match-list').innerHTML = listHtml(current, 'no demos yet — go hunting');
-    document.getElementById('all-list').innerHTML = listHtml(totals, 'play a few matches and your rivals show up here');
+    document.getElementById('match-list').innerHTML = listHtml(
+      current,
+      'no demos yet — go hunting',
+    );
+    document.getElementById('all-list').innerHTML = listHtml(
+      totals,
+      'play a few matches and your rivals show up here',
+    );
   }
 
   function listHtml(map, emptyMsg) {
@@ -349,10 +366,17 @@
     if (rows.length === 0) {
       return '<div class="card-empty">' + esc(emptyMsg) + '</div>';
     }
-    return rows.map((r) =>
-      '<div class="row"><div class="r-count">x' + r.count + '</div>' +
-      '<div class="r-name">' + esc(r.name) + '</div></div>'
-    ).join('');
+    return rows
+      .map(
+        (r) =>
+          '<div class="row"><div class="r-count">x' +
+          r.count +
+          '</div>' +
+          '<div class="r-name">' +
+          esc(r.name) +
+          '</div></div>',
+      )
+      .join('');
   }
 
   // Per-demo bookkeeping.
@@ -403,11 +427,12 @@
       triggerShake('light');
     } else if (tier && tier.cls === 'tier-apocalypse') {
       triggerShake('hard');
-    } else if (tier && (
-      tier.cls === 'tier-armageddon' ||
-      tier.cls === 'tier-extinction' ||
-      tier.cls === 'tier-genocide'
-    )) {
+    } else if (
+      tier &&
+      (tier.cls === 'tier-armageddon' ||
+        tier.cls === 'tier-extinction' ||
+        tier.cls === 'tier-genocide')
+    ) {
       triggerShake('extreme');
     }
 
@@ -438,7 +463,7 @@
       try {
         const s = await handle.store.get('state');
         if (s && typeof s === 'object') {
-          totals = (s.totals && typeof s.totals === 'object') ? s.totals : {};
+          totals = s.totals && typeof s.totals === 'object' ? s.totals : {};
           bestStreak = Number(s.bestStreak) || 0;
           const t = tierFor(bestStreak);
           bestStreakWord = t ? t.word : '';
