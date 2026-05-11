@@ -61,7 +61,7 @@ type Manager struct {
 }
 
 // New returns a Manager configured to fetch from url. pm may be nil;
-// Updates() then returns an empty slice.
+// Updates() then returns nil (no installed plugins to diff against).
 func New(url, launcherVersion string, pm InstalledLookup) *Manager {
 	return &Manager{
 		url:             url,
@@ -90,10 +90,18 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		m.recordErr(e)
 		return e
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB
+	const maxBody = 1 << 20 // 1 MiB; ~55x headroom for a realistic catalog
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		m.recordErr(err)
 		return err
+	}
+	if int64(len(body)) > maxBody {
+		// LimitReader silently truncates; without this check the next
+		// step would surface a misleading "parse" error.
+		e := fmt.Errorf("catalog: response exceeds %d bytes", maxBody)
+		m.recordErr(e)
+		return e
 	}
 	entries, err := parseCatalog(body, m.launcherVersion)
 	if err != nil {
@@ -246,6 +254,11 @@ func (r rawEntry) toEntry() (Entry, error) {
 func isValidHTTPSURL(s string) bool {
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return false
+	}
+	// Reject embedded credentials / tracking junk. Catalog URLs are
+	// plain download links; anything else is a smell.
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return false
 	}
 	return true
