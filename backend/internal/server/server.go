@@ -22,6 +22,7 @@ import (
 	"rl-toolkit/backend/internal/identity"
 	"rl-toolkit/backend/internal/install"
 	"rl-toolkit/backend/internal/overrides"
+	"rl-toolkit/backend/internal/plugincatalog"
 	"rl-toolkit/backend/internal/plugins"
 	"rl-toolkit/backend/internal/replaywatch"
 	"rl-toolkit/backend/internal/roster"
@@ -59,6 +60,7 @@ type Deps struct {
 	Surface       *surface.Store
 	Discoveries   *discoveries.Store
 	Identity      *identity.Store
+	Catalog       *plugincatalog.Manager
 	ReplayWatcher *replaywatch.Watcher
 	PluginDir     string
 }
@@ -79,6 +81,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/events", s.handleSSE)
 	mux.HandleFunc("/api/data/", s.handleData)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
+	mux.HandleFunc("/api/plugins/updates", s.handlePluginUpdates)
+	mux.HandleFunc("/api/plugins/refresh-catalog", s.handleRefreshCatalog)
+	mux.HandleFunc("/api/plugins/install-update", s.handleInstallUpdate)
 	mux.HandleFunc("/api/plugins/", s.handlePluginByName)
 	mux.HandleFunc("/api/events", s.handleEventCatalog)
 	mux.HandleFunc("/api/status", s.handleStatus)
