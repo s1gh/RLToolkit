@@ -127,12 +127,15 @@ jobs:
           Select-String -Path $tconf -Pattern '"version":'
 
       - name: Build Windows release artefacts
-        # make release-windows uses cmd-style copy/powershell; on
-        # windows-latest runners zsh isn't present but the Makefile
-        # branches on HOST_OS, so make picks the Windows recipe.
+        # The Makefile branches on HOST_OS=windows and emits cmd-style
+        # recipes (copy /y, powershell -NoProfile, if not exist mkdir).
+        # GNU Make defaults its recipe shell to /bin/sh, which on
+        # windows-latest resolves to Git-Bash's /usr/bin/bash and chokes
+        # on the cmd syntax. SHELL=cmd on the make command line forces
+        # Make to use cmd for every recipe line, matching what the
+        # Makefile was written against.
         shell: cmd
-        run: |
-          make release-windows VERSION=${{ needs.prepare.outputs.version }} RELEASE_OWNER=${{ github.repository_owner }}
+        run: make release-windows SHELL=cmd VERSION=${{ needs.prepare.outputs.version }} RELEASE_OWNER=${{ github.repository_owner }}
 
       - name: Upload Windows artefacts
         uses: actions/upload-artifact@v4
