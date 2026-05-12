@@ -152,7 +152,7 @@ input, textarea {
   list-style: none;
   background: #15171c; border: 1px solid #262a33;
   border-radius: var(--radius); min-width: 200px;
-  z-index: 10;
+  z-index: 20;
 }
 #overflow li button {
   width: 100%; text-align: left; padding: 6px 8px;
