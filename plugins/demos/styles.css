@@ -364,10 +364,9 @@
         align-self: stretch;
         display: flex;
         flex-direction: column;
-        /* Center horizontally so the genocide-tier shadow stack
-           doesn't bleed against the iframe edge and trigger the
-           box-flash artifact. */
-        align-items: center;
+        /* Left-align: streak number and tier word both flush to the
+           left edge of the right column, against the vertical bar. */
+        align-items: flex-start;
         gap: 0.1rem;
         padding: 0.4rem 0.5rem 0.5rem;
       }
@@ -454,11 +453,12 @@
       }
 
       /* Left column: DEMOS + BEST chips, hugs content.
-         Right column (.ov-stack): drain bar above streak readout. */
+         Middle: vertical drain bar spine.
+         Right column (.ov-stack): streak readout, left-aligned. */
       .ov-main {
         display: flex;
-        align-items: flex-start;
-        gap: 0.5rem;
+        align-items: stretch;
+        gap: 0.75rem;
       }
       .ov-col-left {
         display: flex;
@@ -470,21 +470,23 @@
         flex: 1 1 auto;
         display: flex;
         flex-direction: column;
-        align-items: center;
+        align-items: flex-start;
+        justify-content: center;
         gap: 0.1rem;
-        /* Align the bar with the top edge of the DEMOS chip. */
-        padding-top: 0.15rem;
       }
 
       /* ─── Drain bar ─────────────────────────────────────────────
-         Width is JS-driven from the rAF loop. No CSS transition on
-         width — would double-animate every frame's write.
+         Vertical spine between the left chip column and the streak
+         readout. Fill drains top→bottom via transform: scaleY,
+         animated by the compositor from a single JS-driven transition
+         per combo window. The transition duration is set inline by
+         app.js (bank-time aware, restarted across pause/resume).
          Opacity tweens 1→0 with the active block during break→idle.
          `visibility: hidden` only applies after `.is-fading-out`
-         clears, so the bar holds its row during the fade. */
+         clears, so the bar holds its column during the fade. */
       .ov-bar {
         align-self: stretch;
-        height: 3px;
+        width: 3px;
         background: rgba(255, 255, 255, 0.08);
         border-radius: 2px;
         overflow: hidden;
@@ -498,8 +500,11 @@
         visibility: hidden;
       }
       .ov-bar-fill {
-        width: 0%;
         height: 100%;
+        width: 100%;
+        transform: scaleY(0);
+        transform-origin: center top;
+        will-change: transform;
         background: var(--rlt-orange);
         box-shadow: 0 0 6px rgba(251, 124, 60, 0.6);
       }

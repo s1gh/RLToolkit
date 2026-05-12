@@ -55,6 +55,11 @@
     if (inPlayablePhase) bankNow();
     inPlayablePhase = active;
     lastTickAt = performance.now();
+    // Drain bar + mode-flip boundaries are bank-time. Suspend on pause,
+    // restart with the bank-time remaining on resume.
+    if (active) resumeBarAnim();
+    else suspendBarAnim();
+    rescheduleModeBoundary();
   }
 
   // Combo state. lastDemoAt is bank time. lastMatchVictim survives
@@ -82,8 +87,9 @@
   // Streak survives these phases; anything else resets it.
   const KEEP_STREAK = new Set(['live', 'countdown', 'replay', 'paused']);
 
-  // Non-zero means the drain loop is armed.
-  let activeRafHandle = 0;
+  // Pending setTimeout for the next mode boundary (active→break or
+  // break→idle). 0 when nothing is armed.
+  let modeBoundaryTimer = 0;
 
   function totalCount() {
     let n = 0;
@@ -101,6 +107,11 @@
     currentStreak = 0;
     lastDemoAt = 0;
     lastVictimName = '';
+    clearBarAnim();
+    if (modeBoundaryTimer) {
+      clearTimeout(modeBoundaryTimer);
+      modeBoundaryTimer = 0;
+    }
   }
 
   function cleanupMatchState() {
@@ -152,7 +163,6 @@
       bestStreak,
       bestStreakWord,
       bestTierClass: bt ? bt.cls : 'tier-base',
-      timerRemaining01: Math.max(0, Math.min(1, 1 - sinceDemo / COMBO_WINDOW_MS)),
     };
   }
 
@@ -178,37 +188,106 @@
     el.addEventListener('animationend', onEnd);
   }
 
-  // Drain loop. Armed every frame while active/break, but renderOverlay
-  // only runs when a visible value changed — most frames are no-ops.
-  let lastRenderedTimerPx = -1;
-  let lastRenderedStreak = -1;
-  let lastRenderedTier = '';
-  function activeLoop() {
-    activeRafHandle = 0;
-    if (!isOverlay) return;
-    const ui = computeUiState();
-    const barWidth = ovEls?.fill?.parentElement?.clientWidth || 320;
-    const timerPx = Math.round(ui.timerRemaining01 * barWidth);
-    if (
-      timerPx !== lastRenderedTimerPx ||
-      ui.streak !== lastRenderedStreak ||
-      ui.tierClass !== lastRenderedTier ||
-      ui.mode !== lastRenderedMode
-    ) {
-      renderOverlay(ui);
-      lastRenderedTimerPx = timerPx;
-      lastRenderedStreak = ui.streak;
-      lastRenderedTier = ui.tierClass;
-    }
-    if (ui.mode === 'active' || ui.mode === 'break') {
-      activeRafHandle = requestAnimationFrame(activeLoop);
+  // Bar animation state. The fill element animates from scaleY(1) →
+  // scaleY(0) over COMBO_WINDOW_MS via a single CSS transition. JS
+  // only writes on demo events and pause/resume — no per-frame work.
+  // barAnimDeadline is bank-time (ms from bankNow()) at scaleY=0.
+  // 0 means no animation is currently armed.
+  let barAnimDeadline = 0;
+
+  function readBarScale() {
+    if (!ovEls?.fill) return 0;
+    const m = getComputedStyle(ovEls.fill).transform;
+    if (!m || m === 'none') return 1;
+    // matrix(a, b, c, d, tx, ty) — scaleY is `d` for the pure scale we set.
+    const parts = m.match(/matrix\(([^)]+)\)/);
+    if (!parts) return 1;
+    const cells = parts[1].split(',');
+    const d = parseFloat(cells[3]);
+    return Number.isFinite(d) ? Math.max(0, Math.min(1, d)) : 0;
+  }
+
+  function setBarTransition(durationMs, targetScale) {
+    if (!ovEls?.fill) return;
+    ovEls.fill.style.transition = durationMs > 0 ? `transform ${durationMs}ms linear` : 'none';
+    ovEls.fill.style.transform = `scaleY(${targetScale})`;
+  }
+
+  // Snap the fill to its current animated position with no transition,
+  // so a subsequent transition restart picks up where we left off.
+  function freezeBarAtCurrent() {
+    if (!ovEls?.fill) return;
+    const current = readBarScale();
+    ovEls.fill.style.transition = 'none';
+    ovEls.fill.style.transform = `scaleY(${current})`;
+    // Reflow so the next transition write actually animates.
+    ovEls.fill.offsetWidth;
+  }
+
+  // Called on every demo. Resets to full and animates down over the
+  // full window. Bank-time aware via barAnimDeadline.
+  function startBarAnim() {
+    if (!ovEls?.fill) return;
+    barAnimDeadline = bankNow() + COMBO_WINDOW_MS;
+    setBarTransition(0, 1);
+    ovEls.fill.offsetWidth;
+    if (inPlayablePhase) {
+      setBarTransition(COMBO_WINDOW_MS, 0);
     }
   }
 
-  function ensureActiveLoop() {
+  function suspendBarAnim() {
+    if (!barAnimDeadline) return;
+    freezeBarAtCurrent();
+  }
+
+  function resumeBarAnim() {
+    if (!barAnimDeadline) return;
+    const remaining = barAnimDeadline - bankNow();
+    if (remaining <= 0) {
+      setBarTransition(0, 0);
+      barAnimDeadline = 0;
+      return;
+    }
+    freezeBarAtCurrent();
+    setBarTransition(remaining, 0);
+  }
+
+  function clearBarAnim() {
+    barAnimDeadline = 0;
+    if (!ovEls?.fill) return;
+    setBarTransition(0, 0);
+  }
+
+  // Mode flips (active→break→idle) used to be driven by the RAF loop
+  // re-evaluating computeUiState each frame. Without the loop, arm a
+  // single setTimeout at the next bank-time boundary and re-render.
+  function rescheduleModeBoundary() {
+    if (modeBoundaryTimer) {
+      clearTimeout(modeBoundaryTimer);
+      modeBoundaryTimer = 0;
+    }
     if (!isOverlay) return;
-    if (activeRafHandle) return;
-    activeRafHandle = requestAnimationFrame(activeLoop);
+    if (!inPlayablePhase) return;
+    if (!lastDemoAt) return;
+    const sinceDemo = bankNow() - lastDemoAt;
+    let untilMs;
+    if (sinceDemo <= COMBO_WINDOW_MS) {
+      untilMs = COMBO_WINDOW_MS - sinceDemo;
+    } else if (currentStreak >= 1 && sinceDemo <= COMBO_WINDOW_MS + BREAK_HOLD_MS) {
+      untilMs = COMBO_WINDOW_MS + BREAK_HOLD_MS - sinceDemo;
+    } else {
+      return;
+    }
+    modeBoundaryTimer = setTimeout(
+      () => {
+        modeBoundaryTimer = 0;
+        renderOverlay();
+        // After active→break, arm the next boundary toward idle.
+        rescheduleModeBoundary();
+      },
+      Math.max(0, untilMs),
+    );
   }
 
   const TIER_CLASSES = [
@@ -258,7 +337,8 @@
     if (!ovEls) return;
     const ui = uiArg || computeUiState();
 
-    if (ovEls.fill) ovEls.fill.style.width = (ui.timerRemaining01 * 100).toFixed(2) + '%';
+    // Bar is animated by CSS (see startBarAnim/suspendBarAnim/resumeBarAnim);
+    // renderOverlay no longer touches the fill's transform.
 
     // Hold full width while the active block fades out, otherwise
     // data-mode=idle snaps the root to max-content mid-fade and the
@@ -436,14 +516,15 @@
       triggerShake('extreme');
     }
 
-    ensureActiveLoop();
-
     // SDK gates writes — only the hosted overlay actually persists.
     RLT.store.set('state', { totals, bestStreak }).catch((e) => {
       console.error('[demos] save failed:', e);
     });
 
+    // Render first so ovEls is bound, then start the CSS-driven bar.
     render();
+    startBarAnim();
+    rescheduleModeBoundary();
   }
 
   RLT.plugin.register({
