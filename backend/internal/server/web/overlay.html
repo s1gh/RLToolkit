@@ -435,6 +435,29 @@
     if (!document.hidden && lastMerged) applyConfig(lastMerged);
   });
 
+  // Live edit hook (Phase 2+).
+  // The Tauri host calls window.__rlt_set_live_edit(true|false) via
+  // webview.eval to toggle the page's drag wrappers. The actual JS
+  // module is lazy-imported on first activation so the production
+  // overlay never loads it.
+  let liveEditModule = null;
+  window.__rlt_set_live_edit = async function(on) {
+    if (on && !liveEditModule) {
+      try {
+        await import('/overlay-live-edit.js');
+        liveEditModule = window.__rlt_live_edit;
+      } catch (err) {
+        console.error('[rlt overlay] live-edit module load failed', err);
+        try {
+          window.__TAURI_INTERNALS__?.invoke('overlay_edit_module_failed', { reason: String(err) });
+        } catch (_) { /* not running inside Tauri */ }
+        return;
+      }
+    }
+    if (on) liveEditModule?.mount(widgets);
+    else liveEditModule?.unmount();
+  };
+
   // Diagnostic: report the actual rendered viewport so we can verify
   // it matches what the editor's target says it should be. If they
   // diverge, bottom-anchored widgets clip below the screen.
