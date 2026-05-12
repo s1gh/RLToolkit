@@ -92,7 +92,9 @@
 
 .st-ball  { justify-content: space-between; font-size: 12px; }
 .st-hardest { font-size: 12px; }
-.st-mmr  { gap: 14px; font-size: 12px; flex-wrap: wrap; }
+.st-mmr  { gap: 18px; font-size: 12px; flex-wrap: wrap; }
+.st-mmr > span { display: inline-flex; align-items: baseline; gap: 6px; }
+.st-mmr .st-lbl { letter-spacing: 0.1em; opacity: 0.8; }
 .st-mods { font-size: 12px; }
 
 /* Dashboard */

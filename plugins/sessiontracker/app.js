@@ -343,7 +343,11 @@
   function deltaText(slot) {
     if (!slot) return '—';
     const d = slot.current - slot.start;
-    const sign = d > 0 ? '+' : (d < 0 ? '−' : '');
+    // Always render the sign so a zero delta visually reads as "no
+    // change" (±0) rather than a bare "0" sitting next to the
+    // parenthesized current MMR — that combination looked like a
+    // malformed stat.
+    const sign = d > 0 ? '+' : (d < 0 ? '−' : '±');
     const abs = Math.abs(d);
     return sign + abs + ' (' + slot.current + ')';
   }
@@ -461,8 +465,8 @@
         '<div class="st-row st-hardest">' + hardestLine + '</div>' +
         '<div class="st-row st-mmr">' +
           '<span class="st-lbl">MMR ' + esc(rankedMode) + '</span>' +
-          '<span>RANKED <span class="' + deltaClass(rankedSlot) + '">' + esc(deltaText(rankedSlot)) + '</span></span>' +
-          '<span>CASUAL <span class="' + deltaClass(casualSlot) + '">' + esc(deltaText(casualSlot)) + '</span></span>' +
+          '<span><span class="st-lbl">RANKED</span> <span class="' + deltaClass(rankedSlot) + '">' + esc(deltaText(rankedSlot)) + '</span></span>' +
+          '<span><span class="st-lbl">CASUAL</span> <span class="' + deltaClass(casualSlot) + '">' + esc(deltaText(casualSlot)) + '</span></span>' +
         '</div>' +
         (showMods ? (
           '<div class="st-row st-mods"><span class="st-lbl">MODIFIERS</span> ' + modBits +
