@@ -75,8 +75,9 @@ tray, kill the `rl-widget` process.
 
 ## Windows
 
-A release ships two Windows artefacts (the full procedure is in
-*Releasing* below):
+Releases build on GitHub-hosted Windows runners (see *Releasing*), so
+a local Windows toolchain is only needed for development iteration on
+Windows-specific code. The release ships two Windows artefacts:
 
 | Artefact                         | Audience                                  | Auto-update          |
 |----------------------------------|-------------------------------------------|----------------------|
@@ -88,7 +89,7 @@ Install location and data directory are deliberately separate so
 updates and uninstalls never touch user state (settings, identity,
 plugin databases, logs).
 
-### Prerequisites
+### Prerequisites (local dev only)
 
 1. **Rust** — install [rustup](https://rustup.rs) with the default MSVC
    toolchain.
@@ -112,31 +113,6 @@ plugin databases, logs).
    ```powershell
    cargo install tauri-cli --version "^2.0" --locked
    ```
-
-### Signing key (one-time)
-
-The Tauri updater verifies update integrity with an Ed25519 keypair.
-Generate it once:
-
-```powershell
-cargo tauri signer generate -w "$HOME\Documents\rltoolkit-updater.key"
-```
-
-You'll be prompted for a password. Back up both the `.key` file and
-the password — to a password manager **and** an offline location.
-**Losing the private key permanently breaks updates for every shipped
-version.** Generating a new key forces every existing installation to
-be reinstalled by hand, since the old launcher rejects signatures from
-the new key.
-
-The matching public key is committed at
-`overlay\src-tauri\tauri.launcher.json` under `plugins.updater.pubkey`.
-Don't regenerate unless you accept the consequences.
-
-> The signature covers **update integrity** only. It is not
-> Authenticode and does not silence the SmartScreen warning on first
-> run. Code signing requires a separate ~$300/yr cert and isn't
-> planned for now.
 
 ### Run (development)
 
@@ -190,15 +166,18 @@ turning it on. `RLT_DEV` accepts `1`, `true`, `yes`, or `on`.
 
 A release is one GitHub release tag with seven assets:
 
-| Artefact                                | Built on            | Auto-update         |
-|-----------------------------------------|---------------------|---------------------|
-| `RLToolkit_<v>_x64-setup.exe`           | Windows host        | Yes (NSIS)          |
-| `RLToolkit_<v>_x64-setup.exe.sig`       | Windows host        | —                   |
-| `RLToolkit_<v>_x64-portable.zip`        | Windows host        | No                  |
-| `RLToolkit_<v>_x86_64.AppImage`         | CI (`ubuntu-22.04`) | Yes (Tauri updater) |
-| `RLToolkit_<v>_x86_64.AppImage.sig`     | CI                  | —                   |
-| `RLToolkit_<v>_x86_64-portable.tar.gz`  | CI                  | No                  |
-| `latest.json`                           | CI (last step)      | —                   |
+| Artefact                                | Built on              | Auto-update         |
+|-----------------------------------------|-----------------------|---------------------|
+| `RLToolkit_<v>_x64-setup.exe`           | CI (`windows-latest`) | Yes (NSIS)          |
+| `RLToolkit_<v>_x64-setup.exe.sig`       | CI                    | —                   |
+| `RLToolkit_<v>_x64-portable.zip`        | CI                    | No                  |
+| `RLToolkit_<v>_x86_64.AppImage`         | CI (`ubuntu-24.04`)   | Yes (Tauri updater) |
+| `RLToolkit_<v>_x86_64.AppImage.sig`     | CI                    | —                   |
+| `RLToolkit_<v>_x86_64-portable.tar.gz`  | CI                    | No                  |
+| `latest.json`                           | CI (last step)        | —                   |
+
+Both platforms build on GitHub-hosted runners. No local Windows machine
+required.
 
 The AppImage runs on any glibc-2.39-or-newer distro (Ubuntu 24.04+,
 Fedora 40+, current Arch / Cachy / Manjaro). Linux user data lives at
@@ -234,97 +213,107 @@ soname suffix), the list lives in `Makefile` under `release-linux`.
 
 ### One-time setup
 
+#### Signing key
+
+The Tauri updater verifies update integrity with an Ed25519 keypair.
+Generate it once on any machine with the Tauri CLI installed:
+
+```bash
+cargo tauri signer generate -w ~/rltoolkit-updater.key
+```
+
+You'll be prompted for a password. Back up both the `.key` file and
+the password — to a password manager **and** an offline location.
+**Losing the private key permanently breaks updates for every shipped
+version.** Generating a new key forces every existing installation to
+be reinstalled by hand, since the old launcher rejects signatures from
+the new key.
+
+The matching public key is committed at
+`overlay/src-tauri/tauri.launcher.json` under `plugins.updater.pubkey`.
+Don't regenerate unless you accept the consequences.
+
+> The signature covers **update integrity** only. It is not
+> Authenticode and does not silence the SmartScreen warning on first
+> run. Code signing requires a separate ~$300/yr cert and isn't
+> planned for now.
+
+#### GitHub Actions secrets
+
 Add two **Repository secrets** at *Settings → Secrets and variables →
 Actions* on github.com:
 
-- `TAURI_SIGNING_PRIVATE_KEY` — the contents of the signing key file
-  (the same one used for Windows builds locally).
+- `TAURI_SIGNING_PRIVATE_KEY` — the contents of the `.key` file
+  generated above.
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the matching password.
 
-Reusing the same Ed25519 keypair across both platforms is intentional:
-a single `latest.json` covers both, and dual keys would mean dual
+Both jobs (Windows and Linux) reuse the same Ed25519 keypair: a single
+`latest.json` covers both platforms, and dual keys would mean dual
 backups for no real isolation gain.
 
 ### Cutting a release
 
-The steps are linear. Don't skip the version-bump commit — Cargo
-bakes `CARGO_PKG_VERSION` into the binary and Tauri names artefacts
-after the source-tree version, so the on-disk version has to match
-the tag.
+The unified workflow at `.github/workflows/release.yml` builds Windows
+and Linux artefacts in parallel on GitHub-hosted runners, then a final
+`publish` job assembles the cross-platform `latest.json` and uploads
+everything to the draft release. End-to-end runtime is ~15 minutes from
+a cold cache, ~8 minutes with warm caches.
 
-#### 1. Bump the version on `main` (Linux dev box)
+#### 1. Bump the version on `main`
 
 ```bash
-# Replace 0.2.0 with the version you're cutting
-NEW_VER=0.2.0
-sed -i -E "0,/^version = \"[^\"]*\"$/s//version = \"${NEW_VER}\"/" overlay/src-tauri/Cargo.toml
-sed -i -E "s/(\"version\": \")[^\"]*(\")/\1${NEW_VER}\2/"          overlay/src-tauri/tauri.conf.json
-cargo update --workspace --manifest-path overlay/src-tauri/Cargo.toml --offline
-git add overlay/src-tauri/Cargo.toml overlay/src-tauri/tauri.conf.json overlay/src-tauri/Cargo.lock
-git commit -m "release: bump to ${NEW_VER}"
+make bump VERSION=0.2.0
+git diff overlay/src-tauri/
+git commit -am "chore: bump to 0.2.0"
 git push origin main
 ```
 
-#### 2. Build Windows artefacts (Windows host)
+`make bump` rewrites the version in `overlay/src-tauri/Cargo.toml` and
+`overlay/src-tauri/tauri.conf.json`. It validates strict semver
+(`X.Y.Z`, no leading `v`, no pre-release suffix) because the Tauri
+updater and `latest.json` both compare versions semver-style.
 
-In a PowerShell session on a checkout pulled to the bump commit:
+The bump must land on `main` before the workflow runs — the workflow
+checks out `main` and would otherwise pick up the stale version.
 
-```powershell
-$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw "<path to your .key file>"
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "<password>"
+#### 2. (Optional) Pre-create the draft release with notes
 
-git pull origin main
-make release-windows VERSION=0.2.0 RELEASE_OWNER=s1gh
+```bash
+gh release create v0.2.0 --repo s1gh/RLToolkit --draft \
+  --title "v0.2.0" --notes-file CHANGELOG-0.2.0.md
 ```
 
-Outputs in `release\windows\`:
+If you skip this, the workflow creates an empty draft. Either way,
+`gen-update-manifest` reads the release body and embeds it as the
+`notes` field in `latest.json`, so writing notes before the workflow
+runs is the simplest path. You can also edit the draft after the
+workflow completes and re-run only the `publish` job to refresh
+`latest.json` — but pre-creating is less fiddly.
 
-- `RLToolkit_0.2.0_x64-setup.exe`
-- `RLToolkit_0.2.0_x64-setup.exe.sig`
-- `RLToolkit_0.2.0_x64-portable.zip`
+#### 3. Trigger the workflow
 
-#### 3. Create a draft GitHub release with the Windows assets
-
-```powershell
-gh release create v0.2.0 --repo s1gh/RLToolkit --title "v0.2.0" --notes "release notes here" --draft `
-  release\windows\RLToolkit_0.2.0_x64-setup.exe `
-  release\windows\RLToolkit_0.2.0_x64-setup.exe.sig `
-  release\windows\RLToolkit_0.2.0_x64-portable.zip
+```bash
+gh workflow run release.yml --repo s1gh/RLToolkit -f tag=v0.2.0
 ```
 
-`gh release create` occasionally drops an asset silently. Verify all
-three uploaded:
+Or use the GitHub web UI: *Actions → release → Run workflow*, enter
+the tag, click *Run workflow*.
 
-```powershell
-gh release view v0.2.0 --repo s1gh/RLToolkit --json assets
-```
+The workflow has four jobs:
 
-Expect three entries with `state: "uploaded"`. Retry any that are
-missing:
+- `prepare` — strips the leading `v`, creates a draft release if one
+  doesn't exist (preserves existing notes if it does).
+- `build-windows` — `windows-latest` runner, `make release-windows`,
+  uploads three files as a build artefact.
+- `build-linux` — `ubuntu-24.04`, `make release-linux`, uploads three
+  files as a build artefact.
+- `publish` — downloads both artefact bundles, runs
+  `gen-update-manifest` with both sigs, uploads all seven files to the
+  draft release with `--clobber`.
 
-```powershell
-gh release upload v0.2.0 --repo s1gh/RLToolkit <missing-file> --clobber
-```
+`build-windows` and `build-linux` run in parallel.
 
-#### 4. Trigger the Linux CI workflow
-
-Open *Actions → release-linux → Run workflow* on github.com, enter the
-tag (`v0.2.0`), click *Run workflow*. Wait ~5–10 minutes. The
-workflow:
-
-- Checks out `main` (the bump commit from step 1).
-- Builds the AppImage with the GTK-hook patch and re-signs.
-- Builds the portable tarball.
-- Downloads the Windows `.sig` from the draft release.
-- Generates a multi-platform `latest.json`.
-- Uploads the four Linux files to the release with `--clobber`.
-
-If the workflow fails before the upload step, the draft release is
-unchanged — diagnose, push fixes to `main`, retry. Don't merge
-unrelated work to `main` between steps 2 and 4: the Linux build needs
-the same source state Windows was built from.
-
-#### 5. Verify and publish
+#### 4. Verify and publish
 
 ```bash
 # Should show 7 assets
@@ -347,6 +336,17 @@ gh release edit v0.2.0 --repo s1gh/RLToolkit --draft=false --latest
 `releases/latest/download/latest.json`, so the release must be flagged
 latest for installed launchers to find the update.
 
+### Re-running on failure
+
+If a build job fails, push fixes to `main` and re-trigger the workflow
+with the same tag. `gh release upload --clobber` overwrites partial
+uploads cleanly. The draft stays a draft across retries.
+
+If only `publish` failed (build jobs succeeded), GitHub's *Re-run
+failed jobs* button on the run page reuses the existing build
+artefacts instead of rebuilding — saves the 10+ minutes of compile
+time.
+
 ### Verifying auto-update with a real install
 
 Run a previous-version launcher (e.g., 0.1.0) on a clean machine.
@@ -359,16 +359,17 @@ corner reflecting the new version. User data at
 
 ### Common pitfalls
 
-- **Tag doesn't exist as a git ref yet.** GitHub creates the tag only
-  when the release is *published*, not drafted. The CI workflow
-  checks out `main` for exactly this reason — don't try to add
-  `ref: ${{ inputs.tag }}` to the checkout step.
-- **Source version doesn't match the tag.** Cargo's incremental cache
-  doesn't invalidate on a Cargo.toml-only version change. If you've
-  been smoke-testing locally, run
-  `cargo clean -p rl-widget --release` before
-  `make release-windows` / `make release-linux` to be sure the binary
-  embeds the version you committed.
+- **Forgetting the bump commit.** The workflow checks out `main`. If
+  the bump isn't pushed, Tauri's bundler names artefacts after the
+  old version and the workflow will still succeed but ship the wrong
+  filenames. `make bump` plus the commit must land on `main` before
+  triggering.
+- **Tag input doesn't match the bumped version.** The workflow strips
+  the leading `v` from the tag input and passes that to the build. If
+  you bumped to `0.2.0` but typed `v0.2.1` as the tag, the build
+  proceeds but the source-tree version-sync step rewrites Cargo.toml
+  on the checkout to `0.2.1` — artefacts say `0.2.1`, `main` says
+  `0.2.0`. Confusing. Stick to matching versions.
 - **GitHub repo must be public** for the auto-updater to fetch
   `latest.json` over plain HTTPS. Private repos return 404 to
   unauthenticated callers.
