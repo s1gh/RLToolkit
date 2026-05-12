@@ -87,6 +87,16 @@
     }
   }
 
+  // dimNumberOr keeps "auto" intact while coercing anything else to an
+  // integer pixel count. Manifest dimensions arrive as either a number
+  // or the literal string "auto"; the override store accepts the same
+  // shape, so we forward it verbatim rather than truncating "auto" to 0.
+  function dimNumberOr(v, fallback) {
+    if (v === 'auto') return 'auto';
+    if (typeof v === 'number' && Number.isFinite(v)) return v | 0;
+    return fallback;
+  }
+
   async function manifestDefaultsFor(name) {
     const r = await fetch('/api/plugins');
     if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching /api/plugins');
@@ -98,8 +108,8 @@
       anchor: o.anchor || 'top-right',
       offset_x: o.offset_x | 0,
       offset_y: o.offset_y | 0,
-      width: o.width | 0,
-      height: o.height | 0,
+      width: dimNumberOr(o.width, 0),
+      height: dimNumberOr(o.height, 0),
       opacity: typeof o.opacity === 'number' ? o.opacity : 1,
     };
   }
@@ -292,6 +302,36 @@
     });
   }
 
+  // addAutoBadge stamps a small "auto-w" / "auto-h" / "auto" tag onto
+  // the wrapper so the user can see at a glance which axes are
+  // content-driven and why a drag-resize is going to write a max-cap
+  // instead of a fixed dimension. Sits on the anchor-opposite vertical
+  // edge from the label, far enough from the resize handle to not
+  // collide with the cursor zone.
+  function addAutoBadge(wrap, anchor, autoW, autoH) {
+    const onTop = anchor.indexOf('top') === 0;
+    const onLeft = anchor.indexOf('-left') >= 0;
+    const badge = document.createElement('div');
+    let label = 'auto';
+    if (autoW && !autoH) label = 'auto-w';
+    else if (autoH && !autoW) label = 'auto-h';
+    badge.textContent = label;
+    badge.style.position = 'absolute';
+    // Place opposite to the chrome label vertically so the two don't
+    // overlap; horizontally on the same side as the handle's column.
+    badge.style[onTop ? 'bottom' : 'top'] = '4px';
+    badge.style[onLeft ? 'right' : 'left'] = '22px';
+    badge.style.padding = '1px 5px';
+    badge.style.font = '10px/1.2 system-ui, sans-serif';
+    badge.style.color = '#0a0c14';
+    badge.style.background = '#a78bfa';
+    badge.style.border = '1px solid rgba(5, 7, 14, 0.5)';
+    badge.style.borderRadius = '3px';
+    badge.style.pointerEvents = 'none';
+    badge.style.userSelect = 'none';
+    wrap.appendChild(badge);
+  }
+
   function attachResize(name, entry) {
     const { handle, wrap, iframe } = entry;
     if (!handle) return;
@@ -354,7 +394,18 @@
         wrap.style.height = finalH + 'px';
 
         try {
-          await savePartial(name, { width: finalW, height: finalH });
+          // On auto axes, dragging the handle declares a max-cap rather
+          // than a hard size — the iframe keeps free to shrink below
+          // the dragged value, but won't exceed it. This avoids the
+          // "I made it bigger but it snapped back" surprise while still
+          // letting users tame runaway content. Fixed axes keep the
+          // legacy width/height write.
+          const partial = {};
+          if (entry.autoWidth)  partial.max_width  = finalW;
+          else                  partial.width      = finalW;
+          if (entry.autoHeight) partial.max_height = finalH;
+          else                  partial.height     = finalH;
+          await savePartial(name, partial);
         } catch (err) {
           if (entry.resizeToken !== token) return;
           applyRect(wrap, iframe);
@@ -437,10 +488,20 @@
         anchor,
         dragToken: 0,
         resizeToken: 0,
+        // Per-axis auto info, copied from the aggregator's widget
+        // record. The resize handler reads these to decide whether a
+        // drag should write width/height (fixed axis) or max_width/
+        // max_height (auto axis). Coerced via !! so a missing flag on
+        // a synthetic test fixture defaults to false (= fixed).
+        autoWidth: !!w.autoWidth,
+        autoHeight: !!w.autoHeight,
       };
       attachDrag(name, entry);
       attachResize(name, entry);
       attachObserver(entry);
+      if (entry.autoWidth || entry.autoHeight) {
+        addAutoBadge(wrap, anchor, entry.autoWidth, entry.autoHeight);
+      }
       // Reset click handler. Optimistically paint the manifest rect
       // onto the wrapper immediately so the user sees the change
       // without waiting for the network round-trip; the SSE reflow
@@ -455,9 +516,11 @@
           entry.anchor = defaults.anchor;
           // Paint the manifest rect onto the wrapper now. Match the
           // iframe's encoding: width/height plus the two anchored
-          // sides only, clear the other two.
-          wrap.style.width = defaults.width + 'px';
-          wrap.style.height = defaults.height + 'px';
+          // sides only, clear the other two. For "auto" axes leave the
+          // CSS dimension blank — the iframe's content-driven size will
+          // settle in and the MutationObserver will sync wrapper to it.
+          wrap.style.width  = defaults.width  === 'auto' ? '' : defaults.width  + 'px';
+          wrap.style.height = defaults.height === 'auto' ? '' : defaults.height + 'px';
           applyAnchoredOffset(wrap, defaults.anchor, defaults.offset_x, defaults.offset_y);
         } catch (err) {
           console.warn('[live-edit] reset failed', err);

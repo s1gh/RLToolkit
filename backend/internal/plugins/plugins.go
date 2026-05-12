@@ -72,13 +72,29 @@ type Permissions struct {
 }
 
 type OverlayConfig struct {
-	File    string  `json:"file"`
-	Width   int     `json:"width"`
-	Height  int     `json:"height"`
-	Anchor  string  `json:"anchor"`
-	OffsetX int     `json:"offset_x"`
-	OffsetY int     `json:"offset_y"`
-	Opacity float64 `json:"opacity"`
+	File string `json:"file"`
+	// Width and Height accept either a fixed pixel count or the literal
+	// string "auto", in which case the host enables content-driven
+	// sizing for that axis. The Px value still travels with auto so
+	// non-auto-aware clients (older overlay aggregators, OBS sources
+	// without the resize listener) keep something sensible to render.
+	Width   Dimension `json:"width"`
+	Height  Dimension `json:"height"`
+	// MinWidth / MaxWidth / MinHeight / MaxHeight clamp content-driven
+	// sizing. They only kick in when the corresponding axis is "auto";
+	// fixed-pixel widgets ignore them. Zero means "no clamp": with
+	// MinWidth=0 the widget can shrink to 1px, with MaxWidth=0 it can
+	// grow without bound (subject to viewport). Authors are encouraged
+	// to set MaxWidth/MaxHeight on auto axes so a runaway flex layout
+	// can't cover the stream.
+	MinWidth  int     `json:"min_width,omitempty"`
+	MaxWidth  int     `json:"max_width,omitempty"`
+	MinHeight int     `json:"min_height,omitempty"`
+	MaxHeight int     `json:"max_height,omitempty"`
+	Anchor    string  `json:"anchor"`
+	OffsetX   int     `json:"offset_x"`
+	OffsetY   int     `json:"offset_y"`
+	Opacity   float64 `json:"opacity"`
 	// click_through used to be a per-plugin manifest field. Removed in
 	// favor of unconditional click-through in overlay.html: the Tauri
 	// overlay window is OS-level click-through anyway, and the overlay

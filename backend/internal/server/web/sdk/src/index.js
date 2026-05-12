@@ -119,3 +119,31 @@ if (hostedBus) {
 } else {
   Promise.resolve().then(connect);
 }
+
+// Manifest-driven auto-size opt-in. The host (overlay.html) appends
+// auto_width=1 / auto_height=1 to the iframe URL when the manifest
+// declares width / height: "auto", plus optional min_/max_ caps. The
+// plugin doesn't have to call RLT.widget.autoSize itself — having
+// "auto" in the manifest is the opt-in. Plugins that want finer
+// control (specific target element, shorter debounce) can still call
+// widget.autoSize explicitly and override this default.
+if (isOverlay && (urlParams.has('auto_width') || urlParams.has('auto_height'))) {
+  const numFlag = (k) => {
+    const v = parseInt(urlParams.get(k) || '0', 10);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  const opts = {
+    minWidth:  numFlag('min_width')  || 1,
+    minHeight: numFlag('min_height') || 1,
+    maxWidth:  numFlag('max_width')  || 4096,
+    maxHeight: numFlag('max_height') || 4096,
+  };
+  // Defer to DOMContentLoaded so document.body exists. widget.autoSize
+  // measures body by default; running before DOM-ready would observe
+  // an empty document and report 0.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => widget.autoSize(true, opts), { once: true });
+  } else {
+    widget.autoSize(true, opts);
+  }
+}

@@ -54,8 +54,8 @@ func writeManifest(t *testing.T, dir, name string, m Manifest) {
 
 func TestManager_ListsPlugins(t *testing.T) {
 	dir := t.TempDir()
-	writeManifest(t, dir, "alpha", Manifest{Name: "alpha", Title: "Alpha", Version: "1.0", Overlay: OverlayConfig{File: "overlay.html", Width: 100, Height: 100, Anchor: "top-left"}})
-	writeManifest(t, dir, "beta", Manifest{Name: "beta", Title: "Beta", Version: "0.1", Overlay: OverlayConfig{File: "overlay.html", Width: 50, Height: 50, Anchor: "bottom-right"}})
+	writeManifest(t, dir, "alpha", Manifest{Name: "alpha", Title: "Alpha", Version: "1.0", Overlay: OverlayConfig{File: "overlay.html", Width: Dimension{Px: 100}, Height: Dimension{Px: 100}, Anchor: "top-left"}})
+	writeManifest(t, dir, "beta", Manifest{Name: "beta", Title: "Beta", Version: "0.1", Overlay: OverlayConfig{File: "overlay.html", Width: Dimension{Px: 50}, Height: Dimension{Px: 50}, Anchor: "bottom-right"}})
 
 	pm := New(dir)
 	got := pm.List()
@@ -138,7 +138,7 @@ func TestManager_DevPluginShadowsInstalled(t *testing.T) {
 	// Installed: name=alpha, version=1.0.0
 	writeManifest(t, installed, "alpha", Manifest{
 		Name: "alpha", Title: "Alpha (installed)", Version: "1.0.0",
-		Overlay: OverlayConfig{File: "overlay.html", Width: 100, Height: 100, Anchor: "top-left"},
+		Overlay: OverlayConfig{File: "overlay.html", Width: Dimension{Px: 100}, Height: Dimension{Px: 100}, Anchor: "top-left"},
 	})
 
 	// Dev: same name, different version, different folder.
@@ -151,7 +151,7 @@ func TestManager_DevPluginShadowsInstalled(t *testing.T) {
 	}
 	devManifest := Manifest{
 		Name: "alpha", Title: "Alpha (dev)", Version: "9.9.9",
-		Overlay: OverlayConfig{File: "overlay.html", Width: 100, Height: 100, Anchor: "top-left"},
+		Overlay: OverlayConfig{File: "overlay.html", Width: Dimension{Px: 100}, Height: Dimension{Px: 100}, Anchor: "top-left"},
 	}
 	body, _ := json.Marshal(devManifest)
 	if err := os.WriteFile(filepath.Join(devPluginRoot, "manifest.json"), body, 0644); err != nil {

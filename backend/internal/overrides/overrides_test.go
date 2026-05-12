@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"rl-toolkit/backend/internal/plugins"
 )
 
 func ptrStr(s string) *string  { return &s }
@@ -54,7 +56,7 @@ func TestOverride_ValidateRejectsBadValues(t *testing.T) {
 	cases := []Override{
 		{Anchor: ptrStr("middle")},
 		{OffsetX: ptrInt(-1)},
-		{Width: ptrInt(99999)},
+		{Width: &plugins.Dimension{Px: 99999}},
 		{Opacity: ptrFlt(2.0)},
 	}
 	for i, c := range cases {

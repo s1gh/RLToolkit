@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"rl-toolkit/backend/internal/plugins"
 )
 
 // Override is the per-user override of a plugin manifest's overlay
@@ -20,16 +22,24 @@ import (
 // from "field set to its zero value" (e.g., explicit OffsetX=0 still
 // wins over a non-zero manifest default).
 type Override struct {
-	Anchor  *string  `json:"anchor,omitempty"`
-	OffsetX *int     `json:"offset_x,omitempty"`
-	OffsetY *int     `json:"offset_y,omitempty"`
-	Width   *int     `json:"width,omitempty"`
-	Height  *int     `json:"height,omitempty"`
-	Opacity *float64 `json:"opacity,omitempty"`
+	Anchor  *string             `json:"anchor,omitempty"`
+	OffsetX *int                `json:"offset_x,omitempty"`
+	OffsetY *int                `json:"offset_y,omitempty"`
+	Width   *plugins.Dimension  `json:"width,omitempty"`
+	Height  *plugins.Dimension  `json:"height,omitempty"`
+	Opacity *float64            `json:"opacity,omitempty"`
 	// Enabled gates whether the plugin's overlay iframe is mounted.
 	// Pointer so nil means "no preference; default = true". When
 	// explicitly false, /overlay skips the plugin entirely.
 	Enabled *bool `json:"enabled,omitempty"`
+	// Min / Max content-size clamps. Used when the corresponding axis
+	// resolves to "auto" (either from the manifest or from this
+	// override). Ignored on fixed-pixel axes. Pointer so nil means
+	// "no override; manifest value wins".
+	MinWidth  *int `json:"min_width,omitempty"`
+	MaxWidth  *int `json:"max_width,omitempty"`
+	MinHeight *int `json:"min_height,omitempty"`
+	MaxHeight *int `json:"max_height,omitempty"`
 }
 
 // validAnchors are the four corner strings the production overlay
@@ -63,14 +73,26 @@ func (o *Override) Validate() error {
 	if o.OffsetY != nil && (*o.OffsetY < 0 || *o.OffsetY > maxOverlayPixel) {
 		return fmt.Errorf("offset_y must be between 0 and %d, got %d", maxOverlayPixel, *o.OffsetY)
 	}
-	if o.Width != nil && (*o.Width < 0 || *o.Width > maxOverlayPixel) {
-		return fmt.Errorf("width must be between 0 and %d, got %d", maxOverlayPixel, *o.Width)
+	if o.Width != nil && !o.Width.Auto && (o.Width.Px < 0 || o.Width.Px > maxOverlayPixel) {
+		return fmt.Errorf("width must be between 0 and %d, got %d", maxOverlayPixel, o.Width.Px)
 	}
-	if o.Height != nil && (*o.Height < 0 || *o.Height > maxOverlayPixel) {
-		return fmt.Errorf("height must be between 0 and %d, got %d", maxOverlayPixel, *o.Height)
+	if o.Height != nil && !o.Height.Auto && (o.Height.Px < 0 || o.Height.Px > maxOverlayPixel) {
+		return fmt.Errorf("height must be between 0 and %d, got %d", maxOverlayPixel, o.Height.Px)
 	}
 	if o.Opacity != nil && (*o.Opacity < 0 || *o.Opacity > 1) {
 		return fmt.Errorf("opacity must be between 0 and 1, got %g", *o.Opacity)
+	}
+	if o.MinWidth != nil && (*o.MinWidth < 0 || *o.MinWidth > maxOverlayPixel) {
+		return fmt.Errorf("min_width must be between 0 and %d, got %d", maxOverlayPixel, *o.MinWidth)
+	}
+	if o.MaxWidth != nil && (*o.MaxWidth < 0 || *o.MaxWidth > maxOverlayPixel) {
+		return fmt.Errorf("max_width must be between 0 and %d, got %d", maxOverlayPixel, *o.MaxWidth)
+	}
+	if o.MinHeight != nil && (*o.MinHeight < 0 || *o.MinHeight > maxOverlayPixel) {
+		return fmt.Errorf("min_height must be between 0 and %d, got %d", maxOverlayPixel, *o.MinHeight)
+	}
+	if o.MaxHeight != nil && (*o.MaxHeight < 0 || *o.MaxHeight > maxOverlayPixel) {
+		return fmt.Errorf("max_height must be between 0 and %d, got %d", maxOverlayPixel, *o.MaxHeight)
 	}
 	return nil
 }
@@ -99,6 +121,18 @@ func (o Override) merge(partial Override) Override {
 	}
 	if partial.Enabled != nil {
 		o.Enabled = partial.Enabled
+	}
+	if partial.MinWidth != nil {
+		o.MinWidth = partial.MinWidth
+	}
+	if partial.MaxWidth != nil {
+		o.MaxWidth = partial.MaxWidth
+	}
+	if partial.MinHeight != nil {
+		o.MinHeight = partial.MinHeight
+	}
+	if partial.MaxHeight != nil {
+		o.MaxHeight = partial.MaxHeight
 	}
 	return o
 }

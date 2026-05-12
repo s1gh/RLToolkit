@@ -1,5 +1,14 @@
-// Widget control + sizing helpers. Tauri desktop-overlay only —
-// outside Tauri the API resolves to no-ops.
+// Widget control + sizing helpers.
+//
+// Window-shape ops (size/anchor/margin/opacity/visible) only make sense
+// when the plugin is the sole tenant of an OS window — i.e. the Tauri
+// desktop overlay. Outside Tauri they no-op.
+//
+// Sizing helpers (autoSize, fitWidth) work in both contexts: in Tauri
+// they call the desktop window-resize command directly; in a hosted
+// iframe (web overlay aggregator, OBS browser source) they post the
+// measured size to the parent, which honors the message only on axes
+// the manifest declared as "auto" (see overlay.html).
 //
 // `teardownWatchers` is exported for the pagehide handler in index.js
 // to call alongside the bus.closeEventSource() so we don't leak
@@ -111,6 +120,26 @@ export const widget = (function () {
     }
   }
 
+  // postSize routes a measured size to the host. In Tauri it resizes the
+  // OS window via widget_size; in a hosted iframe it tells the parent
+  // aggregator, which clamps and only honors auto-declared axes. Returns
+  // true if a transport was attempted, false if neither is available.
+  function postSize(width, height) {
+    if (inTauri) {
+      invoke('widget_size', { width, height });
+      return true;
+    }
+    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ __rlt_resize__: 1, w: width, h: height }, '*');
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    return false;
+  }
+
   return {
     isHosted() {
       return inTauri;
@@ -131,7 +160,6 @@ export const widget = (function () {
       return invoke('widget_visible', { visible: !!v });
     },
     autoSize(enabled, opts) {
-      if (!inTauri) return false;
       opts = opts || {};
       const minW = opts.minWidth | 0 || 1;
       const minH = opts.minHeight | 0 || 1;
@@ -153,7 +181,7 @@ export const widget = (function () {
         if (w === lastW && h === lastH) return;
         lastW = w;
         lastH = h;
-        invoke('widget_size', { width: w, height: h });
+        postSize(w, h);
       };
 
       autoSizeWatcher = startSizeWatcher(() => resolveTarget(opts.target), flush);
@@ -161,7 +189,6 @@ export const widget = (function () {
     },
 
     fitWidth(opts) {
-      if (!inTauri) return false;
       opts = opts || {};
       const maxW = opts.maxWidth | 0 || 800;
       const extra = opts.extra | 0 || 0;
@@ -175,7 +202,7 @@ export const widget = (function () {
         const wanted = Math.min(maxW, el.scrollWidth + extra);
         if (wanted <= fitWidthHighWater) return;
         fitWidthHighWater = wanted;
-        invoke('widget_size', { width: wanted, height: window.innerHeight });
+        postSize(wanted, window.innerHeight);
       };
 
       fitWidthWatcher = startSizeWatcher(() => resolveTarget(opts.target), flush);

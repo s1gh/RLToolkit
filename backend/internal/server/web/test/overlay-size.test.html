@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>overlay-size smoke tests</title>
+<style>
+  body { font-family: system-ui; margin: 16px; }
+  #log { white-space: pre-wrap; background: #f4f4f4; padding: 8px; font-family: monospace; }
+  .pass { color: green; }
+  .fail { color: red; font-weight: bold; }
+</style>
+</head><body>
+<h1>overlay-size smoke tests</h1>
+<p>Open in a browser. All assertions should be green.</p>
+<div id="log">Running...</div>
+
+<script type="module">
+import { isAuto, applyDimension, clamp } from '../overlay-size.js';
+
+const results = [];
+function assert(cond, msg) { results.push({ ok: !!cond, msg }); }
+
+// isAuto: recognizes the manifest sentinel.
+assert(isAuto('auto') === true, 'isAuto("auto") true');
+assert(isAuto(320) === false, 'isAuto(320) false');
+assert(isAuto(undefined) === false, 'isAuto(undefined) false');
+assert(isAuto(null) === false, 'isAuto(null) false');
+assert(isAuto('AUTO') === false, 'isAuto matches case-sensitively');
+
+// clamp: applies min/max only when set; both zero means pass-through.
+assert(clamp(500, 0, 0) === 500, 'clamp pass-through when min/max both zero');
+assert(clamp(500, 100, 400) === 400, 'clamp respects max');
+assert(clamp(50, 100, 400) === 100, 'clamp respects min');
+assert(clamp(200, 100, 400) === 200, 'clamp leaves in-range alone');
+assert(clamp(500, 0, 400) === 400, 'clamp with only max set');
+assert(clamp(50, 100, 0) === 100, 'clamp with only min set');
+
+// applyDimension: writes pixel string for numeric, leaves untouched for "auto".
+const el = document.createElement('div');
+applyDimension(el, 'width', 320);
+assert(el.style.width === '320px', 'applyDimension numeric writes px');
+
+el.style.width = '';
+applyDimension(el, 'width', 'auto');
+// "auto" should not produce "autopx". Helper may set CSS to '' or 'auto'.
+assert(el.style.width !== 'autopx', 'applyDimension auto does not produce "autopx"');
+
+// Render results.
+const log = document.getElementById('log');
+log.textContent = '';
+let failed = 0;
+for (const r of results) {
+  const div = document.createElement('div');
+  div.className = r.ok ? 'pass' : 'fail';
+  div.textContent = (r.ok ? 'PASS' : 'FAIL') + ': ' + r.msg;
+  log.appendChild(div);
+  if (!r.ok) failed++;
+}
+const summary = document.createElement('div');
+summary.style.marginTop = '12px';
+summary.style.fontWeight = 'bold';
+summary.textContent = failed === 0
+  ? 'All ' + results.length + ' assertions passed.'
+  : failed + ' of ' + results.length + ' FAILED.';
+log.appendChild(summary);
+</script>
+</body></html>

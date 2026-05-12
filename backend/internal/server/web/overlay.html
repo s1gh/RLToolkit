@@ -34,6 +34,11 @@
   const params = new URLSearchParams(location.search);
   const editMode = params.get('edit') === '1';
 
+  // Dynamic import so this script tag can stay non-module (overlay.html
+  // is otherwise plain inline JS). The helpers are pure and tiny; the
+  // round-trip is a single in-process module fetch.
+  const { isAuto, clamp, applyDimension } = await import('/overlay-size.js');
+
   let plugins = await fetch('/api/plugins').then(r => r.json());
   const overrides = await fetch('/api/overlay/overrides').then(r => r.json()).catch(() => ({}));
 
@@ -279,6 +284,26 @@
       openBus();
       return;
     }
+
+    // Content-driven resize from a hosted plugin. Identity is verified
+    // by matching event.source against each iframe's contentWindow —
+    // payload-supplied IDs would let one iframe spoof another's size.
+    // A plugin can only resize axes its manifest declared as "auto";
+    // fixed-pixel axes are silently ignored so an off-spec plugin can't
+    // grow past its declared footprint.
+    if (data.__rlt_resize__ === 1) {
+      const w = widgetForSource(e.source);
+      if (!w) return;
+      if (w.autoWidth && Number.isFinite(data.w)) {
+        const px = clamp(Math.max(1, data.w | 0), w.minWidth, w.maxWidth);
+        w.el.style.width = px + 'px';
+      }
+      if (w.autoHeight && Number.isFinite(data.h)) {
+        const px = clamp(Math.max(1, data.h | 0), w.minHeight, w.maxHeight);
+        w.el.style.height = px + 'px';
+      }
+      return;
+    }
   });
 
   function widgetForSource(source) {
@@ -310,6 +335,18 @@
       if (Array.isArray(overlay.show_during_phase) && overlay.show_during_phase.length) {
         src += '&phases=' + encodeURIComponent(overlay.show_during_phase.join(','));
       }
+      // Forward auto-size flags so the SDK self-enables content fit
+      // without the plugin having to call RLT.widget.autoSize. The
+      // host still validates incoming sizes against this manifest's
+      // axis-auto declaration, so the flags are an optimization
+      // (skip the no-op postMessage path for fixed widgets), not a
+      // trust boundary.
+      if (isAuto(overlay.width))  src += '&auto_width=1';
+      if (isAuto(overlay.height)) src += '&auto_height=1';
+      if (overlay.min_width  | 0) src += '&min_width='  + (overlay.min_width  | 0);
+      if (overlay.max_width  | 0) src += '&max_width='  + (overlay.max_width  | 0);
+      if (overlay.min_height | 0) src += '&min_height=' + (overlay.min_height | 0);
+      if (overlay.max_height | 0) src += '&max_height=' + (overlay.max_height | 0);
       f.src = src;
       f.setAttribute('allowtransparency', 'true');
       f.setAttribute('frameborder', '0');
@@ -343,8 +380,17 @@
       widgets.set(plugin.name, w);
     }
     const a = overlay.anchor || 'top-right';
-    w.el.style.width  = overlay.width  + 'px';
-    w.el.style.height = overlay.height + 'px';
+    // Track per-axis auto state so the resize-message listener below
+    // knows whether to honor a plugin's reported size. A plugin can't
+    // grow itself unless its manifest opts in via width/height: "auto".
+    w.autoWidth  = isAuto(overlay.width);
+    w.autoHeight = isAuto(overlay.height);
+    w.minWidth   = overlay.min_width  | 0;
+    w.maxWidth   = overlay.max_width  | 0;
+    w.minHeight  = overlay.min_height | 0;
+    w.maxHeight  = overlay.max_height | 0;
+    applyDimension(w.el, 'width',  overlay.width);
+    applyDimension(w.el, 'height', overlay.height);
     w.el.style.opacity = overlay.opacity == null ? 1 : overlay.opacity;
     // Anchor change: clear all four sides, re-apply the two we want.
     w.el.style.top = w.el.style.bottom = w.el.style.left = w.el.style.right = '';

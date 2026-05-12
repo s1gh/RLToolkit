@@ -177,6 +177,47 @@ async function run() {
   assert(wrapAfter.style.left === '999px', 'MutationObserver re-syncs wrapper to iframe (got ' + wrapAfter.style.left + ')');
   window.__rlt_live_edit.unmount();
 
+  // Test 10: drag-resize on an auto-width widget writes max_width
+  // instead of width, so the iframe stays content-driven up to the
+  // dragged ceiling. Mount a fresh widget with autoWidth flagged
+  // (mirroring what overlay.html sets when manifest width:"auto").
+  const widgetsAuto = new Map();
+  makeFake('e', 'top-left', 32, 32, 200, 100);
+  widgetsAuto.set('e', { iframe: document.querySelector('[data-fake-anchor="top-left"]:nth-of-type(5)') || widgets.get('a').iframe });
+  // Re-attach a clean entry: clone widgets and add an autoWidth entry.
+  const autoIframe = document.createElement('div');
+  autoIframe.className = 'iframe';
+  autoIframe.dataset.fakeAnchor = 'top-left';
+  autoIframe.style.width = '200px';
+  autoIframe.style.height = '100px';
+  autoIframe.style.top = '500px';
+  autoIframe.style.left = '500px';
+  Object.defineProperty(autoIframe, 'src', { value: 'about:blank?anchor=top-left', writable: true, configurable: true });
+  document.body.appendChild(autoIframe);
+  const autoMap = new Map([['e', { iframe: autoIframe, autoWidth: true, autoHeight: false }]]);
+  window.__rlt_live_edit.mount(autoMap);
+  const wrapE = document.querySelector('.rlt-le-wrapper[data-plugin-name="e"]');
+  const handleE = wrapE.querySelector('.rlt-le-resize');
+  // Auto badge should be visible on auto axes.
+  assert(
+    Array.from(wrapE.children).some(c => /auto/.test(c.textContent || '')),
+    'auto axis shows badge on wrapper'
+  );
+  sentSaves.length = 0;
+  pointer(handleE, 'pointerdown', 700, 600, { pointerId: 99 });
+  pointer(handleE, 'pointermove', 724, 624, { pointerId: 99 });
+  pointer(handleE, 'pointerup',   724, 624, { pointerId: 99 });
+  await new Promise(function(r) { setTimeout(r, 10); });
+  assert(sentSaves.length === 1, 'auto-axis drag posts one save (got ' + sentSaves.length + ')');
+  if (sentSaves[0]) {
+    const body = sentSaves[0].body;
+    assert(body.max_width !== undefined, 'auto-width drag writes max_width (body=' + JSON.stringify(body) + ')');
+    assert(body.width === undefined, 'auto-width drag does NOT write width (body=' + JSON.stringify(body) + ')');
+    assert(body.height !== undefined, 'fixed-height axis still writes height (body=' + JSON.stringify(body) + ')');
+  }
+  window.__rlt_live_edit.unmount();
+  autoIframe.remove();
+
   // Render results.
   const log = document.getElementById('log');
   log.innerHTML = results.map(function(r) {
