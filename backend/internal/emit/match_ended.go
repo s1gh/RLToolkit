@@ -11,6 +11,13 @@ import (
 // scores + winner name resolved from the cached UpdateState.
 // Subscribers don't have to keep their own tick state to render the
 // post-match line.
+//
+// When RL omits WinnerTeamNum (forfeit, disconnect, server kick) the
+// emitter derives the winner from the cached team scores and ships
+// it on the same field, so plugins always see a populated
+// winnerTeamNum whenever the backend can determine a winner. Tied
+// scores stay null — RL doesn't end clean matches in ties, so a tie
+// at end-of-match means data is incomplete and we won't guess.
 type MatchEnded struct {
 	teams TeamReader
 }
@@ -54,6 +61,18 @@ func (e *MatchEnded) Process(evt bus.Event) []bus.Event {
 	if orange := e.teams.TeamByNum(1); orange != nil {
 		score := orange.Score
 		payload.ScoreOrange = &score
+	}
+	// Score-derive the winner when RL didn't provide one. Only valid
+	// when both team scores are present and unequal; ties stay null.
+	if winner == nil && payload.ScoreBlue != nil && payload.ScoreOrange != nil && *payload.ScoreBlue != *payload.ScoreOrange {
+		var derived int
+		if *payload.ScoreBlue > *payload.ScoreOrange {
+			derived = 0
+		} else {
+			derived = 1
+		}
+		winner = &derived
+		payload.WinnerTeamNum = winner
 	}
 	if winner != nil {
 		if t := e.teams.TeamByNum(*winner); t != nil {
