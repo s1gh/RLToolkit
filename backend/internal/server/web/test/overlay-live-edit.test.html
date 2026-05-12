@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>overlay-live-edit smoke tests</title>
+<style>
+  body { font-family: system-ui; margin: 16px; }
+  .iframe { position: absolute; pointer-events: none; background: #333; }
+  #log { white-space: pre-wrap; background: #f4f4f4; padding: 8px; font-family: monospace; }
+  .pass { color: green; }
+  .fail { color: red; font-weight: bold; }
+</style>
+</head><body>
+<h1>overlay-live-edit smoke tests</h1>
+<p>Open this file directly in a browser. All assertions should be green.</p>
+<div id="log">Running...</div>
+
+<script>
+// Synthetic environment matching what overlay.html provides:
+// a `widgets` Map<name, { iframe }> where each iframe has CSS-style
+// positioning attributes for one of the four anchors. The module
+// reads each iframe's `src` query param for the anchor.
+
+const widgets = new Map();
+
+function makeFake(name, anchor, x, y, w, h) {
+  if (w === undefined) w = 100;
+  if (h === undefined) h = 60;
+  const f = document.createElement('div');
+  f.className = 'iframe';
+  f.dataset.fakeAnchor = anchor;
+  f.style.width = w + 'px';
+  f.style.height = h + 'px';
+  if (anchor.indexOf('top') === 0) f.style.top = y + 'px';
+  else f.style.bottom = y + 'px';
+  if (anchor.indexOf('-left') >= 0) f.style.left = x + 'px';
+  else f.style.right = x + 'px';
+  // Module reads anchor from iframe.src query param.
+  const src = 'about:blank?anchor=' + anchor;
+  // For real <iframe> the `src` property is a string. Our fake div
+  // doesn't have one natively, so define it.
+  Object.defineProperty(f, 'src', { value: src, writable: true, configurable: true });
+  document.body.appendChild(f);
+  widgets.set(name, { iframe: f });
+}
+
+makeFake('a', 'top-left', 32, 32);
+makeFake('b', 'top-right', 32, 64);
+makeFake('c', 'bottom-left', 32, 96);
+makeFake('d', 'bottom-right', 32, 128);
+
+// Capture PUT bodies sent to /api/overlay/overrides/*.
+const sentSaves = [];
+window.fetch = function(url, init) {
+  sentSaves.push({ url, body: JSON.parse(init.body), method: init.method });
+  return Promise.resolve({ ok: true, status: 200, text: function() { return Promise.resolve(''); } });
+};
+
+const results = [];
+function assert(cond, msg) {
+  results.push({ ok: !!cond, msg });
+}
+
+function pointer(target, type, x, y, opts) {
+  opts = opts || {};
+  const ev = new PointerEvent(type, {
+    pointerId: opts.pointerId || 1,
+    clientX: x,
+    clientY: y,
+    button: 0,
+    bubbles: true,
+    shiftKey: !!opts.shiftKey,
+  });
+  target.dispatchEvent(ev);
+}
+
+async function run() {
+  // Load the real module from the parent dir.
+  await import('../overlay-live-edit.js');
+
+  // Test 1: mount creates one wrapper per widget.
+  window.__rlt_live_edit.mount(widgets);
+  assert(
+    document.querySelectorAll('.rlt-le-wrapper').length === widgets.size,
+    'mount creates one wrapper per widget'
+  );
+
+  // Test 2: top-left drag. Move pointer +24,+24. Expected snapped result: 32+24=56.
+  const wrapA = document.querySelector('.rlt-le-wrapper[data-plugin-name="a"]');
+  sentSaves.length = 0;
+  pointer(wrapA, 'pointerdown', 100, 100);
+  pointer(wrapA, 'pointermove', 124, 124);
+  pointer(wrapA, 'pointerup', 124, 124);
+  await new Promise(function(r) { setTimeout(r, 10); });
+  assert(sentSaves.length === 1, 'top-left drag posts exactly one save (got ' + sentSaves.length + ')');
+  if (sentSaves[0]) {
+    assert(sentSaves[0].method === 'PUT', 'method is PUT (got ' + sentSaves[0].method + ')');
+    assert(sentSaves[0].body.offset_x === 56, 'top-left offset_x is 56 (got ' + sentSaves[0].body.offset_x + ')');
+    assert(sentSaves[0].body.offset_y === 56, 'top-left offset_y is 56 (got ' + sentSaves[0].body.offset_y + ')');
+  }
+
+  // Test 3: top-right drag with sign flip. Pointer moves -24,0; right-anchored,
+  // so offset_x should INCREASE by 24 (32+24=56).
+  const wrapB = document.querySelector('.rlt-le-wrapper[data-plugin-name="b"]');
+  sentSaves.length = 0;
+  pointer(wrapB, 'pointerdown', 200, 200, { pointerId: 2 });
+  pointer(wrapB, 'pointermove', 176, 200, { pointerId: 2 });
+  pointer(wrapB, 'pointerup', 176, 200, { pointerId: 2 });
+  await new Promise(function(r) { setTimeout(r, 10); });
+  assert(sentSaves.length === 1, 'top-right drag posts exactly one save');
+  if (sentSaves[0]) {
+    assert(sentSaves[0].body.offset_x === 56, 'top-right offset_x sign-flipped to 56 (got ' + sentSaves[0].body.offset_x + ')');
+  }
+
+  // Test 4: bottom-right drag. Move pointer (-24, -24); both axes flip.
+  // Expected: 32+24=56, 128+24=152 (snapped to 152 since 152 % 8 = 0).
+  const wrapD = document.querySelector('.rlt-le-wrapper[data-plugin-name="d"]');
+  sentSaves.length = 0;
+  pointer(wrapD, 'pointerdown', 400, 400, { pointerId: 3 });
+  pointer(wrapD, 'pointermove', 376, 376, { pointerId: 3 });
+  pointer(wrapD, 'pointerup', 376, 376, { pointerId: 3 });
+  await new Promise(function(r) { setTimeout(r, 10); });
+  assert(sentSaves.length === 1, 'bottom-right drag posts exactly one save');
+  if (sentSaves[0]) {
+    assert(sentSaves[0].body.offset_x === 56, 'bottom-right offset_x sign-flipped (got ' + sentSaves[0].body.offset_x + ')');
+    assert(sentSaves[0].body.offset_y === 152, 'bottom-right offset_y sign-flipped (got ' + sentSaves[0].body.offset_y + ')');
+  }
+
+  // Test 5: 8px snap. Move pointer 23px (not divisible by 8); expect snap to
+  // nearest multiple of 8. start.x=32; 32+23=55; snapped to 56.
+  const wrapA2 = document.querySelector('.rlt-le-wrapper[data-plugin-name="a"]');
+  sentSaves.length = 0;
+  pointer(wrapA2, 'pointerdown', 100, 100, { pointerId: 4 });
+  pointer(wrapA2, 'pointermove', 123, 100, { pointerId: 4 });
+  pointer(wrapA2, 'pointerup', 123, 100, { pointerId: 4 });
+  await new Promise(function(r) { setTimeout(r, 10); });
+  if (sentSaves[0]) {
+    assert(sentSaves[0].body.offset_x === 56, '23px drag snaps to 56 (got ' + sentSaves[0].body.offset_x + ')');
+  }
+
+  // Test 6: Shift bypasses snap. Same 23px drag with shift; expect 55 (no snap).
+  // Reset wrapA position first by faking a reflow.
+  widgets.get('a').iframe.style.left = '32px';
+  widgets.get('a').iframe.style.top = '32px';
+  await new Promise(function(r) { setTimeout(r, 0); });
+  const wrapA3 = document.querySelector('.rlt-le-wrapper[data-plugin-name="a"]');
+  sentSaves.length = 0;
+  pointer(wrapA3, 'pointerdown', 100, 100, { pointerId: 5 });
+  pointer(wrapA3, 'pointermove', 123, 100, { pointerId: 5 });
+  pointer(wrapA3, 'pointerup', 123, 100, { pointerId: 5, shiftKey: true });
+  await new Promise(function(r) { setTimeout(r, 10); });
+  if (sentSaves[0]) {
+    assert(sentSaves[0].body.offset_x === 55, 'Shift bypass: 23px drag = 55 (got ' + sentSaves[0].body.offset_x + ')');
+  }
+
+  // Test 7: Esc invokes overlay_edit_exit Tauri command (if present).
+  let escInvoked = 0;
+  window.__TAURI_INTERNALS__ = {
+    invoke: function(name) {
+      if (name === 'overlay_edit_exit') escInvoked++;
+      return Promise.resolve();
+    },
+  };
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  assert(escInvoked === 1, 'Esc invokes overlay_edit_exit (count ' + escInvoked + ')');
+
+  // Test 8: unmount removes all wrappers.
+  window.__rlt_live_edit.unmount();
+  assert(
+    document.querySelectorAll('.rlt-le-wrapper').length === 0,
+    'unmount removes all wrappers'
+  );
+
+  // Test 9: MutationObserver re-sync. Re-mount, mutate iframe style, expect wrapper to follow.
+  window.__rlt_live_edit.mount(widgets);
+  const wrapAfter = document.querySelector('.rlt-le-wrapper[data-plugin-name="a"]');
+  widgets.get('a').iframe.style.left = '999px';
+  // Yield to MutationObserver microtask.
+  await new Promise(function(r) { setTimeout(r, 0); });
+  assert(wrapAfter.style.left === '999px', 'MutationObserver re-syncs wrapper to iframe (got ' + wrapAfter.style.left + ')');
+  window.__rlt_live_edit.unmount();
+
+  // Render results.
+  const log = document.getElementById('log');
+  log.innerHTML = results.map(function(r) {
+    return '<div class="' + (r.ok ? 'pass' : 'fail') + '">' + (r.ok ? 'PASS' : 'FAIL') + ': ' + r.msg + '</div>';
+  }).join('');
+  const failures = results.filter(function(r) { return !r.ok; }).length;
+  log.innerHTML += '<div style="margin-top:8px;font-weight:bold;">' + (results.length - failures) + ' passed, ' + failures + ' failed</div>';
+}
+
+run().catch(function(err) {
+  document.getElementById('log').innerHTML =
+    '<div class="fail">RUNNER ERROR: ' + (err && err.message || String(err)) + '</div>';
+  console.error(err);
+});
+</script>
+</body></html>
