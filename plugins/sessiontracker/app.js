@@ -355,7 +355,118 @@
       '</div>';
   }
 
-  function renderDashboard(root) { root.textContent = 'dashboard (next task)'; }
+  function renderDashboard(root) {
+    const b = bucket || emptyBucket('');
+    const streak = currentStreak(b.results.last);
+    const streakLabel = streak ? (streak.kind === 'win' ? 'STREAK W' : 'STREAK L') + streak.count : '';
+
+    const ticks = b.results.last.map((r) =>
+      '<span class="st-tick st-tick-' + escA(r) + '"></span>'
+    ).join('');
+
+    const startedTime = new Date(b.startedAt).toLocaleTimeString('en', {
+      hour12: false, hour: '2-digit', minute: '2-digit',
+    });
+
+    const hardest = b.crossbar.hardest;
+    let hardestBlock;
+    if (!hardest) {
+      hardestBlock = '<div class="st-mut">No crossbar hits yet</div>';
+    } else {
+      const team = hardest.player ? (hardest.player.team === 0 ? ' (Blue)' : hardest.player.team === 1 ? ' (Orange)' : '') : '';
+      const when = hardest.at ? new Date(hardest.at).toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '';
+      const playerName = hardest.player ? (hardest.player.name || '?') : '?';
+      hardestBlock =
+        '<div>Hardest impact this session:</div>' +
+        '<div class="st-hardest-line"><span class="st-val">' + fmtImpact(hardest.impact) + '</span>' +
+          ' · <span class="st-val">' + fmtSpeed(hardest.speed) + '</span>' +
+          ' — <span class="st-name">' + esc(playerName) + esc(team) + '</span>' +
+          (when ? ' — <span class="st-mut">' + esc(when) + '</span>' : '') +
+        '</div>' +
+        '<div class="st-mut">Total hits: ' + b.crossbar.hits + '</div>';
+    }
+
+    const mmrRows = [];
+    for (const mode of RANKED_MODES) {
+      const slot = b.mmr.ranked[mode];
+      if (!slot) continue;
+      mmrRows.push(
+        '<tr><td class="st-lbl">' + mode + '</td>' +
+        '<td><span class="' + deltaClass(slot) + '">' + esc(deltaText(slot)) + '</span></td></tr>'
+      );
+    }
+    if (b.mmr.casual) {
+      mmrRows.push(
+        '<tr><td class="st-lbl">CASUAL</td>' +
+        '<td><span class="' + deltaClass(b.mmr.casual) + '">' + esc(deltaText(b.mmr.casual)) + '</span></td></tr>'
+      );
+    }
+
+    const modOrder = Object.keys(MOD_LABEL).slice().sort((a, b2) => {
+      const da = b.modifiers[b2] - b.modifiers[a];
+      if (da !== 0) return da;
+      return a.localeCompare(b2);
+    });
+    const modCells = modOrder.map((k) => {
+      const v = b.modifiers[k];
+      const cls = v > 0 ? 'st-val' : 'st-mut';
+      return '<div class="st-mod-cell"><span class="st-lbl">' + esc(MOD_LABEL[k]) + '</span> <span class="' + cls + '">' + v + '</span></div>';
+    }).join('');
+
+    const totalsCls = (v) => v > 0 ? 'st-val' : 'st-mut';
+
+    root.innerHTML =
+      '<div class="st-dash">' +
+        '<div class="st-dash-h">' +
+          '<span class="st-h-l">SESSION TRACKER</span>' +
+          '<span class="st-h-r"><span class="st-mut">started ' + esc(startedTime) + ' · ' + esc(fmtDuration(b.startedAt)) + ' elapsed</span></span>' +
+        '</div>' +
+
+        '<div class="st-dash-grid">' +
+          '<div class="st-card st-card-record">' +
+            '<div class="st-card-h">RECORD</div>' +
+            '<div class="st-record-big">' + b.results.wins + ' – ' + b.results.losses + '</div>' +
+            '<div class="st-record-lbl"><span class="st-lbl">WINS</span> <span class="st-lbl">LOSSES</span></div>' +
+            '<div class="st-row st-ticks">' + (ticks || '<span class="st-mut">no matches yet</span>') + '</div>' +
+            (streakLabel ? '<div class="st-mut">' + esc(streakLabel) + '</div>' : '') +
+          '</div>' +
+
+          '<div class="st-card st-card-stats">' +
+            '<div class="st-card-h">STATS</div>' +
+            '<div class="st-stats-big">' +
+              '<div><div class="' + totalsCls(b.totals.goals) + ' st-num">' + b.totals.goals + '</div><div class="st-lbl">GOALS</div></div>' +
+              '<div><div class="' + totalsCls(b.totals.saves) + ' st-num">' + b.totals.saves + '</div><div class="st-lbl">SAVES</div></div>' +
+              '<div><div class="' + totalsCls(b.totals.demos) + ' st-num">' + b.totals.demos + '</div><div class="st-lbl">DEMOS</div></div>' +
+            '</div>' +
+            '<div class="st-stats-info">' +
+              '<div><span class="' + (b.ball.fastestKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.fastestKmh) + '</span> <span class="st-lbl">FASTEST BALL</span></div>' +
+              '<div>' +
+                '<span class="' + (hardest ? 'st-val' : 'st-mut') + '">' + (hardest ? fmtImpact(hardest.impact) + ' · ' + fmtSpeed(hardest.speed) : '—') + '</span>' +
+                ' <span class="st-lbl">HARDEST CROSSBAR</span>' +
+                (hardest && hardest.player ? '<div class="st-mut">· by ' + esc(hardest.player.name || '?') + '</div>' : '') +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        (mmrRows.length > 0 ? (
+          '<div class="st-card">' +
+            '<div class="st-card-h">MMR</div>' +
+            '<table class="st-table"><tbody>' + mmrRows.join('') + '</tbody></table>' +
+          '</div>'
+        ) : '') +
+
+        '<div class="st-card">' +
+          '<div class="st-card-h">GOAL MODIFIERS</div>' +
+          '<div class="st-mods-grid">' + modCells + '</div>' +
+        '</div>' +
+
+        '<div class="st-card">' +
+          '<div class="st-card-h">CROSSBAR</div>' +
+          hardestBlock +
+        '</div>' +
+      '</div>';
+  }
   function renderSettings(root)  { root.textContent = 'settings (later task)'; }
 
   let elapsedTimer = null;
