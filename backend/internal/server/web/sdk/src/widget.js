@@ -176,6 +176,13 @@ export const widget = (function () {
         const el = resolveTarget(opts.target);
         if (!el) return;
         const r = el.getBoundingClientRect();
+        // A 0x0 rect means the target is hidden (display:none, e.g. the
+        // hide_when_unfocused gate flipped off). Reporting that to the
+        // host would shrink the iframe to 1x1, which then becomes the
+        // viewport when focus returns — body has no room to lay out, so
+        // it stays small and the widget never recovers. Skip the post
+        // and wait for the next tick when the target is visible again.
+        if (r.width === 0 && r.height === 0) return;
         const w = Math.max(minW, Math.min(maxW, Math.ceil(r.width)));
         const h = Math.max(minH, Math.min(maxH, Math.ceil(r.height)));
         if (w === lastW && h === lastH) return;
