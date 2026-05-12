@@ -381,7 +381,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// First-frame: ship the process boot ID so plugins can detect a
 	// launcher restart and reset per-session state.
 	{
-		bootFrame := []byte(`{"Event":"_BootId","bootId":"` + bootid.Get() + `"}`)
+		bootFrame := []byte(`{"Event":"_BootId","Data":{"bootId":"` + bootid.Get() + `"}}`)
 		if !writeFrame(sseDataPrefix, bootFrame, sseRecordEnd) {
 			return
 		}
