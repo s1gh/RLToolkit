@@ -468,7 +468,7 @@
           '<span><span class="' + totalsCls(b.totals.goals)    + '">' + b.totals.goals    + '</span> <span class="st-lbl">GOALS</span></span>' +
           '<span><span class="' + totalsCls(b.totals.saves)    + '">' + b.totals.saves    + '</span> <span class="st-lbl">SAVES</span></span>' +
           '<span><span class="' + totalsCls(b.totals.demos)    + '">' + b.totals.demos    + '</span> <span class="st-lbl">DEMOS</span></span>' +
-          '<span><span class="' + totalsCls(b.totals.boost)    + '">' + b.totals.boost    + '</span> <span class="st-lbl">BOOST</span></span>' +
+          '<span><span class="' + totalsCls(b.totals.boost)    + '">' + b.totals.boost    + '</span> <span class="st-lbl">BOOST ~</span></span>' +
           '<span><span class="' + totalsCls(b.totals.ownGoals) + '">' + b.totals.ownGoals + '</span> <span class="st-lbl">OWN</span></span>' +
         '</div>' +
         '<div class="st-row st-match">' +
@@ -476,7 +476,7 @@
           '<span><span class="' + totalsCls(m.goals)    + '">' + m.goals    + '</span> <span class="st-lbl">G</span></span>' +
           '<span><span class="' + totalsCls(m.saves)    + '">' + m.saves    + '</span> <span class="st-lbl">S</span></span>' +
           '<span><span class="' + totalsCls(m.demos)    + '">' + m.demos    + '</span> <span class="st-lbl">D</span></span>' +
-          '<span><span class="' + totalsCls(m.boost)    + '">' + m.boost    + '</span> <span class="st-lbl">B</span></span>' +
+          '<span><span class="' + totalsCls(m.boost)    + '">' + m.boost    + '</span> <span class="st-lbl">B~</span></span>' +
           '<span><span class="' + totalsCls(m.ownGoals) + '">' + m.ownGoals + '</span> <span class="st-lbl">OG</span></span>' +
           matchTag +
         '</div>' +
