@@ -242,3 +242,53 @@ test('applyCrossbarHit: missing player still records hardest with null player', 
   assert.equal(b.crossbar.hardest.impact, 750);
   assert.equal(b.crossbar.hardest.player, null);
 });
+
+test('applyMmr: first 2v2 ranked seeds start and current', () => {
+  const b = R.emptyBucket('b');
+  R.applyMmr(b, '2v2', { playlists: { '2v2': { mmr: 1432 }, 'casual': { mmr: 1023 } } });
+  assert.deepEqual(b.mmr.ranked['2v2'], { start: 1432, current: 1432 });
+  assert.deepEqual(b.mmr.casual, { start: 1023, current: 1023 });
+});
+
+test('applyMmr: second call updates current only', () => {
+  const b = R.emptyBucket('b');
+  R.applyMmr(b, '2v2', { playlists: { '2v2': { mmr: 1432 }, 'casual': { mmr: 1023 } } });
+  R.applyMmr(b, '2v2', { playlists: { '2v2': { mmr: 1450 }, 'casual': { mmr: 1018 } } });
+  assert.deepEqual(b.mmr.ranked['2v2'], { start: 1432, current: 1450 });
+  assert.deepEqual(b.mmr.casual, { start: 1023, current: 1018 });
+});
+
+test('applyMmr: different mode opens a new ranked slot', () => {
+  const b = R.emptyBucket('b');
+  R.applyMmr(b, '2v2', { playlists: { '2v2': { mmr: 1432 }, 'casual': { mmr: 1023 } } });
+  R.applyMmr(b, '1v1', { playlists: { '1v1': { mmr: 874 }, 'casual': { mmr: 1023 } } });
+  assert.deepEqual(b.mmr.ranked['2v2'], { start: 1432, current: 1432 });
+  assert.deepEqual(b.mmr.ranked['1v1'], { start: 874, current: 874 });
+});
+
+test('applyMmr: missing ranked key in response leaves slot untouched', () => {
+  const b = R.emptyBucket('b');
+  R.applyMmr(b, '2v2', { playlists: { '2v2': { mmr: 1432 } } });
+  R.applyMmr(b, '2v2', { playlists: {} });
+  assert.deepEqual(b.mmr.ranked['2v2'], { start: 1432, current: 1432 });
+});
+
+test('applyMmr: missing casual key leaves casual slot untouched', () => {
+  const b = R.emptyBucket('b');
+  R.applyMmr(b, '2v2', { playlists: { '2v2': { mmr: 1432 } } });
+  assert.equal(b.mmr.casual, null);
+});
+
+test('applyMmr: payload with no playlists is a no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMmr(b, '2v2', {});
+  assert.deepEqual(b.mmr.ranked, {});
+  assert.equal(b.mmr.casual, null);
+});
+
+test('applyMmr: mode other than 1v1/2v2/3v3 does not update ranked', () => {
+  const b = R.emptyBucket('b');
+  R.applyMmr(b, 'other', { playlists: { 'casual': { mmr: 1000 } } });
+  assert.deepEqual(b.mmr.ranked, {});
+  assert.deepEqual(b.mmr.casual, { start: 1000, current: 1000 });
+});

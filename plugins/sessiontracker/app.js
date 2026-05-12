@@ -93,6 +93,32 @@
     };
   }
 
+  const RANKED_MODES = ['1v1', '2v2', '3v3'];
+
+  function applyMmr(bucket, mode, payload) {
+    const pls = payload && payload.playlists;
+    if (!pls) return;
+    if (RANKED_MODES.indexOf(mode) >= 0) {
+      const row = pls[mode];
+      if (row && typeof row.mmr === 'number') {
+        const slot = bucket.mmr.ranked[mode];
+        if (!slot) {
+          bucket.mmr.ranked[mode] = { start: row.mmr, current: row.mmr };
+        } else {
+          slot.current = row.mmr;
+        }
+      }
+    }
+    const casual = pls.casual;
+    if (casual && typeof casual.mmr === 'number') {
+      if (!bucket.mmr.casual) {
+        bucket.mmr.casual = { start: casual.mmr, current: casual.mmr };
+      } else {
+        bucket.mmr.casual.current = casual.mmr;
+      }
+    }
+  }
+
   const Reducers = {
     emptyBucket,
     applyMatchEnded,
@@ -101,6 +127,8 @@
     applyGoalScored,
     applyFastestShot,
     applyCrossbarHit,
+    applyMmr,
+    RANKED_MODES,
   };
 
   root.SessionTrackerReducers = Reducers;
