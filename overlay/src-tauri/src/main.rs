@@ -586,6 +586,16 @@ fn build_overlay_window(
     // show()/hide()d on toggle. Building from an IPC worker thread
     // deadlocks WebView2 on Windows — only the main-thread setup()
     // path is safe.
+    // Set the window title to empty on Windows. On 148.x WebView2
+    // (and possibly other versions) the overlay's title text appears
+    // painted as a "ghost" caption bar across the top of the screen
+    // when click-through flips off for edit mode. The bar isn't
+    // standard chrome — there's no WS_CAPTION on the window, no DOM
+    // element rendering it, and it doesn't reserve screen space — but
+    // the text matches the .title() string verbatim. Setting title to
+    // empty eliminates the only direct lever we have left.
+    #[cfg(target_os = "windows")]
+    let title: &str = "";
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(title)
         .decorations(false)
