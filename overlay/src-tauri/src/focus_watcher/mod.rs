@@ -474,30 +474,19 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
 /// toggle so we don't auto-show a window the user explicitly turned
 /// off via the tray / overflow menu.
 fn post_focus_message(app: &AppHandle, active: bool) -> Result<(), String> {
-    // Hide via the WebView, not the window. Calling win.hide() on
-    // Hyprland triggers the compositor's window-close animation (fade
-    // out over ~150ms), so the overlay visibly lingers even though the
-    // surface IS unmapping. Toggling display on the root element instead
-    // keeps the surface mapped — WebKit just paints an empty transparent
-    // frame on the next commit, no compositor animation involved.
+    // Plugin-level visibility is owned by each plugin's SDK
+    // (visibility.js), which reads the `hide_when_unfocused` URL flag
+    // and toggles body display:none on focus change. We just relay the
+    // focus signal here; iframes that opted out of focus-gating
+    // (hide_when_unfocused: false in their manifest) stay visible.
     //
-    // We respect the launcher's overlay-enabled toggle on the show path
-    // so we don't auto-show contents that the user explicitly turned off
-    // via the tray. On the hide path we don't gate: if the user already
-    // disabled the overlay, the contents are already hidden and a second
-    // hide is a no-op.
-    let user_wants_overlay = app
-        .try_state::<crate::launcher::ipc::LauncherState>()
-        .map(|state| state.lock().map(|ctx| ctx.overlay_enabled).unwrap_or(true))
-        .unwrap_or(true);
-    let should_show_contents = active && user_wants_overlay;
-    let display_js = if should_show_contents {
-        // Empty string lets the stylesheet's default win again.
-        "document.documentElement.style.display='';"
-    } else {
-        "document.documentElement.style.display='none';"
-    };
-
+    // An earlier version of this code also flipped display:none on the
+    // overlay's documentElement to eliminate a sub-frame lag while the
+    // SDK processed the focus message. That broke the
+    // hide_when_unfocused: false opt-out: with the root hidden, every
+    // iframe disappears regardless of its own preference. The tiny
+    // visual lag is the right trade-off for plugin authors getting
+    // the behavior they declared.
     let post_js = format!(
         "window.postMessage({{ __rlt_focus__: true, active: {} }}, '*');",
         if active { "true" } else { "false" }
@@ -506,21 +495,8 @@ fn post_focus_message(app: &AppHandle, active: bool) -> Result<(), String> {
     let mut errors: Vec<String> = Vec::new();
     let mut sent_to_at_least_one = false;
     for (label, webview) in app.webviews().iter() {
-        // Only flip display on the overlay webview ("main"). Other
-        // webviews (the launcher) get the focus postMessage only —
-        // applying display:none to the launcher would hide the
-        // launcher whenever RL loses focus, which is plainly wrong.
-        // Order matters for the overlay: flip display FIRST so the
-        // next compositor commit already reflects the new visibility,
-        // THEN post the focus event for plugin-side logic (pause
-        // timers, etc). The reverse order would let plugin handlers
-        // run a frame before the visual change landed.
-        let js = if label == "main" {
-            format!("{display_js}{post_js}")
-        } else {
-            post_js.clone()
-        };
-        match webview.eval(&js) {
+        let _ = label;
+        match webview.eval(&post_js) {
             Ok(_) => sent_to_at_least_one = true,
             Err(e) => errors.push(format!("{label}: {e}")),
         }
