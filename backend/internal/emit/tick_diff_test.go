@@ -136,3 +136,52 @@ func TestTickDiff_BoostConsumed_LeavesIsMeFalseForOthers(t *testing.T) {
 		t.Errorf("opponent payload should not have isMe:true: %s", got.Data)
 	}
 }
+
+// Respawn suppression: the boost reseed (whatever→33 default) lands a
+// tick or two AFTER prev.Demolished flips back to false, so the
+// per-tick prev/curr.Demolished check alone misses it. TickDiff has
+// to carry a one-shot "we owe a respawn suppression for this player"
+// flag, set when we observe Demolished true→false, consumed on the
+// next boost decrease for that player.
+func TestTickDiff_BoostConsumed_SuppressesPostRespawnDropOnLaterTick(t *testing.T) {
+	td := &TickDiff{}
+	id := "p1"
+	// Frame N: respawn lands. Demolished flipped true→false, boost is
+	// still whatever it was before death (74). No drop yet.
+	prev1 := &types.TickPlayer{ID: id, Boost: intp(74), Demolished: true}
+	curr1 := &types.TickPlayer{ID: id, Boost: intp(74), Demolished: false}
+	if got := td.boostConsumed("g1", prev1, curr1); got != nil {
+		t.Errorf("frame N (no drop yet) shouldn't emit, got %s", got.Data)
+	}
+	// Frame N+1: RL reseeds boost to 33. Both ticks alive; under the
+	// old logic this would emit a 41-boost spend.
+	prev2 := &types.TickPlayer{ID: id, Boost: intp(74), Demolished: false}
+	curr2 := &types.TickPlayer{ID: id, Boost: intp(33), Demolished: false}
+	if got := td.boostConsumed("g1", prev2, curr2); got != nil {
+		t.Errorf("post-respawn boost reseed should be suppressed, got %s", got.Data)
+	}
+	// Frame N+2: real boost spend. Suppression is one-shot, so this
+	// fires normally.
+	prev3 := &types.TickPlayer{ID: id, Boost: intp(33), Demolished: false}
+	curr3 := &types.TickPlayer{ID: id, Boost: intp(28), Demolished: false}
+	if got := td.boostConsumed("g1", prev3, curr3); got == nil {
+		t.Errorf("real spend after respawn-suppression should emit")
+	}
+}
+
+// Match boundary clears any pending suppression so a stale flag from
+// the previous match can't swallow the first real spend of the next.
+func TestTickDiff_BoostConsumed_SuppressionResetsBetweenMatches(t *testing.T) {
+	td := &TickDiff{}
+	id := "p1"
+	// Arm suppression in match A.
+	td.boostConsumed("matchA", &types.TickPlayer{ID: id, Demolished: true, Boost: intp(50)},
+		&types.TickPlayer{ID: id, Demolished: false, Boost: intp(50)})
+	// Different match guid; suppression should not carry over.
+	td.matchEnded("matchA")
+	got := td.boostConsumed("matchB", &types.TickPlayer{ID: id, Boost: intp(50), Demolished: false},
+		&types.TickPlayer{ID: id, Boost: intp(33), Demolished: false})
+	if got == nil {
+		t.Errorf("boost drop in fresh match should NOT be suppressed by stale flag")
+	}
+}

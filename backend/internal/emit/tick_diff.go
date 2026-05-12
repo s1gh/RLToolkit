@@ -38,19 +38,43 @@ type TickDiff struct {
 	correlation Correlator
 	flipReset   FlipResetClearer
 	roster      PrimaryIdResolver
+
+	// pendingRespawnSuppress[playerID] = true means the player's
+	// Demolished edge true→false was just observed; the next boost
+	// decrease for that player is the post-respawn reseed (RL drops
+	// boost to 33 a tick or two after the respawn lands) and should
+	// be swallowed once. Cleared on match end so a stale flag from
+	// the previous match can't swallow the first real spend of the
+	// next.
+	pendingRespawnSuppress map[string]bool
 }
 
 func NewTickDiff(phase PhaseGate, ticks TickHistory, correlation Correlator, flipReset FlipResetClearer, roster PrimaryIdResolver) *TickDiff {
 	return &TickDiff{
-		phase:       phase,
-		ticks:       ticks,
-		correlation: correlation,
-		flipReset:   flipReset,
-		roster:      roster,
+		phase:                  phase,
+		ticks:                  ticks,
+		correlation:            correlation,
+		flipReset:              flipReset,
+		roster:                 roster,
+		pendingRespawnSuppress: make(map[string]bool),
+	}
+}
+
+// matchEnded clears the per-match respawn-suppression bookkeeping.
+// Called from Process on MatchCreated/MatchDestroyed so a flag armed
+// in one match can't carry over and silently swallow the first real
+// boost spend in the next.
+func (e *TickDiff) matchEnded(_ string) {
+	for k := range e.pendingRespawnSuppress {
+		delete(e.pendingRespawnSuppress, k)
 	}
 }
 
 func (e *TickDiff) Process(evt bus.Event) []bus.Event {
+	if evt.Name == "MatchCreated" || evt.Name == "MatchDestroyed" {
+		e.matchEnded(evt.Name)
+		return nil
+	}
 	if evt.Name != "UpdateState" {
 		return nil
 	}
@@ -62,6 +86,7 @@ func (e *TickDiff) Process(evt bus.Event) []bus.Event {
 	// A match guid change means the new tick is a fresh baseline; any
 	// diff against the previous snapshot would be misleading.
 	if prev.MatchGUID != "" && curr.MatchGUID != "" && prev.MatchGUID != curr.MatchGUID {
+		e.matchEnded(prev.MatchGUID)
 		return nil
 	}
 
@@ -325,6 +350,17 @@ func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.E
 // Also no-ops when curr.Boost is nil (non-spectator mode dropping the
 // field).
 func (e *TickDiff) boostConsumed(guid string, prev, curr *types.TickPlayer) *bus.Event {
+	// Arm respawn suppression on the Demolished true→false edge for
+	// this player, regardless of whether boost moved. The actual
+	// reseed-to-33 lands a tick or two later, so we have to remember
+	// the respawn until we see the boost drop. Lazy-init the map in
+	// case TickDiff was constructed without going through New (tests).
+	if prev.Demolished && !curr.Demolished && curr.ID != "" {
+		if e.pendingRespawnSuppress == nil {
+			e.pendingRespawnSuppress = make(map[string]bool)
+		}
+		e.pendingRespawnSuppress[curr.ID] = true
+	}
 	if curr.Boost == nil {
 		return nil
 	}
@@ -335,7 +371,12 @@ func (e *TickDiff) boostConsumed(guid string, prev, curr *types.TickPlayer) *bus
 	if *curr.Boost >= prevBoost {
 		return nil
 	}
-	if prev.Demolished && !curr.Demolished {
+	// One-shot suppression: if this player respawned within the last
+	// few ticks (or on this tick), the next boost decrease is the
+	// post-respawn reseed. Swallow it and clear the flag so
+	// subsequent real spends fire normally.
+	if e.pendingRespawnSuppress[curr.ID] {
+		delete(e.pendingRespawnSuppress, curr.ID)
 		return nil
 	}
 	// Route through the roster resolver so IsMe (and any other
