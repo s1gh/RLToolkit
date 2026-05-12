@@ -64,12 +64,21 @@
     }
   }
 
+  function applyFastestShot(bucket, payload) {
+    const s = payload && payload.speed;
+    if (typeof s !== 'number' || !isFinite(s)) return;
+    if (bucket.ball.fastestKmh === null || s > bucket.ball.fastestKmh) {
+      bucket.ball.fastestKmh = s;
+    }
+  }
+
   const Reducers = {
     emptyBucket,
     applyMatchEnded,
     applyPlayerScoreChanged,
     applyPlayerDemolished,
     applyGoalScored,
+    applyFastestShot,
   };
 
   root.SessionTrackerReducers = Reducers;

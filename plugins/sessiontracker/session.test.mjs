@@ -166,3 +166,31 @@ test('applyGoalScored: missing modifiers object tolerated', () => {
   R.applyGoalScored(b, { scorer: { isMe: true } });
   assert.equal(b.modifiers.aerial, 0);
 });
+
+test('applyFastestShot: first value seeds fastestKmh', () => {
+  const b = R.emptyBucket('b');
+  R.applyFastestShot(b, { speed: 110.5 });
+  assert.equal(b.ball.fastestKmh, 110.5);
+});
+
+test('applyFastestShot: strictly greater replaces', () => {
+  const b = R.emptyBucket('b');
+  R.applyFastestShot(b, { speed: 110 });
+  R.applyFastestShot(b, { speed: 120 });
+  assert.equal(b.ball.fastestKmh, 120);
+});
+
+test('applyFastestShot: equal or lower preserves existing', () => {
+  const b = R.emptyBucket('b');
+  R.applyFastestShot(b, { speed: 130 });
+  R.applyFastestShot(b, { speed: 130 });
+  R.applyFastestShot(b, { speed: 100 });
+  assert.equal(b.ball.fastestKmh, 130);
+});
+
+test('applyFastestShot: non-numeric speed ignored', () => {
+  const b = R.emptyBucket('b');
+  R.applyFastestShot(b, { speed: 'fast' });
+  R.applyFastestShot(b, {});
+  assert.equal(b.ball.fastestKmh, null);
+});
