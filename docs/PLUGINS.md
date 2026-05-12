@@ -553,8 +553,12 @@ the only view that runs in a window of its own.
 | Field                 | Type           | Required | Notes                                                                  |
 | --------------------- | -------------- | -------- | ---------------------------------------------------------------------- |
 | `file`                | string         | yes      | Path relative to the plugin dir. Usually `"overlay.html"`.             |
-| `width`               | int            | no       | Initial window width in CSS pixels. Recommended; `0` falls back to platform default. |
-| `height`              | int            | no       | Initial window height. Recommended; `0` falls back to platform default. |
+| `width`               | int or `"auto"` | no      | Initial window width in CSS pixels, or the literal string `"auto"` to enable content-driven sizing on this axis. With `"auto"`, the host enables `widget.autoSize` automatically — no SDK call needed. `0` falls back to platform default. |
+| `height`              | int or `"auto"` | no      | Same as `width`, for the height axis. Mix freely — e.g. `"width": 320, "height": "auto"` for a fixed-width card that grows vertically. |
+| `min_width`           | int            | no       | Lower clamp on the auto-grow width. Ignored on fixed-pixel axes. Default `0` (no clamp). |
+| `max_width`           | int            | no       | Upper clamp on the auto-grow width. Strongly recommended on `"auto"` axes — a runaway flex layout could otherwise cover the stream. Default `0` (no clamp). |
+| `min_height`          | int            | no       | Lower clamp on the auto-grow height. |
+| `max_height`          | int            | no       | Upper clamp on the auto-grow height. |
 | `anchor`              | string         | no       | One of `top-left`, `top-right`, `bottom-left`, `bottom-right`. Empty string falls back to `bottom-left`. |
 | `offset_x`            | int            | no       | Pixels from the anchored edge horizontally.                            |
 | `offset_y`            | int            | no       | Pixels from the anchored edge vertically.                              |
@@ -562,6 +566,28 @@ the only view that runs in a window of its own.
 | `hide_when_unfocused` | boolean / null | no       | If `true`, overlay hides when the game window loses focus. `null`/absent uses the SDK default. |
 | `show_during_phase`   | array          | no       | Phase names to show during. Hidden in all other phases. See [phase gating](#phase-gating). |
 | `unmount_outside_phase` | boolean      | no       | When `true` (and `show_during_phase` is non-empty), the plugin's iframe is unmounted outside the listed phases — events stop being delivered, JS stops running. Default `false` (visual gate only). See [phase gating](#phase-gating). |
+
+#### Auto-sizing in detail
+
+Setting `width` or `height` to `"auto"` flips that axis into
+content-driven mode. The host (web overlay aggregator and Tauri
+desktop overlay alike) wires up a ResizeObserver on the iframe's
+body and applies the measured size, clamped by `min_*` / `max_*`.
+
+- **No plugin code required.** The SDK reads the manifest opt-in
+  from URL flags and calls `widget.autoSize(true, …)` itself on
+  `DOMContentLoaded`.
+- **Plugins can still call `widget.autoSize` explicitly** to override
+  the defaults (different target element, custom min/max).
+- **Edit-mode behavior**: dragging the resize handle on an `"auto"`
+  axis writes `max_width` / `max_height` to the user override store
+  instead of `width` / `height`, so the iframe stays content-driven
+  up to the dragged ceiling. Look for the `auto` / `auto-w` / `auto-h`
+  badge on the wrapper to see which axes are auto.
+- **Older clients**: web overlay aggregators that don't know about
+  `"auto"` will fall back to whatever numeric value sits in the
+  emitted JSON (the Go `Dimension` type marshals back as `"auto"` —
+  these clients render nothing for that axis until they update).
 
 ### `dashboard`, `settings`, and `background` objects
 
@@ -919,16 +945,25 @@ RLT.stats.known          // Set of all values for membership tests
 
 ### Widget control: `RLT.widget`
 
-Tauri-hosted overlay only. Outside Tauri (dashboard tab, settings
-iframe) every method is a no-op.
+Window-shape methods (`size`, `anchor`, `margin`, `opacity`, `visible`)
+require the plugin to own its own OS window — i.e. the Tauri desktop
+overlay. Outside Tauri (dashboard tab, settings iframe, OBS browser
+source, web overlay aggregator) those methods no-op.
+
+Sizing methods (`autoSize`, `fitWidth`) work in **both** contexts:
+inside Tauri they call the desktop window-resize command directly;
+inside a hosted iframe they post the measured size to the parent,
+which honors the message only on axes the manifest declared as
+`"auto"` (and clamps it with `min_*` / `max_*`). Plugins call the
+same API either way.
 
 ```js
 RLT.widget.isHosted()                      // true inside Tauri
-await RLT.widget.size(width, height)
-await RLT.widget.anchor("top-left")        // or top-right / bottom-*
-await RLT.widget.margin(x, y)
-await RLT.widget.opacity(0.0..1.0)
-await RLT.widget.visible(true|false)
+await RLT.widget.size(width, height)       // Tauri-only
+await RLT.widget.anchor("top-left")        // Tauri-only — top-right / bottom-*
+await RLT.widget.margin(x, y)              // Tauri-only
+await RLT.widget.opacity(0.0..1.0)         // Tauri-only
+await RLT.widget.visible(true|false)       // Tauri-only
 RLT.widget.autoSize(true, { target, minWidth, maxWidth, minHeight, maxHeight })
 RLT.widget.fitWidth({ target, maxWidth, extra })
 ```
@@ -939,15 +974,23 @@ Two return-shape conventions to know:
   **Promise** that resolves to `true` on success, `false` outside
   Tauri or on IPC failure. `await` them.
 - `autoSize` and `fitWidth` return a **synchronous boolean** —
-  `true` when the watcher is set up (inside Tauri), `false` outside.
-  They kick off the resize loop in the background; there's nothing to
-  await. `await` works anyway (you'd just be awaiting a bare boolean),
-  so it's safe to call them with or without `await` if you'd rather
-  keep call-site styling consistent with the rest of the API.
+  `true` when the watcher is set up, `false` only when the target is
+  unresolvable. They kick off the resize loop in the background;
+  there's nothing to await. `await` works anyway (you'd just be
+  awaiting a bare boolean), so it's safe to call them with or
+  without `await` to keep call-site styling consistent.
 
 `autoSize` watches `target` (default `document.body`) with
-ResizeObserver and resizes the window on change. `fitWidth` is the
-write-only-grow variant — width can only increase, not shrink.
+ResizeObserver and reports the new size every animation frame.
+`fitWidth` is the write-only-grow variant — width can only increase,
+not shrink (useful for content that expands as it loads but
+shouldn't reflow back).
+
+You usually don't need to call `autoSize` yourself — set
+`width: "auto"` (or `height: "auto"`) in the manifest and the SDK
+self-bootstraps on `DOMContentLoaded` with the manifest's
+`min_*`/`max_*` clamps. Calling `autoSize` explicitly overrides
+those defaults for that watcher.
 
 ### Connection status: `RLT.status` / `RLT.statusStable`
 
@@ -1387,6 +1430,34 @@ boost-resets are suppressed).
 { matchGuid, player: EnrichedPlayer, boostBefore, boostAfter, delta }
 ```
 
+`player.isMe` is stamped via the roster resolver, so plugins can
+filter to their own boost activity with `if (player.isMe)`.
+
+#### `_BoostConsumed`
+
+The falling-edge sibling of `_BoostPickup`. Fires when a player's
+boost decreased between ticks (active spend, not respawn).
+
+```js
+{ matchGuid, player: EnrichedPlayer, boostBefore, boostAfter, delta }
+```
+
+`delta` is positive (the amount spent). Same `player.isMe` stamping
+as `_BoostPickup`.
+
+Two caveats to know:
+
+- **Quantization.** Boost is reported as integer percent and sampled
+  at the user's `PacketSendRate` (commonly 10 Hz). Sub-percent
+  taps round, so totals computed from this event drift a few
+  percent over a match. Treat as approximate. Higher
+  `PacketSendRate` (30 / 60) tightens this up.
+- **Respawn suppression.** RL ships the post-respawn boost reseed
+  (whatever→33 default) a tick or two after `Demolished` flips back
+  to false. The emitter remembers the respawn and swallows the next
+  boost decrease for that player so it isn't counted as an active
+  spend. Per-player flag, cleared on match boundary.
+
 #### `_MatchEnded`
 
 The synthetic counterpart to raw `MatchEnded` — adds the resolved
@@ -1401,6 +1472,14 @@ winner team name and final scores.
   scoreOrange: integer | null,
 }
 ```
+
+When RL omits `WinnerTeamNum` (forfeit, disconnect, server kick),
+the backend derives the winner from the cached team scores and
+ships it on `winnerTeamNum` anyway. Plugins should treat
+`winnerTeamNum` as authoritative and not re-derive from scores
+themselves. Tied scores stay null on purpose — RL doesn't end clean
+matches in ties (overtime keeps running), so a tie at end-of-match
+means the data is incomplete and we won't guess.
 
 #### `_SavedReplay`
 
