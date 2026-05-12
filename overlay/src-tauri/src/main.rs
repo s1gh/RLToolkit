@@ -647,6 +647,32 @@ fn build_overlay_window(
 fn main() {
     let args = Args::parse();
 
+    if args.toggle_edit {
+        // Single-instance forwards --toggle-edit to a running primary
+        // via its callback (see launcher/mod.rs). If no primary is
+        // running, single-instance would silently promote us to
+        // primary and start the launcher in the background — almost
+        // never what the user wants when they typed `rl-widget
+        // --toggle-edit` cold. Probe the toolkit URL: if it doesn't
+        // answer, the launcher isn't up. Exit 2 with a clear message.
+        let probe_url = format!(
+            "{}/api/status",
+            args.toolkit.trim_end_matches('/')
+        );
+        let running = ureq::get(&probe_url)
+            .config()
+            .timeout_global(Some(std::time::Duration::from_millis(300)))
+            .build()
+            .call()
+            .is_ok();
+        if !running {
+            eprintln!("rl-widget is not running");
+            std::process::exit(2);
+        }
+        // A launcher IS running. Continue into launcher_mode_active,
+        // which lets single-instance forward our argv to it.
+    }
+
     if launcher_mode_active(&args) {
         // launcher::run installs file logging itself (reads the
         // user-configured data_dir from launcher.json). The standalone
