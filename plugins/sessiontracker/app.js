@@ -467,7 +467,50 @@
         '</div>' +
       '</div>';
   }
-  function renderSettings(root)  { root.textContent = 'settings (later task)'; }
+  function renderSettings(root) {
+    root.innerHTML =
+      '<div class="st-set">' +
+        '<div class="st-set-h">SESSION TRACKER · SETTINGS</div>' +
+
+        '<div class="st-card">' +
+          '<div class="st-card-h">DISPLAY</div>' +
+          '<label class="st-toggle">' +
+            '<input id="st-toggle-streak" type="checkbox"' + (settings.showStreak ? ' checked' : '') + ' />' +
+            '<span class="st-toggle-track"><span class="st-toggle-thumb"></span></span>' +
+            '<span class="st-toggle-text">' +
+              '<span class="st-toggle-title">Show streak chip on overlay</span>' +
+              '<span class="st-toggle-hint">Hides the W2/L3 indicator next to the score.</span>' +
+            '</span>' +
+          '</label>' +
+        '</div>' +
+
+        '<div class="st-card">' +
+          '<div class="st-card-h">SESSION</div>' +
+          '<div class="st-set-row">' +
+            '<div class="st-set-row-text">' +
+              '<div class="st-set-row-title">Reset current session</div>' +
+              '<div class="st-set-row-hint">Clears wins, losses, and all stats. MMR starting values are re-seeded on the next match.</div>' +
+            '</div>' +
+            '<button id="st-reset" class="st-danger">RESET</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    const toggle = document.getElementById('st-toggle-streak');
+    toggle.addEventListener('change', async () => {
+      settings.showStreak = toggle.checked;
+      try { await RLT.store.set('settings', { showStreak: settings.showStreak }); } catch (_) {}
+    });
+
+    const reset = document.getElementById('st-reset');
+    reset.addEventListener('click', async () => {
+      if (!window.confirm('Reset session?')) return;
+      bucket = emptyBucket(bucket ? bucket.bootId : '');
+      try { await RLT.store.set(STORE_KEY, bucket); } catch (_) {}
+      currentMode = null;
+      scheduleRender();
+    });
+  }
 
   let elapsedTimer = null;
 
