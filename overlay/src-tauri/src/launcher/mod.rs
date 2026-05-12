@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod edit_mode;
 pub mod ipc;
 pub mod settings;
 pub mod tray;
@@ -25,7 +26,11 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
     #[cfg(feature = "bundled-updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
-    builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        if argv.iter().any(|a| a == "--toggle-edit") {
+            crate::launcher::edit_mode::probe_toggle(app);
+            return;
+        }
         if let Some(w) = app.get_webview_window("launcher") {
             let _ = w.unminimize();
             let _ = w.show();
