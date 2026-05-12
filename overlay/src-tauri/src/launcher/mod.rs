@@ -89,6 +89,9 @@ pub fn run(args: Args) {
         ipc::get_settings,
         ipc::save_settings,
         ipc::get_launcher_monitor_size,
+        ipc::overlay_edit_toggle,
+        ipc::overlay_edit_exit,
+        ipc::overlay_edit_module_failed,
         updater::check_for_updates,
         updater::apply_update,
     ]);
@@ -109,6 +112,9 @@ pub fn run(args: Args) {
         ipc::get_settings,
         ipc::save_settings,
         ipc::get_launcher_monitor_size,
+        ipc::overlay_edit_toggle,
+        ipc::overlay_edit_exit,
+        ipc::overlay_edit_module_failed,
     ]);
 
     builder

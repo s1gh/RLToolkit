@@ -412,3 +412,21 @@ pub fn save_settings(
     }
     Ok(SaveSettingsResult { changed: true, respawned: true })
 }
+
+#[tauri::command]
+pub fn overlay_edit_toggle(app: AppHandle) -> Result<bool, String> {
+    crate::launcher::edit_mode::toggle(&app)
+}
+
+#[tauri::command]
+pub fn overlay_edit_exit(app: AppHandle) -> Result<bool, String> {
+    crate::launcher::edit_mode::set(&app, false)
+}
+
+#[tauri::command]
+pub fn overlay_edit_module_failed(app: AppHandle, reason: String) -> Result<(), String> {
+    crate::log_warn!("[overlay-edit] live-edit module load failed: {reason}");
+    // Module load failed; force off so we're not stuck with click-through disabled.
+    let _ = crate::launcher::edit_mode::set(&app, false);
+    Ok(())
+}
