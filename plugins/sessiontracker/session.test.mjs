@@ -15,7 +15,7 @@ test('emptyBucket: shape contains all top-level keys', () => {
   assert.deepEqual(b.totals, { goals: 0, saves: 0, demos: 0 });
   assert.equal(b.modifiers.aerial, 0);
   assert.equal(b.modifiers.poolShot, 0);
-  assert.deepEqual(b.ball, { fastestKmh: null });
+  assert.deepEqual(b.ball, { fastestKmh: null, myFastestHitKmh: null });
   assert.deepEqual(b.crossbar, { hits: 0, hardest: null });
   assert.deepEqual(b.mmr, { ranked: {}, casual: null });
 });
@@ -165,34 +165,6 @@ test('applyGoalScored: missing modifiers object tolerated', () => {
   const b = R.emptyBucket('b');
   R.applyGoalScored(b, { scorer: { isMe: true } });
   assert.equal(b.modifiers.aerial, 0);
-});
-
-test('applyFastestShot: my first shot seeds fastestKmh', () => {
-  const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 110.5, player: { isMe: true } });
-  assert.equal(b.ball.fastestKmh, 110.5);
-});
-
-test('applyFastestShot: my strictly greater replaces', () => {
-  const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 110, player: { isMe: true } });
-  R.applyFastestShot(b, { speed: 120, player: { isMe: true } });
-  assert.equal(b.ball.fastestKmh, 120);
-});
-
-test('applyFastestShot: equal or lower of mine preserves existing', () => {
-  const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 130, player: { isMe: true } });
-  R.applyFastestShot(b, { speed: 130, player: { isMe: true } });
-  R.applyFastestShot(b, { speed: 100, player: { isMe: true } });
-  assert.equal(b.ball.fastestKmh, 130);
-});
-
-test('applyFastestShot: non-numeric speed ignored even if mine', () => {
-  const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 'fast', player: { isMe: true } });
-  R.applyFastestShot(b, { player: { isMe: true } });
-  assert.equal(b.ball.fastestKmh, null);
 });
 
 test('applyCrossbarHit: my first hit seeds hits and hardest', () => {
@@ -387,6 +359,51 @@ test('applyMatchEnded: ambiguous winner leaves match.result alone', () => {
   assert.equal(b.match.result, 'win');
 });
 
+// Guid-deduped tally so the same match never counts twice. Both
+// _MatchEnded (the wire event) and a phase=ended state transition can
+// trigger applyMatchEnded — first write wins for a given matchGuid.
+test('applyMatchEnded: same guid cannot tally twice', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { matchGuid: 'g1', winnerTeamNum: 0 }, 0);
+  R.applyMatchEnded(b, { matchGuid: 'g1', winnerTeamNum: 0 }, 0);
+  assert.equal(b.results.wins, 1);
+  assert.equal(b.results.last.length, 1);
+});
+
+test('applyMatchEnded: different guids tally independently', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { matchGuid: 'g1', winnerTeamNum: 0 }, 0);
+  R.applyMatchEnded(b, { matchGuid: 'g2', winnerTeamNum: 1 }, 0);
+  assert.equal(b.results.wins, 1);
+  assert.equal(b.results.losses, 1);
+  assert.equal(b.results.last.length, 2);
+});
+
+// Score-derived winner: when winnerTeamNum is absent, fall back to
+// whichever team scored more.
+test('applyMatchEnded: derives winner from scoreBlue > scoreOrange', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { matchGuid: 'g1', scoreBlue: 3, scoreOrange: 1 }, 0);
+  assert.equal(b.results.wins, 1);
+  assert.equal(b.match.result, 'win');
+});
+
+test('applyMatchEnded: derives winner from scoreOrange > scoreBlue', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { matchGuid: 'g1', scoreBlue: 1, scoreOrange: 4 }, 0);
+  assert.equal(b.results.losses, 1);
+  assert.equal(b.match.result, 'loss');
+});
+
+test('applyMatchEnded: tied scores with no winnerTeamNum is a no-op', () => {
+  // RL doesn't end matches in ties under normal play (overtime keeps
+  // running), so a tie payload signals incomplete data — don't guess.
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { matchGuid: 'g1', scoreBlue: 2, scoreOrange: 2 }, 0);
+  assert.equal(b.results.wins, 0);
+  assert.equal(b.results.losses, 0);
+});
+
 test('match block survives a per-match reset without nuking session totals', () => {
   const b = R.emptyBucket('b');
   R.applyPlayerScoreChanged(b, { player: { isMe: true }, delta: { goals: 3 } });
@@ -401,29 +418,61 @@ test('match block survives a per-match reset without nuking session totals', () 
 // FASTEST shot is a personal record, not a match-wide leaderboard
 // entry. The event fires for every player's shot; we only want to
 // remember our own.
-test('applyFastestShot: ignores shots that are not mine', () => {
+// applyMyHit: from _BallHit, tracks my hardest hit (fastest ball
+// speed I've imparted via touch). Filters on players[0].isMe — that's
+// the toucher in the BallHit envelope.
+test('applyMyHit: ignores opponent touches', () => {
   const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 200, player: { isMe: false } });
-  assert.equal(b.ball.fastestKmh, null);
+  R.applyMyHit(b, { postHitSpeed: 250, players: [{ isMe: false }] });
+  assert.equal(b.ball.myFastestHitKmh, null);
 });
 
-test('applyFastestShot: records my shot speed', () => {
+test('applyMyHit: records my touch speed', () => {
   const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 142.6, player: { isMe: true } });
-  assert.equal(b.ball.fastestKmh, 142.6);
+  R.applyMyHit(b, { postHitSpeed: 142.6, players: [{ isMe: true }] });
+  assert.equal(b.ball.myFastestHitKmh, 142.6);
 });
 
-test('applyFastestShot: keeps the highest of mine', () => {
+test('applyMyHit: keeps the highest of mine', () => {
   const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 100, player: { isMe: true } });
-  R.applyFastestShot(b, { speed: 80,  player: { isMe: true } });
-  R.applyFastestShot(b, { speed: 250, player: { isMe: true } });
-  assert.equal(b.ball.fastestKmh, 250);
+  R.applyMyHit(b, { postHitSpeed: 100, players: [{ isMe: true }] });
+  R.applyMyHit(b, { postHitSpeed: 80,  players: [{ isMe: true }] });
+  R.applyMyHit(b, { postHitSpeed: 250, players: [{ isMe: true }] });
+  assert.equal(b.ball.myFastestHitKmh, 250);
 });
 
-test('applyFastestShot: missing player → no-op (defensive)', () => {
+test('applyMyHit: missing players or postHitSpeed → no-op', () => {
   const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 300 });
+  R.applyMyHit(b, { postHitSpeed: 200 });
+  R.applyMyHit(b, { postHitSpeed: 200, players: [] });
+  R.applyMyHit(b, { players: [{ isMe: true }] });
+  R.applyMyHit(b, { postHitSpeed: 'fast', players: [{ isMe: true }] });
+  assert.equal(b.ball.myFastestHitKmh, null);
+});
+
+// applyMatchTopSpeed: match-wide highest ball speed across all
+// players. Source is _FastestShotOfMatch, which the toolkit only
+// publishes when a new match max is observed — so we just take it.
+test('applyMatchTopSpeed: records the wire speed value', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchTopSpeed(b, { speed: 200 });
+  assert.equal(b.ball.fastestKmh, 200);
+});
+
+test('applyMatchTopSpeed: only ratchets up', () => {
+  // The emitter already enforces this match-wide, but the reducer is
+  // defensive in case of out-of-order delivery on reconnect.
+  const b = R.emptyBucket('b');
+  R.applyMatchTopSpeed(b, { speed: 200 });
+  R.applyMatchTopSpeed(b, { speed: 150 });
+  assert.equal(b.ball.fastestKmh, 200);
+});
+
+test('applyMatchTopSpeed: bad input is a no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchTopSpeed(b, {});
+  R.applyMatchTopSpeed(b, { speed: 'fast' });
+  R.applyMatchTopSpeed(b, null);
   assert.equal(b.ball.fastestKmh, null);
 });
 

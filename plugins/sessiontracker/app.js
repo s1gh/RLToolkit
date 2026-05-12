@@ -8,6 +8,12 @@
     return {
       bootId: bootId || '',
       startedAt: new Date().toISOString(),
+      // lastTalliedGuid dedupes the W/L tally so the same match can't
+      // count twice. Both _MatchEnded (the wire event) and a phase=
+      // ended state transition can call applyMatchEnded — we want the
+      // first one to win so the user's record is correct even if one
+      // of the two signals never arrives or arrives late.
+      lastTalliedGuid: '',
       results: { wins: 0, losses: 0, last: [] },
       totals:  { goals: 0, saves: 0, demos: 0 },
       // Per-match counters. Mirror the totals shape so render code can
@@ -21,7 +27,15 @@
         aerial: 0, bicycle: 0, longGoal: 0, overtime: 0,
         hatTrick: 0, flipReset: 0, backwards: 0, turtle: 0, poolShot: 0,
       },
-      ball: { fastestKmh: null },
+      // Two ball-speed metrics with different scopes:
+      //   fastestKmh         — match-wide top ball speed (any player).
+      //                        Drives the FASTEST display row, sourced
+      //                        from _FastestShotOfMatch.
+      //   myFastestHitKmh    — my hardest hit, i.e. the fastest I've
+      //                        made the ball go via a touch. Drives the
+      //                        MY HIT display, sourced from _BallHit
+      //                        filtered to my touches.
+      ball: { fastestKmh: null, myFastestHitKmh: null },
       crossbar: { hits: 0, hardest: null },
       mmr: { ranked: {}, casual: null },
     };
@@ -33,8 +47,26 @@
 
   function applyMatchEnded(bucket, payload, myTeam) {
     if (myTeam !== 0 && myTeam !== 1) return;
-    const winner = payload && payload.winnerTeamNum;
-    if (winner !== 0 && winner !== 1) return;
+    if (!payload) return;
+    // Guid dedupe: the same match can be reported through both the
+    // _MatchEnded wire event and a phase=ended state transition; only
+    // the first call should tally. Empty guid is treated as "no
+    // identity" and always counts (offline play, fixture replay, etc.).
+    const guid = typeof payload.matchGuid === 'string' ? payload.matchGuid : '';
+    if (guid && bucket.lastTalliedGuid === guid) return;
+
+    let winner = payload.winnerTeamNum;
+    if (winner !== 0 && winner !== 1) {
+      // Winner missing — try to derive it from team scores. Ties or
+      // missing scores stay ambiguous and we bail rather than guess.
+      const sb = payload.scoreBlue;
+      const so = payload.scoreOrange;
+      if (typeof sb === 'number' && typeof so === 'number' && sb !== so) {
+        winner = sb > so ? 0 : 1;
+      } else {
+        return;
+      }
+    }
     const result = winner === myTeam ? 'win' : 'loss';
     if (result === 'win') bucket.results.wins++;
     else bucket.results.losses++;
@@ -44,6 +76,7 @@
     // the just-finished match's outcome alongside its live counters
     // (which freeze here until resetMatch runs at the next countdown).
     bucket.match.result = result;
+    if (guid) bucket.lastTalliedGuid = guid;
   }
 
   function applyPlayerScoreChanged(bucket, payload) {
@@ -86,18 +119,32 @@
     }
   }
 
-  function applyFastestShot(bucket, payload) {
-    if (!payload) return;
-    // Filter to my shots only — the event fires for everyone's shots,
-    // but the overlay surfaces a personal record, not a match-wide
-    // leaderboard entry. Without the player guard, the overlay would
-    // show the lobby's hardest hitter, which is misleading.
-    const player = payload.player;
-    if (!player || !player.isMe) return;
-    const s = payload.speed;
+  // applyMatchTopSpeed: match-wide top ball speed across all players.
+  // Sourced from _FastestShotOfMatch, which the toolkit only publishes
+  // when a new match-wide max is observed — so the receiver just
+  // remembers the latest. Defensive ratchet so an out-of-order replay
+  // can't lower the recorded max.
+  function applyMatchTopSpeed(bucket, payload) {
+    const s = payload && payload.speed;
     if (typeof s !== 'number' || !isFinite(s)) return;
     if (bucket.ball.fastestKmh === null || s > bucket.ball.fastestKmh) {
       bucket.ball.fastestKmh = s;
+    }
+  }
+
+  // applyMyHit: my hardest ball touch. Sourced from _BallHit filtered
+  // to my touches (players[0] is the toucher). Tracks postHitSpeed —
+  // the speed of the ball after I hit it — as the personal record.
+  function applyMyHit(bucket, payload) {
+    if (!payload) return;
+    const players = payload.players;
+    if (!Array.isArray(players) || players.length === 0) return;
+    const toucher = players[0];
+    if (!toucher || !toucher.isMe) return;
+    const s = payload.postHitSpeed;
+    if (typeof s !== 'number' || !isFinite(s)) return;
+    if (bucket.ball.myFastestHitKmh === null || s > bucket.ball.myFastestHitKmh) {
+      bucket.ball.myFastestHitKmh = s;
     }
   }
 
@@ -189,7 +236,8 @@
     applyPlayerScoreChanged,
     applyPlayerDemolished,
     applyGoalScored,
-    applyFastestShot,
+    applyMatchTopSpeed,
+    applyMyHit,
     applyCrossbarHit,
     applyMmr,
     RANKED_MODES,
@@ -407,6 +455,7 @@
         '</div>' +
         '<div class="st-row st-ball">' +
           '<span>FASTEST <span class="' + (b.ball.fastestKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.fastestKmh) + '</span></span>' +
+          '<span>MY HIT <span class="' + (b.ball.myFastestHitKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.myFastestHitKmh) + '</span></span>' +
           '<span>CROSSBARS <span class="' + (b.crossbar.hits > 0 ? 'st-val' : 'st-mut') + '">' + b.crossbar.hits + '</span></span>' +
         '</div>' +
         '<div class="st-row st-hardest">' + hardestLine + '</div>' +
@@ -592,10 +641,16 @@
         bucket = emptyBucket(liveBootId);
         await RLT.store.set(STORE_KEY, bucket);
       }
-      // Backfill the match block on buckets persisted by an older
-      // version of this plugin so render code can assume it's present.
+      // Backfill fields added in newer plugin versions so render code
+      // and the dedupe path can assume they're present.
       if (bucket && !bucket.match) {
         bucket.match = { result: null, goals: 0, saves: 0, demos: 0 };
+      }
+      if (bucket && typeof bucket.lastTalliedGuid !== 'string') {
+        bucket.lastTalliedGuid = '';
+      }
+      if (bucket && bucket.ball && bucket.ball.myFastestHitKmh === undefined) {
+        bucket.ball.myFastestHitKmh = null;
       }
       snapshotMyTeam();
       mountView();
@@ -632,6 +687,26 @@
           const next = modeFromRoster(rosterSize());
           currentMode = next;
           if (RANKED_MODES.includes(next)) fetchMmr();
+        } else if (p && (p.phase === 'ended' || p.phase === 'podium')) {
+          // Belt-and-braces tally on phase=ended (and podium, which
+          // sometimes lands without us seeing 'ended' if the user
+          // forfeits or the connection blips). The reducer dedupes
+          // by matchGuid, so calling this in addition to _MatchEnded
+          // is safe — first signal wins. Catches the case where the
+          // wire _MatchEnded event never reaches us, which the user
+          // has reported.
+          if (bucket && RLT.match && RLT.match.current) {
+            const cur = RLT.match.current;
+            const live = cur.me;
+            const team = (live && (live.team === 0 || live.team === 1)) ? live.team : myTeam;
+            const synth = {
+              matchGuid: cur.guid || '',
+              scoreBlue: cur.scoreBlue,
+              scoreOrange: cur.scoreOrange,
+            };
+            applyMatchEnded(bucket, synth, team);
+            save(); scheduleRender();
+          }
         }
       },
 
@@ -656,7 +731,13 @@
 
       _FastestShotOfMatch(p) {
         if (!bucket) return;
-        applyFastestShot(bucket, p);
+        applyMatchTopSpeed(bucket, p);
+        save(); scheduleRender();
+      },
+
+      _BallHit(p) {
+        if (!bucket) return;
+        applyMyHit(bucket, p);
         save(); scheduleRender();
       },
 
