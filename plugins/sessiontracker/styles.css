@@ -80,22 +80,42 @@
 .st-tick-win  { background: var(--rlt-cyan, #22d3ee); }
 .st-tick-loss { background: var(--rlt-magenta, #f472b6); }
 
-.st-totals { gap: 18px; font-size: 12px; }
-.st-totals > span { display: inline-flex; align-items: baseline; gap: 4px; }
-.st-totals .st-val, .st-totals .st-mut { font-size: 14px; font-weight: 600; }
+/* All stat rows share the same horizontal rhythm so the overlay
+ * scans top-to-bottom as one consistent grid: 18px between cells,
+ * 6px between a label and its value, 12px font with 14px values.
+ * Per-row classes only customize behavior that genuinely differs
+ * (badges, hardest line layout). */
+.st-row.st-totals,
+.st-row.st-match,
+.st-row.st-ball,
+.st-row.st-mmr,
+.st-row.st-mods {
+  gap: 18px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.st-row.st-totals > span,
+.st-row.st-match > span,
+.st-row.st-ball > span,
+.st-row.st-mmr > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.st-row.st-totals .st-val, .st-row.st-totals .st-mut,
+.st-row.st-match  .st-val, .st-row.st-match  .st-mut,
+.st-row.st-ball   .st-val, .st-row.st-ball   .st-mut,
+.st-row.st-mmr    .st-val, .st-row.st-mmr    .st-mut {
+  font-size: 14px;
+  font-weight: 600;
+}
+.st-row.st-totals .st-lbl,
+.st-row.st-match  .st-lbl,
+.st-row.st-ball   .st-lbl,
+.st-row.st-mmr    .st-lbl { letter-spacing: 0.1em; opacity: 0.8; }
+.st-row.st-match  .st-streak { margin-left: auto; }
 
-.st-match { gap: 12px; font-size: 11px; }
-.st-match > span { display: inline-flex; align-items: baseline; gap: 4px; }
-.st-match .st-val, .st-match .st-mut { font-size: 13px; font-weight: 600; }
-.st-match .st-lbl:first-child { letter-spacing: 0.1em; opacity: 0.8; }
-.st-match .st-streak { margin-left: auto; }
-
-.st-ball  { justify-content: space-between; font-size: 12px; }
 .st-hardest { font-size: 12px; }
-.st-mmr  { gap: 18px; font-size: 12px; flex-wrap: wrap; }
-.st-mmr > span { display: inline-flex; align-items: baseline; gap: 6px; }
-.st-mmr .st-lbl { letter-spacing: 0.1em; opacity: 0.8; }
-.st-mods { font-size: 12px; }
 
 /* Dashboard */
 .st-dash {
