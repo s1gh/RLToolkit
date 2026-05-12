@@ -49,4 +49,10 @@ pub struct Args {
     /// when no other flags are passed.
     #[arg(long)]
     pub no_launcher: bool,
+
+    /// Toggle overlay edit mode on a running rl-widget instance.
+    /// Forwarded to the primary instance via single-instance plugin;
+    /// if no instance is running, prints an error and exits 2.
+    #[arg(long)]
+    pub toggle_edit: bool,
 }
