@@ -11,7 +11,7 @@
     "anchor": "bottom-left",
     "offset_x": 12,
     "offset_y": 12,
-    "opacity": 1,
+    "opacity": 0.9,
     "hide_when_unfocused": true,
     "show_during_phase": ["countdown", "live", "paused", "replay", "ended"]
   }
