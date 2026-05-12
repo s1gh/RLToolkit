@@ -98,6 +98,27 @@
     wrap.style.background = 'rgba(34, 211, 238, 0.06)';
     wrap.style.zIndex = '2147483647';
     applyRect(wrap, iframe);
+
+    // Inline label so the user can identify each rectangle even when
+    // the plugin's actual content isn't rendering (phase-gated plugins
+    // during menu/lobby, plugins with hide_when_unfocused that are off,
+    // etc.). The label sits inside the outline, pointer-events: none so
+    // it doesn't interfere with the drag handler on the wrapper itself.
+    const label = document.createElement('div');
+    label.textContent = name;
+    label.style.position = 'absolute';
+    label.style.top = '4px';
+    label.style.left = '6px';
+    label.style.padding = '2px 6px';
+    label.style.font = '11px/1.2 system-ui, sans-serif';
+    label.style.color = '#22d3ee';
+    label.style.background = 'rgba(5, 7, 14, 0.72)';
+    label.style.border = '1px solid rgba(34, 211, 238, 0.35)';
+    label.style.borderRadius = '3px';
+    label.style.pointerEvents = 'none';
+    label.style.userSelect = 'none';
+    wrap.appendChild(label);
+
     return wrap;
   }
 
