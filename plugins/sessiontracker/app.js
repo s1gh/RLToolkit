@@ -20,8 +20,20 @@
     };
   }
 
+  function applyMatchEnded(bucket, payload, myTeam) {
+    if (myTeam !== 0 && myTeam !== 1) return;
+    const winner = payload && payload.winnerTeamNum;
+    if (winner !== 0 && winner !== 1) return;
+    const result = winner === myTeam ? 'win' : 'loss';
+    if (result === 'win') bucket.results.wins++;
+    else bucket.results.losses++;
+    bucket.results.last.push(result);
+    if (bucket.results.last.length > 10) bucket.results.last.shift();
+  }
+
   const Reducers = {
     emptyBucket,
+    applyMatchEnded,
   };
 
   root.SessionTrackerReducers = Reducers;

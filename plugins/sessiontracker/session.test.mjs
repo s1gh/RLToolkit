@@ -24,3 +24,43 @@ test('emptyBucket: empty bootId stays empty string', () => {
   assert.equal(R.emptyBucket().bootId, '');
   assert.equal(R.emptyBucket(null).bootId, '');
 });
+
+test('applyMatchEnded: my team wins → wins++ and "win" pushed', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { winnerTeamNum: 0, scoreBlue: 3, scoreOrange: 1 }, 0);
+  assert.equal(b.results.wins, 1);
+  assert.equal(b.results.losses, 0);
+  assert.deepEqual(b.results.last, ['win']);
+});
+
+test('applyMatchEnded: my team loses → losses++ and "loss" pushed', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { winnerTeamNum: 1, scoreBlue: 1, scoreOrange: 4 }, 0);
+  assert.equal(b.results.wins, 0);
+  assert.equal(b.results.losses, 1);
+  assert.deepEqual(b.results.last, ['loss']);
+});
+
+test('applyMatchEnded: myTeam not in {0,1} → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { winnerTeamNum: 0 }, null);
+  assert.equal(b.results.wins, 0);
+  assert.deepEqual(b.results.last, []);
+});
+
+test('applyMatchEnded: last[] caps at 10 entries with FIFO eviction', () => {
+  const b = R.emptyBucket('b');
+  for (let i = 0; i < 12; i++) {
+    R.applyMatchEnded(b, { winnerTeamNum: 0 }, 0);
+  }
+  assert.equal(b.results.last.length, 10);
+  assert.equal(b.results.wins, 12);
+  assert.ok(b.results.last.every((r) => r === 'win'));
+});
+
+test('applyMatchEnded: winnerTeamNum missing → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, {}, 0);
+  assert.equal(b.results.wins, 0);
+  assert.deepEqual(b.results.last, []);
+});
