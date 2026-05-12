@@ -64,3 +64,30 @@ test('applyMatchEnded: winnerTeamNum missing → no-op', () => {
   assert.equal(b.results.wins, 0);
   assert.deepEqual(b.results.last, []);
 });
+
+test('applyPlayerScoreChanged: isMe with goals + saves delta', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerScoreChanged(b, { player: { isMe: true }, delta: { goals: 2, saves: 1 } });
+  assert.equal(b.totals.goals, 2);
+  assert.equal(b.totals.saves, 1);
+  assert.equal(b.totals.demos, 0);
+});
+
+test('applyPlayerScoreChanged: non-self → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerScoreChanged(b, { player: { isMe: false }, delta: { goals: 1 } });
+  assert.equal(b.totals.goals, 0);
+});
+
+test('applyPlayerScoreChanged: missing delta tolerated', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerScoreChanged(b, { player: { isMe: true } });
+  assert.equal(b.totals.goals, 0);
+});
+
+test('applyPlayerScoreChanged: assists/shots/score ignored', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerScoreChanged(b, { player: { isMe: true }, delta: { goals: 1, assists: 1, shots: 5, score: 250 } });
+  assert.equal(b.totals.goals, 1);
+  assert.equal(b.totals.assists, undefined);
+});

@@ -31,9 +31,17 @@
     if (bucket.results.last.length > 10) bucket.results.last.shift();
   }
 
+  function applyPlayerScoreChanged(bucket, payload) {
+    if (!payload || !payload.player || !payload.player.isMe) return;
+    const d = payload.delta || {};
+    if (typeof d.goals === 'number') bucket.totals.goals += d.goals;
+    if (typeof d.saves === 'number') bucket.totals.saves += d.saves;
+  }
+
   const Reducers = {
     emptyBucket,
     applyMatchEnded,
+    applyPlayerScoreChanged,
   };
 
   root.SessionTrackerReducers = Reducers;
