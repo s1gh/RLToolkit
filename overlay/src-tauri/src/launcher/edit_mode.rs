@@ -106,15 +106,8 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
             *state.pre_edit_visible.lock().unwrap() = None;
             return Err(format!("eval set_live_edit(true): {e}"));
         }
-        // Esc as exit shortcut, only live while edit mode is active.
-        // Registered last so a registration failure doesn't block the
-        // already-successful activation: other exit paths still work.
-        crate::launcher::shortcut::register_esc(app);
         crate::log_info!("[overlay-edit] activated");
     } else {
-        // Drop the Esc shortcut first so a stray Esc press during
-        // teardown doesn't re-enter set(app, false).
-        crate::launcher::shortcut::unregister_esc(app);
         // Tear-down order: drop the JS chrome first so a final stray
         // click during teardown lands on a wrapper, not the game,
         // then restore click-through, then maybe re-hide. eval errors
