@@ -60,8 +60,13 @@ async fn run_portal<R: Runtime>(app: AppHandle<R>) -> Result<(), ashpd::Error> {
         .bind_shortcuts(&session, &[new_shortcut], None, BindShortcutsOptions::default())
         .await?;
     let bound = bind_request.response()?;
+    let trigger = bound
+        .shortcuts()
+        .first()
+        .map(|s| s.trigger_description().to_string())
+        .unwrap_or_else(|| "<none>".to_string());
     crate::log_info!(
-        "[launcher] global shortcut bound via portal ({} shortcut(s))",
+        "[launcher] global shortcut bound via portal: trigger={trigger:?} ({} shortcut(s))",
         bound.shortcuts().len()
     );
 
@@ -71,5 +76,9 @@ async fn run_portal<R: Runtime>(app: AppHandle<R>) -> Result<(), ashpd::Error> {
             crate::launcher::edit_mode::probe_toggle(&app);
         }
     }
+    crate::log_warn!(
+        "[launcher] global shortcut portal stream ended; shortcut no longer active \
+         (restart the launcher to re-register)"
+    );
     Ok(())
 }
