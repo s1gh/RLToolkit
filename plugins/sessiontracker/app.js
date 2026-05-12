@@ -229,8 +229,136 @@
     });
   }
 
-  // Render is wired in later tasks. For now stub it.
-  function scheduleRender() { /* filled in Task 15 */ }
+  function fmtSpeed(v)  { return (v == null) ? '—' : v.toFixed(1) + ' km/h'; }
+  function fmtImpact(v) { return (v == null) ? '—' : Math.round(v) + ' N'; }
+  function fmtDuration(startISO) {
+    const ms = Date.now() - new Date(startISO).getTime();
+    if (!isFinite(ms) || ms < 0) return '00:00';
+    const total = Math.floor(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm';
+    const s = total % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function deltaText(slot) {
+    if (!slot) return '—';
+    const d = slot.current - slot.start;
+    const sign = d > 0 ? '+' : (d < 0 ? '−' : '');
+    const abs = Math.abs(d);
+    return sign + abs + ' (' + slot.current + ')';
+  }
+  function deltaClass(slot) {
+    if (!slot) return 'st-mut';
+    const d = slot.current - slot.start;
+    if (d > 0) return 'st-pos';
+    if (d < 0) return 'st-neg';
+    return 'st-mut';
+  }
+
+  function topModifiers(mods) {
+    const entries = Object.keys(mods)
+      .map((k) => ({ k, v: mods[k] }))
+      .filter((e) => e.v > 0)
+      .sort((a, b) => (b.v - a.v) || a.k.localeCompare(b.k));
+    const shown = entries.slice(0, 5);
+    const extra = entries.length - shown.length;
+    return { shown, extra };
+  }
+
+  const MOD_LABEL = {
+    aerial: 'AERIAL', bicycle: 'BICYCLE', longGoal: 'LONG', overtime: 'OT',
+    hatTrick: 'HAT TRICK', flipReset: 'FLIP RESET', backwards: 'BACKWARDS',
+    turtle: 'TURTLE', poolShot: 'POOL',
+  };
+
+  let settings = { showStreak: true };
+
+  async function loadSettings() {
+    try {
+      const s = await RLT.store.get('settings');
+      if (s && typeof s.showStreak === 'boolean') settings.showStreak = s.showStreak;
+    } catch (_) { /* defaults are fine */ }
+  }
+
+  function esc(s)  { return RLT.ui.esc(String(s)); }
+  function escA(s) { return RLT.ui.escAttr(String(s)); }
+
+  function renderOverlay(root) {
+    const b = bucket || emptyBucket('');
+    const streak = settings.showStreak ? currentStreak(b.results.last) : null;
+    const streakLabel = streak ? (streak.kind === 'win' ? 'W' : 'L') + streak.count : '';
+
+    const ticks = b.results.last.map((r) =>
+      '<span class="st-tick st-tick-' + escA(r) + '"></span>'
+    ).join('');
+
+    const mode = currentMode || '—';
+    const dur  = fmtDuration(b.startedAt);
+
+    const hardest = b.crossbar.hardest;
+    let hardestLine = 'HARDEST <span class="st-mut">—</span>';
+    if (hardest) {
+      const playerHtml = hardest.player
+        ? ('<span class="' + (hardest.player.isMe ? 'st-me' : 'st-name') + '">' + esc(hardest.player.name || '?') + '</span>')
+        : '<span class="st-mut">?</span>';
+      hardestLine = 'HARDEST <span class="st-val">' + fmtImpact(hardest.impact) + '</span>'
+        + ' · <span class="st-val">' + fmtSpeed(hardest.speed) + '</span> · ' + playerHtml;
+    }
+
+    const rankedSlot = (currentMode && b.mmr.ranked[currentMode]) || null;
+    const casualSlot = b.mmr.casual;
+    const showMmr = !!(rankedSlot || casualSlot);
+
+    const { shown, extra } = topModifiers(b.modifiers);
+    const showMods = shown.length > 0;
+    const modBits = shown.map((e) =>
+      MOD_LABEL[e.k] + ' <span class="st-val">' + e.v + '</span>'
+    ).join(' · ');
+
+    const totalsCls = (v) => v > 0 ? 'st-val' : 'st-mut';
+
+    root.innerHTML =
+      '<div class="st-card">' +
+        '<div class="st-h">' +
+          '<span class="st-h-l">SESSION</span>' +
+          '<span class="st-h-r"><span class="st-mut">' + esc(mode) + ' · ' + esc(dur) + '</span></span>' +
+        '</div>' +
+        '<div class="st-row st-record">' +
+          '<span class="st-wl">' + b.results.wins + ' – ' + b.results.losses + '</span>' +
+          (streakLabel ? '<span class="st-streak">' + esc(streakLabel) + '</span>' : '') +
+        '</div>' +
+        '<div class="st-row st-ticks">' + (ticks || '<span class="st-mut">no matches yet</span>') + '</div>' +
+        '<div class="st-row st-totals">' +
+          '<span><span class="' + totalsCls(b.totals.goals) + '">' + b.totals.goals + '</span> <span class="st-lbl">GOALS</span></span>' +
+          '<span><span class="' + totalsCls(b.totals.saves) + '">' + b.totals.saves + '</span> <span class="st-lbl">SAVES</span></span>' +
+          '<span><span class="' + totalsCls(b.totals.demos) + '">' + b.totals.demos + '</span> <span class="st-lbl">DEMOS</span></span>' +
+        '</div>' +
+        '<div class="st-row st-ball">' +
+          '<span>FASTEST <span class="' + (b.ball.fastestKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.fastestKmh) + '</span></span>' +
+          '<span>CROSSBARS <span class="' + (b.crossbar.hits > 0 ? 'st-val' : 'st-mut') + '">' + b.crossbar.hits + '</span></span>' +
+        '</div>' +
+        '<div class="st-row st-hardest">' + hardestLine + '</div>' +
+        (showMmr ? (
+          '<div class="st-row st-mmr">' +
+            '<span class="st-lbl">MMR ' + esc(currentMode || '—') + '</span>' +
+            '<span>RANKED <span class="' + deltaClass(rankedSlot) + '">' + esc(deltaText(rankedSlot)) + '</span></span>' +
+            '<span>CASUAL <span class="' + deltaClass(casualSlot) + '">' + esc(deltaText(casualSlot)) + '</span></span>' +
+          '</div>'
+        ) : '') +
+        (showMods ? (
+          '<div class="st-row st-mods"><span class="st-lbl">MODIFIERS</span> ' + modBits +
+            (extra > 0 ? ' · <span class="st-mut">+' + extra + ' more</span>' : '') +
+          '</div>'
+        ) : '') +
+      '</div>';
+  }
+
+  function renderDashboard(root) { root.textContent = 'dashboard (next task)'; }
+  function renderSettings(root)  { root.textContent = 'settings (later task)'; }
+
+  let elapsedTimer = null;
 
   RLT.plugin.register({
     async ready() {
@@ -313,6 +441,25 @@
   });
 
   function mountView() {
-    // Filled in Task 15.
+    const root = document.getElementById('root');
+    if (!root) return;
+    loadSettings().then(scheduleRender);
+    if (isSettings) {
+      renderSettings(root);
+    } else if (isOverlay) {
+      renderOverlay(root);
+      elapsedTimer = setInterval(scheduleRender, 30000);
+    } else {
+      renderDashboard(root);
+      elapsedTimer = setInterval(scheduleRender, 30000);
+    }
+  }
+
+  function scheduleRender() {
+    const root = document.getElementById('root');
+    if (!root) return;
+    if (isSettings) renderSettings(root);
+    else if (isOverlay) renderOverlay(root);
+    else renderDashboard(root);
   }
 })(typeof window !== 'undefined' ? window : globalThis);
