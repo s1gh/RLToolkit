@@ -23,19 +23,30 @@ import (
 // flipReset.ClearFlipResetArm(id) when a player transitions to
 // bOnGround=true so Statfeed's flip-reset bookkeeping stays
 // consistent.
+// PrimaryIdResolver enriches a TickPlayer-derived ID into a stamped
+// EnrichedPlayer (carrying IsMe and roster fields). TickDiff uses it
+// so boost-edge events ship the same enrichment shape the rest of
+// the pipeline produces — without it, plugins filtering by isMe
+// silently drop every event because IsMe stays false.
+type PrimaryIdResolver interface {
+	ResolveByPrimaryId(id string) *types.EnrichedPlayer
+}
+
 type TickDiff struct {
 	phase       PhaseGate
 	ticks       TickHistory
 	correlation Correlator
 	flipReset   FlipResetClearer
+	roster      PrimaryIdResolver
 }
 
-func NewTickDiff(phase PhaseGate, ticks TickHistory, correlation Correlator, flipReset FlipResetClearer) *TickDiff {
+func NewTickDiff(phase PhaseGate, ticks TickHistory, correlation Correlator, flipReset FlipResetClearer, roster PrimaryIdResolver) *TickDiff {
 	return &TickDiff{
 		phase:       phase,
 		ticks:       ticks,
 		correlation: correlation,
 		flipReset:   flipReset,
+		roster:      roster,
 	}
 }
 
@@ -205,12 +216,29 @@ func (e *TickDiff) playerScoreChanged(guid string, prev, curr *types.TickPlayer)
 	if len(delta) == 0 {
 		return nil
 	}
-	enriched := &types.EnrichedPlayer{
-		ID:       curr.ID,
-		Name:     curr.Name,
-		Team:     curr.Team,
-		Platform: types.PlatformFromID(curr.ID),
-		IsBot:    types.IsBotID(curr.ID),
+	// Route through the roster resolver so IsMe (and any other
+	// roster-derived fields) get stamped. A manual EnrichedPlayer
+	// build here would leave IsMe as false even for the local
+	// player, which silently breaks any plugin filtering on isMe.
+	var enriched *types.EnrichedPlayer
+	if e.roster != nil {
+		enriched = e.roster.ResolveByPrimaryId(curr.ID)
+	}
+	if enriched == nil {
+		enriched = &types.EnrichedPlayer{
+			ID:       curr.ID,
+			Name:     curr.Name,
+			Team:     curr.Team,
+			Platform: types.PlatformFromID(curr.ID),
+			IsBot:    types.IsBotID(curr.ID),
+		}
+	} else if enriched.Name == "" {
+		// ResolveByPrimaryId returns a minimal stub if the player
+		// isn't in the current roster snapshot yet (early ticks).
+		// Fill the name/team from the live tick so the payload is
+		// still useful.
+		enriched.Name = curr.Name
+		enriched.Team = curr.Team
 	}
 	body, err := json.Marshal(struct {
 		MatchGUID string                `json:"matchGuid,omitempty"`
@@ -246,12 +274,29 @@ func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.E
 	if prev.Demolished && !curr.Demolished {
 		return nil
 	}
-	enriched := &types.EnrichedPlayer{
-		ID:       curr.ID,
-		Name:     curr.Name,
-		Team:     curr.Team,
-		Platform: types.PlatformFromID(curr.ID),
-		IsBot:    types.IsBotID(curr.ID),
+	// Route through the roster resolver so IsMe (and any other
+	// roster-derived fields) get stamped. A manual EnrichedPlayer
+	// build here would leave IsMe as false even for the local
+	// player, which silently breaks any plugin filtering on isMe.
+	var enriched *types.EnrichedPlayer
+	if e.roster != nil {
+		enriched = e.roster.ResolveByPrimaryId(curr.ID)
+	}
+	if enriched == nil {
+		enriched = &types.EnrichedPlayer{
+			ID:       curr.ID,
+			Name:     curr.Name,
+			Team:     curr.Team,
+			Platform: types.PlatformFromID(curr.ID),
+			IsBot:    types.IsBotID(curr.ID),
+		}
+	} else if enriched.Name == "" {
+		// ResolveByPrimaryId returns a minimal stub if the player
+		// isn't in the current roster snapshot yet (early ticks).
+		// Fill the name/team from the live tick so the payload is
+		// still useful.
+		enriched.Name = curr.Name
+		enriched.Team = curr.Team
 	}
 	body, err := json.Marshal(struct {
 		MatchGUID   string                `json:"matchGuid,omitempty"`
@@ -293,12 +338,29 @@ func (e *TickDiff) boostConsumed(guid string, prev, curr *types.TickPlayer) *bus
 	if prev.Demolished && !curr.Demolished {
 		return nil
 	}
-	enriched := &types.EnrichedPlayer{
-		ID:       curr.ID,
-		Name:     curr.Name,
-		Team:     curr.Team,
-		Platform: types.PlatformFromID(curr.ID),
-		IsBot:    types.IsBotID(curr.ID),
+	// Route through the roster resolver so IsMe (and any other
+	// roster-derived fields) get stamped. A manual EnrichedPlayer
+	// build here would leave IsMe as false even for the local
+	// player, which silently breaks any plugin filtering on isMe.
+	var enriched *types.EnrichedPlayer
+	if e.roster != nil {
+		enriched = e.roster.ResolveByPrimaryId(curr.ID)
+	}
+	if enriched == nil {
+		enriched = &types.EnrichedPlayer{
+			ID:       curr.ID,
+			Name:     curr.Name,
+			Team:     curr.Team,
+			Platform: types.PlatformFromID(curr.ID),
+			IsBot:    types.IsBotID(curr.ID),
+		}
+	} else if enriched.Name == "" {
+		// ResolveByPrimaryId returns a minimal stub if the player
+		// isn't in the current roster snapshot yet (early ticks).
+		// Fill the name/team from the live tick so the payload is
+		// still useful.
+		enriched.Name = curr.Name
+		enriched.Team = curr.Team
 	}
 	body, err := json.Marshal(struct {
 		MatchGUID   string                `json:"matchGuid,omitempty"`

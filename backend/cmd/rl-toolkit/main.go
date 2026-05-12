@@ -179,7 +179,7 @@ func runServe() {
 	statfeed := emit.NewStatfeed(rt, corr, disc, ownGoal)
 	demos := emit.NewDemos(tickStore)
 	goalEmit := emit.NewGoal(rt, corr, tickStore, statfeed, ownGoal)
-	tickDiff := emit.NewTickDiff(matchState, tickStore, corr, statfeed)
+	tickDiff := emit.NewTickDiff(matchState, tickStore, corr, statfeed, rt)
 	matchEnded := emit.NewMatchEnded(tickStore)
 
 	// Pipeline wiring: events flow source → pipeline → bus. State
