@@ -335,3 +335,49 @@ lint:
 
 check:
 	$(BIOME) check .
+
+# --- bump: rewrite version in Cargo.toml + tauri.conf.json -------------
+#
+# Usage:
+#   make bump VERSION=0.3.0
+#
+# Rewrites the version line in overlay/src-tauri/Cargo.toml and
+# overlay/src-tauri/tauri.conf.json. Does NOT commit, push, or tag --
+# inspect the diff, then commit manually:
+#
+#   git diff overlay/src-tauri/
+#   git commit -am "chore: bump to 0.3.0"
+#   git push
+#   gh workflow run release.yml -f tag=v0.3.0
+#
+# VERSION must be strict X.Y.Z (no leading v, no pre-release suffix).
+# The Tauri updater and latest.json both compare versions semver-style;
+# stick to that format to avoid surprises in the upgrade flow.
+#
+# Idempotent: running twice with the same VERSION is a no-op on the
+# second run.
+
+CARGO_TOML  := overlay/src-tauri/Cargo.toml
+TAURI_CONF  := overlay/src-tauri/tauri.conf.json
+
+.PHONY: bump
+ifeq ($(HOST_OS),windows)
+bump:
+	@if "$(VERSION)"=="" ( echo VERSION required, e.g. make bump VERSION=0.3.0 & exit 1 )
+	@powershell -NoProfile -Command "if ('$(VERSION)' -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$$') { Write-Error 'VERSION must be strict semver X.Y.Z (no leading v, no suffix)'; exit 1 }"
+	@powershell -NoProfile -Command "$$v='$(VERSION)'; $$utf8=New-Object System.Text.UTF8Encoding $$false; $$p=Resolve-Path '$(CARGO_TOML)'; $$c=Get-Content $$p -Raw; $$c=[regex]::Replace($$c, '(?m)^version = \"[^\"]*\"$$', \"version = `\"$$v`\"\", 1); [System.IO.File]::WriteAllText($$p, $$c, $$utf8)"
+	@powershell -NoProfile -Command "$$v='$(VERSION)'; $$utf8=New-Object System.Text.UTF8Encoding $$false; $$p=Resolve-Path '$(TAURI_CONF)'; $$t=Get-Content $$p -Raw; $$t=[regex]::Replace($$t, '(\"version\":\s*\")[^\"]*(\")', \"`$${1}$$v`$${2}\"); [System.IO.File]::WriteAllText($$p, $$t, $$utf8)"
+	@echo Bumped to $(VERSION):
+	@powershell -NoProfile -Command "Select-String -Path '$(CARGO_TOML)' -Pattern '^version' | Select-Object -First 1"
+	@powershell -NoProfile -Command "Select-String -Path '$(TAURI_CONF)' -Pattern '\"version\":'"
+else
+bump:
+	@if [ -z "$(VERSION)" ]; then echo "VERSION required, e.g. make bump VERSION=0.3.0"; exit 1; fi
+	@echo "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+	  echo "VERSION must be strict semver X.Y.Z (no leading v, no suffix)"; exit 1; }
+	@sed -i -E '0,/^version = "[^"]*"$$/s//version = "$(VERSION)"/' $(CARGO_TOML)
+	@sed -i -E 's/("version": ")[^"]*(")/\1$(VERSION)\2/' $(TAURI_CONF)
+	@echo "Bumped to $(VERSION):"
+	@grep '^version' $(CARGO_TOML) | head -1
+	@grep '"version":' $(TAURI_CONF)
+endif

@@ -1,0 +1,283 @@
+# Unified multi-platform release.
+#
+# Builds Windows + Linux artefacts in parallel on GitHub-hosted runners
+# and assembles the cross-platform latest.json manifest in a final
+# publish job. Drops the local-Windows-build step from the old release
+# flow.
+#
+# Trigger: workflow_dispatch with a tag input. The release is left as
+# a draft so notes can be edited before publishing.
+#
+# Pipeline:
+#   prepare        ensure draft release exists, read notes
+#   build-windows  make release-windows -> upload .exe, .sig, .zip
+#   build-linux    make release-linux   -> upload .AppImage, .sig, .tar.gz
+#   publish        gen-update-manifest + gh release upload everything
+#
+# Both build jobs check out the same ref (main by default, override via
+# input). The old release-linux.yml stays around until this workflow has
+# proven itself across a couple of real releases.
+
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.2.0)'
+        required: true
+      ref:
+        description: 'Git ref to build (default: main)'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Compute version (strip leading v)
+        id: ver
+        run: echo "version=$(echo '${{ inputs.tag }}' | sed 's/^v//')" >> $GITHUB_OUTPUT
+
+      - name: Ensure draft release exists
+        # If you've pre-created a draft (with hand-written notes), this
+        # is a no-op and the existing notes are preserved. Otherwise an
+        # empty draft is created so the build jobs have a target to
+        # upload into.
+        run: |
+          if ! gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            gh release create "${{ inputs.tag }}" \
+              --draft \
+              --title "${{ inputs.tag }}" \
+              --notes "" \
+              --target "${{ inputs.ref }}"
+          fi
+
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: overlay/src-tauri -> target
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Install Tauri CLI
+        # Matches the Linux job: ^2.0 --locked. Cargo.lock pins
+        # tauri = 2.11.1, so updater signatures stay reproducible vs.
+        # local Windows builds against the same lock.
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Install npm devDeps (esbuild + biome)
+        run: npm install
+
+      - name: Sync source-tree version to the release tag
+        # Cargo embeds CARGO_PKG_VERSION at compile time and Tauri's
+        # NSIS bundler names files <productName>_<v>_x64-setup.exe, so
+        # the source tree must match VERSION before the build. PowerShell
+        # sed-equivalent: read, regex-replace, write back as UTF-8 (no
+        # BOM) so Cargo/Tauri parsers stay happy.
+        shell: pwsh
+        run: |
+          $version = "${{ needs.prepare.outputs.version }}"
+          $utf8 = New-Object System.Text.UTF8Encoding $false
+          $cargo = "overlay/src-tauri/Cargo.toml"
+          $c = Get-Content $cargo -Raw
+          $c = [regex]::Replace($c, '(?m)^version = "[^"]*"$', "version = `"$version`"", 1)
+          [System.IO.File]::WriteAllText((Resolve-Path $cargo), $c, $utf8)
+          $tconf = "overlay/src-tauri/tauri.conf.json"
+          $t = Get-Content $tconf -Raw
+          $t = [regex]::Replace($t, '("version":\s*")[^"]*(")', "`${1}$version`${2}")
+          [System.IO.File]::WriteAllText((Resolve-Path $tconf), $t, $utf8)
+          Write-Host "Synced source to $version"
+          Select-String -Path $cargo -Pattern '^version' | Select-Object -First 1
+          Select-String -Path $tconf -Pattern '"version":'
+
+      - name: Build Windows release artefacts
+        # make release-windows uses cmd-style copy/powershell; on
+        # windows-latest runners zsh isn't present but the Makefile
+        # branches on HOST_OS, so make picks the Windows recipe.
+        shell: cmd
+        run: |
+          make release-windows VERSION=${{ needs.prepare.outputs.version }} RELEASE_OWNER=${{ github.repository_owner }}
+
+      - name: Upload Windows artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artefacts
+          path: |
+            release/windows/RLToolkit_${{ needs.prepare.outputs.version }}_x64-setup.exe
+            release/windows/RLToolkit_${{ needs.prepare.outputs.version }}_x64-setup.exe.sig
+            release/windows/RLToolkit_${{ needs.prepare.outputs.version }}_x64-portable.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install build dependencies
+        # Same list as release-linux.yml. Ubuntu 24.04 floor is
+        # deliberate: GTK 3.24.41 fixes the Wayland transparent-resize
+        # artefact that 22.04's bundled GTK had.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-layer-shell-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libfuse2 \
+            build-essential \
+            pkg-config
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: overlay/src-tauri -> target
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Install npm devDeps (esbuild + biome)
+        run: npm install
+
+      - name: Sync source-tree version to the release tag
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          sed -i -E "0,/^version = \"[^\"]*\"$/s//version = \"${VERSION}\"/" overlay/src-tauri/Cargo.toml
+          sed -i -E "s/(\"version\": \")[^\"]*(\")/\1${VERSION}\2/"          overlay/src-tauri/tauri.conf.json
+          echo "Synced source to ${VERSION}:"
+          grep '^version' overlay/src-tauri/Cargo.toml | head -1
+          grep '"version":' overlay/src-tauri/tauri.conf.json
+
+      - name: Build Linux release artefacts
+        run: |
+          make release-linux \
+            VERSION=${{ needs.prepare.outputs.version }} \
+            RELEASE_OWNER=${{ github.repository_owner }}
+
+      - name: Upload Linux artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artefacts
+          path: |
+            release/linux/RLToolkit_${{ needs.prepare.outputs.version }}_x86_64.AppImage
+            release/linux/RLToolkit_${{ needs.prepare.outputs.version }}_x86_64.AppImage.sig
+            release/linux/RLToolkit_${{ needs.prepare.outputs.version }}_x86_64-portable.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [prepare, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Download Windows artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artefacts
+          path: dist/
+
+      - name: Download Linux artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-artefacts
+          path: dist/
+
+      - name: Generate multi-platform latest.json
+        # Read release notes from the (possibly hand-edited) draft so
+        # the manifest's notes field matches what users see on GitHub.
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          OWNER=${{ github.repository_owner }}
+          NOTES=$(gh release view "${{ inputs.tag }}" --json body --jq .body)
+          go run ./backend/cmd/gen-update-manifest \
+            -version "$VERSION" \
+            -windows-sig "dist/RLToolkit_${VERSION}_x64-setup.exe.sig" \
+            -windows-url "https://github.com/${OWNER}/RLToolkit/releases/download/${{ inputs.tag }}/RLToolkit_${VERSION}_x64-setup.exe" \
+            -linux-sig   "dist/RLToolkit_${VERSION}_x86_64.AppImage.sig" \
+            -linux-url   "https://github.com/${OWNER}/RLToolkit/releases/download/${{ inputs.tag }}/RLToolkit_${VERSION}_x86_64.AppImage" \
+            -notes "$NOTES" \
+            -out  "dist/latest.json"
+
+      - name: Upload everything to the draft release
+        # --clobber so re-runs of a failed publish job overwrite cleanly.
+        # Release stays a draft; publishing remains a manual step.
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          gh release upload "${{ inputs.tag }}" \
+            "dist/RLToolkit_${VERSION}_x64-setup.exe" \
+            "dist/RLToolkit_${VERSION}_x64-setup.exe.sig" \
+            "dist/RLToolkit_${VERSION}_x64-portable.zip" \
+            "dist/RLToolkit_${VERSION}_x86_64.AppImage" \
+            "dist/RLToolkit_${VERSION}_x86_64.AppImage.sig" \
+            "dist/RLToolkit_${VERSION}_x86_64-portable.tar.gz" \
+            "dist/latest.json" \
+            --clobber
