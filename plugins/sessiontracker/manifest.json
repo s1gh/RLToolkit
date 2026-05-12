@@ -7,8 +7,7 @@
   "overlay": {
     "file": "overlay.html",
     "width": 360,
-    "height": "auto",
-    "max_height": 420,
+    "height": 360,
     "anchor": "top-right",
     "offset_x": 16,
     "offset_y": 16,
@@ -17,5 +16,5 @@
     "show_during_phase": ["lobby", "countdown", "live", "replay", "paused"]
   },
   "dashboard": { "file": "dashboard.html" },
-  "settings":  { "file": "settings.html" }
+  "settings": { "file": "settings.html" }
 }
