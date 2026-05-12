@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"rl-toolkit/backend/internal/bootid"
 	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/overrides"
 	"rl-toolkit/backend/internal/plugins"
 	"rl-toolkit/backend/internal/replaywatch"
 	"rl-toolkit/backend/internal/source"
@@ -219,6 +220,94 @@ func TestSideload_InstallsRltp(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(pluginsDir, "alpha", "manifest.json")); err != nil {
 		t.Errorf("plugin not installed: %v", err)
+	}
+}
+
+// Reinstalling a plugin via sideload should clear any user overrides
+// for that plugin. The new manifest may have moved width/height/anchor
+// in ways that make the old override nonsensical (off-screen, zero-
+// sized, anchored elsewhere). Wiping is safer than carrying stale
+// values forward.
+func TestSideload_ClearsExistingOverrides(t *testing.T) {
+	pluginsDir := t.TempDir()
+	dataDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	ovr, err := overrides.New(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Plugins: pm, Overrides: ovr, PluginDir: pluginsDir})
+
+	// Seed an override for "alpha".
+	anchor := "top-left"
+	if _, err := ovr.MergeOne("alpha", overrides.Override{Anchor: &anchor}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ovr.GetAll()["alpha"]; !ok {
+		t.Fatal("override seed failed")
+	}
+
+	// Sideload a plugin under the same name (simulating an update).
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	mf, _ := zw.Create("manifest.json")
+	mf.Write([]byte(`{"name":"alpha","version":"0.2.0","overlay":{"file":"overlay.html"}}`))
+	hf, _ := zw.Create("overlay.html")
+	hf.Write([]byte("<html></html>"))
+	zw.Close()
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	fw, _ := mw.CreateFormFile("file", "alpha-0.2.0.rltp")
+	io.Copy(fw, &zipBuf)
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/sideload", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	if _, ok := ovr.GetAll()["alpha"]; ok {
+		t.Errorf("override for 'alpha' was not cleared after sideload reinstall")
+	}
+}
+
+// Sideload of a brand-new plugin (no prior overrides) must not error
+// on the no-op Delete; the override store treats Delete of a missing
+// entry as success and the install path should rely on that.
+func TestSideload_NoExistingOverridesIsHarmless(t *testing.T) {
+	pluginsDir := t.TempDir()
+	dataDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	ovr, err := overrides.New(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Plugins: pm, Overrides: ovr, PluginDir: pluginsDir})
+
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	mf, _ := zw.Create("manifest.json")
+	mf.Write([]byte(`{"name":"fresh","version":"0.1.0","overlay":{"file":"overlay.html"}}`))
+	hf, _ := zw.Create("overlay.html")
+	hf.Write([]byte("<html></html>"))
+	zw.Close()
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	fw, _ := mw.CreateFormFile("file", "fresh.rltp")
+	io.Copy(fw, &zipBuf)
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/sideload", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
 

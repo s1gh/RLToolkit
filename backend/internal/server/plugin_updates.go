@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -97,6 +98,15 @@ func (s *Server) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
 		return
+	}
+	// Wipe any user overrides for this plugin. Update implies a schema
+	// reset: the new manifest may have moved width/height/anchor in
+	// ways that would render the old override nonsensical. Idempotent
+	// — Delete on a missing entry is a no-op.
+	if s.deps.Overrides != nil {
+		if err := s.deps.Overrides.Delete(body.Name); err != nil {
+			log.Printf("[server] install-update: clearing overrides for %s failed: %v", body.Name, err)
+		}
 	}
 	s.deps.Plugins.NotifyUpdated(body.Name)
 	m := s.deps.Plugins.Get(body.Name)
