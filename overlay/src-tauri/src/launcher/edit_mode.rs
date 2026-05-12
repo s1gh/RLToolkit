@@ -85,15 +85,12 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
         if !was_visible {
             let _ = window.show();
         }
-        if let Err(e) = set_clickthrough(&window, false) {
-            // Roll back: hide if we showed, clear state.
-            if !was_visible {
-                let _ = window.hide();
-            }
-            state.active.store(false, Ordering::SeqCst);
-            *state.pre_edit_visible.lock().unwrap() = None;
-            return Err(format!("disable click-through: {e}"));
-        }
+        // DIAGNOSTIC: skip the click-through flip entirely. Edit mode
+        // UI will be unclickable, but if the ghost bar still appears
+        // we know set_ignore_cursor_events(false) isn't the trigger.
+        // Revert this block after the test.
+        crate::log_info!("[overlay-edit:diag] SKIPPING set_clickthrough(false) for ghost-bar test");
+        let _: fn(&_, bool) -> _ = set_clickthrough::<R>;
         if let Err(e) =
             window.eval("window.__rlt_set_live_edit && window.__rlt_set_live_edit(true);")
         {
