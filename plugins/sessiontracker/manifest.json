@@ -1,7 +1,7 @@
 {
   "name": "sessiontracker",
   "title": "Session Tracker",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "author": "rl-toolkit",
   "description": "Tracks your current session's record, key stats, and MMR delta.",
   "overlay": {
@@ -13,7 +13,7 @@
     "offset_y": 16,
     "opacity": 0.9,
     "hide_when_unfocused": true,
-    "show_during_phase": ["lobby", "countdown", "live", "replay", "paused"]
+    "show_during_phase": ["countdown", "live", "replay", "paused"]
   },
   "dashboard": { "file": "dashboard.html" },
   "settings": { "file": "settings.html" }

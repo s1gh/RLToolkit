@@ -167,80 +167,80 @@ test('applyGoalScored: missing modifiers object tolerated', () => {
   assert.equal(b.modifiers.aerial, 0);
 });
 
-test('applyFastestShot: first value seeds fastestKmh', () => {
+test('applyFastestShot: my first shot seeds fastestKmh', () => {
   const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 110.5 });
+  R.applyFastestShot(b, { speed: 110.5, player: { isMe: true } });
   assert.equal(b.ball.fastestKmh, 110.5);
 });
 
-test('applyFastestShot: strictly greater replaces', () => {
+test('applyFastestShot: my strictly greater replaces', () => {
   const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 110 });
-  R.applyFastestShot(b, { speed: 120 });
+  R.applyFastestShot(b, { speed: 110, player: { isMe: true } });
+  R.applyFastestShot(b, { speed: 120, player: { isMe: true } });
   assert.equal(b.ball.fastestKmh, 120);
 });
 
-test('applyFastestShot: equal or lower preserves existing', () => {
+test('applyFastestShot: equal or lower of mine preserves existing', () => {
   const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 130 });
-  R.applyFastestShot(b, { speed: 130 });
-  R.applyFastestShot(b, { speed: 100 });
+  R.applyFastestShot(b, { speed: 130, player: { isMe: true } });
+  R.applyFastestShot(b, { speed: 130, player: { isMe: true } });
+  R.applyFastestShot(b, { speed: 100, player: { isMe: true } });
   assert.equal(b.ball.fastestKmh, 130);
 });
 
-test('applyFastestShot: non-numeric speed ignored', () => {
+test('applyFastestShot: non-numeric speed ignored even if mine', () => {
   const b = R.emptyBucket('b');
-  R.applyFastestShot(b, { speed: 'fast' });
-  R.applyFastestShot(b, {});
+  R.applyFastestShot(b, { speed: 'fast', player: { isMe: true } });
+  R.applyFastestShot(b, { player: { isMe: true } });
   assert.equal(b.ball.fastestKmh, null);
 });
 
-test('applyCrossbarHit: first hit seeds hits and hardest', () => {
+test('applyCrossbarHit: my first hit seeds hits and hardest', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, {
+    impactForce: 800, ballSpeed: 130,
+    ballLastTouch: { player: { name: 'Me', team: 0, isMe: true } },
+  });
+  assert.equal(b.crossbar.hits, 1);
+  assert.equal(b.crossbar.hardest.impact, 800);
+  assert.equal(b.crossbar.hardest.speed, 130);
+  assert.equal(b.crossbar.hardest.player.name, 'Me');
+  assert.equal(b.crossbar.hardest.player.team, 0);
+  assert.equal(b.crossbar.hardest.player.isMe, true);
+  assert.equal(typeof b.crossbar.hardest.at, 'string');
+});
+
+test('applyCrossbarHit: opponent hit ignored entirely', () => {
   const b = R.emptyBucket('b');
   R.applyCrossbarHit(b, {
     impactForce: 800, ballSpeed: 130,
     ballLastTouch: { player: { name: 'Apparition', team: 1, isMe: false } },
   });
-  assert.equal(b.crossbar.hits, 1);
-  assert.equal(b.crossbar.hardest.impact, 800);
-  assert.equal(b.crossbar.hardest.speed, 130);
-  assert.equal(b.crossbar.hardest.player.name, 'Apparition');
-  assert.equal(b.crossbar.hardest.player.team, 1);
-  assert.equal(b.crossbar.hardest.player.isMe, false);
-  assert.equal(typeof b.crossbar.hardest.at, 'string');
+  assert.equal(b.crossbar.hits, 0);
+  assert.equal(b.crossbar.hardest, null);
 });
 
-test('applyCrossbarHit: strictly greater impact replaces hardest', () => {
+test('applyCrossbarHit: strictly greater of mine replaces hardest', () => {
   const b = R.emptyBucket('b');
-  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 130, ballLastTouch: { player: { name: 'A', team: 0, isMe: true } } });
-  R.applyCrossbarHit(b, { impactForce: 900, ballSpeed: 140, ballLastTouch: { player: { name: 'B', team: 1, isMe: false } } });
+  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 130, ballLastTouch: { player: { name: 'Me', team: 0, isMe: true } } });
+  R.applyCrossbarHit(b, { impactForce: 900, ballSpeed: 140, ballLastTouch: { player: { name: 'Me', team: 0, isMe: true } } });
   assert.equal(b.crossbar.hits, 2);
   assert.equal(b.crossbar.hardest.impact, 900);
-  assert.equal(b.crossbar.hardest.player.name, 'B');
 });
 
 test('applyCrossbarHit: equal impact keeps the earlier record', () => {
   const b = R.emptyBucket('b');
-  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 130, ballLastTouch: { player: { name: 'A', team: 0, isMe: true } } });
-  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 150, ballLastTouch: { player: { name: 'B', team: 1, isMe: false } } });
+  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 130, ballLastTouch: { player: { name: 'Me', team: 0, isMe: true } } });
+  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 150, ballLastTouch: { player: { name: 'Me', team: 0, isMe: true } } });
   assert.equal(b.crossbar.hits, 2);
-  assert.equal(b.crossbar.hardest.player.name, 'A');
   assert.equal(b.crossbar.hardest.speed, 130);
 });
 
 test('applyCrossbarHit: missing impactForce → still counted, hardest unchanged', () => {
   const b = R.emptyBucket('b');
-  R.applyCrossbarHit(b, { ballLastTouch: { player: { name: 'A', team: 0 } } });
+  R.applyCrossbarHit(b, { ballLastTouch: { player: { name: 'Me', team: 0, isMe: true } } });
   assert.equal(b.crossbar.hits, 1);
   assert.equal(b.crossbar.hardest, null);
-});
-
-test('applyCrossbarHit: missing player still records hardest with null player', () => {
-  const b = R.emptyBucket('b');
-  R.applyCrossbarHit(b, { impactForce: 750, ballSpeed: 120 });
-  assert.equal(b.crossbar.hits, 1);
-  assert.equal(b.crossbar.hardest.impact, 750);
-  assert.equal(b.crossbar.hardest.player, null);
 });
 
 test('applyMmr: first 2v2 ranked seeds start and current', () => {
@@ -396,4 +396,56 @@ test('match block survives a per-match reset without nuking session totals', () 
   assert.equal(b.totals.demos, 1, 'session demos preserved');
   assert.equal(b.match.goals, 0, 'match goals cleared');
   assert.equal(b.match.demos, 0, 'match demos cleared');
+});
+
+// FASTEST shot is a personal record, not a match-wide leaderboard
+// entry. The event fires for every player's shot; we only want to
+// remember our own.
+test('applyFastestShot: ignores shots that are not mine', () => {
+  const b = R.emptyBucket('b');
+  R.applyFastestShot(b, { speed: 200, player: { isMe: false } });
+  assert.equal(b.ball.fastestKmh, null);
+});
+
+test('applyFastestShot: records my shot speed', () => {
+  const b = R.emptyBucket('b');
+  R.applyFastestShot(b, { speed: 142.6, player: { isMe: true } });
+  assert.equal(b.ball.fastestKmh, 142.6);
+});
+
+test('applyFastestShot: keeps the highest of mine', () => {
+  const b = R.emptyBucket('b');
+  R.applyFastestShot(b, { speed: 100, player: { isMe: true } });
+  R.applyFastestShot(b, { speed: 80,  player: { isMe: true } });
+  R.applyFastestShot(b, { speed: 250, player: { isMe: true } });
+  assert.equal(b.ball.fastestKmh, 250);
+});
+
+test('applyFastestShot: missing player → no-op (defensive)', () => {
+  const b = R.emptyBucket('b');
+  R.applyFastestShot(b, { speed: 300 });
+  assert.equal(b.ball.fastestKmh, null);
+});
+
+// CROSSBAR hits and HARDEST hit follow the same me-only rule. The
+// last-touch player on the event tells us who hit it.
+test('applyCrossbarHit: only counts hits where I was the last touch', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, { impactForce: 1000, ballSpeed: 100, ballLastTouch: { player: { isMe: false } } });
+  assert.equal(b.crossbar.hits, 0);
+  assert.equal(b.crossbar.hardest, null);
+});
+
+test('applyCrossbarHit: counts my hits and tracks my hardest', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, { impactForce: 1500, ballSpeed: 80, ballLastTouch: { player: { isMe: true, name: 'me' } } });
+  R.applyCrossbarHit(b, { impactForce: 2200, ballSpeed: 95, ballLastTouch: { player: { isMe: true, name: 'me' } } });
+  assert.equal(b.crossbar.hits, 2);
+  assert.equal(b.crossbar.hardest.impact, 2200);
+});
+
+test('applyCrossbarHit: missing ballLastTouch.player → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, { impactForce: 5000 });
+  assert.equal(b.crossbar.hits, 0);
 });

@@ -87,7 +87,14 @@
   }
 
   function applyFastestShot(bucket, payload) {
-    const s = payload && payload.speed;
+    if (!payload) return;
+    // Filter to my shots only — the event fires for everyone's shots,
+    // but the overlay surfaces a personal record, not a match-wide
+    // leaderboard entry. Without the player guard, the overlay would
+    // show the lobby's hardest hitter, which is misleading.
+    const player = payload.player;
+    if (!player || !player.isMe) return;
+    const s = payload.speed;
     if (typeof s !== 'number' || !isFinite(s)) return;
     if (bucket.ball.fastestKmh === null || s > bucket.ball.fastestKmh) {
       bucket.ball.fastestKmh = s;
@@ -96,21 +103,25 @@
 
   function applyCrossbarHit(bucket, payload) {
     if (!payload) return;
+    // Same me-only rule as applyFastestShot. The hits counter and the
+    // hardest record are both about my play, not the lobby's. Without
+    // this filter the overlay shows nine crossbars and credits another
+    // player's hardest hit.
+    const src = payload.ballLastTouch && payload.ballLastTouch.player;
+    if (!src || !src.isMe) return;
     bucket.crossbar.hits++;
     const impact = payload.impactForce;
     const speed  = payload.ballSpeed;
     if (typeof impact !== 'number' || !isFinite(impact)) return;
     if (bucket.crossbar.hardest && impact <= bucket.crossbar.hardest.impact) return;
-    const src = payload.ballLastTouch && payload.ballLastTouch.player;
-    const player = src ? {
-      name:  src.name || '',
-      team:  typeof src.team === 'number' ? src.team : null,
-      isMe:  !!src.isMe,
-    } : null;
     bucket.crossbar.hardest = {
       impact,
       speed: typeof speed === 'number' ? speed : null,
-      player,
+      player: {
+        name: src.name || '',
+        team: typeof src.team === 'number' ? src.team : null,
+        isMe: true,
+      },
       at: new Date().toISOString(),
     };
   }
@@ -198,6 +209,11 @@
 
   let bucket = null;
   let currentMode = null;
+  // myTeam caches the most recent team we observed for the local
+  // player. Used as a fallback when _MatchEnded fires after the
+  // roster has already been torn down (reconnect race, late SSE
+  // delivery). The primary read is RLT.match.current.me.team at
+  // _MatchEnded time; this cache is the safety net.
   let myTeam = null;
   let saveTimer = null;
 
@@ -376,7 +392,7 @@
           '<span class="st-wl">' + b.results.wins + ' – ' + b.results.losses + '</span>' +
           (streakLabel ? '<span class="st-streak">' + esc(streakLabel) + '</span>' : '') +
         '</div>' +
-        '<div class="st-row st-ticks">' + (ticks || '<span class="st-mut">no matches yet</span>') + '</div>' +
+        (ticks ? '<div class="st-row st-ticks">' + ticks + '</div>' : '') +
         '<div class="st-row st-totals">' +
           '<span><span class="' + totalsCls(b.totals.goals) + '">' + b.totals.goals + '</span> <span class="st-lbl">GOALS</span></span>' +
           '<span><span class="' + totalsCls(b.totals.saves) + '">' + b.totals.saves + '</span> <span class="st-lbl">SAVES</span></span>' +
@@ -652,8 +668,16 @@
 
       _MatchEnded(p) {
         if (!bucket) return;
-        snapshotMyTeam();
-        applyMatchEnded(bucket, p, myTeam);
+        // Read team fresh from the live match view first — that's the
+        // ground truth at the moment the match ends. Fall back to the
+        // cached myTeam if the roster is already null (reconnect race
+        // or late SSE delivery clearing match.current before this
+        // handler runs). Without the fallback we'd silently drop W/L
+        // updates when the match-end and roster-tear-down race lands
+        // the wrong way.
+        const live = RLT.match.current && RLT.match.current.me;
+        const team = (live && (live.team === 0 || live.team === 1)) ? live.team : myTeam;
+        applyMatchEnded(bucket, p, team);
         save(); scheduleRender();
         if (RANKED_MODES.includes(currentMode)) {
           fetchMmr();
