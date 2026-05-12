@@ -27,6 +27,12 @@ overlay/node_modules/
 overlay/src-tauri/target/
 overlay/src-tauri/gen/
 overlay/src-tauri/data/
+# Fixed-version WebView2 runtime fetched at build time by the
+# launcher-installer make target; bundles into the NSIS installer to
+# dodge the WebView2 144+ ghost-titlebar regression on transparent
+# windows (tauri-apps/tauri#14764). Never committed.
+overlay/src-tauri/webview2-runtime/
+overlay/src-tauri/webview2-runtime.nupkg
 **/node_modules/
 
 # Local agent / session notes / archives
