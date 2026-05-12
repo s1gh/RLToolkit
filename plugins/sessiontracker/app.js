@@ -186,6 +186,9 @@
   }
 
   async function fetchMmr() {
+    const b = bucket;
+    const mode = currentMode;
+    if (!b) return;
     try {
       const r = await fetch('/api/mmr');
       if (!r.ok) {
@@ -193,7 +196,7 @@
         return;
       }
       const j = await r.json();
-      applyMmr(bucket, currentMode, j);
+      applyMmr(b, mode, j);
       save();
       scheduleRender();
     } catch (e) {
@@ -257,12 +260,12 @@
         if (p && p.phase === 'countdown') {
           const next = modeFromRoster(rosterSize());
           currentMode = next;
-          if (next === '1v1' || next === '2v2' || next === '3v3') fetchMmr();
+          if (RANKED_MODES.includes(next)) fetchMmr();
         } else if (p && p.phase === 'live' && currentMode === null) {
           // Fallback: countdown was missed (e.g. mid-match reconnect).
           const next = modeFromRoster(rosterSize());
           currentMode = next;
-          if (next === '1v1' || next === '2v2' || next === '3v3') fetchMmr();
+          if (RANKED_MODES.includes(next)) fetchMmr();
         }
       },
 
@@ -302,7 +305,7 @@
         snapshotMyTeam();
         applyMatchEnded(bucket, p, myTeam);
         save(); scheduleRender();
-        if (currentMode === '1v1' || currentMode === '2v2' || currentMode === '3v3') {
+        if (RANKED_MODES.includes(currentMode)) {
           fetchMmr();
         }
       },
