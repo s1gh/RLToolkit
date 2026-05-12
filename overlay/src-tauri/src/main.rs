@@ -111,12 +111,15 @@ impl WidgetState {
 /// the toolkit can't be reached.
 fn fetch_manifest(toolkit: &str, plugin: &str) -> Result<OverlayCfg, String> {
     let url = format!("{}/api/plugins", toolkit.trim_end_matches('/'));
-    let resp = ureq::get(&url)
-        .timeout(std::time::Duration::from_secs(2))
+    let mut resp = ureq::get(&url)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(2)))
+        .build()
         .call()
         .map_err(|e| format!("manifest fetch failed: {e}"))?;
     let list: Vec<PluginManifest> = resp
-        .into_json()
+        .body_mut()
+        .read_json()
         .map_err(|e| format!("manifest parse failed: {e}"))?;
     list.into_iter()
         .find(|p| p.name == plugin)
@@ -165,7 +168,9 @@ fn probe_toolkit(toolkit: &str) -> Result<(), String> {
     let base = toolkit.trim_end_matches('/');
     let url = format!("{}/api/status", base);
     ureq::get(&url)
-        .timeout(std::time::Duration::from_secs(2))
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(2)))
+        .build()
         .call()
         .map(|_| ())
         .map_err(|e| format!("toolkit unreachable at {}: {}", base, e))
@@ -186,9 +191,11 @@ fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
         h.round() as i64
     );
     let _ = ureq::post(&url)
-        .timeout(std::time::Duration::from_secs(2))
-        .set("Content-Type", "application/json")
-        .send_string(&body);
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(2)))
+        .build()
+        .content_type("application/json")
+        .send(&body);
 }
 
 // ─── Tauri commands (the RLT.widget.* surface) ──────────────────

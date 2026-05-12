@@ -297,9 +297,11 @@ fn report_detected_surface(toolkit: &str, w: f64, h: f64) {
         h.round() as i64,
     );
     let result = ureq::post(&url)
-        .timeout(std::time::Duration::from_secs(2))
-        .set("Content-Type", "application/json")
-        .send_string(&body);
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(2)))
+        .build()
+        .content_type("application/json")
+        .send(&body);
     if let Err(e) = result {
         // Debug-only: fires in the brief window between probe success
         // and the HTTP server accepting connections. Stderr noise here
