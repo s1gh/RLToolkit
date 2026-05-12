@@ -146,6 +146,12 @@ html.in-launcher textarea{
   -webkit-user-select:text;
   cursor:text;
 }
+/* The launcher's own #strip already shows the RL logo, title, and
+   connection state, so the dashboard's hero topbar is redundant
+   when embedded. Hide it and tighten the shell padding so the first
+   section sits close to the top. */
+html.in-launcher .topbar{ display:none; }
+html.in-launcher .shell{ padding-top:16px; }
 a{color:inherit;text-decoration:none}
 button{font-family:inherit}
 
@@ -229,25 +235,14 @@ button{font-family:inherit}
   display:flex; flex-direction:column; gap:14px;
   min-height:200px;
   overflow:hidden;
-  transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease;
 }
-.card::before{
-  content:''; position:absolute; inset:0;
-  background:radial-gradient(360px 200px at 100% 0%, rgba(167,139,250,0.08), transparent 60%);
-  opacity:0; transition:opacity .25s ease;
-  pointer-events:none;
-}
+/* Gradient top accent: marks an enabled plugin. Hidden on disabled
+   cards by the .card.disabled override further down. */
 .card::after{
   content:''; position:absolute; left:0; right:0; top:0; height:1px;
   background:linear-gradient(90deg, transparent, var(--cyan), var(--violet), transparent);
-  opacity:0; transition:opacity .25s ease;
 }
-.card:hover{
-  transform:translateY(-2px);
-  border-color:var(--line-2);
-  box-shadow:0 24px 48px -24px rgba(0,0,0,.6), 0 0 0 1px rgba(167,139,250,.12);
-}
-.card:hover::before, .card:hover::after{ opacity:1; }
+.card.disabled::after{ display:none; }
 
 .card-head{ display:flex; align-items:center; gap:12px; }
 .card-icon{
