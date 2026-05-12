@@ -12,13 +12,15 @@ pub fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
         .map_err(|e| format!("menu item: {e}"))?;
     let toggle = MenuItem::with_id(app, "toggle_overlay", "Toggle Overlay", true, None::<&str>)
         .map_err(|e| format!("menu item: {e}"))?;
+    let edit = MenuItem::with_id(app, "overlay_edit_probe", "Edit overlay (probe)", true, None::<&str>)
+        .map_err(|e| format!("menu item: {e}"))?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)
         .map_err(|e| format!("menu item: {e}"))?;
 
-    let menu = Menu::with_items(app, &[&show, &toggle, &quit])
+    let menu = Menu::with_items(app, &[&show, &toggle, &edit, &quit])
         .map_err(|e| format!("tray menu: {e}"))?;
 
-    TrayIconBuilder::new()
+    TrayIconBuilder::with_id("main")
         .icon(icon)
         .tooltip(tooltip)
         .menu(&menu)
@@ -32,12 +34,13 @@ pub fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
                 }
             }
             "toggle_overlay" => {
-                // Overlay window is pre-built; just toggle visibility.
-                // See ipc.rs::toggle_overlay for the build-from-setup rule.
                 if let Some(w) = app.get_webview_window("main") {
                     let visible = w.is_visible().unwrap_or(false);
                     if visible { let _ = w.hide(); } else { let _ = w.show(); }
                 }
+            }
+            "overlay_edit_probe" => {
+                crate::launcher::edit_mode::probe_toggle(app);
             }
             "quit" => app.exit(0),
             _ => {}
