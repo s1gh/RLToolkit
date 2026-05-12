@@ -194,3 +194,51 @@ test('applyFastestShot: non-numeric speed ignored', () => {
   R.applyFastestShot(b, {});
   assert.equal(b.ball.fastestKmh, null);
 });
+
+test('applyCrossbarHit: first hit seeds hits and hardest', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, {
+    impactForce: 800, ballSpeed: 130,
+    ballLastTouch: { player: { name: 'Apparition', team: 1, isMe: false } },
+  });
+  assert.equal(b.crossbar.hits, 1);
+  assert.equal(b.crossbar.hardest.impact, 800);
+  assert.equal(b.crossbar.hardest.speed, 130);
+  assert.equal(b.crossbar.hardest.player.name, 'Apparition');
+  assert.equal(b.crossbar.hardest.player.team, 1);
+  assert.equal(b.crossbar.hardest.player.isMe, false);
+  assert.equal(typeof b.crossbar.hardest.at, 'string');
+});
+
+test('applyCrossbarHit: strictly greater impact replaces hardest', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 130, ballLastTouch: { player: { name: 'A', team: 0, isMe: true } } });
+  R.applyCrossbarHit(b, { impactForce: 900, ballSpeed: 140, ballLastTouch: { player: { name: 'B', team: 1, isMe: false } } });
+  assert.equal(b.crossbar.hits, 2);
+  assert.equal(b.crossbar.hardest.impact, 900);
+  assert.equal(b.crossbar.hardest.player.name, 'B');
+});
+
+test('applyCrossbarHit: equal impact keeps the earlier record', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 130, ballLastTouch: { player: { name: 'A', team: 0, isMe: true } } });
+  R.applyCrossbarHit(b, { impactForce: 800, ballSpeed: 150, ballLastTouch: { player: { name: 'B', team: 1, isMe: false } } });
+  assert.equal(b.crossbar.hits, 2);
+  assert.equal(b.crossbar.hardest.player.name, 'A');
+  assert.equal(b.crossbar.hardest.speed, 130);
+});
+
+test('applyCrossbarHit: missing impactForce → still counted, hardest unchanged', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, { ballLastTouch: { player: { name: 'A', team: 0 } } });
+  assert.equal(b.crossbar.hits, 1);
+  assert.equal(b.crossbar.hardest, null);
+});
+
+test('applyCrossbarHit: missing player still records hardest with null player', () => {
+  const b = R.emptyBucket('b');
+  R.applyCrossbarHit(b, { impactForce: 750, ballSpeed: 120 });
+  assert.equal(b.crossbar.hits, 1);
+  assert.equal(b.crossbar.hardest.impact, 750);
+  assert.equal(b.crossbar.hardest.player, null);
+});

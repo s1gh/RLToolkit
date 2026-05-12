@@ -72,6 +72,27 @@
     }
   }
 
+  function applyCrossbarHit(bucket, payload) {
+    if (!payload) return;
+    bucket.crossbar.hits++;
+    const impact = payload.impactForce;
+    const speed  = payload.ballSpeed;
+    if (typeof impact !== 'number' || !isFinite(impact)) return;
+    if (bucket.crossbar.hardest && impact <= bucket.crossbar.hardest.impact) return;
+    const src = payload.ballLastTouch && payload.ballLastTouch.player;
+    const player = src ? {
+      name:  src.name || '',
+      team:  typeof src.team === 'number' ? src.team : null,
+      isMe:  !!src.isMe,
+    } : null;
+    bucket.crossbar.hardest = {
+      impact,
+      speed: typeof speed === 'number' ? speed : null,
+      player,
+      at: new Date().toISOString(),
+    };
+  }
+
   const Reducers = {
     emptyBucket,
     applyMatchEnded,
@@ -79,6 +100,7 @@
     applyPlayerDemolished,
     applyGoalScored,
     applyFastestShot,
+    applyCrossbarHit,
   };
 
   root.SessionTrackerReducers = Reducers;
