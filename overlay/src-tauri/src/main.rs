@@ -651,7 +651,7 @@ fn main() {
         // Single-instance forwards --toggle-edit to a running primary
         // via its callback (see launcher/mod.rs). If no primary is
         // running, single-instance would silently promote us to
-        // primary and start the launcher in the background — almost
+        // primary and start the launcher in the background, almost
         // never what the user wants when they typed `rl-widget
         // --toggle-edit` cold. Probe the toolkit URL: if it doesn't
         // answer, the launcher isn't up. Exit 2 with a clear message.
