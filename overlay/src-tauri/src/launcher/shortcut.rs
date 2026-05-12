@@ -53,37 +53,26 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) {
 /// Best-effort: on failure we log and continue. The other exit paths
 /// (the same Ctrl+Shift+E toggle, the tray item, the dashboard button,
 /// the CLI flag) keep working regardless.
-///
-/// Runs on a worker thread because the plugin's register call uses
-/// `run_on_main_thread`. If we called it directly from inside another
-/// shortcut handler (which is itself running on the main thread), we
-/// would deadlock waiting for our own main-thread task to drain.
 pub fn register_esc<R: Runtime>(app: &AppHandle<R>) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let result = app.global_shortcut().on_shortcut(
-            esc_shortcut(),
-            |app: &AppHandle<R>, _sc: &Shortcut, event: ShortcutEvent| {
-                if event.state == ShortcutState::Pressed {
-                    if let Err(e) = crate::launcher::edit_mode::set(app, false) {
-                        crate::log_warn!("[overlay-edit] esc exit failed: {e}");
-                    }
+    let result = app.global_shortcut().on_shortcut(
+        esc_shortcut(),
+        |app: &AppHandle<R>, _sc: &Shortcut, event: ShortcutEvent| {
+            if event.state == ShortcutState::Pressed {
+                if let Err(e) = crate::launcher::edit_mode::set(app, false) {
+                    crate::log_warn!("[overlay-edit] esc exit failed: {e}");
                 }
-            },
-        );
-        if let Err(e) = result {
-            crate::log_warn!("[overlay-edit] esc shortcut unavailable: {e}");
-        }
-    });
+            }
+        },
+    );
+    if let Err(e) = result {
+        crate::log_warn!("[overlay-edit] esc shortcut unavailable: {e}");
+    }
 }
 
-/// Pair to `register_esc`. Same threading concern: runs on a worker
-/// because the plugin's unregister also uses `run_on_main_thread`.
+/// Pair to `register_esc`. Idempotent: unregistering a shortcut that
+/// isn't currently registered is fine.
 pub fn unregister_esc<R: Runtime>(app: &AppHandle<R>) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        if let Err(e) = app.global_shortcut().unregister(esc_shortcut()) {
-            crate::log_warn!("[overlay-edit] esc unregister failed: {e}");
-        }
-    });
+    if let Err(e) = app.global_shortcut().unregister(esc_shortcut()) {
+        crate::log_warn!("[overlay-edit] esc unregister failed: {e}");
+    }
 }
