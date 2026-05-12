@@ -84,6 +84,12 @@
 .st-totals > span { display: inline-flex; align-items: baseline; gap: 4px; }
 .st-totals .st-val, .st-totals .st-mut { font-size: 14px; font-weight: 600; }
 
+.st-match { gap: 12px; font-size: 11px; }
+.st-match > span { display: inline-flex; align-items: baseline; gap: 4px; }
+.st-match .st-val, .st-match .st-mut { font-size: 13px; font-weight: 600; }
+.st-match .st-lbl:first-child { letter-spacing: 0.1em; opacity: 0.8; }
+.st-match .st-streak { margin-left: auto; }
+
 .st-ball  { justify-content: space-between; font-size: 12px; }
 .st-hardest { font-size: 12px; }
 .st-mmr  { gap: 14px; font-size: 12px; flex-wrap: wrap; }

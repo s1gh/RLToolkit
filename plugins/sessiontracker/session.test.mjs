@@ -329,3 +329,71 @@ test('currentStreak: WWWLL → L2', () => {
 test('currentStreak: alternating → 1 → null', () => {
   assert.equal(R.currentStreak(['win', 'loss', 'win', 'loss']), null);
 });
+
+// Per-match block: zeroed on bucket creation. Mirrors session.totals
+// shape so the renderer can reuse the same field names; result is null
+// until applyMatchEnded stamps it.
+test('emptyBucket: includes match block with zeros + null result', () => {
+  const b = R.emptyBucket('b');
+  assert.deepEqual(b.match, { result: null, goals: 0, saves: 0, demos: 0 });
+});
+
+test('resetMatch: zeros per-match counters and clears result', () => {
+  const b = R.emptyBucket('b');
+  b.match = { result: 'win', goals: 3, saves: 2, demos: 1 };
+  R.resetMatch(b);
+  assert.deepEqual(b.match, { result: null, goals: 0, saves: 0, demos: 0 });
+});
+
+test('applyPlayerScoreChanged: bumps both session and match totals', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerScoreChanged(b, { player: { isMe: true }, delta: { goals: 2, saves: 1 } });
+  assert.equal(b.totals.goals, 2);
+  assert.equal(b.match.goals, 2);
+  assert.equal(b.totals.saves, 1);
+  assert.equal(b.match.saves, 1);
+});
+
+test('applyPlayerScoreChanged: non-self leaves match block alone', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerScoreChanged(b, { player: { isMe: false }, delta: { goals: 5 } });
+  assert.equal(b.match.goals, 0);
+});
+
+test('applyPlayerDemolished: bumps both session and match demos', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerDemolished(b, { attacker: { isMe: true } });
+  R.applyPlayerDemolished(b, { attacker: { isMe: true } });
+  assert.equal(b.totals.demos, 2);
+  assert.equal(b.match.demos, 2);
+});
+
+test('applyMatchEnded: records win on match block', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { winnerTeamNum: 0 }, 0);
+  assert.equal(b.match.result, 'win');
+});
+
+test('applyMatchEnded: records loss on match block', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchEnded(b, { winnerTeamNum: 1 }, 0);
+  assert.equal(b.match.result, 'loss');
+});
+
+test('applyMatchEnded: ambiguous winner leaves match.result alone', () => {
+  const b = R.emptyBucket('b');
+  b.match.result = 'win';
+  R.applyMatchEnded(b, {}, 0);
+  assert.equal(b.match.result, 'win');
+});
+
+test('match block survives a per-match reset without nuking session totals', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerScoreChanged(b, { player: { isMe: true }, delta: { goals: 3 } });
+  R.applyPlayerDemolished(b, { attacker: { isMe: true } });
+  R.resetMatch(b);
+  assert.equal(b.totals.goals, 3, 'session goals preserved');
+  assert.equal(b.totals.demos, 1, 'session demos preserved');
+  assert.equal(b.match.goals, 0, 'match goals cleared');
+  assert.equal(b.match.demos, 0, 'match demos cleared');
+});

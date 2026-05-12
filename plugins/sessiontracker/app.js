@@ -10,6 +10,13 @@
       startedAt: new Date().toISOString(),
       results: { wins: 0, losses: 0, last: [] },
       totals:  { goals: 0, saves: 0, demos: 0 },
+      // Per-match counters. Mirror the totals shape so render code can
+      // reuse the same field names. result is null until applyMatchEnded
+      // stamps a 'win' or 'loss'; resetMatch (called on _MatchState
+      // countdown) zeros the counters between matches so the overlay
+      // shows the live numbers for the current match, not a cumulative
+      // mash of every match in the session.
+      match: { result: null, goals: 0, saves: 0, demos: 0 },
       modifiers: {
         aerial: 0, bicycle: 0, longGoal: 0, overtime: 0,
         hatTrick: 0, flipReset: 0, backwards: 0, turtle: 0, poolShot: 0,
@@ -18,6 +25,10 @@
       crossbar: { hits: 0, hardest: null },
       mmr: { ranked: {}, casual: null },
     };
+  }
+
+  function resetMatch(bucket) {
+    bucket.match = { result: null, goals: 0, saves: 0, demos: 0 };
   }
 
   function applyMatchEnded(bucket, payload, myTeam) {
@@ -29,18 +40,29 @@
     else bucket.results.losses++;
     bucket.results.last.push(result);
     if (bucket.results.last.length > 10) bucket.results.last.shift();
+    // Stamp the result on the per-match block so the overlay can show
+    // the just-finished match's outcome alongside its live counters
+    // (which freeze here until resetMatch runs at the next countdown).
+    bucket.match.result = result;
   }
 
   function applyPlayerScoreChanged(bucket, payload) {
     if (!payload || !payload.player || !payload.player.isMe) return;
     const d = payload.delta || {};
-    if (typeof d.goals === 'number') bucket.totals.goals += d.goals;
-    if (typeof d.saves === 'number') bucket.totals.saves += d.saves;
+    if (typeof d.goals === 'number') {
+      bucket.totals.goals += d.goals;
+      bucket.match.goals += d.goals;
+    }
+    if (typeof d.saves === 'number') {
+      bucket.totals.saves += d.saves;
+      bucket.match.saves += d.saves;
+    }
   }
 
   function applyPlayerDemolished(bucket, payload) {
     if (payload && payload.attacker && payload.attacker.isMe) {
       bucket.totals.demos++;
+      bucket.match.demos++;
     }
   }
 
@@ -98,15 +120,26 @@
   function applyMmr(bucket, mode, payload) {
     const pls = payload && payload.playlists;
     if (!pls) return;
-    if (RANKED_MODES.indexOf(mode) >= 0) {
-      const row = pls[mode];
-      if (row && typeof row.mmr === 'number') {
-        const slot = bucket.mmr.ranked[mode];
-        if (!slot) {
-          bucket.mmr.ranked[mode] = { start: row.mmr, current: row.mmr };
-        } else {
-          slot.current = row.mmr;
-        }
+    // Seed every ranked playlist that came back, not just the active
+    // mode. Without this, the MMR row is empty until the user queues
+    // into the right playlist and a match starts — which can be minutes
+    // after launch. With it, the overlay shows current MMR for every
+    // ranked mode the API knows about; deltas start at 0 and shift as
+    // matches end. The active mode (passed in) is still tracked the
+    // same way; the only difference is that we also seed the others.
+    for (let i = 0; i < RANKED_MODES.length; i++) {
+      const m = RANKED_MODES[i];
+      const row = pls[m];
+      if (!row || typeof row.mmr !== 'number') continue;
+      const slot = bucket.mmr.ranked[m];
+      if (!slot) {
+        bucket.mmr.ranked[m] = { start: row.mmr, current: row.mmr };
+      } else if (m === mode) {
+        // Only the active mode advances `current`; idle modes keep
+        // whatever start/current pair they were seeded with so a
+        // background MMR refresh doesn't silently rewrite their
+        // session delta.
+        slot.current = row.mmr;
       }
     }
     const casual = pls.casual;
@@ -140,6 +173,7 @@
 
   const Reducers = {
     emptyBucket,
+    resetMatch,
     applyMatchEnded,
     applyPlayerScoreChanged,
     applyPlayerDemolished,
@@ -307,9 +341,17 @@
         + ' · <span class="st-val">' + fmtSpeed(hardest.speed) + '</span> · ' + playerHtml;
     }
 
-    const rankedSlot = (currentMode && b.mmr.ranked[currentMode]) || null;
+    // Pick which ranked slot to surface. The active mode wins when
+    // known; otherwise fall back to whichever ranked slot we have data
+    // for (preferring 2v2 since it's the most common). Casual is shown
+    // unconditionally. The whole MMR row renders even when both slots
+    // are missing — empty placeholders beat the row vanishing entirely
+    // and reflowing the overlay every time MMR loads.
+    const rankedMode = (currentMode && RANKED_MODES.indexOf(currentMode) >= 0)
+      ? currentMode
+      : (RANKED_MODES.find((m) => b.mmr.ranked[m]) || '2v2');
+    const rankedSlot = b.mmr.ranked[rankedMode] || null;
     const casualSlot = b.mmr.casual;
-    const showMmr = !!(rankedSlot || casualSlot);
 
     const { shown, extra } = topModifiers(b.modifiers);
     const showMods = shown.length > 0;
@@ -318,6 +360,11 @@
     ).join(' · ');
 
     const totalsCls = (v) => v > 0 ? 'st-val' : 'st-mut';
+
+    const m = b.match || { result: null, goals: 0, saves: 0, demos: 0 };
+    const matchTag = m.result === 'win'  ? '<span class="st-streak">W</span>'
+                   : m.result === 'loss' ? '<span class="st-streak st-tick-loss">L</span>'
+                   : '';
 
     root.innerHTML =
       '<div class="st-card">' +
@@ -335,18 +382,23 @@
           '<span><span class="' + totalsCls(b.totals.saves) + '">' + b.totals.saves + '</span> <span class="st-lbl">SAVES</span></span>' +
           '<span><span class="' + totalsCls(b.totals.demos) + '">' + b.totals.demos + '</span> <span class="st-lbl">DEMOS</span></span>' +
         '</div>' +
+        '<div class="st-row st-match">' +
+          '<span class="st-lbl">MATCH</span>' +
+          '<span><span class="' + totalsCls(m.goals) + '">' + m.goals + '</span> <span class="st-lbl">G</span></span>' +
+          '<span><span class="' + totalsCls(m.saves) + '">' + m.saves + '</span> <span class="st-lbl">S</span></span>' +
+          '<span><span class="' + totalsCls(m.demos) + '">' + m.demos + '</span> <span class="st-lbl">D</span></span>' +
+          matchTag +
+        '</div>' +
         '<div class="st-row st-ball">' +
           '<span>FASTEST <span class="' + (b.ball.fastestKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.fastestKmh) + '</span></span>' +
           '<span>CROSSBARS <span class="' + (b.crossbar.hits > 0 ? 'st-val' : 'st-mut') + '">' + b.crossbar.hits + '</span></span>' +
         '</div>' +
         '<div class="st-row st-hardest">' + hardestLine + '</div>' +
-        (showMmr ? (
-          '<div class="st-row st-mmr">' +
-            '<span class="st-lbl">MMR ' + esc(currentMode || '—') + '</span>' +
-            '<span>RANKED <span class="' + deltaClass(rankedSlot) + '">' + esc(deltaText(rankedSlot)) + '</span></span>' +
-            '<span>CASUAL <span class="' + deltaClass(casualSlot) + '">' + esc(deltaText(casualSlot)) + '</span></span>' +
-          '</div>'
-        ) : '') +
+        '<div class="st-row st-mmr">' +
+          '<span class="st-lbl">MMR ' + esc(rankedMode) + '</span>' +
+          '<span>RANKED <span class="' + deltaClass(rankedSlot) + '">' + esc(deltaText(rankedSlot)) + '</span></span>' +
+          '<span>CASUAL <span class="' + deltaClass(casualSlot) + '">' + esc(deltaText(casualSlot)) + '</span></span>' +
+        '</div>' +
         (showMods ? (
           '<div class="st-row st-mods"><span class="st-lbl">MODIFIERS</span> ' + modBits +
             (extra > 0 ? ' · <span class="st-mut">+' + extra + ' more</span>' : '') +
@@ -524,8 +576,18 @@
         bucket = emptyBucket(liveBootId);
         await RLT.store.set(STORE_KEY, bucket);
       }
+      // Backfill the match block on buckets persisted by an older
+      // version of this plugin so render code can assume it's present.
+      if (bucket && !bucket.match) {
+        bucket.match = { result: null, goals: 0, saves: 0, demos: 0 };
+      }
       snapshotMyTeam();
       mountView();
+      // Pull MMR straight away so the row has data before the first
+      // match. Without this the MMR bar stays empty until the next
+      // countdown event fires, which can be minutes if the user just
+      // launched into the menu. fetchMmr no-ops when bucket is null.
+      fetchMmr();
     },
 
     events: {
@@ -540,6 +602,12 @@
       _MatchState(p) {
         snapshotMyTeam();
         if (p && p.phase === 'countdown') {
+          // Kickoff: zero the per-match block so the overlay reflects
+          // this match only, not the previous one's frozen final.
+          if (bucket) {
+            resetMatch(bucket);
+            save(); scheduleRender();
+          }
           const next = modeFromRoster(rosterSize());
           currentMode = next;
           if (RANKED_MODES.includes(next)) fetchMmr();
