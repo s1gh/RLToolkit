@@ -91,3 +91,21 @@ test('applyPlayerScoreChanged: assists/shots/score ignored', () => {
   assert.equal(b.totals.goals, 1);
   assert.equal(b.totals.assists, undefined);
 });
+
+test('applyPlayerDemolished: I am attacker → demos++', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerDemolished(b, { attacker: { isMe: true }, victim: { isMe: false } });
+  assert.equal(b.totals.demos, 1);
+});
+
+test('applyPlayerDemolished: someone else attacker → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerDemolished(b, { attacker: { isMe: false }, victim: { isMe: true } });
+  assert.equal(b.totals.demos, 0);
+});
+
+test('applyPlayerDemolished: missing attacker tolerated', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerDemolished(b, {});
+  assert.equal(b.totals.demos, 0);
+});

@@ -38,10 +38,17 @@
     if (typeof d.saves === 'number') bucket.totals.saves += d.saves;
   }
 
+  function applyPlayerDemolished(bucket, payload) {
+    if (payload && payload.attacker && payload.attacker.isMe) {
+      bucket.totals.demos++;
+    }
+  }
+
   const Reducers = {
     emptyBucket,
     applyMatchEnded,
     applyPlayerScoreChanged,
+    applyPlayerDemolished,
   };
 
   root.SessionTrackerReducers = Reducers;
