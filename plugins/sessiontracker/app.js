@@ -458,8 +458,8 @@
           matchTag +
         '</div>' +
         '<div class="st-row st-ball">' +
-          '<span><span class="st-lbl">FASTEST (LOBBY)</span> <span class="' + (b.ball.fastestKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.fastestKmh) + '</span></span>' +
-          '<span><span class="st-lbl">FASTEST (ME)</span> <span class="' + (b.ball.myFastestHitKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.myFastestHitKmh) + '</span></span>' +
+          '<span><span class="st-lbl">FASTEST BALL (LOBBY)</span> <span class="' + (b.ball.fastestKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.fastestKmh) + '</span></span>' +
+          '<span><span class="st-lbl">FASTEST BALL (ME)</span> <span class="' + (b.ball.myFastestHitKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.myFastestHitKmh) + '</span></span>' +
           '<span><span class="st-lbl">CROSSBAR HITS</span> <span class="' + (b.crossbar.hits > 0 ? 'st-val' : 'st-mut') + '">' + b.crossbar.hits + '</span></span>' +
         '</div>' +
         '<div class="st-row st-hardest">' + hardestLine + '</div>' +
