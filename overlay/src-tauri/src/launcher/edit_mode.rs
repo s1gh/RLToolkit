@@ -13,7 +13,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::menu::MenuItem;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
 pub struct EditModeState<R: Runtime> {
     active: AtomicBool,
@@ -85,20 +85,20 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
         if !was_visible {
             let _ = window.show();
         }
-        if let Err(e) = window.set_ignore_cursor_events(false) {
+        if let Err(e) = set_clickthrough(&window, false) {
             // Roll back: hide if we showed, clear state.
             if !was_visible {
                 let _ = window.hide();
             }
             state.active.store(false, Ordering::SeqCst);
             *state.pre_edit_visible.lock().unwrap() = None;
-            return Err(format!("set_ignore_cursor_events(false): {e}"));
+            return Err(format!("disable click-through: {e}"));
         }
         if let Err(e) =
             window.eval("window.__rlt_set_live_edit && window.__rlt_set_live_edit(true);")
         {
             // Roll back the click-through and visibility changes.
-            let _ = window.set_ignore_cursor_events(true);
+            let _ = set_clickthrough(&window, true);
             if !was_visible {
                 let _ = window.hide();
             }
@@ -116,7 +116,7 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
         // anyway.
         let _ =
             window.eval("window.__rlt_set_live_edit && window.__rlt_set_live_edit(false);");
-        let _ = window.set_ignore_cursor_events(true);
+        let _ = set_clickthrough(&window, true);
         let pre = state.pre_edit_visible.lock().unwrap().take();
         if let Some(false) = pre {
             let _ = window.hide();
@@ -126,6 +126,53 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
 
     update_tray_label(app, on);
     Ok(on)
+}
+
+/// Toggle the overlay's click-through state.
+///
+/// `clickthrough=true` makes clicks pass through to the game beneath;
+/// `clickthrough=false` captures them on the overlay window (so the
+/// JS drag wrappers can receive pointer events).
+///
+/// Linux is special. The overlay window is a wlr-layer-shell surface
+/// whose click-through is implemented via the GTK input shape (an empty
+/// cairo region installed at init time, see init_layer_shell_common in
+/// main.rs). Tauri's set_ignore_cursor_events doesn't route through
+/// gtk_window.input_shape_combine_region on layer-shell, so calling it
+/// either no-ops or leaves the surface in a half-configured state that
+/// can hang the compositor on the next focus change. We bypass Tauri
+/// and toggle the input shape directly.
+///
+/// On Windows and macOS we use Tauri's native call, which maps to
+/// WS_EX_TRANSPARENT and ignoresMouseEvents respectively.
+fn set_clickthrough<R: Runtime>(
+    window: &WebviewWindow<R>,
+    clickthrough: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::WidgetExt;
+        let gtk_window = window
+            .gtk_window()
+            .map_err(|e| format!("gtk_window unavailable: {e}"))?;
+        if clickthrough {
+            // Empty region: no interactive area, compositor routes
+            // input beneath.
+            let region = gtk::cairo::Region::create();
+            gtk_window.input_shape_combine_region(Some(&region));
+        } else {
+            // None clears the shape, so the whole surface accepts input.
+            gtk_window.input_shape_combine_region(None);
+        }
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        window
+            .set_ignore_cursor_events(clickthrough)
+            .map_err(|e| format!("set_ignore_cursor_events({clickthrough}): {e}"))
+    }
 }
 
 fn update_tray_label<R: Runtime>(app: &AppHandle<R>, on: bool) {
