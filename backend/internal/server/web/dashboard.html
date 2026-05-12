@@ -717,6 +717,7 @@ button{font-family:inherit}
         <span class="count" id="stat-count">0</span>
       </div>
       <div class="section-head-right">
+        <button class="btn" type="button" id="overlay-edit-btn" hidden>Edit overlay</button>
         <span id="catalog-error" class="catalog-error" hidden>Couldn’t check for updates · retry</span>
         <button class="btn update-all" type="button" id="update-all-btn" hidden>Update all</button>
         <button class="btn" type="button" id="install-plugin-btn">Install plugin…</button>
@@ -1474,6 +1475,21 @@ if (inLauncher) {
       });
     }
   }
+})();
+
+(function wireOverlayEditButton() {
+  const btn = document.getElementById('overlay-edit-btn');
+  if (!btn) return;
+  const inTauri = !!(window.__TAURI_INTERNALS__);
+  if (!inTauri) return;
+  btn.hidden = false;
+  btn.addEventListener('click', async () => {
+    try {
+      await window.__TAURI_INTERNALS__.invoke('overlay_edit_toggle');
+    } catch (err) {
+      console.warn('overlay_edit_toggle failed', err);
+    }
+  });
 })();
 
 </script>
