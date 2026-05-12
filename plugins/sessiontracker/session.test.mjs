@@ -109,3 +109,60 @@ test('applyPlayerDemolished: missing attacker tolerated', () => {
   R.applyPlayerDemolished(b, {});
   assert.equal(b.totals.demos, 0);
 });
+
+test('applyGoalScored: non-self goal → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, { scorer: { isMe: false }, modifiers: { isAerialGoal: true } });
+  assert.equal(b.modifiers.aerial, 0);
+});
+
+test('applyGoalScored: self aerial goal → aerial++', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, { scorer: { isMe: true }, modifiers: { isAerialGoal: true } });
+  assert.equal(b.modifiers.aerial, 1);
+});
+
+test('applyGoalScored: multiple flags in one goal increment each', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, {
+    scorer: { isMe: true },
+    modifiers: { isAerialGoal: true, isBicycleGoal: true, isLongGoal: true, isOvertimeGoal: true },
+  });
+  assert.equal(b.modifiers.aerial, 1);
+  assert.equal(b.modifiers.bicycle, 1);
+  assert.equal(b.modifiers.longGoal, 1);
+  assert.equal(b.modifiers.overtime, 1);
+});
+
+test('applyGoalScored: all 9 supported flags mapped', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, {
+    scorer: { isMe: true },
+    modifiers: {
+      isAerialGoal: true, isBicycleGoal: true, isLongGoal: true, isOvertimeGoal: true,
+      isHatTrickGoal: true, isFlipResetGoal: true, isBackwardsGoal: true,
+      isTurtleGoal: true, isPoolShot: true,
+    },
+  });
+  assert.equal(b.modifiers.aerial, 1);
+  assert.equal(b.modifiers.bicycle, 1);
+  assert.equal(b.modifiers.longGoal, 1);
+  assert.equal(b.modifiers.overtime, 1);
+  assert.equal(b.modifiers.hatTrick, 1);
+  assert.equal(b.modifiers.flipReset, 1);
+  assert.equal(b.modifiers.backwards, 1);
+  assert.equal(b.modifiers.turtle, 1);
+  assert.equal(b.modifiers.poolShot, 1);
+});
+
+test('applyGoalScored: isHoopsSwishGoal is NOT tracked', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, { scorer: { isMe: true }, modifiers: { isHoopsSwishGoal: true } });
+  assert.equal(b.modifiers.hoopsSwish, undefined);
+});
+
+test('applyGoalScored: missing modifiers object tolerated', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, { scorer: { isMe: true } });
+  assert.equal(b.modifiers.aerial, 0);
+});

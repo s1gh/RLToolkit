@@ -44,11 +44,32 @@
     }
   }
 
+  const MODIFIER_MAP = {
+    isAerialGoal:    'aerial',
+    isBicycleGoal:   'bicycle',
+    isLongGoal:      'longGoal',
+    isOvertimeGoal:  'overtime',
+    isHatTrickGoal:  'hatTrick',
+    isFlipResetGoal: 'flipReset',
+    isBackwardsGoal: 'backwards',
+    isTurtleGoal:    'turtle',
+    isPoolShot:      'poolShot',
+  };
+
+  function applyGoalScored(bucket, payload) {
+    if (!payload || !payload.scorer || !payload.scorer.isMe) return;
+    const mods = payload.modifiers || {};
+    for (const flag in MODIFIER_MAP) {
+      if (mods[flag]) bucket.modifiers[MODIFIER_MAP[flag]]++;
+    }
+  }
+
   const Reducers = {
     emptyBucket,
     applyMatchEnded,
     applyPlayerScoreChanged,
     applyPlayerDemolished,
+    applyGoalScored,
   };
 
   root.SessionTrackerReducers = Reducers;
