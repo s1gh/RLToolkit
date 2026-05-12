@@ -96,7 +96,7 @@
     }
   }
 
-  function makeWrapper(name, iframe) {
+  function makeWrapper(name, iframe, anchor) {
     const wrap = document.createElement('div');
     wrap.className = WRAPPER_CLASS;
     wrap.dataset.pluginName = name;
@@ -109,16 +109,27 @@
     wrap.style.zIndex = '2147483647';
     applyRect(wrap, iframe);
 
+    // Chrome placement: keep the label and reset button on the anchor
+    // edge, put the resize handle on the opposite (free) corner. This
+    // means the handle always lives on the corner that visually moves
+    // when the widget grows, matching the standard convention.
+    const onTop = anchor.indexOf('top') === 0;
+    const onLeft = anchor.indexOf('-left') >= 0;
+    const chromeVert = onTop ? 'top' : 'bottom';
+    const chromeHoriz = onLeft ? 'left' : 'right';
+    const handleVert = onTop ? 'bottom' : 'top';
+    const handleHoriz = onLeft ? 'right' : 'left';
+
     // Inline label so the user can identify each rectangle even when
     // the plugin's actual content isn't rendering (phase-gated plugins
     // during menu/lobby, plugins with hide_when_unfocused that are off,
-    // etc.). The label sits inside the outline, pointer-events: none so
-    // it doesn't interfere with the drag handler on the wrapper itself.
+    // etc.). pointer-events: none so the drag handler still receives
+    // the press through the label.
     const label = document.createElement('div');
     label.textContent = name;
     label.style.position = 'absolute';
-    label.style.top = '4px';
-    label.style.left = '6px';
+    label.style[chromeVert] = '4px';
+    label.style[chromeHoriz] = '6px';
     label.style.padding = '2px 6px';
     label.style.font = '11px/1.2 system-ui, sans-serif';
     label.style.color = '#22d3ee';
@@ -129,17 +140,18 @@
     label.style.userSelect = 'none';
     wrap.appendChild(label);
 
-    // Reset button in the top-right corner. DELETEs the plugin's
-    // override row so it falls back to manifest defaults. The
-    // pointerdown stopPropagation prevents the wrapper's drag handler
-    // from claiming the click.
+    // Reset button on the anchor edge, opposite end from the label.
+    // DELETEs the plugin's override row so it falls back to manifest
+    // defaults. The pointerdown stopPropagation prevents the wrapper's
+    // drag handler from claiming the click.
     const reset = document.createElement('button');
     reset.type = 'button';
     reset.title = 'Reset to manifest defaults';
     reset.textContent = 'Reset';
     reset.style.position = 'absolute';
-    reset.style.top = '4px';
-    reset.style.right = '4px';
+    reset.style[chromeVert] = '4px';
+    // Opposite horizontal end from the label.
+    reset.style[onLeft ? 'right' : 'left'] = '4px';
     reset.style.padding = '2px 8px';
     reset.style.font = '11px/1.2 system-ui, sans-serif';
     reset.style.color = '#0a0c14';
@@ -154,15 +166,30 @@
       ev.stopPropagation();
       try {
         await deleteOverride(name);
-        // SSE _OverridesChanged -> reflow -> iframe.style updates ->
-        // MutationObserver re-syncs the wrapper to the new rect.
       } catch (err) {
         console.warn('[live-edit] reset failed', err);
       }
     });
     wrap.appendChild(reset);
 
-    return wrap;
+    // Resize handle on the anchor-opposite corner. The drag math runs
+    // in attachResize; this just builds the element so attachResize can
+    // wire it up.
+    const handle = document.createElement('div');
+    handle.className = 'rlt-le-resize';
+    handle.style.position = 'absolute';
+    handle.style[handleVert] = '0';
+    handle.style[handleHoriz] = '0';
+    handle.style.width = '14px';
+    handle.style.height = '14px';
+    handle.style.background = '#22d3ee';
+    handle.style.border = '1px solid rgba(5, 7, 14, 0.5)';
+    handle.style.cursor = 'nwse-resize';
+    handle.style.pointerEvents = 'auto';
+    handle.style.userSelect = 'none';
+    wrap.appendChild(handle);
+
+    return { wrap, handle };
   }
 
   function attachDrag(name, entry) {
@@ -238,6 +265,82 @@
     });
   }
 
+  function attachResize(name, entry) {
+    const { handle, wrap, iframe } = entry;
+    if (!handle) return;
+    handle.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation(); // don't let the wrapper start a drag
+
+      const anchor = entry.anchor;
+      const startW = parsePx(iframe.style.width) || iframe.offsetWidth;
+      const startH = parsePx(iframe.style.height) || iframe.offsetHeight;
+      const startPointerX = ev.clientX;
+      const startPointerY = ev.clientY;
+      // Sign flips matching the anchor: the handle sits on the
+      // opposite corner, so the cursor's direction-of-growth matches
+      // the anchor. left-anchored: +x grows width. right-anchored: -x
+      // grows width. Same logic for y.
+      const sx = anchor.indexOf('-left') >= 0 ? +1 : -1;
+      const sy = anchor.indexOf('top') === 0 ? +1 : -1;
+      let liveW = startW;
+      let liveH = startH;
+
+      const pointerId = ev.pointerId;
+      try {
+        handle.setPointerCapture(pointerId);
+      } catch (_) {}
+
+      entry.resizeToken = (entry.resizeToken | 0) + 1;
+      const token = entry.resizeToken;
+
+      const onMove = (mv) => {
+        if (mv.pointerId !== pointerId) return;
+        mv.preventDefault();
+        const dw = (mv.clientX - startPointerX) * sx;
+        const dh = (mv.clientY - startPointerY) * sy;
+        // Minimum size: 16px. The wrapper grows visually since its
+        // anchored edge stays put.
+        liveW = Math.max(16, startW + dw);
+        liveH = Math.max(16, startH + dh);
+        wrap.style.width = liveW + 'px';
+        wrap.style.height = liveH + 'px';
+      };
+
+      const onUp = async (upEv) => {
+        if (upEv.pointerId !== pointerId) return;
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
+        try {
+          handle.releasePointerCapture(pointerId);
+        } catch (_) {}
+
+        const finalW = upEv.shiftKey
+          ? Math.max(16, Math.round(liveW))
+          : Math.max(16, snapTo(liveW, SNAP));
+        const finalH = upEv.shiftKey
+          ? Math.max(16, Math.round(liveH))
+          : Math.max(16, snapTo(liveH, SNAP));
+        wrap.style.width = finalW + 'px';
+        wrap.style.height = finalH + 'px';
+
+        try {
+          await savePartial(name, { width: finalW, height: finalH });
+        } catch (err) {
+          if (entry.resizeToken !== token) return;
+          applyRect(wrap, iframe);
+          console.warn('[live-edit] resize save failed', err);
+        }
+      };
+
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
+    });
+  }
+
   function attachObserver(entry) {
     const { wrap, iframe } = entry;
     const observer = new MutationObserver(() => applyRect(wrap, iframe));
@@ -270,16 +373,20 @@
     if (wrappers.size) return;
     for (const [name, w] of widgetsMap.entries()) {
       if (!w.iframe) continue;
-      const wrap = makeWrapper(name, w.iframe);
+      const anchor = anchorOf(w.iframe);
+      const { wrap, handle } = makeWrapper(name, w.iframe, anchor);
       document.body.appendChild(wrap);
       const entry = {
         wrap,
+        handle,
         iframe: w.iframe,
         observer: null,
-        anchor: anchorOf(w.iframe),
+        anchor,
         dragToken: 0,
+        resizeToken: 0,
       };
       attachDrag(name, entry);
+      attachResize(name, entry);
       attachObserver(entry);
       wrappers.set(name, entry);
     }
