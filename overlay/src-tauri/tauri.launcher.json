@@ -7,10 +7,6 @@
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/rl-toolkit"],
     "windows": {
-      "webviewInstallMode": {
-        "type": "fixedRuntime",
-        "path": "./webview2-runtime/"
-      },
       "nsis": {
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",

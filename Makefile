@@ -45,8 +45,8 @@ endif
 OUT_DIR := $(RELEASE_DIR)/$(HOST_OS)
 
 .PHONY: all backend widget launcher launcher-portable launcher-installer \
-        webview2-runtime release release-windows release-linux run clean \
-        release-clean fmt fmt-check lint check sdk
+        release release-windows release-linux run clean release-clean \
+        fmt fmt-check lint check sdk
 
 # --- SDK bundle: esbuild the modular sources into sdk/dist/sdk.js ------
 #
@@ -142,64 +142,12 @@ launcher-portable: sdk
 	@echo "→ $(OUT_DIR)/$(BINARY)$(EXE) (sidecar)"
 endif
 
-# --- webview2-runtime: fetch + extract the fixed-version runtime ----
-#
-# Tauri's bundle.windows.webviewInstallMode = fixedRuntime points at
-# overlay/src-tauri/webview2-runtime/ and ships it inside the NSIS
-# installer. We pin to 143.0.3650.139, the last release before the
-# WebView2 144+ ghost-titlebar regression on transparent windows
-# (tauri-apps/tauri#14764). The current evergreen runtime (148.x as of
-# this writing) still ships the bug, and Microsoft's fix has not
-# reached stable despite earlier claims.
-#
-# Source: NuGet's WebView2.Runtime.X64 package, which carries the
-# fixed-version distribution. The .nupkg is a zip; we extract the
-# contentFiles/any/any/WebView2/ subtree, which matches the layout
-# of Microsoft's Fixed Version CAB. ~250 MB on disk, English-only
-# locale (the NSIS bundle is also English-only, so no mismatch).
-#
-# Idempotent: if the runtime folder is already present and
-# non-empty, skip the fetch. Set WEBVIEW2_FORCE=1 to re-download.
-
-WEBVIEW2_VERSION := 143.0.3650.139
-WEBVIEW2_DIR     := $(TAURI_DIR)/webview2-runtime
-WEBVIEW2_NUPKG   := $(TAURI_DIR)/webview2-runtime.nupkg
-WEBVIEW2_URL     := https://api.nuget.org/v3-flatcontainer/webview2.runtime.x64/$(WEBVIEW2_VERSION)/webview2.runtime.x64.$(WEBVIEW2_VERSION).nupkg
-
-ifeq ($(HOST_OS),windows)
-.PHONY: webview2-runtime
-webview2-runtime:
-	@powershell -NoProfile -ExecutionPolicy Bypass -Command "$$ErrorActionPreference='Stop'; \
-	  $$dir = '$(subst /,\,$(WEBVIEW2_DIR))'; \
-	  $$pkg = '$(subst /,\,$(WEBVIEW2_NUPKG))'; \
-	  $$url = '$(WEBVIEW2_URL)'; \
-	  if ((Test-Path $$dir) -and ((Get-ChildItem $$dir | Measure-Object).Count -gt 0) -and (-not $$env:WEBVIEW2_FORCE)) { \
-	    Write-Host \"WebView2 runtime $(WEBVIEW2_VERSION) already present in $$dir; skipping fetch (set WEBVIEW2_FORCE=1 to re-download)\"; exit 0 \
-	  }; \
-	  Write-Host \"Fetching WebView2 runtime $(WEBVIEW2_VERSION) from NuGet (~250 MB)...\"; \
-	  Invoke-WebRequest -Uri $$url -OutFile $$pkg; \
-	  if (Test-Path $$dir) { Remove-Item -Recurse -Force $$dir }; \
-	  $$tmp = Join-Path $$env:TEMP ('wv2-' + [Guid]::NewGuid().ToString('N')); \
-	  Expand-Archive -Path $$pkg -DestinationPath $$tmp -Force; \
-	  Move-Item -Path (Join-Path $$tmp 'contentFiles\\any\\any\\WebView2') -Destination $$dir; \
-	  Remove-Item -Recurse -Force $$tmp; \
-	  Remove-Item -Force $$pkg; \
-	  Write-Host \"WebView2 runtime extracted to $$dir\""
-else
-.PHONY: webview2-runtime
-webview2-runtime:
-	@echo "webview2-runtime is Windows-only — run on a Windows host" && false
-endif
-
 # --- launcher-installer (Windows only): NSIS installer with updater --
 #
 # Requires TAURI_SIGNING_PRIVATE_KEY[_PASSWORD] for the updater .sig.
-# Depends on webview2-runtime: the fixed-version WebView2 runtime is
-# bundled into the installer (see tauri.launcher.json → webviewInstall
-# Mode = fixedRuntime).
 
 ifeq ($(HOST_OS),windows)
-launcher-installer: sdk webview2-runtime
+launcher-installer: sdk
 	@$(call MKDIR,$(OUT_DIR))
 	@for /f "tokens=2" %%i in ('rustc -vV ^| findstr /B "host:"') do @( \
 	  echo host triple: %%i && \
