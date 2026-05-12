@@ -12,7 +12,7 @@ test('emptyBucket: shape contains all top-level keys', () => {
   assert.equal(b.bootId, 'boot-1');
   assert.equal(typeof b.startedAt, 'string');
   assert.deepEqual(b.results, { wins: 0, losses: 0, last: [] });
-  assert.deepEqual(b.totals, { goals: 0, saves: 0, demos: 0 });
+  assert.deepEqual(b.totals, { goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 });
   assert.equal(b.modifiers.aerial, 0);
   assert.equal(b.modifiers.poolShot, 0);
   assert.deepEqual(b.ball, { fastestKmh: null, myFastestHitKmh: null });
@@ -307,14 +307,14 @@ test('currentStreak: alternating → 1 → null', () => {
 // until applyMatchEnded stamps it.
 test('emptyBucket: includes match block with zeros + null result', () => {
   const b = R.emptyBucket('b');
-  assert.deepEqual(b.match, { result: null, goals: 0, saves: 0, demos: 0 });
+  assert.deepEqual(b.match, { result: null, goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 });
 });
 
 test('resetMatch: zeros per-match counters and clears result', () => {
   const b = R.emptyBucket('b');
   b.match = { result: 'win', goals: 3, saves: 2, demos: 1 };
   R.resetMatch(b);
-  assert.deepEqual(b.match, { result: null, goals: 0, saves: 0, demos: 0 });
+  assert.deepEqual(b.match, { result: null, goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 });
 });
 
 test('applyPlayerScoreChanged: bumps both session and match totals', () => {
@@ -474,6 +474,69 @@ test('applyMatchTopSpeed: bad input is a no-op', () => {
   R.applyMatchTopSpeed(b, { speed: 'fast' });
   R.applyMatchTopSpeed(b, null);
   assert.equal(b.ball.fastestKmh, null);
+});
+
+// Boost consumed: backend emits _BoostConsumed with a positive delta
+// every time a player's Boost dropped between ticks (active spend,
+// not respawn). Plugin sums my deltas into both session totals and
+// per-match counters.
+test('applyBoostConsumed: ignores opponents', () => {
+  const b = R.emptyBucket('b');
+  R.applyBoostConsumed(b, { delta: 25, player: { isMe: false } });
+  assert.equal(b.totals.boost, 0);
+  assert.equal(b.match.boost, 0);
+});
+
+test('applyBoostConsumed: sums my deltas into both totals and match', () => {
+  const b = R.emptyBucket('b');
+  R.applyBoostConsumed(b, { delta: 30, player: { isMe: true } });
+  R.applyBoostConsumed(b, { delta: 12, player: { isMe: true } });
+  assert.equal(b.totals.boost, 42);
+  assert.equal(b.match.boost, 42);
+});
+
+test('applyBoostConsumed: missing or non-positive delta is a no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyBoostConsumed(b, { player: { isMe: true } });
+  R.applyBoostConsumed(b, { delta: 0, player: { isMe: true } });
+  R.applyBoostConsumed(b, { delta: -5, player: { isMe: true } });
+  R.applyBoostConsumed(b, null);
+  assert.equal(b.totals.boost, 0);
+});
+
+// Own goals: count when I'm the deflector. Bumps both session and
+// per-match.
+test('applyOwnGoal: ignores opponent own goals', () => {
+  const b = R.emptyBucket('b');
+  R.applyOwnGoal(b, { deflector: { isMe: false } });
+  assert.equal(b.totals.ownGoals, 0);
+  assert.equal(b.match.ownGoals, 0);
+});
+
+test('applyOwnGoal: bumps both session and match when mine', () => {
+  const b = R.emptyBucket('b');
+  R.applyOwnGoal(b, { deflector: { isMe: true } });
+  R.applyOwnGoal(b, { deflector: { isMe: true } });
+  assert.equal(b.totals.ownGoals, 2);
+  assert.equal(b.match.ownGoals, 2);
+});
+
+test('applyOwnGoal: missing deflector is a no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyOwnGoal(b, {});
+  R.applyOwnGoal(b, null);
+  assert.equal(b.totals.ownGoals, 0);
+});
+
+test('resetMatch: clears boost + ownGoals on the match block', () => {
+  const b = R.emptyBucket('b');
+  R.applyBoostConsumed(b, { delta: 50, player: { isMe: true } });
+  R.applyOwnGoal(b, { deflector: { isMe: true } });
+  R.resetMatch(b);
+  assert.equal(b.match.boost, 0);
+  assert.equal(b.match.ownGoals, 0);
+  assert.equal(b.totals.boost, 50, 'session totals untouched');
+  assert.equal(b.totals.ownGoals, 1, 'session totals untouched');
 });
 
 // CROSSBAR hits and HARDEST hit follow the same me-only rule. The

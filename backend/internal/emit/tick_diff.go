@@ -12,6 +12,7 @@ import (
 //     (any phase).
 //   - _PlayerScoreChanged on per-player stat deltas (live phases).
 //   - _BoostPickup on a rising boost edge (live phases).
+//   - _BoostConsumed on a falling boost edge (live phases).
 //   - _TeamScoreChanged on team score deltas (live phases).
 //   - _BallPossessionChanged on ball.TeamNum changes (live phases).
 //
@@ -166,6 +167,9 @@ func (e *TickDiff) diffPlayersLive(prev, curr *types.TickSnapshot) []bus.Event {
 		if v := e.boostPickup(curr.MatchGUID, p, c); v != nil {
 			out = append(out, *v)
 		}
+		if v := e.boostConsumed(curr.MatchGUID, p, c); v != nil {
+			out = append(out, *v)
+		}
 		if !p.OnGround && c.OnGround && e.flipReset != nil {
 			e.flipReset.ClearFlipResetArm(c.ID)
 		}
@@ -266,6 +270,53 @@ func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.E
 		return nil
 	}
 	return &bus.Event{Name: "_BoostPickup", Data: body}
+}
+
+// boostConsumed mirrors boostPickup on the falling edge: every time
+// Boost decreased between ticks (active boost spend), emit
+// _BoostConsumed with the spent amount. Suppresses the respawn boost
+// reset (was demolished, now isn't) so a death doesn't get counted as
+// a 100→33 spend, mirroring the demolished-edge guard in boostPickup.
+// Also no-ops when curr.Boost is nil (non-spectator mode dropping the
+// field).
+func (e *TickDiff) boostConsumed(guid string, prev, curr *types.TickPlayer) *bus.Event {
+	if curr.Boost == nil {
+		return nil
+	}
+	prevBoost := 0
+	if prev.Boost != nil {
+		prevBoost = *prev.Boost
+	}
+	if *curr.Boost >= prevBoost {
+		return nil
+	}
+	if prev.Demolished && !curr.Demolished {
+		return nil
+	}
+	enriched := &types.EnrichedPlayer{
+		ID:       curr.ID,
+		Name:     curr.Name,
+		Team:     curr.Team,
+		Platform: types.PlatformFromID(curr.ID),
+		IsBot:    types.IsBotID(curr.ID),
+	}
+	body, err := json.Marshal(struct {
+		MatchGUID   string                `json:"matchGuid,omitempty"`
+		Player      *types.EnrichedPlayer `json:"player"`
+		BoostBefore int                   `json:"boostBefore"`
+		BoostAfter  int                   `json:"boostAfter"`
+		Delta       int                   `json:"delta"`
+	}{
+		MatchGUID:   guid,
+		Player:      enriched,
+		BoostBefore: prevBoost,
+		BoostAfter:  *curr.Boost,
+		Delta:       prevBoost - *curr.Boost,
+	})
+	if err != nil {
+		return nil
+	}
+	return &bus.Event{Name: "_BoostConsumed", Data: body}
 }
 
 // diffTeamScores fires _TeamScoreChanged on any team's Score move —

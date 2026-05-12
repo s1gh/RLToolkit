@@ -15,14 +15,17 @@
       // of the two signals never arrives or arrives late.
       lastTalliedGuid: '',
       results: { wins: 0, losses: 0, last: [] },
-      totals:  { goals: 0, saves: 0, demos: 0 },
+      // boost is the total boost amount consumed (active spend, not
+      // pickups). ownGoals counts deflections off me into my own net.
+      // Both follow the same me-only contract as the other counters.
+      totals:  { goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 },
       // Per-match counters. Mirror the totals shape so render code can
       // reuse the same field names. result is null until applyMatchEnded
       // stamps a 'win' or 'loss'; resetMatch (called on _MatchState
       // countdown) zeros the counters between matches so the overlay
       // shows the live numbers for the current match, not a cumulative
       // mash of every match in the session.
-      match: { result: null, goals: 0, saves: 0, demos: 0 },
+      match: { result: null, goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 },
       modifiers: {
         aerial: 0, bicycle: 0, longGoal: 0, overtime: 0,
         hatTrick: 0, flipReset: 0, backwards: 0, turtle: 0, poolShot: 0,
@@ -42,7 +45,7 @@
   }
 
   function resetMatch(bucket) {
-    bucket.match = { result: null, goals: 0, saves: 0, demos: 0 };
+    bucket.match = { result: null, goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 };
   }
 
   function applyMatchEnded(bucket, payload, myTeam) {
@@ -97,6 +100,20 @@
       bucket.totals.demos++;
       bucket.match.demos++;
     }
+  }
+
+  function applyBoostConsumed(bucket, payload) {
+    if (!payload || !payload.player || !payload.player.isMe) return;
+    const d = payload.delta;
+    if (typeof d !== 'number' || d <= 0) return;
+    bucket.totals.boost += d;
+    bucket.match.boost += d;
+  }
+
+  function applyOwnGoal(bucket, payload) {
+    if (!payload || !payload.deflector || !payload.deflector.isMe) return;
+    bucket.totals.ownGoals++;
+    bucket.match.ownGoals++;
   }
 
   const MODIFIER_MAP = {
@@ -235,6 +252,8 @@
     applyMatchEnded,
     applyPlayerScoreChanged,
     applyPlayerDemolished,
+    applyBoostConsumed,
+    applyOwnGoal,
     applyGoalScored,
     applyMatchTopSpeed,
     applyMyHit,
@@ -446,15 +465,19 @@
         '</div>' +
         (ticks ? '<div class="st-row st-ticks">' + ticks + '</div>' : '') +
         '<div class="st-row st-totals">' +
-          '<span><span class="' + totalsCls(b.totals.goals) + '">' + b.totals.goals + '</span> <span class="st-lbl">GOALS</span></span>' +
-          '<span><span class="' + totalsCls(b.totals.saves) + '">' + b.totals.saves + '</span> <span class="st-lbl">SAVES</span></span>' +
-          '<span><span class="' + totalsCls(b.totals.demos) + '">' + b.totals.demos + '</span> <span class="st-lbl">DEMOS</span></span>' +
+          '<span><span class="' + totalsCls(b.totals.goals)    + '">' + b.totals.goals    + '</span> <span class="st-lbl">GOALS</span></span>' +
+          '<span><span class="' + totalsCls(b.totals.saves)    + '">' + b.totals.saves    + '</span> <span class="st-lbl">SAVES</span></span>' +
+          '<span><span class="' + totalsCls(b.totals.demos)    + '">' + b.totals.demos    + '</span> <span class="st-lbl">DEMOS</span></span>' +
+          '<span><span class="' + totalsCls(b.totals.boost)    + '">' + b.totals.boost    + '</span> <span class="st-lbl">BOOST</span></span>' +
+          '<span><span class="' + totalsCls(b.totals.ownGoals) + '">' + b.totals.ownGoals + '</span> <span class="st-lbl">OWN</span></span>' +
         '</div>' +
         '<div class="st-row st-match">' +
           '<span class="st-lbl">MATCH</span>' +
-          '<span><span class="' + totalsCls(m.goals) + '">' + m.goals + '</span> <span class="st-lbl">G</span></span>' +
-          '<span><span class="' + totalsCls(m.saves) + '">' + m.saves + '</span> <span class="st-lbl">S</span></span>' +
-          '<span><span class="' + totalsCls(m.demos) + '">' + m.demos + '</span> <span class="st-lbl">D</span></span>' +
+          '<span><span class="' + totalsCls(m.goals)    + '">' + m.goals    + '</span> <span class="st-lbl">G</span></span>' +
+          '<span><span class="' + totalsCls(m.saves)    + '">' + m.saves    + '</span> <span class="st-lbl">S</span></span>' +
+          '<span><span class="' + totalsCls(m.demos)    + '">' + m.demos    + '</span> <span class="st-lbl">D</span></span>' +
+          '<span><span class="' + totalsCls(m.boost)    + '">' + m.boost    + '</span> <span class="st-lbl">B</span></span>' +
+          '<span><span class="' + totalsCls(m.ownGoals) + '">' + m.ownGoals + '</span> <span class="st-lbl">OG</span></span>' +
           matchTag +
         '</div>' +
         '<div class="st-row st-ball">' +
@@ -648,7 +671,19 @@
       // Backfill fields added in newer plugin versions so render code
       // and the dedupe path can assume they're present.
       if (bucket && !bucket.match) {
-        bucket.match = { result: null, goals: 0, saves: 0, demos: 0 };
+        bucket.match = { result: null, goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 };
+      }
+      if (bucket && bucket.match && bucket.match.boost === undefined) {
+        bucket.match.boost = 0;
+      }
+      if (bucket && bucket.match && bucket.match.ownGoals === undefined) {
+        bucket.match.ownGoals = 0;
+      }
+      if (bucket && bucket.totals && bucket.totals.boost === undefined) {
+        bucket.totals.boost = 0;
+      }
+      if (bucket && bucket.totals && bucket.totals.ownGoals === undefined) {
+        bucket.totals.ownGoals = 0;
       }
       if (bucket && typeof bucket.lastTalliedGuid !== 'string') {
         bucket.lastTalliedGuid = '';
@@ -724,6 +759,18 @@
       _PlayerDemolished(p) {
         if (!bucket) return;
         applyPlayerDemolished(bucket, p);
+        save(); scheduleRender();
+      },
+
+      _BoostConsumed(p) {
+        if (!bucket) return;
+        applyBoostConsumed(bucket, p);
+        save(); scheduleRender();
+      },
+
+      _OwnGoal(p) {
+        if (!bucket) return;
+        applyOwnGoal(bucket, p);
         save(); scheduleRender();
       },
 

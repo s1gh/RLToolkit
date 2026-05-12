@@ -303,6 +303,15 @@ const catalogData = [
     'Player Boost rose between ticks (not a respawn).',
   ],
   [
+    '_BoostConsumed',
+    'play',
+    'boost-consumed',
+    ['live'],
+    'provisional',
+    '1.1',
+    'Player Boost fell between ticks (not a respawn).',
+  ],
+  [
     '_BallPossessionChanged',
     'play',
     'possession',
