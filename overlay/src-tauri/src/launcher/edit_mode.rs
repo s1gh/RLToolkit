@@ -20,7 +20,7 @@ pub struct EditModeState<R: Runtime> {
     pre_edit_visible: Mutex<Option<bool>>,
     // Stored at tray setup time so update_tray_label can reach it
     // without needing a menu getter that Tauri 2 doesn't expose.
-    pub tray_menu_item: Mutex<Option<MenuItem<R>>>,
+    pub(crate) tray_menu_item: Mutex<Option<MenuItem<R>>>,
 }
 
 impl<R: Runtime> Default for EditModeState<R> {
@@ -63,7 +63,11 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
         .compare_exchange(current, on, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        // Lost the race; the winner did the work, just report what they wrote.
+        // Lost the race; the winner is doing the work. We report what
+        // they last wrote, but note that they may still be mid-flight
+        // and could roll back to the prior value if they fail. Callers
+        // only log on Err, so the worst case is a stale-looking log
+        // line, not a state corruption.
         return Ok(state.active.load(Ordering::SeqCst));
     }
 
@@ -106,7 +110,10 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
     } else {
         // Tear-down order: drop the JS chrome first so a final stray
         // click during teardown lands on a wrapper, not the game,
-        // then restore click-through, then maybe re-hide.
+        // then restore click-through, then maybe re-hide. eval errors
+        // are ignored here: restoring click-through matters more than
+        // the JS hook, and the JS state is recreated on next activation
+        // anyway.
         let _ =
             window.eval("window.__rlt_set_live_edit && window.__rlt_set_live_edit(false);");
         let _ = window.set_ignore_cursor_events(true);
