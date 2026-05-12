@@ -5,7 +5,7 @@ A plugin-based overlay platform for Rocket League. Install the launcher, enable 
 > **Status: alpha.** Shipping and self-updating, but APIs and storage formats may still change between versions.
 
 ![RL Toolkit launcher with the plugin list and OBS browser-source URLs](docs/assets/hero.png)
-![Image showing the demolition plugin and the dejavu plugin](https://github.com/user-attachments/assets/3ac61500-59ce-4fa3-970d-9bbfcd512cdb)
+![Image showing the demolition plugin and the dejavu plugin](https://github.com/user-attachments/assets/b9b72be4-d179-4e61-a45c-9f71fb5a6af5)
 
 ---
 
