@@ -86,14 +86,48 @@
     }
   }
 
-  async function deleteOverride(name) {
+  async function manifestDefaultsFor(name) {
+    const r = await fetch('/api/plugins');
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching /api/plugins');
+    const list = await r.json();
+    const p = list.find((x) => x.name === name);
+    if (!p || !p.overlay) throw new Error('plugin ' + name + ' not in catalog');
+    const o = p.overlay;
+    return {
+      anchor: o.anchor || 'top-right',
+      offset_x: o.offset_x | 0,
+      offset_y: o.offset_y | 0,
+      width: o.width | 0,
+      height: o.height | 0,
+      opacity: typeof o.opacity === 'number' ? o.opacity : 1,
+    };
+  }
+
+  async function resetToManifest(name) {
+    // PUT manifest defaults rather than DELETE. DELETE would also wipe
+    // `enabled: true`, leaving the aggregator's strict overlay.enabled
+    // === true check to unmount the iframe entirely. PUT preserves
+    // the plugin's enabled state and resets only the visual fields.
+    const defaults = await manifestDefaultsFor(name);
+    const body = {
+      enabled: true,
+      anchor: defaults.anchor,
+      offset_x: defaults.offset_x,
+      offset_y: defaults.offset_y,
+      width: defaults.width,
+      height: defaults.height,
+      opacity: defaults.opacity,
+    };
     const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(name), {
-      method: 'DELETE',
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
     if (!r.ok) {
       const text = (await r.text().catch(() => '')).trim();
       throw new Error('HTTP ' + r.status + (text ? ': ' + text : ''));
     }
+    return defaults;
   }
 
   function makeWrapper(name, iframe, anchor) {
@@ -141,9 +175,9 @@
     wrap.appendChild(label);
 
     // Reset button on the anchor edge, opposite end from the label.
-    // DELETEs the plugin's override row so it falls back to manifest
-    // defaults. The pointerdown stopPropagation prevents the wrapper's
-    // drag handler from claiming the click.
+    // PUTs the manifest defaults (preserving enabled: true) so the
+    // widget snaps back to its declared position and size. mount()
+    // wires the click handler so it can close over the live entry.
     const reset = document.createElement('button');
     reset.type = 'button';
     reset.title = 'Reset to manifest defaults';
@@ -162,14 +196,6 @@
     reset.style.pointerEvents = 'auto';
     reset.style.userSelect = 'none';
     reset.addEventListener('pointerdown', (ev) => ev.stopPropagation());
-    reset.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      try {
-        await deleteOverride(name);
-      } catch (err) {
-        console.warn('[live-edit] reset failed', err);
-      }
-    });
     wrap.appendChild(reset);
 
     // Resize handle on the anchor-opposite corner. The drag math runs
@@ -189,7 +215,7 @@
     handle.style.userSelect = 'none';
     wrap.appendChild(handle);
 
-    return { wrap, handle };
+    return { wrap, handle, reset };
   }
 
   function attachDrag(name, entry) {
@@ -374,7 +400,7 @@
     for (const [name, w] of widgetsMap.entries()) {
       if (!w.iframe) continue;
       const anchor = anchorOf(w.iframe);
-      const { wrap, handle } = makeWrapper(name, w.iframe, anchor);
+      const { wrap, handle, reset } = makeWrapper(name, w.iframe, anchor);
       document.body.appendChild(wrap);
       const entry = {
         wrap,
@@ -388,6 +414,28 @@
       attachDrag(name, entry);
       attachResize(name, entry);
       attachObserver(entry);
+      // Reset click handler. Optimistically paint the manifest rect
+      // onto the wrapper immediately so the user sees the change
+      // without waiting for the network round-trip; the SSE reflow
+      // confirms by mutating iframe.style (which the MutationObserver
+      // re-syncs onto the wrapper).
+      reset.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        try {
+          const defaults = await resetToManifest(name);
+          // Update entry.anchor in case the manifest's anchor differs
+          // from the override that was just wiped.
+          entry.anchor = defaults.anchor;
+          // Paint the manifest rect onto the wrapper now. Match the
+          // iframe's encoding: width/height plus the two anchored
+          // sides only, clear the other two.
+          wrap.style.width = defaults.width + 'px';
+          wrap.style.height = defaults.height + 'px';
+          applyAnchoredOffset(wrap, defaults.anchor, defaults.offset_x, defaults.offset_y);
+        } catch (err) {
+          console.warn('[live-edit] reset failed', err);
+        }
+      });
       wrappers.set(name, entry);
     }
     installEscListener();
