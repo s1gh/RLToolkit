@@ -2,9 +2,9 @@
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
-pub fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
+pub fn setup_tray<R: Runtime>(app: &AppHandle<R>, tooltip: &str) -> Result<(), String> {
     let icon = app.default_window_icon().cloned()
         .ok_or_else(|| "no default window icon".to_string())?;
 
@@ -12,7 +12,7 @@ pub fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
         .map_err(|e| format!("menu item: {e}"))?;
     let toggle = MenuItem::with_id(app, "toggle_overlay", "Toggle Overlay", true, None::<&str>)
         .map_err(|e| format!("menu item: {e}"))?;
-    let edit = MenuItem::with_id(app, "overlay_edit_probe", "Edit overlay (probe)", true, None::<&str>)
+    let edit = MenuItem::with_id(app, "overlay_edit_toggle", "Edit overlay layout", true, None::<&str>)
         .map_err(|e| format!("menu item: {e}"))?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)
         .map_err(|e| format!("menu item: {e}"))?;
@@ -39,13 +39,22 @@ pub fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
                     if visible { let _ = w.hide(); } else { let _ = w.show(); }
                 }
             }
-            "overlay_edit_probe" => {
-                crate::launcher::edit_mode::probe_toggle(app);
+            "overlay_edit_toggle" => {
+                if let Err(e) = crate::launcher::edit_mode::toggle(app) {
+                    crate::log_warn!("[overlay-edit] toggle failed: {e}");
+                }
             }
             "quit" => app.exit(0),
             _ => {}
         })
         .build(app)
         .map_err(|e| format!("build tray: {e}"))?;
+
+    // Store the edit menu item so update_tray_label can flip its text
+    // without needing a menu getter (which Tauri 2 doesn't expose on TrayIcon).
+    if let Some(state) = app.try_state::<crate::launcher::edit_mode::EditModeState<R>>() {
+        *state.tray_menu_item.lock().unwrap() = Some(edit);
+    }
+
     Ok(())
 }

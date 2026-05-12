@@ -25,7 +25,9 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) {
         shortcut,
         |app: &AppHandle<R>, _sc: &Shortcut, event: ShortcutEvent| {
             if event.state == ShortcutState::Pressed {
-                crate::launcher::edit_mode::probe_toggle(app);
+                if let Err(e) = crate::launcher::edit_mode::toggle(app) {
+                    crate::log_warn!("[overlay-edit] toggle failed: {e}");
+                }
             }
         },
     );

@@ -1,89 +1,137 @@
 //! Overlay live edit mode.
 //!
-//! Phase 1: probe-only. Three entry points (global shortcut, tray
-//! item, CLI --toggle-edit) all call probe_toggle, which logs and
-//! briefly flashes the tray tooltip so we can visually confirm the
-//! shortcut fires on each platform.
+//! Holds an in-memory active flag, the pre-activation overlay
+//! visibility snapshot, and the orchestration that flips the
+//! overlay window's click-through bit and the JS hook that drives
+//! the page's drag wrappers.
 //!
-//! Phases 2 and 3 replace probe_toggle with the real toggle that
-//! drives the overlay window's click-through bit and a JS module on
-//! the loaded overlay page.
+//! Four activation entry points (global shortcut, tray menu, CLI
+//! --toggle-edit, dashboard button in Phase 3) funnel through
+//! `toggle`. Atomic compare_exchange on the active flag prevents two
+//! near-simultaneous activations from both proceeding.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
-use tauri::{AppHandle, Runtime};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use tauri::menu::MenuItem;
+use tauri::{AppHandle, Manager, Runtime};
 
-/// In-memory flag flipped by every probe call. Visible via the tray
-/// tooltip flash. Lives outside Tauri-managed state so the probe is
-/// usable from the single-instance callback before app state is set up.
-static PROBE_STATE: AtomicBool = AtomicBool::new(false);
-
-/// Original tray tooltip captured before the first flash so we can
-/// restore it after each probe pulse.
-static ORIGINAL_TOOLTIP: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-
-/// Bumped every press. Restore threads capture the generation at
-/// spawn and only restore if it's still current when they wake — this
-/// stops a stale restore from clobbering a freshly-flashed tooltip
-/// when the user mashes the shortcut.
-static RESTORE_GENERATION: AtomicU64 = AtomicU64::new(0);
-
-/// Phase 1 probe. Flips PROBE_STATE, logs the new value, flashes the
-/// tray tooltip for ~2 seconds.
-pub fn probe_toggle<R: Runtime>(app: &AppHandle<R>) {
-    let was_active = PROBE_STATE.fetch_xor(true, Ordering::SeqCst);
-    let new_active = !was_active;
-    crate::log_info!(
-        "[overlay-edit] shortcut fired (active={})",
-        new_active
-    );
-    flash_tray_tooltip(app, new_active);
+pub struct EditModeState<R: Runtime> {
+    active: AtomicBool,
+    pre_edit_visible: Mutex<Option<bool>>,
+    // Stored at tray setup time so update_tray_label can reach it
+    // without needing a menu getter that Tauri 2 doesn't expose.
+    pub tray_menu_item: Mutex<Option<MenuItem<R>>>,
 }
 
-fn flash_tray_tooltip<R: Runtime>(app: &AppHandle<R>, new_active: bool) {
-    let tray = match app.tray_by_id("main") {
-        Some(t) => t,
-        None => return,
-    };
-    capture_original_tooltip();
-    let message = if new_active {
-        "Edit mode toggled ON (probe)"
-    } else {
-        "Edit mode toggled OFF (probe)"
-    };
-    let _ = tray.set_tooltip(Some(message));
-    let generation = RESTORE_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    schedule_restore(app, generation);
-}
-
-fn capture_original_tooltip() {
-    let slot = ORIGINAL_TOOLTIP.get_or_init(|| Mutex::new(None));
-    let mut guard = slot.lock().unwrap();
-    if guard.is_some() {
-        return;
-    }
-    // Tauri's TrayIcon doesn't expose a get_tooltip. We know the value
-    // we set at startup ("RL Toolkit") so we hardcode the restore
-    // target; if a future refactor changes the startup tooltip, update
-    // this string too.
-    *guard = Some("RL Toolkit".to_string());
-}
-
-fn schedule_restore<R: Runtime + 'static>(app: &AppHandle<R>, generation: u64) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(2000));
-        // Skip restore if another press has happened since we were spawned.
-        if RESTORE_GENERATION.load(Ordering::SeqCst) != generation {
-            return;
+impl<R: Runtime> Default for EditModeState<R> {
+    fn default() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            pre_edit_visible: Mutex::new(None),
+            tray_menu_item: Mutex::new(None),
         }
-        let tray = match app.tray_by_id("main") {
-            Some(t) => t,
-            None => return,
-        };
-        let slot = ORIGINAL_TOOLTIP.get_or_init(|| Mutex::new(None));
-        let original = slot.lock().unwrap().clone().unwrap_or_default();
-        let _ = tray.set_tooltip(Some(original.as_str()));
-    });
+    }
+}
+
+impl<R: Runtime> EditModeState<R> {
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
+}
+
+/// Toggle the state. Returns the new value, or Err if activation
+/// could not be completed (eval failure, missing overlay window).
+pub fn toggle<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
+    let state = app
+        .try_state::<EditModeState<R>>()
+        .ok_or_else(|| "edit_mode state not registered".to_string())?;
+    let current = state.active.load(Ordering::SeqCst);
+    set(app, !current)
+}
+
+/// Set the state to a specific value. Idempotent.
+pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
+    let state = app
+        .try_state::<EditModeState<R>>()
+        .ok_or_else(|| "edit_mode state not registered".to_string())?;
+    let current = state.active.load(Ordering::SeqCst);
+    if current == on {
+        return Ok(current);
+    }
+    if state
+        .active
+        .compare_exchange(current, on, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        // Lost the race; the winner did the work, just report what they wrote.
+        return Ok(state.active.load(Ordering::SeqCst));
+    }
+
+    let window = match app.get_webview_window("main") {
+        Some(w) => w,
+        None => {
+            state.active.store(false, Ordering::SeqCst);
+            return Err("overlay window not built".to_string());
+        }
+    };
+
+    if on {
+        let was_visible = window.is_visible().unwrap_or(false);
+        *state.pre_edit_visible.lock().unwrap() = Some(was_visible);
+        if !was_visible {
+            let _ = window.show();
+        }
+        if let Err(e) = window.set_ignore_cursor_events(false) {
+            // Roll back: hide if we showed, clear state.
+            if !was_visible {
+                let _ = window.hide();
+            }
+            state.active.store(false, Ordering::SeqCst);
+            *state.pre_edit_visible.lock().unwrap() = None;
+            return Err(format!("set_ignore_cursor_events(false): {e}"));
+        }
+        if let Err(e) =
+            window.eval("window.__rlt_set_live_edit && window.__rlt_set_live_edit(true);")
+        {
+            // Roll back the click-through and visibility changes.
+            let _ = window.set_ignore_cursor_events(true);
+            if !was_visible {
+                let _ = window.hide();
+            }
+            state.active.store(false, Ordering::SeqCst);
+            *state.pre_edit_visible.lock().unwrap() = None;
+            return Err(format!("eval set_live_edit(true): {e}"));
+        }
+        crate::log_info!("[overlay-edit] activated");
+    } else {
+        // Tear-down order: drop the JS chrome first so a final stray
+        // click during teardown lands on a wrapper, not the game,
+        // then restore click-through, then maybe re-hide.
+        let _ =
+            window.eval("window.__rlt_set_live_edit && window.__rlt_set_live_edit(false);");
+        let _ = window.set_ignore_cursor_events(true);
+        let pre = state.pre_edit_visible.lock().unwrap().take();
+        if let Some(false) = pre {
+            let _ = window.hide();
+        }
+        crate::log_info!("[overlay-edit] deactivated");
+    }
+
+    update_tray_label(app, on);
+    Ok(on)
+}
+
+fn update_tray_label<R: Runtime>(app: &AppHandle<R>, on: bool) {
+    let Some(state) = app.try_state::<EditModeState<R>>() else {
+        return;
+    };
+    let label = if on {
+        "Exit overlay edit mode"
+    } else {
+        "Edit overlay layout"
+    };
+    let guard = state.tray_menu_item.lock().unwrap();
+    if let Some(item) = guard.as_ref() {
+        let _ = item.set_text(label);
+    }
 }

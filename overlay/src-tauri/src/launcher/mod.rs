@@ -30,7 +30,9 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
 
     builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
         if argv.iter().any(|a| a == "--toggle-edit") {
-            crate::launcher::edit_mode::probe_toggle(app);
+            if let Err(e) = crate::launcher::edit_mode::toggle(app) {
+                crate::log_warn!("[overlay-edit] toggle failed: {e}");
+            }
             return;
         }
         if let Some(w) = app.get_webview_window("launcher") {
@@ -68,7 +70,8 @@ pub fn run(args: Args) {
     };
 
     let builder = install_plugins(tauri::Builder::default())
-        .manage::<LauncherState>(Mutex::new(ctx));
+        .manage::<LauncherState>(Mutex::new(ctx))
+        .manage(crate::launcher::edit_mode::EditModeState::<tauri::Wry>::default());
 
     #[cfg(feature = "bundled-updater")]
     let builder = builder.invoke_handler(tauri::generate_handler![
