@@ -2,6 +2,7 @@ pub mod backend;
 pub mod edit_mode;
 pub mod ipc;
 pub mod settings;
+pub mod shortcut;
 pub mod tray;
 #[cfg(feature = "bundled-updater")]
 pub mod updater;
@@ -21,7 +22,8 @@ pub fn install_plugins<R: tauri::Runtime>(builder: Builder<R>) -> Builder<R> {
     let builder = builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
     #[cfg(feature = "bundled-updater")]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
@@ -146,6 +148,8 @@ pub fn run(args: Args) {
             // to plugin iframes for hide_when_unfocused.
             let rule = focus_watcher::match_rule_from_arg(args.game_match.as_deref());
             focus_watcher::spawn(handle.clone(), rule);
+
+            crate::launcher::shortcut::register(&handle);
 
             if let Err(e) = tray::setup_tray(&handle, "RL Toolkit") {
                 crate::log_warn!("[launcher] tray failed: {e}");
