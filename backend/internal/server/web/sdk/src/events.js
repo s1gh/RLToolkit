@@ -131,6 +131,7 @@ bus.on('ClockUpdatedSeconds', (d) => {
   '_PlayerLeft',
   '_PlayerScoreChanged',
   '_BoostPickup',
+  '_BoostConsumed',
   '_BallPossessionChanged',
   '_TeamScoreChanged',
   '_DemoChain',
