@@ -22,6 +22,7 @@
   // pluginName -> { wrap, iframe, observer, anchor, dragToken }
   const wrappers = new Map();
   let escListener = null;
+  let focusListener = null;
 
   function parsePx(value) {
     if (!value) return 0;
@@ -374,6 +375,32 @@
     entry.observer = observer;
   }
 
+  function setWrappersVisible(visible) {
+    for (const entry of wrappers.values()) {
+      entry.wrap.style.display = visible ? '' : 'none';
+    }
+  }
+
+  function installFocusListener() {
+    if (focusListener) return;
+    focusListener = (ev) => {
+      const data = ev?.data;
+      if (!data || data.__rlt_focus__ !== true) return;
+      // Hide wrappers when RL loses focus so the cyan outlines don't
+      // bleed onto other workspaces. Edit mode itself stays armed,
+      // so wrappers reappear when RL regains focus. The focus signal
+      // is edge-triggered: the aggregator only emits on transition.
+      setWrappersVisible(!!data.active);
+    };
+    window.addEventListener('message', focusListener);
+  }
+
+  function removeFocusListener() {
+    if (!focusListener) return;
+    window.removeEventListener('message', focusListener);
+    focusListener = null;
+  }
+
   function installEscListener() {
     if (escListener) return;
     escListener = (ev) => {
@@ -439,10 +466,20 @@
       wrappers.set(name, entry);
     }
     installEscListener();
+    installFocusListener();
+    // Sync initial visibility against the most recent focus transition
+    // the aggregator has seen. If the user activated edit mode via the
+    // tray or CLI while RL wasn't focused, this hides the wrappers up
+    // front so they don't bleed onto whatever workspace the user is on.
+    // null means no transition has been emitted yet; default to visible
+    // (the activation pathway implies the user wants to see them).
+    const initialFocus = window.__rlt_last_focus;
+    if (initialFocus === false) setWrappersVisible(false);
   }
 
   function unmount() {
     removeEscListener();
+    removeFocusListener();
     for (const entry of wrappers.values()) {
       if (entry.observer) entry.observer.disconnect();
       entry.wrap.remove();

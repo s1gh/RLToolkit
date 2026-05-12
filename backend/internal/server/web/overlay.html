@@ -234,6 +234,10 @@
     // top-level doc only).
     if (data.__rlt_focus__ === true) {
       lastFocus = !!data.active;
+      // Expose for late-attaching consumers (e.g. the live-edit
+      // module on first mount) so they can sync against the most
+      // recent transition without waiting for the next one.
+      window.__rlt_last_focus = lastFocus;
       for (const { iframe } of widgets.values()) {
         if (!iframe?.contentWindow) continue;
         try { iframe.contentWindow.postMessage(data, '*'); }
