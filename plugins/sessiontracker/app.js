@@ -119,6 +119,25 @@
     }
   }
 
+  function modeFromRoster(n) {
+    if (n === 2) return '1v1';
+    if (n === 4) return '2v2';
+    if (n === 6) return '3v3';
+    return 'other';
+  }
+
+  function currentStreak(last) {
+    if (!Array.isArray(last) || last.length === 0) return null;
+    const kind = last[last.length - 1];
+    let count = 1;
+    for (let i = last.length - 2; i >= 0; i--) {
+      if (last[i] === kind) count++;
+      else break;
+    }
+    if (count < 2) return null;
+    return { kind, count };
+  }
+
   const Reducers = {
     emptyBucket,
     applyMatchEnded,
@@ -129,6 +148,8 @@
     applyCrossbarHit,
     applyMmr,
     RANKED_MODES,
+    modeFromRoster,
+    currentStreak,
   };
 
   root.SessionTrackerReducers = Reducers;

@@ -292,3 +292,40 @@ test('applyMmr: mode other than 1v1/2v2/3v3 does not update ranked', () => {
   assert.deepEqual(b.mmr.ranked, {});
   assert.deepEqual(b.mmr.casual, { start: 1000, current: 1000 });
 });
+
+test('modeFromRoster: 2/4/6 → 1v1/2v2/3v3', () => {
+  assert.equal(R.modeFromRoster(2), '1v1');
+  assert.equal(R.modeFromRoster(4), '2v2');
+  assert.equal(R.modeFromRoster(6), '3v3');
+});
+
+test('modeFromRoster: other sizes → "other"', () => {
+  assert.equal(R.modeFromRoster(0), 'other');
+  assert.equal(R.modeFromRoster(1), 'other');
+  assert.equal(R.modeFromRoster(3), 'other');
+  assert.equal(R.modeFromRoster(8), 'other');
+});
+
+test('currentStreak: empty → null', () => {
+  assert.equal(R.currentStreak([]), null);
+});
+
+test('currentStreak: single match → null (rule: hide below 2)', () => {
+  assert.equal(R.currentStreak(['win']), null);
+});
+
+test('currentStreak: WW → W2', () => {
+  assert.deepEqual(R.currentStreak(['win', 'win']), { kind: 'win', count: 2 });
+});
+
+test('currentStreak: LWWW → W3', () => {
+  assert.deepEqual(R.currentStreak(['loss', 'win', 'win', 'win']), { kind: 'win', count: 3 });
+});
+
+test('currentStreak: WWWLL → L2', () => {
+  assert.deepEqual(R.currentStreak(['win', 'win', 'win', 'loss', 'loss']), { kind: 'loss', count: 2 });
+});
+
+test('currentStreak: alternating → 1 → null', () => {
+  assert.equal(R.currentStreak(['win', 'loss', 'win', 'loss']), null);
+});
