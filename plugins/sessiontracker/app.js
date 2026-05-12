@@ -158,5 +158,158 @@
 
   if (typeof RLT === 'undefined') return;
 
-  // SDK registration and rendering live below; added in later tasks.
+  const STORE_KEY = 'session';
+  const isOverlay  = RLT.isOverlay;
+  const isSettings = RLT.isSettingsView;
+
+  let bucket = null;
+  let currentMode = null;
+  let myTeam = null;
+  let saveTimer = null;
+
+  function save() {
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      RLT.store.set(STORE_KEY, bucket);
+    }, 50);
+  }
+
+  function snapshotMyTeam() {
+    const me = RLT.match.current && RLT.match.current.me;
+    if (me && (me.team === 0 || me.team === 1)) myTeam = me.team;
+  }
+
+  function rosterSize() {
+    const cur = RLT.match.current;
+    return cur && Array.isArray(cur.players) ? cur.players.length : 0;
+  }
+
+  async function fetchMmr() {
+    try {
+      const r = await fetch('/api/mmr');
+      if (!r.ok) {
+        console.warn('[sessiontracker] /api/mmr returned', r.status);
+        return;
+      }
+      const j = await r.json();
+      applyMmr(bucket, currentMode, j);
+      save();
+      scheduleRender();
+    } catch (e) {
+      console.warn('[sessiontracker] /api/mmr fetch failed:', e);
+    }
+  }
+
+  function resolveBootID() {
+    return new Promise((resolve) => {
+      let resolved = false;
+      const off = RLT.on('_BootId', (p) => {
+        if (resolved) return;
+        resolved = true; off();
+        resolve(p && p.bootId);
+      });
+      setTimeout(async () => {
+        if (resolved) return;
+        try {
+          const r = await fetch('/api/boot-id');
+          const j = await r.json();
+          if (resolved) return;
+          resolved = true; off();
+          resolve(j && j.bootId);
+        } catch (_) {
+          if (resolved) return;
+          resolved = true; off();
+          resolve(null);
+        }
+      }, 2000);
+    });
+  }
+
+  // Render is wired in later tasks. For now stub it.
+  function scheduleRender() { /* filled in Task 15 */ }
+
+  RLT.plugin.register({
+    async ready() {
+      bucket = (await RLT.store.get(STORE_KEY)) || null;
+      const liveBootId = await resolveBootID();
+      if (!liveBootId) {
+        if (!bucket) bucket = emptyBucket('');
+      } else if (!bucket || bucket.bootId !== liveBootId) {
+        bucket = emptyBucket(liveBootId);
+        await RLT.store.set(STORE_KEY, bucket);
+      }
+      snapshotMyTeam();
+      mountView();
+    },
+
+    events: {
+      _BootId(p) {
+        const id = p && p.bootId;
+        if (id && bucket && bucket.bootId !== id) {
+          bucket = emptyBucket(id);
+          save(); scheduleRender();
+        }
+      },
+
+      _MatchState(p) {
+        snapshotMyTeam();
+        if (p && p.phase === 'countdown') {
+          const next = modeFromRoster(rosterSize());
+          currentMode = next;
+          if (next === '1v1' || next === '2v2' || next === '3v3') fetchMmr();
+        } else if (p && p.phase === 'live' && currentMode === null) {
+          // Fallback: countdown was missed (e.g. mid-match reconnect).
+          const next = modeFromRoster(rosterSize());
+          currentMode = next;
+          if (next === '1v1' || next === '2v2' || next === '3v3') fetchMmr();
+        }
+      },
+
+      _PlayerScoreChanged(p) {
+        if (!bucket) return;
+        snapshotMyTeam();
+        applyPlayerScoreChanged(bucket, p);
+        save(); scheduleRender();
+      },
+
+      _PlayerDemolished(p) {
+        if (!bucket) return;
+        applyPlayerDemolished(bucket, p);
+        save(); scheduleRender();
+      },
+
+      _GoalScored(p) {
+        if (!bucket) return;
+        applyGoalScored(bucket, p);
+        save(); scheduleRender();
+      },
+
+      _FastestShotOfMatch(p) {
+        if (!bucket) return;
+        applyFastestShot(bucket, p);
+        save(); scheduleRender();
+      },
+
+      _CrossbarHit(p) {
+        if (!bucket) return;
+        applyCrossbarHit(bucket, p);
+        save(); scheduleRender();
+      },
+
+      _MatchEnded(p) {
+        if (!bucket) return;
+        snapshotMyTeam();
+        applyMatchEnded(bucket, p, myTeam);
+        save(); scheduleRender();
+        if (currentMode === '1v1' || currentMode === '2v2' || currentMode === '3v3') {
+          fetchMmr();
+        }
+      },
+    },
+  });
+
+  function mountView() {
+    // Filled in Task 15.
+  }
 })(typeof window !== 'undefined' ? window : globalThis);
