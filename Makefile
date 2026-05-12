@@ -180,7 +180,8 @@ webview2-runtime:
 	  Invoke-WebRequest -Uri $$url -OutFile $$pkg; \
 	  if (Test-Path $$dir) { Remove-Item -Recurse -Force $$dir }; \
 	  $$tmp = Join-Path $$env:TEMP ('wv2-' + [Guid]::NewGuid().ToString('N')); \
-	  Expand-Archive -Path $$pkg -DestinationPath $$tmp -Force; \
+	  Add-Type -AssemblyName System.IO.Compression.FileSystem; \
+	  [System.IO.Compression.ZipFile]::ExtractToDirectory($$pkg, $$tmp); \
 	  Move-Item -Path (Join-Path $$tmp 'contentFiles\\any\\any\\WebView2') -Destination $$dir; \
 	  Remove-Item -Recurse -Force $$tmp; \
 	  Remove-Item -Force $$pkg; \
