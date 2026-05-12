@@ -57,8 +57,6 @@ gtk-layer-shell = "0.8"
 x11rb = "0.13"
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts"] }
-futures-util = "0.3"
 
 # Windows-only: DWM + window-style bindings for the no-border pass on
 # the overlay window. Win11 paints a 1px frame around transparent

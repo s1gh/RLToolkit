@@ -26,6 +26,7 @@
     "opener:allow-open-path",
     "opener:allow-open-url",
     "dialog:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "global-shortcut:allow-register"
   ]
 }
