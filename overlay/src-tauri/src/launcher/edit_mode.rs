@@ -142,3 +142,10 @@ fn update_tray_label<R: Runtime>(app: &AppHandle<R>, on: bool) {
         let _ = item.set_text(label);
     }
 }
+
+#[cfg(test)]
+impl<R: Runtime> EditModeState<R> {
+    pub(crate) fn active_for_test(&self) -> &AtomicBool {
+        &self.active
+    }
+}

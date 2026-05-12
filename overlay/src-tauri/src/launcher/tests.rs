@@ -128,3 +128,21 @@ fn ownership_unavailable_terminate_is_noop() {
     owned.terminate(std::time::Duration::from_millis(10));
     assert!(matches!(owned, BackendOwnership::Unavailable));
 }
+
+use crate::launcher::edit_mode::EditModeState;
+use std::sync::atomic::Ordering;
+
+#[test]
+fn edit_mode_state_default_is_inactive() {
+    let s = EditModeState::<tauri::Wry>::default();
+    assert!(!s.is_active());
+}
+
+#[test]
+fn edit_mode_state_active_flag_round_trips() {
+    let s = EditModeState::<tauri::Wry>::default();
+    s.active_for_test().store(true, Ordering::SeqCst);
+    assert!(s.is_active());
+    s.active_for_test().store(false, Ordering::SeqCst);
+    assert!(!s.is_active());
+}
