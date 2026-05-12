@@ -77,6 +77,15 @@ jobs:
           fi
           gh release edit plugins-latest --latest=false
 
+      - name: Remove stale .rltp assets from plugins-latest
+        run: |
+          gh release view plugins-latest --json assets -q '.assets[].name' \
+            | grep '\.rltp$' \
+            | while read -r asset; do
+                echo "Deleting $asset"
+                gh release delete-asset plugins-latest "$asset" --yes
+              done
+
       - name: Generate plugins.json
         env:
           OWNER: ${{ github.repository_owner }}
