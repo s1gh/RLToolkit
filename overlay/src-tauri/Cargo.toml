@@ -63,7 +63,7 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 # it through DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
 # DWMWA_NCRENDERING_POLICY, and by stripping WS_THICKFRAME.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
   "Win32_UI_WindowsAndMessaging",
