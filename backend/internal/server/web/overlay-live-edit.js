@@ -86,6 +86,16 @@
     }
   }
 
+  async function deleteOverride(name) {
+    const r = await fetch('/api/overlay/overrides/' + encodeURIComponent(name), {
+      method: 'DELETE',
+    });
+    if (!r.ok) {
+      const text = (await r.text().catch(() => '')).trim();
+      throw new Error('HTTP ' + r.status + (text ? ': ' + text : ''));
+    }
+  }
+
   function makeWrapper(name, iframe) {
     const wrap = document.createElement('div');
     wrap.className = WRAPPER_CLASS;
@@ -118,6 +128,39 @@
     label.style.pointerEvents = 'none';
     label.style.userSelect = 'none';
     wrap.appendChild(label);
+
+    // Reset button in the top-right corner. DELETEs the plugin's
+    // override row so it falls back to manifest defaults. The
+    // pointerdown stopPropagation prevents the wrapper's drag handler
+    // from claiming the click.
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.title = 'Reset to manifest defaults';
+    reset.textContent = 'Reset';
+    reset.style.position = 'absolute';
+    reset.style.top = '4px';
+    reset.style.right = '4px';
+    reset.style.padding = '2px 8px';
+    reset.style.font = '11px/1.2 system-ui, sans-serif';
+    reset.style.color = '#0a0c14';
+    reset.style.background = '#22d3ee';
+    reset.style.border = 'none';
+    reset.style.borderRadius = '3px';
+    reset.style.cursor = 'pointer';
+    reset.style.pointerEvents = 'auto';
+    reset.style.userSelect = 'none';
+    reset.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    reset.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      try {
+        await deleteOverride(name);
+        // SSE _OverridesChanged -> reflow -> iframe.style updates ->
+        // MutationObserver re-syncs the wrapper to the new rect.
+      } catch (err) {
+        console.warn('[live-edit] reset failed', err);
+      }
+    });
+    wrap.appendChild(reset);
 
     return wrap;
   }
