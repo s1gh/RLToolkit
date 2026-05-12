@@ -12,7 +12,7 @@ import (
 // straight from the binary so runtime doesn't depend on cwd. Fonts
 // are self-hosted to avoid the network round-trip and font-swap reflow.
 //
-//go:embed web/dashboard.html web/overlay.html web/sdk.css web/overlay-editor.js
+//go:embed web/dashboard.html web/overlay.html web/sdk.css web/overlay-editor.js web/overlay-live-edit.js
 //go:embed web/fonts/*.woff2
 //go:embed web/sdk/dist/sdk.js
 var webFS embed.FS
@@ -42,7 +42,8 @@ var (
 	faviconSVGBytes = []byte(faviconSVG)
 	dashboardHTML   = mustReadEmbed("web/dashboard.html")
 	overlayHTML     = mustReadEmbed("web/overlay.html")
-	overlayEditorJS = mustReadEmbed("web/overlay-editor.js")
+	overlayEditorJS   = mustReadEmbed("web/overlay-editor.js")
+	overlayLiveEditJS = mustReadEmbed("web/overlay-live-edit.js")
 )
 
 func mustReadEmbed(path string) []byte {

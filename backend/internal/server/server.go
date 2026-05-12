@@ -109,6 +109,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/sdk.css", s.handleSDKCSS)
 	mux.HandleFunc("/fonts/", s.handleFont)
 	mux.HandleFunc("/overlay-editor.js", s.handleOverlayEditorJS)
+	mux.HandleFunc("/overlay-live-edit.js", s.handleOverlayLiveEditJS)
 	mux.HandleFunc("/favicon.ico", s.handleFavicon)
 	// Plugin assets serve straight from disk so iteration is
 	// edit-then-refresh. requireManifest gates on a valid
@@ -629,6 +630,10 @@ func (s *Server) handleFont(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOverlayEditorJS(w http.ResponseWriter, _ *http.Request) {
 	writeAsset(w, "application/javascript; charset=utf-8", "no-cache", overlayEditorJS)
+}
+
+func (s *Server) handleOverlayLiveEditJS(w http.ResponseWriter, _ *http.Request) {
+	writeAsset(w, "application/javascript; charset=utf-8", "no-cache", overlayLiveEditJS)
 }
 
 func (s *Server) handleFavicon(w http.ResponseWriter, _ *http.Request) {
