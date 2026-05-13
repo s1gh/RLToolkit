@@ -50,6 +50,7 @@
         return lerp(arr[i], arr[i + 1], t);
       }
     }
+    // Unreachable given the clamps above and the loop covering all anchor pairs; safety net.
     return arr[arr.length - 1];
   }
 
@@ -82,11 +83,17 @@
     const tierW = interpolateWeights(level, bias);
 
     // Step 1: pick a tier weighted by the renormalised tier weights
-    // (only tiers present in the pool count).
-    const tiersPresent = {};
-    for (const c of pool) tiersPresent[c.tier] = true;
+    // (only tiers present in the pool count). This means an easy-only
+    // pool still draws an easy challenge, rather than failing because
+    // medium and hard tiers held most of the original weight mass.
+    // Iterate tiers in a fixed order so the cumulative-weight pick is
+    // deterministic regardless of pool insertion order.
+    const TIER_ORDER = ['easy', 'medium', 'hard'];
+    const tiersPresent = new Set(pool.map((c) => c.tier));
     let totalTierWeight = 0;
-    for (const t of Object.keys(tiersPresent)) totalTierWeight += (tierW[t] || 0);
+    for (const t of TIER_ORDER) {
+      if (tiersPresent.has(t)) totalTierWeight += (tierW[t] || 0);
+    }
     if (totalTierWeight <= 0) {
       // All weights zero in the filtered pool: pick uniformly.
       return pool[Math.floor((rng() || 0) * pool.length)];
@@ -94,16 +101,22 @@
     const r1 = (rng() || 0) * totalTierWeight;
     let acc = 0;
     let chosenTier = null;
-    for (const t of Object.keys(tiersPresent)) {
+    for (const t of TIER_ORDER) {
+      if (!tiersPresent.has(t)) continue;
       acc += (tierW[t] || 0);
       if (r1 <= acc) { chosenTier = t; break; }
     }
-    if (!chosenTier) chosenTier = Object.keys(tiersPresent)[0];
+    if (!chosenTier) {
+      // Safety net: rounding edge case where r1 == totalTierWeight exactly.
+      // Fall back to the first present tier in the canonical order.
+      chosenTier = TIER_ORDER.find((t) => tiersPresent.has(t));
+    }
 
     // Step 2: pick uniformly within that tier.
     const within = pool.filter((c) => c.tier === chosenTier);
     if (within.length === 0) return null;
     const r2 = Math.floor((rng() || 0) * within.length);
+    // Guard against rngs that return exactly 1.0 (the contract is [0,1) but be safe).
     return within[Math.min(r2, within.length - 1)];
   }
 

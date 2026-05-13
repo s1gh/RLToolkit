@@ -307,16 +307,35 @@ test('draw: returns a challenge whose id is in the pool', () => {
   assert.ok(rngCalls >= 1);
 });
 
-test('draw: rerolls once when the only roll matches the exclude id (then accepts)', () => {
+test('draw: rerolls once when the first roll matches the exclude id', () => {
+  // pool only has the easy tier present.
+  // drawOnce #1 consumes (0.0, 0.0): r1=0 -> easy tier, r2=floor(0*2)=0 -> e1.
+  // result.id === 'e1' matches exclude, pool.length > 1, so reroll.
+  // drawOnce #2 consumes (0.0, 0.99): r1=0 -> easy tier, r2=floor(0.99*2)=1 -> e2.
   const pool = [
     { id: 'e1', tier: 'easy' },
     { id: 'e2', tier: 'easy' },
   ];
   let i = 0;
-  const sequence = [0.0, 0.99]; // first -> e1, second -> e2
-  const rng = () => sequence[i++ % sequence.length];
+  const sequence = [0.0, 0.0, 0.0, 0.99];
+  const rng = () => sequence[i++];
   const got = C.draw({ pool, level: 1, bias: 'standard', rng, exclude: 'e1' });
   assert.equal(got.id, 'e2');
+  assert.equal(i, 4, 'expected exactly 4 rng draws (2 per drawOnce, called twice)');
+});
+
+test('draw: reroll that also collides still returns the collided result', () => {
+  // Both drawOnce calls land on e1; the docblock says "accept whatever comes out".
+  const pool = [
+    { id: 'e1', tier: 'easy' },
+    { id: 'e2', tier: 'easy' },
+  ];
+  let i = 0;
+  const sequence = [0.0, 0.0, 0.0, 0.0];
+  const rng = () => sequence[i++];
+  const got = C.draw({ pool, level: 1, bias: 'standard', rng, exclude: 'e1' });
+  assert.equal(got.id, 'e1');
+  assert.equal(i, 4, 'expected exactly 4 rng draws even when reroll collides');
 });
 
 test('draw: empty pool returns null', () => {
