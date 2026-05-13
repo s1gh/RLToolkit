@@ -35,6 +35,11 @@
   let lastSeenTickSeq = -1;
   let matchStartedAt = null;
 
+  // Recap state. Set when the background view publishes a tick with
+  // type === 'matchEnded'; cleared 10s later by the rerender idle path.
+  let recapShownUntil = 0;
+  let recapData = null;     // {completed, failed, timedOut, xpGained, startLevel, endLevel}
+
   // ---- overlay ---------------------------------------------------------
 
   function renderOverlay(rootEl) {
@@ -43,6 +48,31 @@
       rootEl.innerHTML = '';
       return;
     }
+
+    const inRecap = recapShownUntil > Date.now() && recapData;
+    if (inRecap) {
+      const xp = (recapData.xpGained >= 0 ? '+' : '') + recapData.xpGained;
+      const levelLine = recapData.startLevel === recapData.endLevel
+        ? 'Level ' + recapData.endLevel
+        : 'Level ' + recapData.startLevel + ' -> ' + recapData.endLevel;
+      const failedTotal = recapData.failed + recapData.timedOut;
+      rootEl.innerHTML = `
+        <div class="mg-overlay">
+          ${ribbonHtml(session)}
+          <div class="mg-obj">
+            <div class="mg-obj-tag">Match recap</div>
+            <div class="mg-obj-title">${recapData.completed} completed, ${failedTotal} failed</div>
+            <div class="mg-obj-meta">
+              <span class="mg-reward">net <b>${esc(xp)} XP</b></span>
+              <span class="mg-timer" style="margin-left:auto;">${esc(levelLine)}</span>
+            </div>
+          </div>
+          ${priorHtml()}
+        </div>
+      `;
+      return;
+    }
+
     const active = session.activeChallenge;
     if (!active) {
       rootEl.innerHTML = `
@@ -274,15 +304,40 @@
         atMs: tick.at,
       });
     } else if (tick.type === 'matchEnded') {
-      // Match recap rendering lands in Task 10. For now, clear the log so
-      // the next match starts clean.
-      resolutionLog = [];
+      // Build a recap from the just-ended match in session.matches. The
+      // background view writes the matchEnded tick AFTER calling endMatch,
+      // and pullState re-reads session before handleTick fires, so the
+      // last entry is the closed match. The resolution log stays visible
+      // for the recap window; rerender clears it after the window expires.
+      const s = lastSessionState;
+      const lastMatch = s?.matches?.length > 0
+        ? s.matches[s.matches.length - 1]
+        : null;
+      if (lastMatch) {
+        recapData = {
+          completed: Number(lastMatch.completed) || 0,
+          failed:    Number(lastMatch.failed)    || 0,
+          timedOut:  Number(lastMatch.timedOut)  || 0,
+          xpGained:  Number(lastMatch.xpGained)  || 0,
+          startLevel: Number(lastMatch.startLevel) || 0,
+          endLevel:   Number(lastMatch.endLevel)   || 0,
+        };
+        recapShownUntil = Date.now() + 10000;
+      }
     }
   }
 
   function rerender() {
     const el = document.getElementById('root');
     if (!el) return;
+    // Recap window expired: clear the prior-log so the next match starts
+    // fresh, and drop the recap data so subsequent rerenders fall through
+    // to the idle path.
+    if (recapShownUntil > 0 && recapShownUntil <= Date.now()) {
+      resolutionLog = [];
+      recapData = null;
+      recapShownUntil = 0;
+    }
     if (RLT.isOverlay)      renderOverlay(el);
     if (RLT.isDashboard)    renderDashboard(el);
     if (RLT.isSettingsView) renderSettings(el);
