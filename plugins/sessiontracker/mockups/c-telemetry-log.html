@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SessionTracker — Mockup C (Telemetry Log)</title>
+<style>
+  @font-face {
+    font-family: "Saira Condensed";
+    font-weight: 500;
+    font-style: normal;
+    src: url("/fonts/saira-condensed-500-latin.woff2") format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Saira Condensed";
+    font-weight: 600;
+    font-style: normal;
+    src: url("/fonts/saira-condensed-600-latin.woff2") format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Saira Condensed";
+    font-weight: 700;
+    font-style: normal;
+    src: url("/fonts/saira-condensed-700-latin.woff2") format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "JetBrains Mono";
+    font-weight: 400 600;
+    font-style: normal;
+    src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2");
+    font-display: swap;
+  }
+
+  :root {
+    --bg-0:   #0a0c14;
+    --bg-1:   #0f1320;
+    --bg-2:   #161b2c;
+    --bg-3:   #1d2238;
+    --line:   #232a44;
+    --line-2: #2f375a;
+    --txt:    #e6e9f5;
+    --txt-2:  #a9b0cf;
+    --txt-3:  #6c739a;
+    --cyan:   #22d3ee;
+    --magenta:#f472b6;
+
+    --display: "Saira Condensed", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  html, body {
+    background: #1a1f2e url("https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1400&q=60") center/cover no-repeat;
+    min-height: 100vh;
+    margin: 0;
+    padding: 40px;
+    font-family: var(--mono);
+    color: var(--txt);
+  }
+  .stage {
+    max-width: 460px;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: linear-gradient(180deg, rgba(15, 19, 32, 0.94), rgba(22, 27, 44, 0.96));
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    overflow: hidden;
+  }
+
+  /* ── Header ──────────────────────────────────────────────── */
+  .head {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: baseline;
+    gap: 14px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--txt-3);
+  }
+  .head .title { color: var(--txt-2); }
+  .head .title b { color: var(--cyan); font-weight: 600; }
+  .head .clock { color: var(--txt-2); }
+
+  /* ── Section header ──────────────────────────────────────── */
+  .sec-h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px 6px;
+    font-size: 9px;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--txt-3);
+  }
+  .sec-h .marker {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--txt-3);
+  }
+  .sec-h.match .marker { background: var(--cyan); }
+  .sec-h .label { color: var(--txt-2); }
+  .sec-h.match .label { color: var(--cyan); }
+  .sec-h .rule {
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+  .sec-h .ident {
+    color: var(--txt-3);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+  }
+
+  /* ── Match section: prominent ────────────────────────────── */
+  .match {
+    padding: 0 14px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .match-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 2px 8px;
+    padding-top: 4px;
+  }
+  .match .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .match .stat-v {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 32px;
+    line-height: 1;
+    color: var(--txt);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  .match .stat-v.zero { color: var(--txt-3); }
+  .match .stat-v.warn { color: var(--magenta); }
+  .match .stat-l {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--txt-3);
+    margin-top: 6px;
+  }
+  .match-foot {
+    margin-top: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--txt-3);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .match-foot .clock {
+    color: var(--txt-2);
+    font-family: var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: none;
+  }
+  .match-foot .clock b { color: var(--cyan); font-weight: 600; }
+
+  /* ── Session block ───────────────────────────────────────── */
+  .session {
+    padding: 0 14px 14px;
+  }
+
+  .session-record {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0 10px;
+  }
+  .session-record .rec {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .session-record .rec .dash {
+    color: var(--txt-3);
+    margin: 0 4px;
+    font-weight: 500;
+  }
+  .session-record .lbl {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--txt-3);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+  .session-record .ticks {
+    display: flex;
+    gap: 3px;
+  }
+  .session-record .tick {
+    width: 8px; height: 8px; border-radius: 1px;
+  }
+  .session-record .tick.win  { background: var(--cyan); }
+  .session-record .tick.loss { background: var(--magenta); }
+  .session-record .streak {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--cyan);
+    letter-spacing: 0.18em;
+  }
+
+  /* dt/dd telemetry table */
+  .telemetry {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    row-gap: 5px;
+    column-gap: 14px;
+    padding-top: 4px;
+  }
+  .telemetry dt {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--txt-3);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    align-self: baseline;
+  }
+  .telemetry dd {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--txt-2);
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+  .telemetry .pair small {
+    color: var(--txt-3);
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+  .telemetry .pair b {
+    color: var(--txt);
+    font-weight: 500;
+  }
+  .telemetry .pair b.warn { color: var(--magenta); }
+  .telemetry .pair .delta { color: var(--cyan); margin-left: 3px; }
+  .telemetry .pair .unit { color: var(--txt-3); margin-left: 3px; font-size: 9px; letter-spacing: 0.12em; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="card">
+      <div class="head">
+        <span class="title">Session Tracker · <b>1v1</b></span>
+        <span>Boot 22:42</span>
+        <span class="clock">04:12</span>
+      </div>
+
+      <div class="sec-h match">
+        <span class="marker"></span>
+        <span class="label">Live Match</span>
+        <span class="rule"></span>
+        <span class="ident">in progress</span>
+      </div>
+
+      <div class="match">
+        <div class="match-grid">
+          <div class="stat">
+            <span class="stat-v">2</span>
+            <span class="stat-l">Goals</span>
+          </div>
+          <div class="stat">
+            <span class="stat-v">1</span>
+            <span class="stat-l">Saves</span>
+          </div>
+          <div class="stat">
+            <span class="stat-v zero">0</span>
+            <span class="stat-l">Demos</span>
+          </div>
+          <div class="stat">
+            <span class="stat-v">86</span>
+            <span class="stat-l">Boost</span>
+          </div>
+          <div class="stat">
+            <span class="stat-v zero">0</span>
+            <span class="stat-l">Own</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec-h">
+        <span class="marker"></span>
+        <span class="label">Session Totals</span>
+        <span class="rule"></span>
+        <span class="ident">5 matches · 22:42</span>
+      </div>
+
+      <div class="session">
+        <div class="session-record">
+          <span class="rec">3<span class="dash">–</span>2</span>
+          <span class="lbl">W&nbsp;–&nbsp;L</span>
+          <span class="ticks">
+            <span class="tick win"></span>
+            <span class="tick loss"></span>
+            <span class="tick win"></span>
+            <span class="tick loss"></span>
+            <span class="tick win"></span>
+          </span>
+          <span class="streak">W1</span>
+        </div>
+
+        <dl class="telemetry">
+          <dt>Totals</dt>
+          <dd>
+            <span class="pair"><small>G</small><b>7</b></span>
+            <span class="pair"><small>S</small><b>4</b></span>
+            <span class="pair"><small>D</small><b>2</b></span>
+            <span class="pair"><small>Boost</small><b>361</b></span>
+            <span class="pair"><small>OG</small><b class="warn">1</b></span>
+          </dd>
+
+          <dt>Ball</dt>
+          <dd>
+            <span class="pair"><small>Lobby</small><b>105.6</b><span class="unit">km/h</span></span>
+            <span class="pair"><small>Me</small><b>98.4</b><span class="unit">km/h</span></span>
+            <span class="pair"><small>Crossbar</small><b>1</b></span>
+          </dd>
+
+          <dt>Hardest</dt>
+          <dd>
+            <span class="pair"><b>1857 N</b><span class="unit">58.0 km/h · slgh</span></span>
+          </dd>
+
+          <dt>MMR</dt>
+          <dd>
+            <span class="pair"><small>1v1</small><b>785</b><span class="delta">+8</span></span>
+            <span class="pair"><small>Casual</small><b>1300</b><span class="unit" style="margin-left:6px">±0</span></span>
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

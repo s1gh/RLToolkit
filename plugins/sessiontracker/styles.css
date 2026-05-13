@@ -280,3 +280,282 @@
 /* Overlay-specific tweaks */
 body.overlay-mode { background: transparent; padding: 0; }
 body.overlay-mode #root { padding: 0; }
+
+/* ─── Cockpit overlay (st-c-*) ─────────────────────────────────
+ * Match-block dominant layout used by the in-game overlay.
+ * Class names are namespaced under st-c- to keep them isolated
+ * from the dashboard/settings st-* styles. Renders inside the
+ * shared #root with the toolkit's display/mono font stack.
+ */
+body.overlay-mode #root {
+  font-family: var(--rlt-display, sans-serif);
+  color: var(--rlt-txt, #e6e9f5);
+}
+
+.st-c-card {
+  background: linear-gradient(180deg, rgba(15, 19, 32, 0.94), rgba(22, 27, 44, 0.96));
+  border: 1px solid var(--rlt-line, #232a44);
+  border-radius: var(--rlt-radius, 10px);
+  overflow: hidden;
+  font-size: 13px;
+}
+
+/* Header strip */
+.st-c-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rlt-line, #232a44);
+  font-family: var(--rlt-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+}
+.st-c-title { color: var(--rlt-txt-2, #a9b0cf); }
+.st-c-meta  { color: var(--rlt-txt-2, #a9b0cf); }
+.st-c-meta b { color: var(--rlt-cyan, #22d3ee); font-weight: 600; }
+
+/* Record bar — W/L + ticks + streak */
+.st-c-record {
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--rlt-line, #232a44);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  background: rgba(15, 19, 32, 0.6);
+}
+.st-c-wl {
+  font-family: var(--rlt-display, sans-serif);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.04em;
+  color: var(--rlt-txt, #e6e9f5);
+  font-variant-numeric: tabular-nums;
+}
+.st-c-wl .dash {
+  color: var(--rlt-txt-3, #6c739a);
+  margin: 0 6px;
+  font-weight: 500;
+}
+.st-c-ticks { display: flex; gap: 3px; flex-wrap: wrap; }
+.st-c-tick {
+  width: 10px;
+  height: 10px;
+  border-radius: 1px;
+}
+.st-c-tick-win  { background: var(--rlt-cyan, #22d3ee); }
+.st-c-tick-loss { background: var(--rlt-magenta, #f472b6); }
+.st-c-streak {
+  font-family: var(--rlt-mono, monospace);
+  font-size: 10px;
+  color: var(--rlt-cyan, #22d3ee);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Live match block — dominant typographic numerals */
+.st-c-match {
+  padding: 14px 16px 16px;
+  border-bottom: 1px solid var(--rlt-line, #232a44);
+}
+.st-c-match-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+.st-c-match-tag {
+  font-family: var(--rlt-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--rlt-cyan, #22d3ee);
+  text-transform: uppercase;
+}
+.st-c-match-tag::before {
+  content: "■";
+  margin-right: 6px;
+  color: var(--rlt-cyan, #22d3ee);
+  font-size: 8px;
+  vertical-align: middle;
+}
+.st-c-match-result {
+  font-family: var(--rlt-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.st-c-match-result.win  { color: var(--rlt-cyan, #22d3ee); }
+.st-c-match-result.loss { color: var(--rlt-magenta, #f472b6); }
+
+.st-c-match-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px 6px;
+}
+.st-c-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 2px 0;
+  min-width: 0;
+}
+.st-c-stat-v {
+  font-family: var(--rlt-display, sans-serif);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--rlt-txt, #e6e9f5);
+  font-variant-numeric: tabular-nums;
+}
+.st-c-stat-v.zero { color: var(--rlt-txt-3, #6c739a); }
+.st-c-stat-l {
+  font-family: var(--rlt-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+  margin-top: 5px;
+}
+
+/* Session telemetry strip — Session / Ball Speed / MMR rows */
+.st-c-strip {
+  padding: 12px 14px;
+  background: rgba(10, 12, 20, 0.55);
+}
+.st-c-srow {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 0;
+  font-family: var(--rlt-mono, monospace);
+  font-size: 11px;
+}
+.st-c-srow + .st-c-srow {
+  border-top: 1px dashed var(--rlt-line, #232a44);
+  margin-top: 2px;
+  padding-top: 6px;
+}
+.st-c-srow-l {
+  color: var(--rlt-txt-3, #6c739a);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.st-c-srow-v {
+  color: var(--rlt-txt-2, #a9b0cf);
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.st-c-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.st-c-pair small {
+  color: var(--rlt-txt-3, #6c739a);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.st-c-pair small.dim { color: var(--rlt-txt-3, #6c739a); }
+.st-c-pair small.st-pos { color: var(--rlt-cyan, #22d3ee); }
+.st-c-pair small.st-neg { color: var(--rlt-magenta, #f472b6); }
+.st-c-pair b {
+  color: var(--rlt-txt, #e6e9f5);
+  font-weight: 500;
+}
+.st-c-pair b.mut { color: var(--rlt-txt-3, #6c739a); font-weight: 500; }
+
+/* Goal Modifiers section — its own block at the bottom of the
+   card, split into Match / Session columns. Match column uses
+   cyan counts to flag what just happened live. ownGoal renders
+   in magenta on both columns. */
+.st-c-mods {
+  border-top: 1px solid var(--rlt-line, #232a44);
+  background: rgba(10, 12, 20, 0.55);
+  padding: 10px 14px 12px;
+}
+.st-c-mods-h {
+  padding-bottom: 8px;
+  font-family: var(--rlt-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+}
+.st-c-mods-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 18px;
+  row-gap: 6px;
+  position: relative;
+}
+.st-c-mods-cols::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 50%;
+  width: 1px;
+  background: var(--rlt-line, #232a44);
+  transform: translateX(-0.5px);
+}
+.st-c-mod-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.st-c-mod-col-h {
+  font-family: var(--rlt-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+  padding-bottom: 4px;
+}
+.st-c-mod-col.live .st-c-mod-col-h { color: var(--rlt-cyan, #22d3ee); }
+
+.st-c-mod-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--rlt-mono, monospace);
+  font-size: 11px;
+}
+.st-c-mod-empty {
+  color: var(--rlt-txt-3, #6c739a);
+  font-style: italic;
+  letter-spacing: 0.04em;
+}
+.st-c-mod-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.st-c-mod-n {
+  color: var(--rlt-txt-2, #a9b0cf);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-c-mod-v {
+  color: var(--rlt-txt, #e6e9f5);
+  font-weight: 500;
+}
+.st-c-mod-col.live .st-c-mod-v { color: var(--rlt-cyan, #22d3ee); font-weight: 600; }
+.st-c-mod-item.neg .st-c-mod-v { color: var(--rlt-magenta, #f472b6); }
+.st-c-mod-col.live .st-c-mod-item.neg .st-c-mod-v { color: var(--rlt-magenta, #f472b6); }

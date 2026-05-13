@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SessionTracker — Mockup B (Split Rail)</title>
+<style>
+  @font-face {
+    font-family: "Saira Condensed";
+    font-weight: 500;
+    font-style: normal;
+    src: url("/fonts/saira-condensed-500-latin.woff2") format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Saira Condensed";
+    font-weight: 600;
+    font-style: normal;
+    src: url("/fonts/saira-condensed-600-latin.woff2") format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Saira Condensed";
+    font-weight: 700;
+    font-style: normal;
+    src: url("/fonts/saira-condensed-700-latin.woff2") format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "JetBrains Mono";
+    font-weight: 400 600;
+    font-style: normal;
+    src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2");
+    font-display: swap;
+  }
+
+  :root {
+    --bg-0:   #0a0c14;
+    --bg-1:   #0f1320;
+    --bg-2:   #161b2c;
+    --bg-3:   #1d2238;
+    --line:   #232a44;
+    --line-2: #2f375a;
+    --txt:    #e6e9f5;
+    --txt-2:  #a9b0cf;
+    --txt-3:  #6c739a;
+    --cyan:   #22d3ee;
+    --magenta:#f472b6;
+    --gold:   #fbbf24;
+
+    --display: "Saira Condensed", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  html, body {
+    background: #1a1f2e url("https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1400&q=60") center/cover no-repeat;
+    min-height: 100vh;
+    margin: 0;
+    padding: 40px;
+    font-family: var(--display);
+    color: var(--txt);
+  }
+  .stage {
+    max-width: 460px;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: linear-gradient(180deg, rgba(15, 19, 32, 0.94), rgba(22, 27, 44, 0.96));
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    overflow: hidden;
+  }
+
+  /* ── Header ──────────────────────────────────────────────── */
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--txt-3);
+  }
+  .head .ident b { color: var(--cyan); font-weight: 600; }
+
+  /* ── Record bar ──────────────────────────────────────────── */
+  .record-bar {
+    padding: 12px 14px;
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    gap: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .record {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 32px;
+    line-height: 1;
+    color: var(--txt);
+    font-variant-numeric: tabular-nums;
+  }
+  .record .dash { color: var(--txt-3); margin: 0 4px; font-weight: 500; }
+  .record-lbl {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    color: var(--txt-3);
+    text-transform: uppercase;
+  }
+  .ticks { display: flex; gap: 3px; }
+  .tick {
+    width: 9px; height: 9px; border-radius: 1px;
+  }
+  .tick.win  { background: var(--cyan); }
+  .tick.loss { background: var(--magenta); }
+  .streak {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--cyan);
+    letter-spacing: 0.18em;
+    justify-self: end;
+  }
+
+  /* ── Split: MATCH | SESSION ──────────────────────────────── */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    position: relative;
+  }
+  .split::before {
+    content: "";
+    position: absolute;
+    top: 38px;
+    bottom: 14px;
+    left: 50%;
+    width: 1px;
+    background: var(--line);
+  }
+
+  .col {
+    padding: 12px 16px 16px;
+  }
+  .col-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+  }
+  .col-h .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--txt-2);
+  }
+  .col.match .col-h .tag { color: var(--cyan); }
+  .col.match .col-h .tag::before {
+    content: "■";
+    font-size: 7px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .col-h .meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--txt-3);
+    letter-spacing: 0.1em;
+  }
+
+  .col-stats {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    row-gap: 6px;
+    column-gap: 10px;
+    align-items: baseline;
+  }
+  .col-stats dt {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--txt-3);
+  }
+  .col-stats dd {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 17px;
+    line-height: 1;
+    color: var(--txt);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .col-stats dd.zero { color: var(--txt-3); font-weight: 500; }
+  .col-stats dd.warn { color: var(--magenta); }
+  .col-stats dd .unit {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--txt-3);
+    margin-left: 3px;
+    letter-spacing: 0.12em;
+  }
+
+  /* ── Telemetry footer (session-only signals) ─────────────── */
+  .footer {
+    border-top: 1px solid var(--line);
+    padding: 10px 14px;
+    background: rgba(10, 12, 20, 0.55);
+    font-family: var(--mono);
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .foot-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .foot-row .l {
+    color: var(--txt-3);
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    flex: 0 0 60px;
+  }
+  .foot-row .v {
+    color: var(--txt-2);
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .foot-row .v .pair small {
+    color: var(--txt-3);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    margin-right: 4px;
+    text-transform: uppercase;
+  }
+  .foot-row .v .pair b {
+    color: var(--txt);
+    font-weight: 500;
+  }
+  .foot-row .v .pair .delta {
+    color: var(--cyan);
+    margin-left: 3px;
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="card">
+      <div class="head">
+        <span>SESSION TRACKER</span>
+        <span class="ident"><b>1V1</b> · 22:42</span>
+      </div>
+
+      <div class="record-bar">
+        <span class="record">3<span class="dash">–</span>2</span>
+        <span class="record-lbl">W&nbsp;–&nbsp;L</span>
+        <span class="ticks">
+          <span class="tick win"></span>
+          <span class="tick loss"></span>
+          <span class="tick win"></span>
+          <span class="tick loss"></span>
+          <span class="tick win"></span>
+        </span>
+        <span class="streak">W1</span>
+      </div>
+
+      <div class="split">
+        <div class="col match">
+          <div class="col-h">
+            <span class="tag">Match</span>
+            <span class="meta">04:12</span>
+          </div>
+          <dl class="col-stats">
+            <dt>Goals</dt>     <dd>2</dd>
+            <dt>Saves</dt>     <dd>1</dd>
+            <dt>Demos</dt>     <dd class="zero">0</dd>
+            <dt>Boost</dt>     <dd>86<span class="unit">~</span></dd>
+            <dt>Own goals</dt> <dd class="zero">0</dd>
+          </dl>
+        </div>
+        <div class="col session">
+          <div class="col-h">
+            <span class="tag">Session</span>
+            <span class="meta">5 matches</span>
+          </div>
+          <dl class="col-stats">
+            <dt>Goals</dt>     <dd>7</dd>
+            <dt>Saves</dt>     <dd>4</dd>
+            <dt>Demos</dt>     <dd>2</dd>
+            <dt>Boost</dt>     <dd>361<span class="unit">~</span></dd>
+            <dt>Own goals</dt> <dd class="warn">1</dd>
+          </dl>
+        </div>
+      </div>
+
+      <div class="footer">
+        <div class="foot-row">
+          <span class="l">Ball</span>
+          <span class="v">
+            <span class="pair"><small>Lobby</small><b>105.6</b><small> km/h</small></span>
+            <span class="pair"><small>Me</small><b>98.4</b><small> km/h</small></span>
+            <span class="pair"><small>Crossbar</small><b>1</b></span>
+          </span>
+        </div>
+        <div class="foot-row">
+          <span class="l">Hardest</span>
+          <span class="v">
+            <span class="pair"><b>1857 N</b><small>· 58.0 km/h · slgh</small></span>
+          </span>
+        </div>
+        <div class="foot-row">
+          <span class="l">MMR</span>
+          <span class="v">
+            <span class="pair"><small>1v1</small><b>785</b><span class="delta">+8</span></span>
+            <span class="pair"><small>Casual</small><b>1300</b><small style="margin-left:2px">±0</small></span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
