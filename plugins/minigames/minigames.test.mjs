@@ -348,3 +348,228 @@ test('draw: single-entry pool returns it even when excluded (no infinite loop)',
   const got = C.draw({ pool, level: 1, bias: 'standard', rng: () => 0.0, exclude: 'only' });
   assert.equal(got.id, 'only');
 });
+
+// ---- predicate engine tests ----
+// Build a tiny in-process bus so tests can fire events and watch the engine react.
+function makeBus() {
+  const subs = new Map();
+  return {
+    emit(name, payload) {
+      const list = subs.get(name);
+      if (!list) return;
+      for (const fn of list.slice()) fn(payload);
+    },
+    on(name, fn) {
+      if (!subs.has(name)) subs.set(name, []);
+      subs.get(name).push(fn);
+      return () => {
+        const list = subs.get(name);
+        if (!list) return;
+        const i = list.indexOf(fn);
+        if (i >= 0) list.splice(i, 1);
+      };
+    },
+  };
+}
+
+function makeCtx(overrides) {
+  const bus = makeBus();
+  let completed = 0; let failed = 0;
+  const ctx = {
+    on: (name, fn) => bus.on(name, fn),
+    matchState: () => 'live',
+    myTeam: () => 0,
+    opponents: () => [{ id: 'opp-1', name: 'Opponent1', team: 1 }, { id: 'opp-2', name: 'Opponent2', team: 1 }],
+    stats: { SAVE: 'Save', SAVIOR: 'Savior', PLAYMAKER: 'Playmaker', MVP: 'MVP' },
+    now: () => 0,
+    onComplete: () => { completed += 1; },
+    onFail: () => { failed += 1; },
+    rng: () => 0,
+    ...overrides,
+  };
+  return { ctx, bus, get completed() { return completed; }, get failed() { return failed; } };
+}
+
+test('validateEntry: rejects entries with missing required fields', () => {
+  const errs1 = C.validateEntry({});
+  assert.ok(errs1.length > 0);
+  const errs2 = C.validateEntry({ id: 'x', title: 'X', tier: 'easy', trigger: { kind: 'goal' } });
+  assert.deepEqual(errs2, []);
+});
+
+test('validateEntry: rejects unknown trigger kind', () => {
+  const errs = C.validateEntry({ id: 'x', title: 'X', tier: 'easy', trigger: { kind: 'banana' } });
+  assert.ok(errs.some((e) => /trigger\.kind/.test(e)));
+});
+
+test('validateEntry: rejects unknown tier', () => {
+  const errs = C.validateEntry({ id: 'x', title: 'X', tier: 'epic', trigger: { kind: 'goal' } });
+  assert.ok(errs.some((e) => /tier/.test(e)));
+});
+
+test('instantiate: fills defaults from tier when reward/penalty/time not set', () => {
+  const { ctx } = makeCtx();
+  const inst = C.instantiate({ id: 'x', title: 'X', tier: 'medium', trigger: { kind: 'save' } }, ctx);
+  assert.equal(inst.reward, 90);
+  assert.equal(inst.failPenalty, 45);
+  assert.equal(inst.timeLimitMs, 75000);
+});
+
+test('instantiate: honors explicit reward/penalty/time overrides', () => {
+  const { ctx } = makeCtx();
+  const inst = C.instantiate({ id: 'x', title: 'X', tier: 'medium', timeLimitMs: 30000, reward: 200, failPenalty: 80, trigger: { kind: 'save' } }, ctx);
+  assert.equal(inst.reward, 200);
+  assert.equal(inst.failPenalty, 80);
+  assert.equal(inst.timeLimitMs, 30000);
+});
+
+test('goal trigger: completes on _GoalScored when isMe and not own goal', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'g', title: 'Goal', tier: 'easy', trigger: { kind: 'goal', filters: { isMe: true, ownGoal: false } } }, w.ctx);
+  const dispose = inst.arm();
+  w.bus.emit('_GoalScored', { scorer: { isMe: false }, isOwnGoal: false, modifiers: {} });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {} });
+  assert.equal(w.completed, 1);
+  dispose();
+});
+
+test('goal trigger: modifiers filter requires the named modifier flag', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'g', title: 'Aerial', tier: 'hard', trigger: { kind: 'goal', filters: { isMe: true, modifiers: { aerial: true } } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: { aerial: false, bicycle: true } });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: { aerial: true } });
+  assert.equal(w.completed, 1);
+});
+
+test('goal trigger: goalSpeedMin filters out slow goals', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'g', title: 'Fast', tier: 'medium', trigger: { kind: 'goal', filters: { isMe: true, goalSpeedMin: 100 } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {}, goalSpeed: 80 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {}, goalSpeed: 120 });
+  assert.equal(w.completed, 1);
+});
+
+test('count > 1: completes only after N triggers', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'tpl', title: 'Three saves', tier: 'medium', count: 3, trigger: { kind: 'save', filters: { isMe: true } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  assert.equal(w.completed, 1);
+});
+
+test('demo trigger: requires attackerIsMe, excludes self-demo / team-demo by default', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'd', title: 'Demo', tier: 'medium', trigger: { kind: 'demo', filters: { attackerIsMe: true, excludeSelfDemo: true, excludeTeamDemo: true } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: false }, victim: { isMe: false }, isSelfDemo: false, isTeamDemo: false });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { isMe: false }, isSelfDemo: true, isTeamDemo: false });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { isMe: false }, isSelfDemo: false, isTeamDemo: true });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { isMe: false, id: 'opp-1' }, isSelfDemo: false, isTeamDemo: false });
+  assert.equal(w.completed, 1);
+});
+
+test('demo trigger: victimTargetOpponent binds to one chosen opponent and substitutes {opponent}', () => {
+  const w = makeCtx({ rng: () => 0 });
+  const inst = C.instantiate({
+    id: 'd', title: 'Demo {opponent} 2 times', tier: 'hard', count: 2,
+    trigger: { kind: 'demo', filters: { attackerIsMe: true, victimTargetOpponent: true } },
+  }, w.ctx);
+  assert.equal(inst.title, 'Demo Opponent1 2 times');
+  inst.arm();
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { id: 'opp-2' }, isSelfDemo: false, isTeamDemo: false });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { id: 'opp-1' }, isSelfDemo: false, isTeamDemo: false });
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { id: 'opp-1' }, isSelfDemo: false, isTeamDemo: false });
+  assert.equal(w.completed, 1);
+});
+
+test('targetOpponent: instantiate returns null when no opponents available', () => {
+  const w = makeCtx({ opponents: () => [] });
+  const inst = C.instantiate({ id: 'd', title: 'Demo {opponent}', tier: 'hard', trigger: { kind: 'demo', filters: { attackerIsMe: true, victimTargetOpponent: true } } }, w.ctx);
+  assert.equal(inst, null);
+});
+
+test('targetOpponent: roster-loss of the bound opponent fails the challenge', () => {
+  const w = makeCtx({ rng: () => 0 });
+  const inst = C.instantiate({
+    id: 'd', title: 'Demo {opponent}', tier: 'hard',
+    trigger: { kind: 'demo', filters: { attackerIsMe: true, victimTargetOpponent: true } },
+  }, w.ctx);
+  inst.arm();
+  // Opponent1 leaves the lobby.
+  w.bus.emit('_RosterChanged', { players: [{ id: 'opp-2', name: 'Opponent2', team: 1 }] });
+  assert.equal(w.failed, 1);
+});
+
+test('boostPickup trigger: minDelta filters out small-pad pickups', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'b', title: 'Big pads', tier: 'easy', count: 2, trigger: { kind: 'boostPickup', filters: { isMe: true, minDelta: 75 } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, delta: 12 });
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, delta: 12 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, delta: 88 });
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, delta: 100 });
+  assert.equal(w.completed, 1);
+});
+
+test('boostConsumed trigger: sums delta until sumDelta is reached', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'c', title: 'Use 250 boost', tier: 'medium', trigger: { kind: 'boostConsumed', filters: { isMe: true, sumDelta: 250 } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_BoostConsumed', { player: { isMe: true }, delta: 100 });
+  w.bus.emit('_BoostConsumed', { player: { isMe: true }, delta: 100 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_BoostConsumed', { player: { isMe: true }, delta: 60 });
+  assert.equal(w.completed, 1);
+});
+
+test('touch trigger: consecutive resets on any other player', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 't', title: '5 in a row', tier: 'easy', count: 5, trigger: { kind: 'touch', filters: { isMe: true, consecutive: true } } }, w.ctx);
+  inst.arm();
+  for (let i = 0; i < 4; i += 1) w.bus.emit('_BallHit', { player: { isMe: true } });
+  w.bus.emit('_BallHit', { player: { isMe: false } });
+  w.bus.emit('_BallHit', { player: { isMe: true } });
+  assert.equal(w.completed, 0);
+  for (let i = 0; i < 4; i += 1) w.bus.emit('_BallHit', { player: { isMe: true } });
+  assert.equal(w.completed, 1);
+});
+
+test('statfeed trigger: matches eventName via ctx.stats and requires targetIsMe', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 's', title: 'Savior', tier: 'hard', trigger: { kind: 'statfeed', filters: { eventName: 'SAVIOR', targetIsMe: true } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_StatfeedEvent', { eventName: 'Savior', mainTarget: { isMe: false } });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_StatfeedEvent', { eventName: 'Savior', mainTarget: { isMe: true } });
+  assert.equal(w.completed, 1);
+});
+
+test('challenges.json: every entry passes validateEntry', () => {
+  const raw = readFileSync(new URL('./challenges.json', import.meta.url), 'utf8');
+  const data = JSON.parse(raw);
+  assert.ok(Array.isArray(data.challenges));
+  assert.ok(data.challenges.length >= 15, 'at least 15 seed challenges expected, got ' + data.challenges.length);
+  for (const entry of data.challenges) {
+    const errs = C.validateEntry(entry);
+    assert.deepEqual(errs, [], 'entry ' + entry.id + ' failed validation: ' + errs.join('; '));
+  }
+});
+
+test('challenges.json: ids are unique', () => {
+  const data = JSON.parse(readFileSync(new URL('./challenges.json', import.meta.url), 'utf8'));
+  const ids = data.challenges.map((c) => c.id);
+  assert.equal(new Set(ids).size, ids.length, 'duplicate ids in challenges.json');
+});

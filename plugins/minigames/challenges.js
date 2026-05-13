@@ -120,10 +120,316 @@
     return within[Math.min(r2, within.length - 1)];
   }
 
+  // ---- DSL: validation ---------------------------------------------------
+
+  const VALID_TIERS = ['easy', 'medium', 'hard'];
+  const VALID_TRIGGER_KINDS = [
+    'goal', 'demo', 'save', 'epicSave', 'statfeed',
+    'boostPickup', 'boostConsumed', 'touch', 'crossbar',
+    'firstBlood', 'hatTrick', 'matchEndCondition',
+  ];
+
+  function validateEntry(entry) {
+    const errs = [];
+    if (!entry || typeof entry !== 'object') return ['entry must be an object'];
+    if (typeof entry.id !== 'string' || entry.id.length === 0) errs.push('id must be a non-empty string');
+    if (typeof entry.title !== 'string' || entry.title.length === 0) errs.push('title must be a non-empty string');
+    if (!VALID_TIERS.includes(entry.tier)) errs.push('tier must be one of ' + VALID_TIERS.join('/'));
+    if (!entry.trigger || typeof entry.trigger !== 'object') errs.push('trigger must be an object');
+    else if (!VALID_TRIGGER_KINDS.includes(entry.trigger.kind)) errs.push('trigger.kind unknown: ' + entry.trigger.kind);
+    if (entry.count != null && (typeof entry.count !== 'number' || entry.count < 1)) errs.push('count must be a positive integer');
+    if (entry.reward != null && typeof entry.reward !== 'number') errs.push('reward must be a number');
+    if (entry.failPenalty != null && typeof entry.failPenalty !== 'number') errs.push('failPenalty must be a number');
+    if (entry.timeLimitMs != null && (typeof entry.timeLimitMs !== 'number' || entry.timeLimitMs < 1000)) errs.push('timeLimitMs must be >= 1000');
+    return errs;
+  }
+
+  // ---- DSL: instantiation ------------------------------------------------
+  //
+  // instantiate(entry, ctx) -> runtime challenge object OR null when the entry
+  // can't be drawn in the current match (e.g. no opponents for a targetOpponent
+  // challenge).
+  //
+  // The ctx contract (provided by background.js at draw time):
+  //   on(eventName, handler) -> unsub        // subscribe via RLT.on
+  //   matchState() -> phase string
+  //   myTeam() -> 0 | 1 | null
+  //   opponents() -> [{id, name, team}, ...]
+  //   stats: { SAVE, SAVIOR, PLAYMAKER, MVP, ... }   // RLT.stats registry
+  //   now() -> ms-epoch
+  //   onComplete()                            // signal resolution as completed
+  //   onFail()                                // signal resolution as failed
+  //   rng() -> [0, 1)                         // for opponent picking (and reroll determinism in tests)
+
+  function instantiate(entry, ctx) {
+    const errs = validateEntry(entry);
+    if (errs.length > 0) throw new Error('invalid challenge entry "' + (entry?.id) + '": ' + errs.join('; '));
+
+    const tier = entry.tier;
+    const td = tierDefaults[tier];
+
+    // 1. Resolve a target opponent if the entry requests one.
+    const opponentBindings = collectOpponentBindings(entry);
+    let boundOpponent = null;
+    if (opponentBindings.length > 0) {
+      const opponents = ctx.opponents ? ctx.opponents() : [];
+      if (!Array.isArray(opponents) || opponents.length === 0) return null;
+      const idx = Math.floor((ctx.rng ? ctx.rng() : Math.random()) * opponents.length);
+      boundOpponent = opponents[Math.min(idx, opponents.length - 1)];
+    }
+
+    // 2. Title template substitution.
+    const title = boundOpponent
+      ? entry.title.replace(/\{opponent\}/g, boundOpponent.name || 'them')
+      : entry.title;
+
+    const runtime = {
+      id: entry.id,
+      title,
+      tier,
+      reward: typeof entry.reward === 'number' ? entry.reward : td.reward,
+      failPenalty: typeof entry.failPenalty === 'number' ? entry.failPenalty : td.failPenalty,
+      timeLimitMs: typeof entry.timeLimitMs === 'number' ? entry.timeLimitMs : td.timeLimitMs,
+      boundOpponent: boundOpponent ? { id: boundOpponent.id, name: boundOpponent.name } : null,
+      arm: null,
+    };
+
+    // 3. Build the arm() based on trigger.kind.
+    runtime.arm = buildArmer(entry, runtime, ctx);
+    return runtime;
+  }
+
+  function collectOpponentBindings(entry) {
+    const out = [];
+    const f = entry.trigger?.filters;
+    if (!f) return out;
+    if (f.assister?.targetOpponent) out.push('assister');
+    if (f.victimTargetOpponent) out.push('victim');
+    return out;
+  }
+
+  // ---- DSL: armers per trigger kind --------------------------------------
+
+  function buildArmer(entry, runtime, ctx) {
+    const filters = entry.trigger?.filters || {};
+    const target = entry.count && entry.count > 1 ? entry.count : 1;
+
+    return function arm() {
+      const unsubs = [];
+      let progress = 0;
+
+      // Roster-loss fail-fast for bound-opponent challenges.
+      if (runtime.boundOpponent) {
+        unsubs.push(ctx.on('_RosterChanged', (e) => {
+          if (!e || !Array.isArray(e.players)) return;
+          if (!e.players.some((p) => p.id === runtime.boundOpponent.id)) {
+            ctx.onFail();
+          }
+        }));
+      }
+
+      const tick = (delta) => {
+        progress += (typeof delta === 'number' ? delta : 1);
+        if (progress >= target) ctx.onComplete();
+      };
+
+      const kind = entry.trigger.kind;
+
+      if (kind === 'goal') {
+        unsubs.push(ctx.on('_GoalScored', (e) => {
+          if (!matchGoal(e, filters, runtime)) return;
+          tick();
+        }));
+      } else if (kind === 'demo') {
+        unsubs.push(ctx.on('_PlayerDemolished', (e) => {
+          if (!matchDemo(e, filters, runtime)) return;
+          tick();
+        }));
+      } else if (kind === 'save') {
+        unsubs.push(ctx.on('_StatfeedEvent', (e) => {
+          const want = ctx.stats?.SAVE || 'Save';
+          if (!e || e.eventName !== want) return;
+          if (filters.isMe !== false && !e.mainTarget?.isMe) return;
+          tick();
+        }));
+      } else if (kind === 'epicSave') {
+        unsubs.push(ctx.on('_EpicSave', (e) => {
+          if (filters.isMe !== false && !e?.mainTarget?.isMe) return;
+          tick();
+        }));
+      } else if (kind === 'statfeed') {
+        unsubs.push(ctx.on('_StatfeedEvent', (e) => {
+          const want = ctx.stats?.[filters.eventName] || filters.eventName;
+          if (!e || e.eventName !== want) return;
+          if (filters.targetIsMe !== false && !e.mainTarget?.isMe) return;
+          tick();
+        }));
+      } else if (kind === 'boostPickup') {
+        unsubs.push(ctx.on('_BoostPickup', (e) => {
+          if (!e?.player) return;
+          if (filters.isMe !== false && !e.player.isMe) return;
+          if (typeof filters.minDelta === 'number' && (e.delta || 0) < filters.minDelta) return;
+          tick();
+        }));
+      } else if (kind === 'boostConsumed') {
+        // boostConsumed is sum-based, not count-based: ignore `count` and instead
+        // accumulate `delta` until `filters.sumDelta` is reached.
+        const goal = typeof filters.sumDelta === 'number' && filters.sumDelta > 0 ? filters.sumDelta : 0;
+        let sum = 0;
+        unsubs.push(ctx.on('_BoostConsumed', (e) => {
+          if (!e?.player) return;
+          if (filters.isMe !== false && !e.player.isMe) return;
+          sum += (e.delta || 0);
+          if (sum >= goal) ctx.onComplete();
+        }));
+      } else if (kind === 'touch') {
+        const consecutive = filters.consecutive === true;
+        let streak = 0;
+        unsubs.push(ctx.on('_BallHit', (e) => {
+          if (!e?.player) return;
+          if (filters.isMe !== false && !e.player.isMe) {
+            if (consecutive) streak = 0;
+            return;
+          }
+          if (filters.isMe !== false && e.player.isMe) {
+            streak += 1;
+            if (consecutive) {
+              if (streak >= target) ctx.onComplete();
+            } else {
+              tick();
+            }
+          }
+        }));
+      } else if (kind === 'crossbar') {
+        unsubs.push(ctx.on('_CrossbarHit', (e) => {
+          if (!e?.player) return;
+          if (filters.isMe !== false && !e.player.isMe) return;
+          tick();
+        }));
+      } else if (kind === 'firstBlood') {
+        unsubs.push(ctx.on('_FirstBlood', (e) => {
+          if (!e?.scorer) return;
+          if (filters.isMe !== false && !e.scorer.isMe) return;
+          tick();
+        }));
+      } else if (kind === 'hatTrick') {
+        unsubs.push(ctx.on('_HatTrick', (e) => {
+          if (!e?.mainTarget) return;
+          if (filters.isMe !== false && !e.mainTarget.isMe) return;
+          tick();
+        }));
+      } else if (kind === 'matchEndCondition') {
+        // Composite predicates resolved at match end.
+        if (filters.noOwnGoal) {
+          let dirty = false;
+          unsubs.push(ctx.on('_OwnGoal', (e) => {
+            if (e?.deflector?.isMe) dirty = true;
+          }));
+          unsubs.push(ctx.on('_MatchEnded', () => {
+            if (!dirty) ctx.onComplete();
+          }));
+        }
+        if (filters.cleanRound) {
+          let inRound = false; let dirty = false;
+          unsubs.push(ctx.on('_MatchState', (e) => {
+            if (!e) return;
+            if (e.phase === 'live' && e.previousPhase !== 'live') {
+              inRound = true; dirty = false;
+            } else if (e.phase !== 'live' && inRound) {
+              inRound = false;
+              if (!dirty) ctx.onComplete();
+            }
+          }));
+          unsubs.push(ctx.on('_GoalScored', (e) => {
+            if (!inRound || !e) return;
+            const my = ctx.myTeam ? ctx.myTeam() : null;
+            if (my !== 0 && my !== 1) return;
+            if (e.concedingTeam === my) dirty = true;
+          }));
+        }
+      }
+
+      return () => { for (const u of unsubs) { try { u(); } catch (_) {} } };
+    };
+  }
+
+  function matchGoal(e, filters, runtime) {
+    if (!e?.scorer) return false;
+    if (filters.isMe !== false && !e.scorer.isMe) return false;
+    if (filters.ownGoal === false && e.isOwnGoal) return false;
+    if (filters.ownGoal === true && !e.isOwnGoal) return false;
+    if (filters.modifiers) {
+      const want = filters.modifiers;
+      const got = e.modifiers || {};
+      for (const k of Object.keys(want)) {
+        const targetFlag = 'is' + k.charAt(0).toUpperCase() + k.slice(1) + 'Goal';
+        // Modifiers come back as e.modifiers.isAerialGoal etc. The DSL uses
+        // the short form ("aerial"), so map: aerial -> isAerialGoal.
+        const flagValue = got[targetFlag] != null ? got[targetFlag] : got[k];
+        if (want[k] === true && !flagValue) return false;
+        if (want[k] === false && flagValue) return false;
+      }
+    }
+    if (typeof filters.goalSpeedMin === 'number' && !(typeof e.goalSpeed === 'number' && e.goalSpeed >= filters.goalSpeedMin)) return false;
+    if (filters.assister) {
+      if (filters.assister.isMe === true && !e.assister?.isMe) return false;
+      if (filters.assister.targetOpponent === true && runtime.boundOpponent) {
+        if (!e.assister || e.assister.id !== runtime.boundOpponent.id) return false;
+      }
+    }
+    return true;
+  }
+
+  function matchDemo(e, filters, runtime) {
+    if (!e?.attacker) return false;
+    if (filters.attackerIsMe !== false && !e.attacker.isMe) return false;
+    if (filters.victimIsMe === true && !e.victim?.isMe) return false;
+    if (filters.excludeSelfDemo !== false && e.isSelfDemo) return false;
+    if (filters.excludeTeamDemo !== false && e.isTeamDemo) return false;
+    if (filters.attackerWasSupersonic === true && !e.attackerWasSupersonic) return false;
+    if (filters.victimTargetOpponent === true && runtime.boundOpponent) {
+      if (!e.victim || e.victim.id !== runtime.boundOpponent.id) return false;
+    }
+    return true;
+  }
+
+  // ---- pool loader -------------------------------------------------------
+  //
+  // loadPool(rawJson) parses challenges.json (string or already-parsed object)
+  // into an array of validated DSL entries. On any parse or validation error,
+  // returns { entries: [], errors: [...] }. The state machine treats an empty
+  // pool by showing "Waiting for next match", so the plugin does not crash on
+  // a malformed JSON, just logs and stops drawing.
+  function loadPool(raw) {
+    let data;
+    try {
+      data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch (err) {
+      return { entries: [], errors: ['parse error: ' + (err?.message)] };
+    }
+    if (!data || !Array.isArray(data.challenges)) {
+      return { entries: [], errors: ['expected { challenges: [...] }'] };
+    }
+    const entries = [];
+    const errors = [];
+    for (const entry of data.challenges) {
+      const errs = validateEntry(entry);
+      if (errs.length > 0) {
+        errors.push('challenge "' + (entry?.id) + '": ' + errs.join('; '));
+        continue;
+      }
+      entries.push(entry);
+    }
+    return { entries, errors };
+  }
+
   root.MinigamesChallenges = {
     tierDefaults,
     weightAnchors,
     interpolateWeights,
     draw,
+    validateEntry,
+    instantiate,
+    loadPool,
   };
 })(typeof window === 'undefined' ? globalThis : window);
