@@ -164,6 +164,14 @@
   // ---- SDK glue ---------------------------------------------------------
   // This view is responsible for state. Other views read RLT.store and
   // re-render on change.
+  //
+  // Background views: the global RLT.store is read-only by SDK design;
+  // only overlay/settings views can write via the global store. The
+  // writable store for this plugin arrives as handle.store from the
+  // register() lifecycle (with allowWrites: true), and is captured here
+  // for use by every persist/notify call.
+
+  let store = null;            // set in init(handle); handle.store is allowWrites-respecting
 
   const SESSION_KEY  = 'session';
   const RECORDS_KEY  = 'records';
@@ -208,19 +216,19 @@
     }
 
     // 2. Session + records + settings.
-    const rawSession = await RLT.store.get(SESSION_KEY);
+    const rawSession = await store.get(SESSION_KEY);
     session = rawSession
       ? root.MinigamesReducers.wipeIfStaleBoot(rawSession, RLT.bootId || '')
       : root.MinigamesReducers.emptySession(RLT.bootId || '');
-    if (session !== rawSession) await RLT.store.set(SESSION_KEY, session);
+    if (session !== rawSession) await store.set(SESSION_KEY, session);
 
-    const rawRecords = await RLT.store.get(RECORDS_KEY);
+    const rawRecords = await store.get(RECORDS_KEY);
     records = rawRecords || root.MinigamesReducers.emptyRecords();
-    if (!rawRecords) await RLT.store.set(RECORDS_KEY, records);
+    if (!rawRecords) await store.set(RECORDS_KEY, records);
 
-    const rawSettings = await RLT.store.get(SETTINGS_KEY);
+    const rawSettings = await store.get(SETTINGS_KEY);
     if (rawSettings?.difficulty) settings = rawSettings;
-    if (!rawSettings) await RLT.store.set(SETTINGS_KEY, settings);
+    if (!rawSettings) await store.set(SETTINGS_KEY, settings);
 
     // If we booted mid-match (rare: toolkit started while a match is live),
     // draw immediately so we don't waste the round.
@@ -443,28 +451,31 @@
   let saveInFlight = false;
   let saveDirty = false;
   function persistSession() {
-    // Coalesce concurrent writes. RLT.store.set is async and the in-flight
+    // Coalesce concurrent writes. store.set is async and the in-flight
     // request will serialise whatever the session object holds at JSON-time;
     // if more mutations land before the write resolves, set the dirty flag
     // and re-fire once.
+    if (!store) return;
     if (saveInFlight) { saveDirty = true; return; }
     saveInFlight = true;
     saveDirty = false;
-    RLT.store.set(SESSION_KEY, session).then(() => {
+    store.set(SESSION_KEY, session).then(() => {
       saveInFlight = false;
       if (saveDirty) persistSession();
     });
   }
   function persistRecords() {
-    RLT.store.set(RECORDS_KEY, records);
+    if (!store) return;
+    store.set(RECORDS_KEY, records);
   }
 
   // Overlays read this counter via store.onChange('tick', ...) and rerender.
   // Payload is intentionally tiny: full state lives under the session key.
   let tickSeq = 0;
   function pushTickEvent(evt) {
+    if (!store) return;
     tickSeq += 1;
-    RLT.store.set(TICK_KEY, { seq: tickSeq, ...evt, at: Date.now() });
+    store.set(TICK_KEY, { seq: tickSeq, ...evt, at: Date.now() });
   }
 
   // ---- match end shared path -------------------------------------------
@@ -494,6 +505,13 @@
     // Background views are read-only by default in the SDK; the state
     // machine lives here and must write session/records/tick/settings.
     allowWrites: true,
+
+    init(handle) {
+      // The global RLT.store is read-only for background views; the
+      // writable per-plugin store arrives on the handle. Capture it for
+      // every persist/notify path.
+      store = handle.store;
+    },
 
     async ready() {
       await bootstrap();
