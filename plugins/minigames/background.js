@@ -491,6 +491,10 @@
   // ---- register ---------------------------------------------------------
 
   RLT.plugin.register({
+    // Background views are read-only by default in the SDK; the state
+    // machine lives here and must write session/records/tick/settings.
+    allowWrites: true,
+
     async ready() {
       await bootstrap();
     },
