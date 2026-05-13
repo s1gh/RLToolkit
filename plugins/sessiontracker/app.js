@@ -79,23 +79,36 @@
     bucket.match = emptyMatch();
   }
 
-  // CountdownBegin fires at every kickoff, including the one after
-  // each goal during a live match — not just at the start of a new
-  // match. Resetting unconditionally on countdown wipes the live match
-  // counters mid-match (own-goal scored → next kickoff → OG back to 0).
-  // Gate the reset on matchGuid changing: the first countdown for a
-  // given guid is the start of that match; subsequent countdowns with
-  // the same guid are post-goal kickoffs and must not touch the block.
-  // Offline / private play sometimes has no guid; treat empty as its
-  // own identity so we still reset on the first countdown, but not on
-  // every kickoff after.
-  function applyMatchStateForReset(bucket, payload) {
+  // _MatchStarted is the authoritative "new match has begun" signal
+  // from the backend — fires exactly once per matchGuid on the first
+  // live-ish transition. Reset the per-match block and stamp the
+  // guid so the forfeit-loss handler can tell whether we ever tallied
+  // it. Empty guid is treated as a real identity (offline / private
+  // play) so we still get a clean reset.
+  function applyMatchStarted(bucket, payload) {
     if (!bucket || !payload) return;
-    if (payload.phase !== 'countdown') return;
     const guid = typeof payload.matchGuid === 'string' ? payload.matchGuid : '';
-    if (bucket.lastMatchGuid === guid) return;
     bucket.lastMatchGuid = guid;
     resetMatch(bucket);
+  }
+
+  // applyMatchAbandoned tallies a forfeit loss when MatchDestroyed
+  // fires without _MatchEnded having tallied first. RL gives the
+  // leaver a forfeit-loss penalty either way, so we follow suit. No-op
+  // if we never observed this match (lastMatchGuid empty) or the
+  // result was already tallied. myTeam null means we never figured out
+  // which team we're on — bail rather than guess.
+  function applyMatchAbandoned(bucket, myTeam) {
+    if (!bucket) return;
+    if (myTeam !== 0 && myTeam !== 1) return;
+    const guid = bucket.lastMatchGuid || '';
+    if (!guid) return;
+    if (bucket.lastTalliedGuid === guid) return;
+    bucket.results.losses++;
+    bucket.results.last.push('loss');
+    if (bucket.results.last.length > 10) bucket.results.last.shift();
+    bucket.match.result = 'loss';
+    bucket.lastTalliedGuid = guid;
   }
 
   function applyMatchEnded(bucket, payload, myTeam) {
@@ -326,7 +339,8 @@
   const Reducers = {
     emptyBucket,
     resetMatch,
-    applyMatchStateForReset,
+    applyMatchStarted,
+    applyMatchAbandoned,
     applyMatchEnded,
     applyPlayerScoreChanged,
     applyPlayerDemolished,
@@ -890,17 +904,32 @@
         }
       },
 
+      _MatchStarted(p) {
+        if (bucket) {
+          applyMatchStarted(bucket, p);
+          save(); scheduleRender();
+        }
+        const next = modeFromRoster(rosterSize());
+        currentMode = next;
+        if (RANKED_MODES.includes(next)) fetchMmr();
+      },
+
+      _MatchAbandoned() {
+        // Backend fires this synthetic when MatchDestroyed arrives
+        // without a matching MatchEnded — user ragequit, disconnect,
+        // server crash. RL itself counts these as a forfeit loss, so
+        // we mirror that on the W/L bar. The backend dedupes the
+        // event against the wire MatchEnded, so we don't need to.
+        if (!bucket) return;
+        snapshotMyTeam();
+        const team = (typeof myTeam === 'number') ? myTeam : null;
+        applyMatchAbandoned(bucket, team);
+        save(); scheduleRender();
+      },
+
       _MatchState(p) {
         snapshotMyTeam();
-        if (p && p.phase === 'countdown') {
-          if (bucket) {
-            applyMatchStateForReset(bucket, p);
-            save(); scheduleRender();
-          }
-          const next = modeFromRoster(rosterSize());
-          currentMode = next;
-          if (RANKED_MODES.includes(next)) fetchMmr();
-        } else if (p && p.phase === 'live' && currentMode === null) {
+        if (p && p.phase === 'live' && currentMode === null) {
           // Fallback: countdown was missed (e.g. mid-match reconnect).
           const next = modeFromRoster(rosterSize());
           currentMode = next;

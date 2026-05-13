@@ -584,11 +584,10 @@ test('applyCrossbarHit: missing ballLastTouch.player → no-op', () => {
   assert.equal(b.crossbar.hits, 0);
 });
 
-// applyMatchStateForReset: a kickoff countdown also fires after every
-// goal inside a match (CountdownBegin = "round countdown began"), so
-// resetting on every countdown wipes the live match counters mid-match.
-// The reducer gates the reset on matchGuid changing.
-test('applyMatchStateForReset: first countdown of a new match clears the match block', () => {
+// applyMatchStarted is the canonical "new match has begun" hook
+// driven by the backend's _MatchStarted event. It clears the per-
+// match block and stamps the guid so abandon detection has identity.
+test('applyMatchStarted: clears match block and stamps guid', () => {
   const b = R.emptyBucket('b');
   b.match.result = 'loss';
   b.match.goals = 1;
@@ -597,7 +596,7 @@ test('applyMatchStateForReset: first countdown of a new match clears the match b
   b.match.pickups = 80;
   b.match.modifiers.aerial = 1;
   b.match.modifiers.ownGoal = 1;
-  R.applyMatchStateForReset(b, { phase: 'countdown', matchGuid: 'g1' });
+  R.applyMatchStarted(b, { matchGuid: 'g1' });
   assert.equal(b.match.result, null);
   assert.equal(b.match.goals, 0);
   assert.equal(b.match.boost, 0);
@@ -607,42 +606,63 @@ test('applyMatchStateForReset: first countdown of a new match clears the match b
   assert.equal(b.lastMatchGuid, 'g1');
 });
 
-test('applyMatchStateForReset: countdown within the same match (post-goal kickoff) does not reset', () => {
-  const b = R.emptyBucket('b');
-  R.applyMatchStateForReset(b, { phase: 'countdown', matchGuid: 'g1' });
-  b.match.modifiers.ownGoal = 1;
-  R.applyMatchStateForReset(b, { phase: 'countdown', matchGuid: 'g1' });
-  assert.equal(b.match.modifiers.ownGoal, 1, 'own goal survives mid-match kickoff');
-});
-
-test('applyMatchStateForReset: non-countdown phases never reset', () => {
-  const b = R.emptyBucket('b');
-  b.match.goals = 2;
-  R.applyMatchStateForReset(b, { phase: 'live', matchGuid: 'g1' });
-  R.applyMatchStateForReset(b, { phase: 'ended', matchGuid: 'g1' });
-  R.applyMatchStateForReset(b, { phase: 'podium', matchGuid: 'g1' });
-  assert.equal(b.match.goals, 2);
-});
-
-test('applyMatchStateForReset: empty guid still resets once per countdown chain (offline play)', () => {
-  // Offline/private matches sometimes lack a guid. We can't gate on
-  // identity, so the first countdown we see resets; subsequent
-  // countdowns with the same empty guid do not.
+test('applyMatchStarted: empty guid still resets and stamps empty', () => {
   const b = R.emptyBucket('b');
   b.match.goals = 3;
-  R.applyMatchStateForReset(b, { phase: 'countdown', matchGuid: '' });
+  R.applyMatchStarted(b, { matchGuid: '' });
   assert.equal(b.match.goals, 0);
-  b.match.goals = 5;
-  R.applyMatchStateForReset(b, { phase: 'countdown', matchGuid: '' });
-  assert.equal(b.match.goals, 5, 'second countdown with same empty guid is mid-match');
+  assert.equal(b.lastMatchGuid, '');
 });
 
-test('applyMatchStateForReset: bad payload is a no-op', () => {
+test('applyMatchStarted: bad payload is a no-op', () => {
   const b = R.emptyBucket('b');
   b.match.goals = 2;
-  R.applyMatchStateForReset(b, null);
-  R.applyMatchStateForReset(b, {});
+  R.applyMatchStarted(b, null);
   assert.equal(b.match.goals, 2);
+});
+
+// applyMatchAbandoned tallies a forfeit loss when MatchDestroyed
+// arrives without _MatchEnded having tallied first. Dedupes via
+// lastTalliedGuid so a normal end-of-match destroy is a no-op.
+test('applyMatchAbandoned: untallied match counts as a loss', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchStarted(b, { matchGuid: 'g1' });
+  R.applyMatchAbandoned(b, 0);
+  assert.equal(b.results.losses, 1);
+  assert.equal(b.results.wins, 0);
+  assert.deepEqual(b.results.last, ['loss']);
+  assert.equal(b.match.result, 'loss');
+  assert.equal(b.lastTalliedGuid, 'g1');
+});
+
+test('applyMatchAbandoned: already-tallied match is a no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchStarted(b, { matchGuid: 'g1' });
+  R.applyMatchEnded(b, { matchGuid: 'g1', winnerTeamNum: 0 }, 0);
+  assert.equal(b.results.wins, 1);
+  R.applyMatchAbandoned(b, 0);
+  assert.equal(b.results.wins, 1, 'win should survive');
+  assert.equal(b.results.losses, 0, 'should not double-tally as loss');
+});
+
+test('applyMatchAbandoned: no current match → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchAbandoned(b, 0);
+  assert.equal(b.results.losses, 0);
+});
+
+test('applyMatchAbandoned: myTeam null → no-op (can\'t determine result)', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchStarted(b, { matchGuid: 'g1' });
+  R.applyMatchAbandoned(b, null);
+  assert.equal(b.results.losses, 0);
+});
+
+test('applyMatchAbandoned: empty current guid → no-op (no identity to dedupe against)', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchStarted(b, { matchGuid: '' });
+  R.applyMatchAbandoned(b, 0);
+  assert.equal(b.results.losses, 0);
 });
 
 // Boost pickups: count of _BoostPickup events (one per pad grab), not
