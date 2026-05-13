@@ -170,6 +170,9 @@
   const SETTINGS_KEY = 'settings.difficulty';
   const TICK_KEY     = 'tick';  // bumped each timer tick so overlay can rerender
 
+  const TICK_INTERVAL_MS = 250;  // timer poll rate; tick events emit at 1Hz, see onTick
+  const DRAW_RETRY_LIMIT = 5;    // max ineligible-entry retries per drawNext call
+
   let session  = null;
   let records  = null;
   let settings = { difficulty: 'standard' };
@@ -180,6 +183,7 @@
   let activeDeadline = null;     // ms-epoch when timer expires, or null for open-ended challenges
   let activePausedRemaining = null; // ms remaining if paused (null for open-ended)
   let tickInterval = null;
+  let lastTickSecond = -1;       // last whole second of remaining time we emitted a tick for
 
   // Pool of validated DSL entries (NOT instantiated runtime challenges).
   // Loaded once at startup from challenges.json; instantiate() is called at
@@ -272,7 +276,7 @@
     // Up to 5 attempts: the first weighted pick may not be instantiable
     // (e.g. targetOpponent with no current opponents). Skip ineligible
     // entries and try again. After 5 misses, give up for this round.
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < DRAW_RETRY_LIMIT; i += 1) {
       const entry = root.MinigamesChallenges.draw({
         pool: poolEntries,
         level: session.level,
@@ -337,6 +341,7 @@
     activePausedRemaining = null;
     if (session) session.activeChallenge = null;
     stopTicking();
+    lastTickSecond = -1;
   }
 
   // ---- resolution -------------------------------------------------------
@@ -390,16 +395,19 @@
 
   function startTicking() {
     stopTicking();
-    tickInterval = setInterval(onTick, 250);
+    tickInterval = setInterval(onTick, TICK_INTERVAL_MS);
   }
   function stopTicking() {
     if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
   }
   function onTick() {
     if (!activeChallenge) return;
-    // Open-ended challenge: nothing to count down. The ticking interval
-    // still runs so the overlay knows we're active, but no timeout check.
+    // Open-ended challenge: nothing to count down. Emit a single tick so
+    // the overlay knows we're active, then stop bothering the store until
+    // the challenge resolves.
     if (activeDeadline === null) {
+      if (lastTickSecond !== -1) return;
+      lastTickSecond = 0;
       pushTickEvent({ type: 'tick', remainingMs: null });
       return;
     }
@@ -419,25 +427,32 @@
       timeoutActive();
       return;
     }
-    pushTickEvent({ type: 'tick', remainingMs: activeDeadline - Date.now() });
+    // Only push a tick when the displayed second changes. The store-backed
+    // tick channel doesn't need sub-second resolution, and 4Hz writes would
+    // hammer the JSON-on-disk store with no user-visible benefit.
+    const remainingMs = activeDeadline - Date.now();
+    const sec = Math.ceil(remainingMs / 1000);
+    if (sec !== lastTickSecond) {
+      lastTickSecond = sec;
+      pushTickEvent({ type: 'tick', remainingMs });
+    }
   }
 
   // ---- persistence + notification --------------------------------------
 
-  let saveInFlight = null;
+  let saveInFlight = false;
+  let saveDirty = false;
   function persistSession() {
-    // Coalesce: RLT.store.set is async; if a save is queued, drop the
-    // current one and queue this. The last write wins.
-    if (saveInFlight) { saveInFlight = session; return; }
-    const payload = session;
-    saveInFlight = session;
-    RLT.store.set(SESSION_KEY, payload).then(() => {
-      const queued = saveInFlight;
-      saveInFlight = null;
-      if (queued && queued !== payload) {
-        // Re-persist if a newer state queued behind us.
-        persistSession();
-      }
+    // Coalesce concurrent writes. RLT.store.set is async and the in-flight
+    // request will serialise whatever the session object holds at JSON-time;
+    // if more mutations land before the write resolves, set the dirty flag
+    // and re-fire once.
+    if (saveInFlight) { saveDirty = true; return; }
+    saveInFlight = true;
+    saveDirty = false;
+    RLT.store.set(SESSION_KEY, session).then(() => {
+      saveInFlight = false;
+      if (saveDirty) persistSession();
     });
   }
   function persistRecords() {
@@ -455,6 +470,10 @@
   // ---- match end shared path -------------------------------------------
 
   function finishMatch(matchGuid, result) {
+    // Defensive: a previous resolveActive() may have drawn a fresh challenge
+    // if the phase still reported gameplay when _MatchAbandoned fired. Kill
+    // any survivor before stamping the match as ended.
+    teardownActive();
     root.MinigamesReducers.endMatch(session, { matchGuid, now: Date.now(), result });
     const m = root.MinigamesReducers.currentMatch(session);
     if (m) {
@@ -517,7 +536,10 @@
 
     dispose() {
       stopTicking();
-      if (armDispose) { try { armDispose(); } catch (_) {} }
+      if (armDispose) {
+        try { armDispose(); } catch (_) {}
+        armDispose = null;
+      }
     },
   });
 })(typeof window === 'undefined' ? globalThis : window);
