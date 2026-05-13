@@ -241,3 +241,91 @@ test('takeRecord: bumps bestMatchXp only when surpassed (positive only)', () => 
   R.takeRecord(recs, { matchXp: -500 });
   assert.equal(recs.bestMatchXp, 250); // negatives never lower the best
 });
+
+const csb = { window: {} };
+new Function('window', readFileSync(new URL('./challenges.js', import.meta.url), 'utf8'))(csb.window);
+const C = csb.window.MinigamesChallenges;
+
+test('tierDefaults: easy/medium/hard have reward, penalty, timeLimitMs', () => {
+  assert.equal(C.tierDefaults.easy.reward, 40);
+  assert.equal(C.tierDefaults.easy.failPenalty, 20);
+  assert.equal(C.tierDefaults.easy.timeLimitMs, 45000);
+  assert.equal(C.tierDefaults.medium.reward, 90);
+  assert.equal(C.tierDefaults.medium.failPenalty, 45);
+  assert.equal(C.tierDefaults.medium.timeLimitMs, 75000);
+  assert.equal(C.tierDefaults.hard.reward, 180);
+  assert.equal(C.tierDefaults.hard.failPenalty, 90);
+  assert.equal(C.tierDefaults.hard.timeLimitMs, 120000);
+});
+
+test('interpolateWeights: standard@level=1 matches the anchor row', () => {
+  const w = C.interpolateWeights(1, 'standard');
+  assert.equal(w.easy.toFixed(2), '0.60');
+  assert.equal(w.medium.toFixed(2), '0.30');
+  assert.equal(w.hard.toFixed(2), '0.10');
+});
+
+test('interpolateWeights: standard@level=5 matches the anchor row', () => {
+  const w = C.interpolateWeights(5, 'standard');
+  assert.equal(w.easy.toFixed(2), '0.40');
+  assert.equal(w.medium.toFixed(2), '0.40');
+  assert.equal(w.hard.toFixed(2), '0.20');
+});
+
+test('interpolateWeights: linear interpolation between anchors (level 3, standard)', () => {
+  // anchors: level 1 -> easy 0.60, level 5 -> easy 0.40. midway-ish (level 3 = 2/4 between) -> 0.50.
+  const w = C.interpolateWeights(3, 'standard');
+  assert.equal(w.easy.toFixed(2), '0.50');
+});
+
+test('interpolateWeights: standard@level=25 clamps to the level-20+ row', () => {
+  const w = C.interpolateWeights(25, 'standard');
+  assert.equal(w.easy.toFixed(2), '0.15');
+  assert.equal(w.hard.toFixed(2), '0.40');
+});
+
+test('interpolateWeights: eased weights hard at 0.00 at level 1', () => {
+  const w = C.interpolateWeights(1, 'eased');
+  assert.equal(w.hard.toFixed(2), '0.00');
+});
+
+test('interpolateWeights: sharp weights easy at 0.10 at level 10+', () => {
+  const w = C.interpolateWeights(10, 'sharp');
+  assert.equal(w.easy.toFixed(2), '0.10');
+});
+
+test('draw: returns a challenge whose id is in the pool', () => {
+  const pool = [
+    { id: 'e1', tier: 'easy' },
+    { id: 'm1', tier: 'medium' },
+    { id: 'h1', tier: 'hard' },
+  ];
+  let rngCalls = 0;
+  const rng = () => { rngCalls += 1; return 0.0; }; // always picks the first eligible
+  const got = C.draw({ pool, level: 1, bias: 'standard', rng, exclude: null });
+  assert.ok(['e1', 'm1', 'h1'].includes(got.id));
+  assert.ok(rngCalls >= 1);
+});
+
+test('draw: rerolls once when the only roll matches the exclude id (then accepts)', () => {
+  const pool = [
+    { id: 'e1', tier: 'easy' },
+    { id: 'e2', tier: 'easy' },
+  ];
+  let i = 0;
+  const sequence = [0.0, 0.99]; // first -> e1, second -> e2
+  const rng = () => sequence[i++ % sequence.length];
+  const got = C.draw({ pool, level: 1, bias: 'standard', rng, exclude: 'e1' });
+  assert.equal(got.id, 'e2');
+});
+
+test('draw: empty pool returns null', () => {
+  const got = C.draw({ pool: [], level: 1, bias: 'standard', rng: () => 0.5, exclude: null });
+  assert.equal(got, null);
+});
+
+test('draw: single-entry pool returns it even when excluded (no infinite loop)', () => {
+  const pool = [{ id: 'only', tier: 'easy' }];
+  const got = C.draw({ pool, level: 1, bias: 'standard', rng: () => 0.0, exclude: 'only' });
+  assert.equal(got.id, 'only');
+});
