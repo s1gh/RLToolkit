@@ -576,7 +576,7 @@ test('validateEntry: timeLimitMs:500 is rejected (below 1000ms floor)', () => {
   assert.ok(errs.some((e) => /timeLimitMs/.test(e)));
 });
 
-test('arm: idempotent — second triggering event after completion is a no-op', () => {
+test('arm: idempotent, second triggering event after completion is a no-op', () => {
   const w = makeCtx();
   const inst = C.instantiate({ id: 'g', title: 'Goal', tier: 'easy', trigger: { kind: 'goal', filters: { isMe: true } } }, w.ctx);
   inst.arm();
@@ -586,7 +586,7 @@ test('arm: idempotent — second triggering event after completion is a no-op', 
   assert.equal(w.completed, 1, 'onComplete must only fire once');
 });
 
-test('arm: idempotent — second roster-loss after fail is a no-op', () => {
+test('arm: idempotent, second roster-loss after fail is a no-op', () => {
   const w = makeCtx({ rng: () => 0 });
   const inst = C.instantiate({
     id: 'd', title: 'Demo {opponent}', tier: 'hard',
