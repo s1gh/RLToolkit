@@ -85,15 +85,12 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
         if !was_visible {
             let _ = window.show();
         }
-        if let Err(e) = set_clickthrough(&window, false) {
-            // Roll back: hide if we showed, clear state.
-            if !was_visible {
-                let _ = window.hide();
-            }
-            state.active.store(false, Ordering::SeqCst);
-            *state.pre_edit_visible.lock().unwrap() = None;
-            return Err(format!("disable click-through: {e}"));
-        }
+        // DIAGNOSTIC: skip the click-through flip entirely. Edit mode
+        // UI will be unclickable, but if the ghost bar still appears
+        // we know set_ignore_cursor_events(false) isn't the trigger.
+        // Revert this block after the test.
+        crate::log_info!("[overlay-edit:diag] SKIPPING set_clickthrough(false) for ghost-bar test");
+        let _: fn(&_, bool) -> _ = set_clickthrough::<R>;
         if let Err(e) =
             window.eval("window.__rlt_set_live_edit && window.__rlt_set_live_edit(true);")
         {
@@ -143,17 +140,8 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
 /// can hang the compositor on the next focus change. We bypass Tauri
 /// and toggle the input shape directly.
 ///
-/// Windows is also special. set_ignore_cursor_events maps to
-/// WS_EX_TRANSPARENT, and flipping that bit off on the transparent
-/// always-on-top WebView2 host paints a ghost titlebar artifact across
-/// the top of the screen (cause unidentified; reproduces on WebView2
-/// 143 and 148, no DOM element, no caption-class style bits, no DWM
-/// chrome involvement). MSDN says layered-window hit testing already
-/// passes clicks through any region whose alpha is zero — so with
-/// WS_EX_TRANSPARENT staying on permanently, clicks on the edit-mode
-/// wrappers (which paint with non-zero alpha) land on the window, and
-/// clicks on the rest of the transparent surface fall through to the
-/// game. No flip needed. macOS still uses the native call.
+/// On Windows and macOS we use Tauri's native call, which maps to
+/// WS_EX_TRANSPARENT and ignoresMouseEvents respectively.
 fn set_clickthrough<R: Runtime>(
     window: &WebviewWindow<R>,
     clickthrough: bool,
@@ -176,15 +164,7 @@ fn set_clickthrough<R: Runtime>(
         return Ok(());
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        // No-op: alpha-based hit testing on the layered window already
-        // gives us the routing we want. See doc comment above.
-        let _ = (window, clickthrough);
-        return Ok(());
-    }
-
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "linux"))]
     {
         window
             .set_ignore_cursor_events(clickthrough)
