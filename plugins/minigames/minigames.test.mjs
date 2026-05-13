@@ -106,6 +106,16 @@ test('applyReward: clamps progress at level cap 30', () => {
   assert.equal(s.xpInLevel, s.xpToNext);  // pinned at full bar
 });
 
+test('applyReward: crossing into the cap clamps excess XP', () => {
+  const s = R.emptySession('b');
+  s.level = 29;
+  s.xpInLevel = 0;
+  s.xpToNext = R.xpToNext(29);
+  R.applyReward(s, 99999);
+  assert.equal(s.level, 30);
+  assert.equal(s.xpInLevel, R.xpToNext(30));  // pinned at full after the loop exits at cap
+});
+
 test('wipeIfStaleBoot: stale bootId returns fresh session', () => {
   const stale = R.emptySession('old-boot');
   stale.level = 5; stale.xpInLevel = 200;

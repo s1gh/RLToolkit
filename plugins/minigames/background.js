@@ -47,6 +47,7 @@
       session.level += 1;
       session.xpToNext = xpToNext(session.level);
     }
+    // Loop exited at cap with excess XP; clamp to the bar.
     if (session.level >= LEVEL_CAP) {
       session.xpInLevel = Math.min(session.xpInLevel, session.xpToNext);
     }
