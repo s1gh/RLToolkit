@@ -160,5 +160,364 @@
   };
 
   if (typeof window === 'undefined' || !window.RLT) return;
-  // SDK-glue wiring added in later tasks.
+
+  // ---- SDK glue ---------------------------------------------------------
+  // This view is responsible for state. Other views read RLT.store and
+  // re-render on change.
+
+  const SESSION_KEY  = 'session';
+  const RECORDS_KEY  = 'records';
+  const SETTINGS_KEY = 'settings.difficulty';
+  const TICK_KEY     = 'tick';  // bumped each timer tick so overlay can rerender
+
+  let session  = null;
+  let records  = null;
+  let settings = { difficulty: 'standard' };
+
+  // Timer engine state. Stored in-memory only; never written to disk.
+  let activeChallenge = null;    // the instantiated runtime challenge object
+  let armDispose = null;         // dispose fn returned by arm()
+  let activeDeadline = null;     // ms-epoch when timer expires, or null for open-ended challenges
+  let activePausedRemaining = null; // ms remaining if paused (null for open-ended)
+  let tickInterval = null;
+
+  // Pool of validated DSL entries (NOT instantiated runtime challenges).
+  // Loaded once at startup from challenges.json; instantiate() is called at
+  // draw time, fresh, so each draw can resolve targetOpponent independently.
+  let poolEntries = [];
+
+  // ---- bootstrap --------------------------------------------------------
+
+  async function bootstrap() {
+    // 1. Load challenges.json.
+    try {
+      const resp = await fetch('challenges.json', { cache: 'no-cache' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const text = await resp.text();
+      const { entries, errors } = root.MinigamesChallenges.loadPool(text);
+      if (errors.length) console.warn('[minigames] challenges.json had errors:', errors);
+      poolEntries = entries;
+      console.log('[minigames] loaded', entries.length, 'challenges');
+    } catch (err) {
+      console.error('[minigames] failed to load challenges.json:', err);
+      poolEntries = [];
+    }
+
+    // 2. Session + records + settings.
+    const rawSession = await RLT.store.get(SESSION_KEY);
+    session = rawSession
+      ? root.MinigamesReducers.wipeIfStaleBoot(rawSession, RLT.bootId || '')
+      : root.MinigamesReducers.emptySession(RLT.bootId || '');
+    if (session !== rawSession) await RLT.store.set(SESSION_KEY, session);
+
+    const rawRecords = await RLT.store.get(RECORDS_KEY);
+    records = rawRecords || root.MinigamesReducers.emptyRecords();
+    if (!rawRecords) await RLT.store.set(RECORDS_KEY, records);
+
+    const rawSettings = await RLT.store.get(SETTINGS_KEY);
+    if (rawSettings?.difficulty) settings = rawSettings;
+    if (!rawSettings) await RLT.store.set(SETTINGS_KEY, settings);
+
+    // If we booted mid-match (rare: toolkit started while a match is live),
+    // draw immediately so we don't waste the round.
+    if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
+      ensureMatchEntry();
+      drawNext();
+    }
+  }
+
+  function opponentsFromRoster() {
+    if (!RLT.match?.current) return [];
+    const my = myTeamNum();
+    const roster = RLT.match.current.players || [];
+    return roster
+      .filter((p) => p && typeof p.team === 'number' && p.team !== my && !p.isMe)
+      .map((p) => ({ id: p.id, name: p.name, team: p.team }));
+  }
+
+  function isGameplay(phase) {
+    return phase === 'countdown' || phase === 'live' || phase === 'replay' || phase === 'paused';
+  }
+
+  function isLiveOrReplay(phase) {
+    // The timer runs in 'live' and 'replay'; it pauses in 'paused' and 'countdown'.
+    return phase === 'live' || phase === 'replay';
+  }
+
+  // ---- match lifecycle --------------------------------------------------
+
+  function currentMatchGuid() {
+    return RLT.match?.current?.matchGuid || '';
+  }
+
+  function myTeamNum() {
+    const me = RLT.match?.current?.me;
+    if (!me) return null;
+    return typeof me.team === 'number' ? me.team : null;
+  }
+
+  function ensureMatchEntry() {
+    const guid = currentMatchGuid();
+    if (!guid) return;
+    root.MinigamesReducers.startMatch(session, { matchGuid: guid, now: Date.now() });
+    persistSession();
+  }
+
+  // ---- drawing ----------------------------------------------------------
+
+  let lastDrawnId = null;
+  function drawNext() {
+    teardownActive();
+    if (poolEntries.length === 0) return;
+    // Up to 5 attempts: the first weighted pick may not be instantiable
+    // (e.g. targetOpponent with no current opponents). Skip ineligible
+    // entries and try again. After 5 misses, give up for this round.
+    for (let i = 0; i < 5; i += 1) {
+      const entry = root.MinigamesChallenges.draw({
+        pool: poolEntries,
+        level: session.level,
+        bias: settings.difficulty,
+        rng: Math.random,
+        exclude: lastDrawnId,
+      });
+      if (!entry) return;
+      const ctx = buildArmContext();
+      const runtime = root.MinigamesChallenges.instantiate(entry, ctx);
+      if (!runtime) continue; // ineligible (e.g. no opponents); try another
+      lastDrawnId = entry.id;
+      activeChallenge = runtime;
+      // Open-ended challenges (matchEndCondition) have timeLimitMs === null.
+      // The timer engine reads activeDeadline === null as "no timeout."
+      activeDeadline = runtime.timeLimitMs === null
+        ? null
+        : Date.now() + runtime.timeLimitMs;
+      activePausedRemaining = null;
+      session.activeChallenge = serialise(runtime);
+      armDispose = runtime.arm();
+      startTicking();
+      persistSession();
+      return;
+    }
+  }
+
+  function serialise(c) {
+    return {
+      id: c.id,
+      title: c.title,
+      tier: c.tier,
+      reward: c.reward,
+      failPenalty: c.failPenalty,
+      timeLimitMs: c.timeLimitMs,
+      startedAt: Date.now(),
+      deadline: activeDeadline,
+    };
+  }
+
+  function buildArmContext() {
+    return {
+      on: (eventName, handler) => {
+        const unsub = RLT.on(eventName, handler);
+        return typeof unsub === 'function' ? unsub : (() => RLT.off?.(eventName, handler));
+      },
+      matchState: () => RLT.match?.state?.phase || 'none',
+      myTeam: myTeamNum,
+      opponents: opponentsFromRoster,
+      stats: RLT.stats || {},
+      now: () => Date.now(),
+      rng: Math.random,
+      onComplete: () => resolveActive('completed'),
+      onFail: () => resolveActive('failed'),
+    };
+  }
+
+  function teardownActive() {
+    if (armDispose) { try { armDispose(); } catch (_) {} armDispose = null; }
+    activeChallenge = null;
+    activeDeadline = null;
+    activePausedRemaining = null;
+    if (session) session.activeChallenge = null;
+    stopTicking();
+  }
+
+  // ---- resolution -------------------------------------------------------
+
+  function resolveActive(outcome) {
+    if (!activeChallenge) return;
+    const c = activeChallenge;
+    let xpDelta = 0;
+    let result;
+    if (outcome === 'completed') {
+      xpDelta = c.reward;
+      result = root.MinigamesReducers.applyReward(session, c.reward);
+    } else {
+      xpDelta = -c.failPenalty;
+      result = root.MinigamesReducers.applyPenalty(session, c.failPenalty);
+    }
+    root.MinigamesReducers.recordResolution(session, { outcome, xpDelta });
+
+    // Track records as we go.
+    root.MinigamesReducers.takeRecord(records, {
+      level: session.level,
+      streak: session.currentStreak,
+    });
+    persistRecords();
+
+    // Notify overlay of the resolution so it can flash, then move on.
+    pushTickEvent({
+      type: 'resolved',
+      outcome,
+      xpDelta,
+      deleveled: result.deleveled,
+      id: c.id,
+      title: c.title,
+    });
+    teardownActive();
+    persistSession();
+
+    // Only draw the next one if we're still in a gameplay phase. Match-end
+    // and match-abandoned paths skip this so the recap can render.
+    if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
+      drawNext();
+    }
+  }
+
+  function timeoutActive() {
+    if (!activeChallenge) return;
+    resolveActive('timedOut');
+  }
+
+  // ---- timer ------------------------------------------------------------
+
+  function startTicking() {
+    stopTicking();
+    tickInterval = setInterval(onTick, 250);
+  }
+  function stopTicking() {
+    if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
+  }
+  function onTick() {
+    if (!activeChallenge) return;
+    // Open-ended challenge: nothing to count down. The ticking interval
+    // still runs so the overlay knows we're active, but no timeout check.
+    if (activeDeadline === null) {
+      pushTickEvent({ type: 'tick', remainingMs: null });
+      return;
+    }
+    const phase = RLT.match?.state?.phase || 'none';
+    if (!isLiveOrReplay(phase)) {
+      // Pause: remember remaining time, freeze deadline.
+      if (activePausedRemaining === null) {
+        activePausedRemaining = Math.max(0, activeDeadline - Date.now());
+      }
+      return;
+    }
+    if (activePausedRemaining !== null) {
+      activeDeadline = Date.now() + activePausedRemaining;
+      activePausedRemaining = null;
+    }
+    if (Date.now() >= activeDeadline) {
+      timeoutActive();
+      return;
+    }
+    pushTickEvent({ type: 'tick', remainingMs: activeDeadline - Date.now() });
+  }
+
+  // ---- persistence + notification --------------------------------------
+
+  let saveInFlight = null;
+  function persistSession() {
+    // Coalesce: RLT.store.set is async; if a save is queued, drop the
+    // current one and queue this. The last write wins.
+    if (saveInFlight) { saveInFlight = session; return; }
+    const payload = session;
+    saveInFlight = session;
+    RLT.store.set(SESSION_KEY, payload).then(() => {
+      const queued = saveInFlight;
+      saveInFlight = null;
+      if (queued && queued !== payload) {
+        // Re-persist if a newer state queued behind us.
+        persistSession();
+      }
+    });
+  }
+  function persistRecords() {
+    RLT.store.set(RECORDS_KEY, records);
+  }
+
+  // Overlays read this counter via store.onChange('tick', ...) and rerender.
+  // Payload is intentionally tiny: full state lives under the session key.
+  let tickSeq = 0;
+  function pushTickEvent(evt) {
+    tickSeq += 1;
+    RLT.store.set(TICK_KEY, { seq: tickSeq, ...evt, at: Date.now() });
+  }
+
+  // ---- match end shared path -------------------------------------------
+
+  function finishMatch(matchGuid, result) {
+    root.MinigamesReducers.endMatch(session, { matchGuid, now: Date.now(), result });
+    const m = root.MinigamesReducers.currentMatch(session);
+    if (m) {
+      root.MinigamesReducers.takeRecord(records, {
+        level: session.level,
+        streak: session.currentStreak,
+        matchXp: m.xpGained,
+      });
+      persistRecords();
+    }
+    pushTickEvent({ type: 'matchEnded', matchGuid, result });
+    persistSession();
+  }
+
+  // ---- register ---------------------------------------------------------
+
+  RLT.plugin.register({
+    async ready() {
+      await bootstrap();
+    },
+
+    events: {
+      _MatchStarted(e) {
+        // Authoritative match-start signal. Resets the per-match log on the
+        // backend's "this is a fresh match" edge, so we can rely on it for
+        // pushing a new entry onto session.matches.
+        if (!e?.matchGuid) return;
+        ensureMatchEntry();
+        if (!activeChallenge && isGameplay(RLT.match?.state?.phase)) {
+          drawNext();
+        }
+      },
+
+      _MatchEnded(e) {
+        // Force-expire the active challenge as a timeout (penalty applied),
+        // then stamp the match as ended.
+        if (activeChallenge) timeoutActive();
+
+        const guid = e?.matchGuid || currentMatchGuid();
+        const winner = typeof e?.winnerTeamNum === 'number' ? e.winnerTeamNum : null;
+        const my = myTeamNum();
+        let result = null;
+        if (winner === null) result = null;
+        else if (my === null) result = null;
+        else if (winner === my) result = 'win';
+        else result = 'loss';
+
+        finishMatch(guid, result);
+      },
+
+      _MatchAbandoned(e) {
+        // Ragequit, disconnect, or server crash mid-match. RL counts this
+        // as a forfeit loss; mirror that, fail the active challenge, and
+        // close the match entry.
+        if (activeChallenge) resolveActive('failed');
+        const guid = e?.matchGuid || currentMatchGuid();
+        finishMatch(guid, 'forfeit');
+      },
+    },
+
+    dispose() {
+      stopTicking();
+      if (armDispose) { try { armDispose(); } catch (_) {} }
+    },
+  });
 })(typeof window === 'undefined' ? globalThis : window);
