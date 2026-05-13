@@ -557,6 +557,17 @@
 
     async ready() {
       await bootstrap();
+      // DIAG: 2 seconds after bootstrap, dump every EventSource URL the
+      // SDK has opened so we can verify the events filter contains the
+      // synthetic match-lifecycle events we subscribed to.
+      setTimeout(() => {
+        try {
+          const urls = (window.__mgSseUrls || []).map((e) => e.url);
+          store.set('diag-sse-urls', { urls, at: Date.now() });
+        } catch (err) {
+          store.set('diag-sse-urls', { err: String(err), at: Date.now() });
+        }
+      }, 2000);
     },
 
     dispose() {
