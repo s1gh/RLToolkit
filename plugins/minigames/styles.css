@@ -254,6 +254,35 @@ body {
   text-align: center;
 }
 
+.mg-recap-line {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  font-family: var(--mg-mono);
+  font-size: 12px;
+  color: var(--mg-txt-2);
+  letter-spacing: 0.04em;
+  margin: 4px 0 14px 0;
+}
+.mg-recap-line b {
+  font-family: var(--mg-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--mg-cyan);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+.mg-recap-foot {
+  font-family: var(--mg-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mg-txt-3);
+  padding-top: 14px;
+  border-top: 1px solid var(--mg-line-soft);
+}
+
 /* ---- dashboard ---- */
 
 .mg-dash {

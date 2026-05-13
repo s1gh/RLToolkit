@@ -29,6 +29,7 @@
   // The log is the last N resolutions of THIS match. We rebuild from the
   // `tick` notifications that the background view publishes.
   const RESOLUTIONS_MAX = 3;
+  const RECAP_WINDOW_MS = 10000;
   let resolutionLog = [];   // [{outcome, xpDelta, title, atMs}]
   let lastSessionState = null;
   let lastTickEvent = null;
@@ -61,11 +62,12 @@
           ${ribbonHtml(session)}
           <div class="mg-obj">
             <div class="mg-obj-tag">Match recap</div>
-            <div class="mg-obj-title">${recapData.completed} completed, ${failedTotal} failed</div>
-            <div class="mg-obj-meta">
-              <span class="mg-reward">net <b>${esc(xp)} XP</b></span>
-              <span class="mg-timer" style="margin-left:auto;">${esc(levelLine)}</span>
+            <div class="mg-recap-line">
+              <span><b>${recapData.completed}</b> completed</span>
+              <span><b>${failedTotal}</b> failed</span>
+              <span>net <b>${esc(xp)} XP</b></span>
             </div>
+            <div class="mg-recap-foot">${esc(levelLine)}</div>
           </div>
           ${priorHtml()}
         </div>
@@ -322,7 +324,7 @@
           startLevel: Number(lastMatch.startLevel) || 0,
           endLevel:   Number(lastMatch.endLevel)   || 0,
         };
-        recapShownUntil = Date.now() + 10000;
+        recapShownUntil = Date.now() + RECAP_WINDOW_MS;
       }
     }
   }
@@ -330,10 +332,9 @@
   function rerender() {
     const el = document.getElementById('root');
     if (!el) return;
-    // Recap window expired: clear the prior-log so the next match starts
-    // fresh, and drop the recap data so subsequent rerenders fall through
-    // to the idle path.
-    if (recapShownUntil > 0 && recapShownUntil <= Date.now()) {
+    // Overlay-only: recap window expired; clear so the next match starts
+    // fresh and the next render falls through to the idle path.
+    if (RLT.isOverlay && recapShownUntil > 0 && recapShownUntil <= Date.now()) {
       resolutionLog = [];
       recapData = null;
       recapShownUntil = 0;
