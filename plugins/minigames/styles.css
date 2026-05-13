@@ -1,4 +1,4 @@
-/* Minigames — shared styles. Design tokens defined once; per-view
+/* Minigames shared styles. Design tokens defined once; per-view
    layouts below. */
 
 :root {
@@ -33,7 +33,7 @@ body {
 }
 
 #root:empty::before {
-  /* placeholder while JS boots — keeps the overlay window measurable */
+  /* placeholder while JS boots, keeps the overlay window measurable */
   content: '';
   display: block;
   width: 1px;
