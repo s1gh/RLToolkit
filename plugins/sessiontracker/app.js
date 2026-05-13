@@ -830,13 +830,22 @@
   RLT.plugin.register({
     async ready() {
       bucket = (await RLT.store.get(STORE_KEY)) || null;
-      const liveBootId = await resolveBootID();
-      if (!liveBootId) {
-        if (!bucket) bucket = emptyBucket('');
-      } else if (!bucket || bucket.bootId !== liveBootId) {
+      // Mount immediately with whatever we have (stored bucket or a
+      // bootId-less empty one). Waiting on resolveBootID() here used
+      // to stall mountView() for up to 2s on a toggle-on while we
+      // raced the first _BootId SSE frame, which is enough to make
+      // the overlay iframe collapse to "didn't show". The _BootId
+      // event handler below reseeds the bucket if a fresh boot is
+      // detected, and the /api/boot-id fallback runs in the
+      // background so cold-start state still settles correctly.
+      if (!bucket) bucket = emptyBucket('');
+      resolveBootID().then(async (liveBootId) => {
+        if (!liveBootId) return;
+        if (bucket && bucket.bootId === liveBootId) return;
         bucket = emptyBucket(liveBootId);
-        await RLT.store.set(STORE_KEY, bucket);
-      }
+        try { await RLT.store.set(STORE_KEY, bucket); } catch (_) {}
+        scheduleRender();
+      });
       // Backfill fields added in newer plugin versions so render code
       // and the dedupe path can assume they're present.
       if (bucket && !bucket.match) {
