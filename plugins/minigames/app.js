@@ -117,14 +117,94 @@
     `;
   }
 
+  // ---- dashboard -------------------------------------------------------
+
+  let lastRecordsState = null;
+
+  function renderDashboard(rootEl) {
+    const session = lastSessionState;
+    const records = lastRecordsState;
+    if (!session || !records) {
+      rootEl.innerHTML = '<div class="mg-dash"><div class="mg-empty">Loading...</div></div>';
+      return;
+    }
+    const matches = (session.matches || []).slice().reverse();
+
+    rootEl.innerHTML = `
+      <div class="mg-dash">
+        <div class="mg-dash-h">All-time records</div>
+        <div class="mg-records">
+          <div class="mg-record">
+            <span class="mg-record-lbl">Highest level</span>
+            <span class="mg-record-val">${Number(records.highestLevel) || 0}</span>
+          </div>
+          <div class="mg-record">
+            <span class="mg-record-lbl">Longest streak</span>
+            <span class="mg-record-val">${Number(records.longestStreak) || 0}</span>
+          </div>
+          <div class="mg-record">
+            <span class="mg-record-lbl">Best match XP</span>
+            <span class="mg-record-val">+${Number(records.bestMatchXp) || 0}</span>
+          </div>
+        </div>
+
+        <div class="mg-dash-h">This session</div>
+        <div class="mg-matches">
+          ${matches.length === 0
+            ? '<div class="mg-empty">No matches played yet this session. Hop in a queue.</div>'
+            : matchesTableHtml(matches)}
+        </div>
+      </div>
+    `;
+  }
+
+  function matchesTableHtml(matches) {
+    const rows = matches.map((m) => {
+      const time = m.startedAt ? new Date(m.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+      const result = m.result || '-';
+      const resultCls = m.result === 'win' ? 'mg-win' : m.result === 'loss' ? 'mg-loss' : '';
+      const levelDelta = m.startLevel === m.endLevel
+        ? String(m.endLevel)
+        : (m.startLevel + ' -> ' + m.endLevel);
+      const xp = ((m.xpGained || 0) >= 0 ? '+' : '') + (m.xpGained || 0);
+      return `<tr>
+        <td>${esc(time)}</td>
+        <td class="${esc(resultCls)}">${esc(result)}</td>
+        <td>${esc(levelDelta)}</td>
+        <td class="mg-num">${Number(m.completed) || 0}</td>
+        <td class="mg-num">${Number(m.failed) || 0}</td>
+        <td class="mg-num">${Number(m.timedOut) || 0}</td>
+        <td class="mg-num">${esc(xp)}</td>
+      </tr>`;
+    }).join('');
+    return `
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Result</th>
+            <th>Level</th>
+            <th>Done</th>
+            <th>Failed</th>
+            <th>Timed out</th>
+            <th>Net XP</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
   // ---- store subscription ---------------------------------------------
 
   async function pullState() {
-    const [session, tick] = await Promise.all([
+    const [session, tick, recs] = await Promise.all([
       RLT.store.get('session'),
       RLT.store.get('tick'),
+      RLT.store.get('records'),
     ]);
     lastSessionState = session;
+    lastRecordsState = recs;
     if (session?.matches?.length) {
       const m = session.matches[session.matches.length - 1];
       matchStartedAt = m && m.endedAt === null ? m.startedAt : null;
@@ -160,7 +240,8 @@
     const el = document.getElementById('root');
     if (!el) return;
     if (RLT.isOverlay)      renderOverlay(el);
-    // Dashboard and settings renderers land in Tasks 8 and 9.
+    if (RLT.isDashboard)    renderDashboard(el);
+    // Settings renderer lands in Task 9.
   }
 
   // ---- register --------------------------------------------------------
@@ -170,6 +251,7 @@
       // Subscribe to store changes. Both 'session' and 'tick' trigger rerenders.
       RLT.store.onChange('session', async () => { await pullState(); rerender(); });
       RLT.store.onChange('tick',    async () => { await pullState(); rerender(); });
+      RLT.store.onChange('records', async () => { await pullState(); rerender(); });
     },
     async ready() {
       await pullState();
