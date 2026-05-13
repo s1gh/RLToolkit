@@ -223,12 +223,12 @@ func TestSideload_InstallsRltp(t *testing.T) {
 	}
 }
 
-// Reinstalling a plugin via sideload should clear any user overrides
-// for that plugin. The new manifest may have moved width/height/anchor
-// in ways that make the old override nonsensical (off-screen, zero-
-// sized, anchored elsewhere). Wiping is safer than carrying stale
-// values forward.
-func TestSideload_ClearsExistingOverrides(t *testing.T) {
+// Reinstalling a plugin via sideload should reset every override field
+// except position. The new manifest may have changed width/height/
+// opacity in ways that make the old values nonsensical, but the user's
+// chosen anchor + offsets are still meaningful and we don't want to
+// force them to re-place the overlay on every update.
+func TestSideload_TrimsOverridesToPosition(t *testing.T) {
 	pluginsDir := t.TempDir()
 	dataDir := t.TempDir()
 	pm := plugins.New(pluginsDir)
@@ -238,13 +238,19 @@ func TestSideload_ClearsExistingOverrides(t *testing.T) {
 	}
 	srv := New(Deps{Plugins: pm, Overrides: ovr, PluginDir: pluginsDir})
 
-	// Seed an override for "alpha".
+	// Seed a full override for "alpha": position + size + opacity.
 	anchor := "top-left"
-	if _, err := ovr.MergeOne("alpha", overrides.Override{Anchor: &anchor}); err != nil {
+	offX, offY := 42, 99
+	opacity := 0.5
+	width := plugins.Dimension{Px: 320}
+	if _, err := ovr.MergeOne("alpha", overrides.Override{
+		Anchor:  &anchor,
+		OffsetX: &offX,
+		OffsetY: &offY,
+		Width:   &width,
+		Opacity: &opacity,
+	}); err != nil {
 		t.Fatal(err)
-	}
-	if _, ok := ovr.GetAll()["alpha"]; !ok {
-		t.Fatal("override seed failed")
 	}
 
 	// Sideload a plugin under the same name (simulating an update).
@@ -270,8 +276,70 @@ func TestSideload_ClearsExistingOverrides(t *testing.T) {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 
+	got, ok := ovr.GetAll()["alpha"]
+	if !ok {
+		t.Fatal("override entry was dropped entirely; expected position to remain")
+	}
+	if got.Anchor == nil || *got.Anchor != anchor {
+		t.Errorf("anchor: got %v, want %q", got.Anchor, anchor)
+	}
+	if got.OffsetX == nil || *got.OffsetX != offX {
+		t.Errorf("offset_x: got %v, want %d", got.OffsetX, offX)
+	}
+	if got.OffsetY == nil || *got.OffsetY != offY {
+		t.Errorf("offset_y: got %v, want %d", got.OffsetY, offY)
+	}
+	if got.Width != nil {
+		t.Errorf("width should have been cleared, got %+v", got.Width)
+	}
+	if got.Opacity != nil {
+		t.Errorf("opacity should have been cleared, got %v", *got.Opacity)
+	}
+}
+
+// When the only existing override fields are non-position (e.g. user
+// tweaked opacity but never moved the overlay), a reinstall should
+// remove the entry entirely rather than leaving an all-nil shell on
+// disk.
+func TestSideload_DropsOverrideEntryWhenNoPosition(t *testing.T) {
+	pluginsDir := t.TempDir()
+	dataDir := t.TempDir()
+	pm := plugins.New(pluginsDir)
+	ovr, err := overrides.New(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Deps{Plugins: pm, Overrides: ovr, PluginDir: pluginsDir})
+
+	opacity := 0.7
+	if _, err := ovr.MergeOne("alpha", overrides.Override{Opacity: &opacity}); err != nil {
+		t.Fatal(err)
+	}
+
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	mf, _ := zw.Create("manifest.json")
+	mf.Write([]byte(`{"name":"alpha","version":"0.2.0","overlay":{"file":"overlay.html"}}`))
+	hf, _ := zw.Create("overlay.html")
+	hf.Write([]byte("<html></html>"))
+	zw.Close()
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	fw, _ := mw.CreateFormFile("file", "alpha-0.2.0.rltp")
+	io.Copy(fw, &zipBuf)
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/sideload", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
 	if _, ok := ovr.GetAll()["alpha"]; ok {
-		t.Errorf("override for 'alpha' was not cleared after sideload reinstall")
+		t.Errorf("override entry should have been removed (no position to keep)")
 	}
 }
 

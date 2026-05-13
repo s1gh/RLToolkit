@@ -212,14 +212,14 @@ func (s *Server) handleSideload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "install: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Wipe any user overrides for this plugin. Reinstall implies a
-	// schema reset: the new manifest may have moved width/height/anchor
-	// in ways that would render the old override nonsensical (off-
-	// screen, zero-sized, anchored elsewhere). Idempotent — Delete on
-	// a missing entry is a no-op, so this is safe for fresh installs.
+	// Reset every override field except position. A reinstall may have
+	// changed sizing / opacity / clamps in ways that make the old
+	// override nonsensical, but the user's chosen anchor and offsets
+	// are still meaningful and re-doing layout from scratch is
+	// annoying. Idempotent on missing entries; safe for fresh installs.
 	if s.deps.Overrides != nil {
-		if err := s.deps.Overrides.Delete(name); err != nil {
-			log.Printf("[server] sideload: clearing overrides for %s failed: %v", name, err)
+		if err := s.deps.Overrides.KeepPosition(name); err != nil {
+			log.Printf("[server] sideload: trimming overrides for %s failed: %v", name, err)
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

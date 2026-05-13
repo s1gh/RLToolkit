@@ -99,13 +99,13 @@ func (s *Server) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
 			map[string]string{"error": err.Error()})
 		return
 	}
-	// Wipe any user overrides for this plugin. Update implies a schema
-	// reset: the new manifest may have moved width/height/anchor in
-	// ways that would render the old override nonsensical. Idempotent
-	// — Delete on a missing entry is a no-op.
+	// Reset every override field except position. An update may have
+	// changed sizing / opacity / clamps in ways that make the old
+	// override nonsensical, but the user's chosen anchor and offsets
+	// stay meaningful. Idempotent — missing entries stay missing.
 	if s.deps.Overrides != nil {
-		if err := s.deps.Overrides.Delete(body.Name); err != nil {
-			log.Printf("[server] install-update: clearing overrides for %s failed: %v", body.Name, err)
+		if err := s.deps.Overrides.KeepPosition(body.Name); err != nil {
+			log.Printf("[server] install-update: trimming overrides for %s failed: %v", body.Name, err)
 		}
 	}
 	s.deps.Plugins.NotifyUpdated(body.Name)
