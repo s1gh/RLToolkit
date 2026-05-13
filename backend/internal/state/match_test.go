@@ -165,6 +165,79 @@ func TestMatchState_MatchStartedFiresPerNewGuid(t *testing.T) {
 	t.Fatalf("expected _MatchStarted for match-B, got: %+v", out)
 }
 
+// _MatchAbandoned fires when MatchDestroyed lands without a
+// preceding MatchEnded for the same guid (user ragequit, connection
+// lost mid-match, etc.). RL itself counts this as a forfeit-loss on
+// the leaver's record; plugins use this event to mirror that.
+func TestMatchState_MatchAbandonedFiresOnEarlyLeave(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-X\"}"`)
+	feed("CountdownBegin", `""`)
+	feed("RoundStarted", `""`)
+	// No MatchEnded — user ragequits.
+	out := feed("MatchDestroyed", `""`)
+
+	abandoned := false
+	for _, e := range out {
+		if e.Name == "_MatchAbandoned" {
+			abandoned = true
+			if !contains(string(e.Data), "match-X") {
+				t.Errorf("payload missing guid: %s", string(e.Data))
+			}
+		}
+	}
+	if !abandoned {
+		t.Fatalf("expected _MatchAbandoned on early leave, got: %+v", out)
+	}
+}
+
+// A clean MatchEnded followed by MatchDestroyed is normal teardown,
+// not an abandon. _MatchAbandoned must NOT fire in that case.
+func TestMatchState_MatchAbandonedSkipsCleanEnd(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-Y\"}"`)
+	feed("CountdownBegin", `""`)
+	feed("RoundStarted", `""`)
+	feed("MatchEnded", `""`)
+	out := feed("MatchDestroyed", `""`)
+
+	for _, e := range out {
+		if e.Name == "_MatchAbandoned" {
+			t.Fatalf("_MatchAbandoned must not fire after a clean MatchEnded: %+v", out)
+		}
+	}
+}
+
+// MatchDestroyed before any match was started (lobby teardown,
+// reconnect noise) has no guid to fire for and must be silent.
+func TestMatchState_MatchAbandonedSilentWithoutStart(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	out := feed("MatchDestroyed", `""`)
+	for _, e := range out {
+		if e.Name == "_MatchAbandoned" {
+			t.Fatalf("_MatchAbandoned must not fire without a prior _MatchStarted: %+v", out)
+		}
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

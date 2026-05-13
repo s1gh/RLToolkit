@@ -119,6 +119,15 @@ const catalogData = [
     'First time a new matchGuid lands in Countdown / Live. The "new match has begun" signal — use it to reset per-match counters. Cleared on MatchDestroyed.',
   ],
   [
+    '_MatchAbandoned',
+    'lifecycle',
+    'match-started',
+    '*',
+    'provisional',
+    '1.3',
+    'MatchDestroyed arrived without a matching MatchEnded (ragequit, disconnect). RL counts this as a forfeit-loss; plugins should mirror that.',
+  ],
+  [
     '_StatfeedEvent',
     'stat',
     'stat-enriched',

@@ -1483,6 +1483,20 @@ plugin side.
 Cleared on `MatchDestroyed`, so a reconnect or replay of the same
 match re-emits.
 
+#### `_MatchAbandoned`
+
+Fires when `MatchDestroyed` arrives without a preceding `MatchEnded`
+for the same guid — user ragequit, connection lost mid-match, server
+crash. RL itself counts this as a forfeit-loss on the leaver's
+record; plugins should mirror that.
+
+```js
+{ matchGuid: string }
+```
+
+Fires at most once per match. A clean `MatchEnded` followed by
+`MatchDestroyed` is normal teardown and is silent.
+
 #### `_MatchEnded`
 
 The synthetic counterpart to raw `MatchEnded` — adds the resolved

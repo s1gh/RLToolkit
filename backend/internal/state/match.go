@@ -58,7 +58,13 @@ type MatchState struct {
 	// into Countdown or Live. Cleared on MatchDestroyed so a reconnect
 	// or replay of the same guid still emits.
 	lastStartedGuid string
-	pendingStarted  string // matchGuid to emit _MatchStarted for, "" when none
+	// lastEndedGuid is the matchGuid the most recent wire MatchEnded
+	// reported for. Used by the _MatchAbandoned gate so a clean
+	// match-end followed by MatchDestroyed is recognized as a normal
+	// teardown rather than a forfeit.
+	lastEndedGuid    string
+	pendingStarted   string // matchGuid to emit _MatchStarted for, "" when none
+	pendingAbandoned string // matchGuid to emit _MatchAbandoned for, "" when none
 
 	matchActive atomic.Bool
 	inReplay    atomic.Bool
@@ -152,12 +158,14 @@ func (m *MatchState) Observe(evt bus.Event) {
 		m.transitionTo(types.PhaseLive, "MatchUnpaused", "", true)
 	case "MatchEnded":
 		m.inReplay.Store(false)
+		m.stampMatchEnded()
 		m.transitionTo(types.PhaseEnded, "MatchEnded", "", true)
 	case "PodiumStart":
 		m.inReplay.Store(false)
 		m.transitionTo(types.PhasePodium, "PodiumStart", "", true)
 	case "MatchDestroyed":
 		m.inReplay.Store(false)
+		m.armAbandonedIfUnended()
 		m.transitionTo(types.PhaseNone, "MatchDestroyed", "clear", false)
 	case "_ConnectionStatus":
 		var env struct {
@@ -168,6 +176,33 @@ func (m *MatchState) Observe(evt bus.Event) {
 			m.transitionTo(types.PhaseNone, "connectionLost", "clear", false)
 		}
 	}
+}
+
+// stampMatchEnded records the guid the current match ended on, so a
+// subsequent MatchDestroyed can tell whether the match terminated
+// cleanly. Must run before transitionTo clears any state.
+func (m *MatchState) stampMatchEnded() {
+	m.mu.Lock()
+	if m.cur.MatchGuid != "" {
+		m.lastEndedGuid = m.cur.MatchGuid
+	}
+	m.mu.Unlock()
+}
+
+// armAbandonedIfUnended stages a _MatchAbandoned emission when
+// MatchDestroyed arrives without a matching MatchEnded for the same
+// guid. RL still fires MatchDestroyed on a clean teardown — the
+// guid-vs-lastEndedGuid comparison distinguishes "match over and
+// torn down" from "user left mid-match". Must run before transitionTo
+// clears m.cur.MatchGuid.
+func (m *MatchState) armAbandonedIfUnended() {
+	m.mu.Lock()
+	guid := m.cur.MatchGuid
+	if guid != "" && m.lastStartedGuid == guid && m.lastEndedGuid != guid {
+		m.pendingAbandoned = guid
+		m.emit = true
+	}
+	m.mu.Unlock()
 }
 
 // transitionTo unconditionally moves to the given phase. If
@@ -263,14 +298,24 @@ func (m *MatchState) Process(evt bus.Event) []bus.Event {
 	}
 	pending := m.pending
 	startedGuid := m.pendingStarted
+	abandonedGuid := m.pendingAbandoned
 	m.pendingStarted = ""
+	m.pendingAbandoned = ""
 	m.emit = false
 	m.mu.Unlock()
+	var out []bus.Event
 	body, err := json.Marshal(pending)
-	if err != nil {
-		return nil
+	if err == nil {
+		out = append(out, bus.Event{Name: "_MatchState", Data: body})
 	}
-	out := []bus.Event{{Name: "_MatchState", Data: body}}
+	if abandonedGuid != "" {
+		abBody, err := json.Marshal(struct {
+			MatchGuid string `json:"matchGuid"`
+		}{MatchGuid: abandonedGuid})
+		if err == nil {
+			out = append(out, bus.Event{Name: "_MatchAbandoned", Data: abBody})
+		}
+	}
 	if startedGuid != "" {
 		startedBody, err := json.Marshal(struct {
 			MatchGuid string `json:"matchGuid"`
