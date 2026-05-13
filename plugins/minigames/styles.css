@@ -310,7 +310,7 @@ body {
   background: var(--mg-bg-solid);
   border: 1px solid var(--mg-line);
   border-radius: var(--mg-radius);
-  overflow: hidden;
+  overflow-x: auto;
 }
 .mg-matches table {
   width: 100%;
@@ -344,4 +344,8 @@ body {
   font-size: 12px;
   color: var(--mg-txt-3);
   letter-spacing: 0.08em;
+}
+
+@media (max-width: 560px) {
+  .mg-records { grid-template-columns: 1fr; }
 }

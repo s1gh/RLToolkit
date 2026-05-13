@@ -144,7 +144,7 @@
           </div>
           <div class="mg-record">
             <span class="mg-record-lbl">Best match XP</span>
-            <span class="mg-record-val">+${Number(records.bestMatchXp) || 0}</span>
+            <span class="mg-record-val">${(Number(records.bestMatchXp) || 0) > 0 ? '+' + Number(records.bestMatchXp) : '-'}</span>
           </div>
         </div>
 
@@ -160,7 +160,9 @@
 
   function matchesTableHtml(matches) {
     const rows = matches.map((m) => {
-      const time = m.startedAt ? new Date(m.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+      const time = m.startedAt
+        ? new Date(m.startedAt).toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit' })
+        : '-';
       const result = m.result || '-';
       const resultCls = m.result === 'win' ? 'mg-win' : m.result === 'loss' ? 'mg-loss' : '';
       const levelDelta = m.startLevel === m.endLevel
@@ -169,7 +171,7 @@
       const xp = ((m.xpGained || 0) >= 0 ? '+' : '') + (m.xpGained || 0);
       return `<tr>
         <td>${esc(time)}</td>
-        <td class="${esc(resultCls)}">${esc(result)}</td>
+        <td${resultCls ? ' class="' + esc(resultCls) + '"' : ''}>${esc(result)}</td>
         <td>${esc(levelDelta)}</td>
         <td class="mg-num">${Number(m.completed) || 0}</td>
         <td class="mg-num">${Number(m.failed) || 0}</td>
