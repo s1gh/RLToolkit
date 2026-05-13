@@ -1468,6 +1468,21 @@ Two caveats to know:
   boost decrease for that player so it isn't counted as an active
   spend. Per-player flag, cleared on match boundary.
 
+#### `_MatchStarted`
+
+Fires the first time a non-empty `matchGuid` lands in a live-ish
+phase (Countdown or Live). One event per match — the dedicated "new
+match has begun" signal for resetting per-match counters. Cleaner
+than chaining `CountdownBegin` + matchGuid-change detection on the
+plugin side.
+
+```js
+{ matchGuid: string }
+```
+
+Cleared on `MatchDestroyed`, so a reconnect or replay of the same
+match re-emits.
+
 #### `_MatchEnded`
 
 The synthetic counterpart to raw `MatchEnded` — adds the resolved

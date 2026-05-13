@@ -110,6 +110,15 @@ const catalogData = [
     'Match-history replay loaded (NOT goal replays).',
   ],
   [
+    '_MatchStarted',
+    'lifecycle',
+    'match-started',
+    '*',
+    'provisional',
+    '1.3',
+    'First time a new matchGuid lands in Countdown / Live. The "new match has begun" signal — use it to reset per-match counters. Cleared on MatchDestroyed.',
+  ],
+  [
     '_StatfeedEvent',
     'stat',
     'stat-enriched',

@@ -52,6 +52,14 @@ type MatchState struct {
 	emit    bool     // set by Observe when state changed; consumed by Process
 	pending Snapshot // the snapshot to emit on the next Process call
 
+	// lastStartedGuid is the matchGuid the most recent _MatchStarted
+	// envelope reported for. Used to fire _MatchStarted exactly once
+	// per new match — the first time a non-empty guid lands a player
+	// into Countdown or Live. Cleared on MatchDestroyed so a reconnect
+	// or replay of the same guid still emits.
+	lastStartedGuid string
+	pendingStarted  string // matchGuid to emit _MatchStarted for, "" when none
+
 	matchActive atomic.Bool
 	inReplay    atomic.Bool
 
@@ -166,7 +174,9 @@ func (m *MatchState) Observe(evt bus.Event) {
 // keepActive is true, sets matchActive=true; if false, sets
 // matchActive=false and (when guid=="clear") clears the matchGuid.
 // Stages a pending _MatchState snapshot whenever the snapshot
-// actually changes.
+// actually changes. Also stages a pending _MatchStarted emission
+// when this is the first time a non-empty matchGuid moves into a
+// live-ish phase (Countdown / Live).
 func (m *MatchState) transitionTo(phase types.Phase, trigger, guid string, keepActive bool) {
 	m.mu.Lock()
 	prev := m.cur
@@ -175,6 +185,9 @@ func (m *MatchState) transitionTo(phase types.Phase, trigger, guid string, keepA
 	next.MatchActive = keepActive
 	if !keepActive && guid == "clear" {
 		next.MatchGuid = ""
+		// Match torn down — let a future replay or reconnect of the
+		// same guid emit _MatchStarted again.
+		m.lastStartedGuid = ""
 	} else if guid != "" {
 		next.MatchGuid = guid
 	}
@@ -192,7 +205,19 @@ func (m *MatchState) transitionTo(phase types.Phase, trigger, guid string, keepA
 	m.pending = next
 	m.emit = true
 	m.matchActive.Store(next.MatchActive)
+	if isLiveIshPhase(next.Phase) && next.MatchGuid != "" && m.lastStartedGuid != next.MatchGuid {
+		m.lastStartedGuid = next.MatchGuid
+		m.pendingStarted = next.MatchGuid
+	}
 	m.mu.Unlock()
+}
+
+// isLiveIshPhase reports whether the phase represents "match has
+// actually begun" — used to gate the first-time _MatchStarted emission.
+// Countdown is included so plugins resetting per-match state see the
+// signal before the first goal could possibly fire.
+func isLiveIshPhase(p types.Phase) bool {
+	return p == types.PhaseCountdown || p == types.PhaseLive
 }
 
 // transitionIf only transitions when the predicate accepts the current
@@ -226,7 +251,10 @@ func (m *MatchState) transitionIf(phase types.Phase, trigger, guid string, allow
 }
 
 // Process is the EmitProcessor entry point. Returns the staged
-// _MatchState event if Observe set one; nil otherwise.
+// _MatchState event if Observe set one; nil otherwise. If a
+// _MatchStarted was also staged (first live-ish transition for a new
+// matchGuid), it follows the _MatchState in the same batch so
+// downstream emitters and plugins see them in deterministic order.
 func (m *MatchState) Process(evt bus.Event) []bus.Event {
 	m.mu.Lock()
 	if !m.emit {
@@ -234,16 +262,24 @@ func (m *MatchState) Process(evt bus.Event) []bus.Event {
 		return nil
 	}
 	pending := m.pending
+	startedGuid := m.pendingStarted
+	m.pendingStarted = ""
 	m.emit = false
 	m.mu.Unlock()
 	body, err := json.Marshal(pending)
 	if err != nil {
 		return nil
 	}
-	return []bus.Event{{
-		Name: "_MatchState",
-		Data: body,
-	}}
+	out := []bus.Event{{Name: "_MatchState", Data: body}}
+	if startedGuid != "" {
+		startedBody, err := json.Marshal(struct {
+			MatchGuid string `json:"matchGuid"`
+		}{MatchGuid: startedGuid})
+		if err == nil {
+			out = append(out, bus.Event{Name: "_MatchStarted", Data: startedBody})
+		}
+	}
+	return out
 }
 
 // Run starts the watchdog goroutine that flips matchActive=false when

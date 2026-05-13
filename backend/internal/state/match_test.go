@@ -62,13 +62,116 @@ func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
 		if snap.Phase != c.want {
 			t.Fatalf("after %s: phase=%q, want %q", c.name, snap.Phase, c.want)
 		}
-		if c.emit && len(emitted) != 1 {
-			t.Fatalf("after %s: expected 1 _MatchState emission, got %d", c.name, len(emitted))
+		if c.emit && len(emitted) == 0 {
+			t.Fatalf("after %s: expected at least one emission, got 0", c.name)
 		}
 		if c.emit && emitted[0].Name != "_MatchState" {
-			t.Fatalf("after %s: emission name=%q, want _MatchState", c.name, emitted[0].Name)
+			t.Fatalf("after %s: emission[0] name=%q, want _MatchState", c.name, emitted[0].Name)
 		}
 	}
+}
+
+// _MatchStarted fires exactly once per matchGuid, on the first
+// transition into a live-ish phase (Countdown or Live).
+func TestMatchState_MatchStartedFiresOncePerGuid(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	// MatchCreated stamps the guid but doesn't enter a live-ish phase.
+	out := feed("MatchCreated", `"{\"MatchGuid\":\"match-1\"}"`)
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted must not fire on lobby phase: %+v", out)
+		}
+	}
+
+	// CountdownBegin transitions into the live-ish Countdown phase
+	// with guid carried over. _MatchStarted should fire.
+	out = feed("CountdownBegin", `""`)
+	started := false
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			started = true
+			if !contains(string(e.Data), "match-1") {
+				t.Errorf("payload missing guid: %s", string(e.Data))
+			}
+		}
+	}
+	if !started {
+		t.Fatalf("expected _MatchStarted on first CountdownBegin, got: %+v", out)
+	}
+
+	// RoundStarted transitions into Live with the same guid; no
+	// re-emit because this isn't a new match.
+	out = feed("RoundStarted", `""`)
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted re-fired for the same guid: %+v", out)
+		}
+	}
+
+	// Goal kickoff: countdown phase again, same guid. No re-emit.
+	out = feed("CountdownBegin", `""`)
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted re-fired for the same guid on next kickoff: %+v", out)
+		}
+	}
+
+	// MatchDestroyed should clear lastStartedGuid so a replay of the
+	// same guid would emit again.
+	feed("MatchDestroyed", `""`)
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-1\"}"`)
+	out = feed("CountdownBegin", `""`)
+	again := false
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			again = true
+		}
+	}
+	if !again {
+		t.Fatalf("MatchDestroyed should reset _MatchStarted gating, got: %+v", out)
+	}
+}
+
+// _MatchStarted fires only on the first transition into a live-ish
+// phase per guid — a different guid arriving later must re-emit.
+func TestMatchState_MatchStartedFiresPerNewGuid(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-A\"}"`)
+	feed("CountdownBegin", `""`) // _MatchStarted for match-A
+	feed("MatchEnded", `""`)
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-B\"}"`)
+	out := feed("CountdownBegin", `""`)
+
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			if !contains(string(e.Data), "match-B") {
+				t.Errorf("expected match-B in payload, got %s", string(e.Data))
+			}
+			return
+		}
+	}
+	t.Fatalf("expected _MatchStarted for match-B, got: %+v", out)
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 func TestMatchState_NoEmissionOnIdentityTransition(t *testing.T) {
