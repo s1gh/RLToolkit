@@ -1,0 +1,41 @@
+/* Minigames — shared styles. Design tokens defined once; per-view
+   layouts below. */
+
+:root {
+  --mg-bg:        oklch(15% 0.02 265 / 0.9);
+  --mg-bg-solid:  oklch(15% 0.02 265);
+  --mg-bg-2:      oklch(20% 0.025 265 / 0.95);
+  --mg-line:      oklch(34% 0.02 265);
+  --mg-line-soft: oklch(34% 0.02 265 / 0.6);
+
+  --mg-txt:   oklch(94% 0.005 265);
+  --mg-txt-2: oklch(72% 0.012 265);
+  --mg-txt-3: oklch(52% 0.018 265);
+  --mg-txt-4: oklch(40% 0.018 265);
+
+  --mg-cyan:    oklch(80% 0.14 200);
+  --mg-magenta: oklch(72% 0.18 350);
+  --mg-gold:    oklch(82% 0.14 85);
+  --mg-green:   oklch(78% 0.16 150);
+
+  --mg-display: 'Geist', system-ui, sans-serif;
+  --mg-mono:    'JetBrains Mono', ui-monospace, monospace;
+
+  --mg-radius: 4px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--mg-display);
+  color: var(--mg-txt);
+  background: transparent;
+}
+
+#root:empty::before {
+  /* placeholder while JS boots — keeps the overlay window measurable */
+  content: '';
+  display: block;
+  width: 1px;
+  height: 1px;
+}

@@ -1,0 +1,22 @@
+{
+  "name": "minigames",
+  "title": "Minigames",
+  "version": "0.1.0",
+  "author": "rl-toolkit",
+  "description": "Random in-match challenges. Complete them to gain XP and level up your session.",
+  "overlay": {
+    "file": "overlay.html",
+    "width": 360,
+    "height": "auto",
+    "max_height": 480,
+    "anchor": "top-left",
+    "offset_x": 16,
+    "offset_y": 16,
+    "opacity": 1.0,
+    "hide_when_unfocused": true,
+    "show_during_phase": ["countdown", "live", "replay", "paused"]
+  },
+  "dashboard": { "file": "dashboard.html" },
+  "settings":  { "file": "settings.html" },
+  "background": { "file": "background.html" }
+}
