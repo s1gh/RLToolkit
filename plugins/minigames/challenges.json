@@ -4,37 +4,55 @@
       "id": "goal-aerial",
       "title": "Score an aerial goal",
       "tier": "hard",
-      "trigger": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false, "modifiers": { "aerial": true } } }
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "aerial": true } }
+      }
     },
     {
       "id": "goal-bicycle",
       "title": "Score a bicycle goal",
       "tier": "hard",
-      "trigger": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false, "modifiers": { "bicycle": true } } }
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "bicycle": true } }
+      }
     },
     {
       "id": "goal-flipreset",
       "title": "Score a flip-reset goal",
       "tier": "hard",
-      "trigger": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false, "modifiers": { "flipReset": true } } }
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "flipReset": true } }
+      }
     },
     {
       "id": "goal-long",
       "title": "Score from long range",
       "tier": "medium",
-      "trigger": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false, "modifiers": { "long": true } } }
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "long": true } }
+      }
     },
     {
       "id": "goal-overtime",
       "title": "Score in overtime",
       "tier": "hard",
-      "trigger": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false, "modifiers": { "overtime": true } } }
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "overtime": true } }
+      }
     },
     {
       "id": "goal-fast",
       "title": "Score a goal above 100 km/h",
       "tier": "medium",
-      "trigger": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false, "goalSpeedMin": 100 } }
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "goalSpeedMin": 100 }
+      }
     },
     {
       "id": "goal-in-30s",
@@ -59,7 +77,10 @@
       "id": "demo-any",
       "title": "Demo any opponent",
       "tier": "medium",
-      "trigger": { "kind": "demo", "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true } }
+      "trigger": {
+        "kind": "demo",
+        "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true }
+      }
     },
     {
       "id": "demo-target-2",
@@ -67,7 +88,15 @@
       "tier": "hard",
       "timeLimitMs": 70000,
       "count": 2,
-      "trigger": { "kind": "demo", "filters": { "attackerIsMe": true, "victimTargetOpponent": true, "excludeSelfDemo": true, "excludeTeamDemo": true } }
+      "trigger": {
+        "kind": "demo",
+        "filters": {
+          "attackerIsMe": true,
+          "victimTargetOpponent": true,
+          "excludeSelfDemo": true,
+          "excludeTeamDemo": true
+        }
+      }
     },
     {
       "id": "save-any",
