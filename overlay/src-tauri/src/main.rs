@@ -586,20 +586,21 @@ fn build_overlay_window(
     // show()/hide()d on toggle. Building from an IPC worker thread
     // deadlocks WebView2 on Windows — only the main-thread setup()
     // path is safe.
-    // Set the window title to empty on Windows. On 148.x WebView2
-    // (and possibly other versions) the overlay's title text appears
-    // painted as a "ghost" caption bar across the top of the screen
-    // when click-through flips off for edit mode. The bar isn't
-    // standard chrome — there's no WS_CAPTION on the window, no DOM
-    // element rendering it, and it doesn't reserve screen space — but
-    // the text matches the .title() string verbatim. Setting title to
-    // empty eliminates the only direct lever we have left.
-    #[cfg(target_os = "windows")]
-    let title: &str = "";
+    //
+    // .shadow(false) is critical on Windows. Tauri 2 defaults window
+    // shadows to ON, and decorations(false) alone doesn't disable
+    // them — DWM still draws an opaque shadow backing behind the
+    // window. When click-through flips off for edit mode and
+    // WS_EX_TRANSPARENT clears, the shadow backing surfaces as a
+    // ghost titlebar artifact at the top of the screen. Documented
+    // upstream in tauri-apps/tauri#8308 (and root-cause #8632): same
+    // shadow defaults broke transparency in v2 vs v1. Fix: disable
+    // shadows explicitly.
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(title)
         .decorations(false)
         .transparent(true)
+        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
