@@ -501,6 +501,41 @@
 
   // ---- register ---------------------------------------------------------
 
+  // Match-lifecycle event handlers. These are wired through RLT.on
+  // directly rather than register({ events: ... }) because the
+  // background view's eventsBus relay was not delivering the synthetic
+  // _Match* events; RLT.on subscribes against the raw bus that
+  // dispatchEnvelope writes to, which works in every view.
+  function onMatchStarted(e) {
+    if (store) store.set('diag-last-event', { name: '_MatchStarted', guid: e?.matchGuid, at: Date.now() });
+    if (!e?.matchGuid) return;
+    ensureMatchEntry();
+    if (!activeChallenge && isGameplay(RLT.match?.state?.phase)) {
+      drawNext();
+    }
+  }
+
+  function onMatchEnded(e) {
+    if (store) store.set('diag-last-event', { name: '_MatchEnded', at: Date.now() });
+    if (activeChallenge) timeoutActive();
+    const guid = e?.matchGuid || currentMatchGuid();
+    const winner = typeof e?.winnerTeamNum === 'number' ? e.winnerTeamNum : null;
+    const my = myTeamNum();
+    let result = null;
+    if (winner === null) result = null;
+    else if (my === null) result = null;
+    else if (winner === my) result = 'win';
+    else result = 'loss';
+    finishMatch(guid, result);
+  }
+
+  function onMatchAbandoned(e) {
+    if (store) store.set('diag-last-event', { name: '_MatchAbandoned', at: Date.now() });
+    if (activeChallenge) resolveActive('failed');
+    const guid = e?.matchGuid || currentMatchGuid();
+    finishMatch(guid, 'forfeit');
+  }
+
   RLT.plugin.register({
     // Background views are read-only by default in the SDK; the state
     // machine lives here and must write session/records/tick/settings.
@@ -511,62 +546,17 @@
       // writable per-plugin store arrives on the handle. Capture it for
       // every persist/notify path.
       store = handle.store;
+
+      // Subscribe to match-lifecycle events directly on the raw bus.
+      // See the comment above onMatchStarted for why these don't go
+      // through the events: register-block path.
+      RLT.on('_MatchStarted', onMatchStarted);
+      RLT.on('_MatchEnded', onMatchEnded);
+      RLT.on('_MatchAbandoned', onMatchAbandoned);
     },
 
     async ready() {
       await bootstrap();
-      // DIAG: snapshot the SSE subscription list one tick after the SDK
-      // has had a chance to reconnect with all addEvent() additions.
-      setTimeout(() => {
-        try {
-          const url = (typeof performance !== 'undefined' && performance.getEntriesByType)
-            ? performance.getEntriesByType('resource').filter((e) => e.name.includes('/events?')).map((e) => e.name).slice(-1)[0]
-            : null;
-          store.set('diag-sse', { url, at: Date.now() });
-        } catch (err) {
-          store.set('diag-sse', { err: String(err), at: Date.now() });
-        }
-      }, 500);
-    },
-
-    events: {
-      _MatchStarted(e) {
-        if (store) store.set('diag-last-event', { name: '_MatchStarted', guid: e?.matchGuid, at: Date.now() });
-        // Authoritative match-start signal. Resets the per-match log on the
-        // backend's "this is a fresh match" edge, so we can rely on it for
-        // pushing a new entry onto session.matches.
-        if (!e?.matchGuid) return;
-        ensureMatchEntry();
-        if (!activeChallenge && isGameplay(RLT.match?.state?.phase)) {
-          drawNext();
-        }
-      },
-
-      _MatchEnded(e) {
-        // Force-expire the active challenge as a timeout (penalty applied),
-        // then stamp the match as ended.
-        if (activeChallenge) timeoutActive();
-
-        const guid = e?.matchGuid || currentMatchGuid();
-        const winner = typeof e?.winnerTeamNum === 'number' ? e.winnerTeamNum : null;
-        const my = myTeamNum();
-        let result = null;
-        if (winner === null) result = null;
-        else if (my === null) result = null;
-        else if (winner === my) result = 'win';
-        else result = 'loss';
-
-        finishMatch(guid, result);
-      },
-
-      _MatchAbandoned(e) {
-        // Ragequit, disconnect, or server crash mid-match. RL counts this
-        // as a forfeit loss; mirror that, fail the active challenge, and
-        // close the match entry.
-        if (activeChallenge) resolveActive('failed');
-        const guid = e?.matchGuid || currentMatchGuid();
-        finishMatch(guid, 'forfeit');
-      },
     },
 
     dispose() {
