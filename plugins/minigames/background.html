@@ -3,20 +3,6 @@
   <head>
     <meta charset="utf-8" />
     <title>Minigames · Background</title>
-    <script>
-      // DIAG: capture every EventSource URL the SDK opens, so we can see
-      // exactly which events the background iframe subscribed to.
-      (function () {
-        const Orig = window.EventSource;
-        window.__mgSseUrls = [];
-        window.EventSource = function (url, opts) {
-          window.__mgSseUrls.push({ url: String(url), at: Date.now() });
-          return new Orig(url, opts);
-        };
-        window.EventSource.prototype = Orig.prototype;
-        for (const k of Object.keys(Orig)) window.EventSource[k] = Orig[k];
-      })();
-    </script>
     <script src="/sdk.js" data-plugin="minigames" data-view="background"></script>
   </head>
   <body>

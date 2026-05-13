@@ -501,41 +501,6 @@
 
   // ---- register ---------------------------------------------------------
 
-  // Match-lifecycle event handlers. These are wired through RLT.on
-  // directly rather than register({ events: ... }) because the
-  // background view's eventsBus relay was not delivering the synthetic
-  // _Match* events; RLT.on subscribes against the raw bus that
-  // dispatchEnvelope writes to, which works in every view.
-  function onMatchStarted(e) {
-    if (store) store.set('diag-last-event', { name: '_MatchStarted', guid: e?.matchGuid, at: Date.now() });
-    if (!e?.matchGuid) return;
-    ensureMatchEntry();
-    if (!activeChallenge && isGameplay(RLT.match?.state?.phase)) {
-      drawNext();
-    }
-  }
-
-  function onMatchEnded(e) {
-    if (store) store.set('diag-last-event', { name: '_MatchEnded', at: Date.now() });
-    if (activeChallenge) timeoutActive();
-    const guid = e?.matchGuid || currentMatchGuid();
-    const winner = typeof e?.winnerTeamNum === 'number' ? e.winnerTeamNum : null;
-    const my = myTeamNum();
-    let result = null;
-    if (winner === null) result = null;
-    else if (my === null) result = null;
-    else if (winner === my) result = 'win';
-    else result = 'loss';
-    finishMatch(guid, result);
-  }
-
-  function onMatchAbandoned(e) {
-    if (store) store.set('diag-last-event', { name: '_MatchAbandoned', at: Date.now() });
-    if (activeChallenge) resolveActive('failed');
-    const guid = e?.matchGuid || currentMatchGuid();
-    finishMatch(guid, 'forfeit');
-  }
-
   RLT.plugin.register({
     // Background views are read-only by default in the SDK; the state
     // machine lives here and must write session/records/tick/settings.
@@ -546,28 +511,39 @@
       // writable per-plugin store arrives on the handle. Capture it for
       // every persist/notify path.
       store = handle.store;
-
-      // Subscribe to match-lifecycle events directly on the raw bus.
-      // See the comment above onMatchStarted for why these don't go
-      // through the events: register-block path.
-      RLT.on('_MatchStarted', onMatchStarted);
-      RLT.on('_MatchEnded', onMatchEnded);
-      RLT.on('_MatchAbandoned', onMatchAbandoned);
     },
 
     async ready() {
       await bootstrap();
-      // DIAG: 2 seconds after bootstrap, dump every EventSource URL the
-      // SDK has opened so we can verify the events filter contains the
-      // synthetic match-lifecycle events we subscribed to.
-      setTimeout(() => {
-        try {
-          const urls = (window.__mgSseUrls || []).map((e) => e.url);
-          store.set('diag-sse-urls', { urls, at: Date.now() });
-        } catch (err) {
-          store.set('diag-sse-urls', { err: String(err), at: Date.now() });
+    },
+
+    events: {
+      _MatchStarted(e) {
+        if (!e?.matchGuid) return;
+        ensureMatchEntry();
+        if (!activeChallenge && isGameplay(RLT.match?.state?.phase)) {
+          drawNext();
         }
-      }, 2000);
+      },
+
+      _MatchEnded(e) {
+        if (activeChallenge) timeoutActive();
+        const guid = e?.matchGuid || currentMatchGuid();
+        const winner = typeof e?.winnerTeamNum === 'number' ? e.winnerTeamNum : null;
+        const my = myTeamNum();
+        let result = null;
+        if (winner === null) result = null;
+        else if (my === null) result = null;
+        else if (winner === my) result = 'win';
+        else result = 'loss';
+        finishMatch(guid, result);
+      },
+
+      _MatchAbandoned(e) {
+        if (activeChallenge) resolveActive('failed');
+        const guid = e?.matchGuid || currentMatchGuid();
+        finishMatch(guid, 'forfeit');
+      },
     },
 
     dispose() {
