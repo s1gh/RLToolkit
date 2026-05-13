@@ -9,6 +9,7 @@
   --mg-bg-tag:   oklch(20% 0.03 265);     /* chevron tag chip */
   --mg-track:    oklch(26% 0.02 265);     /* XP / progress bar tracks */
   --mg-shadow:   oklch(0% 0 0 / 0.4);     /* overlay drop shadow */
+  --mg-panel:    oklch(13% 0.02 265);     /* dashboard / settings full-height panel */
   --mg-line:      oklch(34% 0.02 265);
   --mg-line-soft: oklch(34% 0.02 265 / 0.6);
 
@@ -264,7 +265,7 @@ body {
   gap: 20px;
   font-family: var(--mg-display);
   color: var(--mg-txt);
-  background: oklch(13% 0.02 265);
+  background: var(--mg-panel);
   min-height: 100vh;
 }
 .mg-dash-h {
@@ -356,7 +357,7 @@ body {
   padding: 24px;
   font-family: var(--mg-display);
   color: var(--mg-txt);
-  background: oklch(13% 0.02 265);
+  background: var(--mg-panel);
   min-height: 100vh;
 }
 .mg-settings h2 {

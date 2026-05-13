@@ -208,7 +208,8 @@
   ];
 
   function renderSettings(rootEl) {
-    const current = lastSettingsState?.difficulty || 'standard';
+    const stored = lastSettingsState?.difficulty;
+    const current = DIFFICULTY_OPTIONS.some((o) => o.id === stored) ? stored : 'standard';
     const rows = DIFFICULTY_OPTIONS.map((opt) => {
       const onCls = opt.id === current ? ' mg-radio-on' : '';
       const checked = opt.id === current ? ' checked' : '';
@@ -295,7 +296,21 @@
       RLT.store.onChange('session',             async () => { await pullState(); rerender(); });
       RLT.store.onChange('tick',                async () => { await pullState(); rerender(); });
       RLT.store.onChange('records',             async () => { await pullState(); rerender(); });
-      RLT.store.onChange('settings.difficulty', async () => { await pullState(); rerender(); });
+      RLT.store.onChange('settings.difficulty', async () => {
+        // Self-write echo: when this view writes a new difficulty, the store
+        // broadcasts _StoreChanged back to us. Skip the rerender if the new
+        // value matches what we already rendered, to preserve keyboard focus
+        // on the radio the user just clicked.
+        const next = await RLT.store.get('settings.difficulty');
+        const before = lastSettingsState?.difficulty;
+        const after = next?.difficulty;
+        if (before === after) {
+          lastSettingsState = next;
+          return;
+        }
+        await pullState();
+        rerender();
+      });
     },
     async ready() {
       await pullState();
