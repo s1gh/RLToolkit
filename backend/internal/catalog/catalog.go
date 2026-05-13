@@ -7,8 +7,9 @@
 //
 // Plumbing / framing events are deliberately not cataloged:
 // _ConnectionStatus, _RosterChanged, _DevPluginReload,
-// _OverridesChanged, _SurfaceChanged, _StoreChanged. See
-// backend/internal/bus/bus.go:framingSignals for the bypass list.
+// _OverridesChanged, _PluginUpdated, _SurfaceChanged, _StoreChanged,
+// _ReplayWatcherChanged. See backend/internal/bus/bus.go:framingSignals
+// for the bypass list.
 package catalog
 
 // Entry is one row in the catalog.

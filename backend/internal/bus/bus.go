@@ -115,13 +115,16 @@ func (b *Bus) removeLocked(s *subscriber) {
 // opt-in. Other "_"-prefixed synthetics (_StatfeedEvent, _GoalScored, ...)
 // are filterable like normal events.
 var framingSignals = map[string]struct{}{
-	"_ConnectionStatus": {},
-	"_MatchState":       {},
-	"_RosterChanged":    {},
-	"_IdentityChanged":  {},
-	"_DevPluginReload":  {},
-	"_OverridesChanged": {},
-	"_PluginUpdated":    {},
+	"_ConnectionStatus":     {},
+	"_MatchState":           {},
+	"_RosterChanged":        {},
+	"_IdentityChanged":      {},
+	"_DevPluginReload":      {},
+	"_OverridesChanged":     {},
+	"_PluginUpdated":        {},
+	"_StoreChanged":         {},
+	"_SurfaceChanged":       {},
+	"_ReplayWatcherChanged": {},
 }
 
 func isFramingSignal(eventName string) bool {

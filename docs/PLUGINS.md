@@ -1577,17 +1577,18 @@ Process-lifetime UUID. The first SSE frame on every connect — useful
 for detecting backend restarts (compare against the previous boot ID
 you saw).
 
-The boot ID lives at the **top level** of the SSE envelope
-(`{"Event":"_BootId","bootId":"..."}`), not inside a `Data` field, so
-SDK event handlers receive an empty payload (`{}`). To read the
-current boot ID, fetch `GET /api/boot-id`:
+The boot ID is delivered inside `Data` like every other event
+(`{"Event":"_BootId","Data":{"bootId":"..."}}`), so SDK handlers
+receive `{ bootId }` as their payload. You can also read it on demand
+via `GET /api/boot-id`:
 
 ```js
 const { bootId } = await fetch('/api/boot-id').then((r) => r.json());
 ```
 
 `_BootId` is not bridged into `RLT.events`, so subscribe via the raw
-bus (`RLT.on('_BootId', ...)`) if you want the connect-time signal.
+bus (`RLT.on('_BootId', ({ bootId }) => …)`) if you want the
+connect-time signal.
 
 #### `_status`
 
