@@ -14,6 +14,9 @@
 # Per-plugin persistence — runtime data, not source
 /data/*.json
 
+# Plugin design mockups — kept locally, not in the repo
+plugins/*/mockups/
+
 # Editor / OS noise
 .DS_Store
 *.swp
