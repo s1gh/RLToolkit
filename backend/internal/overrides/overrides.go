@@ -235,14 +235,16 @@ func (s *Store) MergeOne(plugin string, partial Override) (Override, error) {
 	return merged, nil
 }
 
-// KeepPosition strips the entry for `plugin` down to just the position
-// fields (anchor + offsets), discarding size, opacity, enabled, and
+// KeepPositionAndEnabled strips the entry for `plugin` down to the
+// fields that carry user intent across manifest changes — anchor,
+// offsets, and the enabled toggle — discarding size, opacity, and
 // min/max clamps. Used on install/update where the new manifest may
 // have changed sizing semantics in ways that make the old override
-// nonsensical, but where the user's chosen screen position is still
-// meaningful. Idempotent: a missing entry stays missing; an entry
-// without any position fields gets deleted entirely.
-func (s *Store) KeepPosition(plugin string) error {
+// nonsensical, but where the user's chosen screen position and
+// enable/disable state are still meaningful. Idempotent: a missing
+// entry stays missing; an entry without any kept fields gets deleted
+// entirely.
+func (s *Store) KeepPositionAndEnabled(plugin string) error {
 	s.mu.Lock()
 	prev, ok := s.data[plugin]
 	if !ok {
@@ -253,8 +255,9 @@ func (s *Store) KeepPosition(plugin string) error {
 		Anchor:  prev.Anchor,
 		OffsetX: prev.OffsetX,
 		OffsetY: prev.OffsetY,
+		Enabled: prev.Enabled,
 	}
-	if trimmed.Anchor == nil && trimmed.OffsetX == nil && trimmed.OffsetY == nil {
+	if trimmed.Anchor == nil && trimmed.OffsetX == nil && trimmed.OffsetY == nil && trimmed.Enabled == nil {
 		delete(s.data, plugin)
 	} else {
 		s.data[plugin] = trimmed

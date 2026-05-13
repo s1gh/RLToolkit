@@ -212,13 +212,14 @@ func (s *Server) handleSideload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "install: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Reset every override field except position. A reinstall may have
-	// changed sizing / opacity / clamps in ways that make the old
-	// override nonsensical, but the user's chosen anchor and offsets
-	// are still meaningful and re-doing layout from scratch is
-	// annoying. Idempotent on missing entries; safe for fresh installs.
+	// Reset sizing / opacity / clamps but keep position and the
+	// enable/disable toggle. A reinstall may have changed sizing
+	// semantics in ways that make the old values nonsensical, but the
+	// user's chosen anchor, offsets, and whether they had the plugin
+	// switched off are all still meaningful. Idempotent on missing
+	// entries; safe for fresh installs.
 	if s.deps.Overrides != nil {
-		if err := s.deps.Overrides.KeepPosition(name); err != nil {
+		if err := s.deps.Overrides.KeepPositionAndEnabled(name); err != nil {
 			log.Printf("[server] sideload: trimming overrides for %s failed: %v", name, err)
 		}
 	}

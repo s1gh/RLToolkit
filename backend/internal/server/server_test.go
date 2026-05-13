@@ -223,12 +223,12 @@ func TestSideload_InstallsRltp(t *testing.T) {
 	}
 }
 
-// Reinstalling a plugin via sideload should reset every override field
-// except position. The new manifest may have changed width/height/
-// opacity in ways that make the old values nonsensical, but the user's
-// chosen anchor + offsets are still meaningful and we don't want to
-// force them to re-place the overlay on every update.
-func TestSideload_TrimsOverridesToPosition(t *testing.T) {
+// Reinstalling a plugin via sideload should reset sizing-ish fields
+// but keep the user's position and enable/disable choice. The new
+// manifest may have changed width/height/opacity in ways that make the
+// old values nonsensical, but anchor + offsets + the on/off toggle are
+// still meaningful and re-doing them on every update would be annoying.
+func TestSideload_TrimsOverridesToPositionAndEnabled(t *testing.T) {
 	pluginsDir := t.TempDir()
 	dataDir := t.TempDir()
 	pm := plugins.New(pluginsDir)
@@ -238,17 +238,20 @@ func TestSideload_TrimsOverridesToPosition(t *testing.T) {
 	}
 	srv := New(Deps{Plugins: pm, Overrides: ovr, PluginDir: pluginsDir})
 
-	// Seed a full override for "alpha": position + size + opacity.
+	// Seed a full override for "alpha": position + size + opacity +
+	// explicit disabled.
 	anchor := "top-left"
 	offX, offY := 42, 99
 	opacity := 0.5
 	width := plugins.Dimension{Px: 320}
+	disabled := false
 	if _, err := ovr.MergeOne("alpha", overrides.Override{
 		Anchor:  &anchor,
 		OffsetX: &offX,
 		OffsetY: &offY,
 		Width:   &width,
 		Opacity: &opacity,
+		Enabled: &disabled,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -289,6 +292,9 @@ func TestSideload_TrimsOverridesToPosition(t *testing.T) {
 	if got.OffsetY == nil || *got.OffsetY != offY {
 		t.Errorf("offset_y: got %v, want %d", got.OffsetY, offY)
 	}
+	if got.Enabled == nil || *got.Enabled != disabled {
+		t.Errorf("enabled: got %v, want %v", got.Enabled, disabled)
+	}
 	if got.Width != nil {
 		t.Errorf("width should have been cleared, got %+v", got.Width)
 	}
@@ -297,11 +303,11 @@ func TestSideload_TrimsOverridesToPosition(t *testing.T) {
 	}
 }
 
-// When the only existing override fields are non-position (e.g. user
-// tweaked opacity but never moved the overlay), a reinstall should
-// remove the entry entirely rather than leaving an all-nil shell on
-// disk.
-func TestSideload_DropsOverrideEntryWhenNoPosition(t *testing.T) {
+// When the only existing override fields are sizing-ish (e.g. user
+// tweaked opacity but never moved the overlay or toggled enable), a
+// reinstall should remove the entry entirely rather than leaving an
+// all-nil shell on disk.
+func TestSideload_DropsOverrideEntryWhenNothingToKeep(t *testing.T) {
 	pluginsDir := t.TempDir()
 	dataDir := t.TempDir()
 	pm := plugins.New(pluginsDir)
@@ -339,7 +345,7 @@ func TestSideload_DropsOverrideEntryWhenNoPosition(t *testing.T) {
 	}
 
 	if _, ok := ovr.GetAll()["alpha"]; ok {
-		t.Errorf("override entry should have been removed (no position to keep)")
+		t.Errorf("override entry should have been removed (no position or enabled state to keep)")
 	}
 }
 

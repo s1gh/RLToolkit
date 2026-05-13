@@ -99,12 +99,13 @@ func (s *Server) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
 			map[string]string{"error": err.Error()})
 		return
 	}
-	// Reset every override field except position. An update may have
-	// changed sizing / opacity / clamps in ways that make the old
-	// override nonsensical, but the user's chosen anchor and offsets
-	// stay meaningful. Idempotent — missing entries stay missing.
+	// Reset sizing / opacity / clamps but keep position and the
+	// enable/disable toggle. An update may have changed sizing
+	// semantics in ways that make the old values nonsensical, but the
+	// user's anchor, offsets, and on/off choice are still meaningful.
+	// Idempotent — missing entries stay missing.
 	if s.deps.Overrides != nil {
-		if err := s.deps.Overrides.KeepPosition(body.Name); err != nil {
+		if err := s.deps.Overrides.KeepPositionAndEnabled(body.Name); err != nil {
 			log.Printf("[server] install-update: trimming overrides for %s failed: %v", body.Name, err)
 		}
 	}
