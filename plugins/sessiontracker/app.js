@@ -377,6 +377,20 @@
     if (me && (me.team === 0 || me.team === 1)) myTeam = me.team;
   }
 
+  // cacheMyTeamFromRef: opportunistic team capture from any event
+  // payload that carries an enriched player ref. Private/offline
+  // matches don't always populate RLT.match.current.me reliably
+  // (no roster snapshots in some modes), so snapshotMyTeam from
+  // _MatchState alone isn't enough. Every event with a .player or
+  // .scorer or .attacker that's me also carries that player's
+  // team — caching it here keeps myTeam fresh through the whole
+  // match, including the frame _MatchEnded fires on.
+  function cacheMyTeamFromRef(ref) {
+    if (ref && ref.isMe && (ref.team === 0 || ref.team === 1)) {
+      myTeam = ref.team;
+    }
+  }
+
   function rosterSize() {
     const cur = RLT.match.current;
     return cur && Array.isArray(cur.players) ? cur.players.length : 0;
@@ -520,10 +534,11 @@
     const dur  = fmtDuration(b.startedAt);
 
     // Match block — big stat cells. A zero count dims so the eye
-    // lands on values that actually moved.
-    const matchTag = m.result === 'win'  ? '<span class="st-c-match-result win">W</span>'
-                   : m.result === 'loss' ? '<span class="st-c-match-result loss">L</span>'
-                   : '';
+    // lands on values that actually moved. No win/loss badge here:
+    // the per-match outcome is already encoded in the record bar
+    // (latest tick + streak label), and rendering a "W" inside
+    // "LIVE MATCH" reads as the live match having an outcome —
+    // misleading once the next match's countdown begins.
     const cellCls = (v) => v > 0 ? 'st-c-stat-v' : 'st-c-stat-v zero';
     const matchGrid =
       '<div class="st-c-stat"><span class="' + cellCls(m.goals)   + '">' + m.goals   + '</span><span class="st-c-stat-l">Goals</span></div>' +
@@ -619,7 +634,7 @@
       '<div class="st-c-card">' +
         '<div class="st-c-head">' +
           '<span class="st-c-title">Session Tracker</span>' +
-          '<span class="st-c-meta"><b>' + esc(mode) + '</b> · ' + esc(dur) + '</span>' +
+          '<span class="st-c-meta"><b>' + esc(mode) + '</b> · Started ' + esc(dur) + ' ago</span>' +
         '</div>' +
         '<div class="st-c-record">' +
           '<span class="st-c-wl">' + b.results.wins + '<span class="dash">–</span>' + b.results.losses + '</span>' +
@@ -629,7 +644,6 @@
         '<div class="st-c-match">' +
           '<div class="st-c-match-head">' +
             '<span class="st-c-match-tag">Live Match</span>' +
-            matchTag +
           '</div>' +
           '<div class="st-c-match-grid">' + matchGrid + '</div>' +
         '</div>' +
@@ -917,36 +931,43 @@
       _PlayerScoreChanged(p) {
         if (!bucket) return;
         snapshotMyTeam();
+        cacheMyTeamFromRef(p && p.player);
         applyPlayerScoreChanged(bucket, p);
         save(); scheduleRender();
       },
 
       _PlayerDemolished(p) {
         if (!bucket) return;
+        cacheMyTeamFromRef(p && p.attacker);
+        cacheMyTeamFromRef(p && p.victim);
         applyPlayerDemolished(bucket, p);
         save(); scheduleRender();
       },
 
       _BoostConsumed(p) {
         if (!bucket) return;
+        cacheMyTeamFromRef(p && p.player);
         applyBoostConsumed(bucket, p);
         save(); scheduleRender();
       },
 
       _BoostPickup(p) {
         if (!bucket) return;
+        cacheMyTeamFromRef(p && p.player);
         applyBoostPickup(bucket, p);
         save(); scheduleRender();
       },
 
       _OwnGoal(p) {
         if (!bucket) return;
+        cacheMyTeamFromRef(p && p.deflector);
         applyOwnGoal(bucket, p);
         save(); scheduleRender();
       },
 
       _GoalScored(p) {
         if (!bucket) return;
+        cacheMyTeamFromRef(p && p.scorer);
         applyGoalScored(bucket, p);
         applyMyFastestGoal(bucket, p);
         save(); scheduleRender();
@@ -960,12 +981,16 @@
 
       _BallHit(p) {
         if (!bucket) return;
+        const toucher = p && Array.isArray(p.players) && p.players[0];
+        cacheMyTeamFromRef(toucher);
         applyMyHit(bucket, p);
         save(); scheduleRender();
       },
 
       _CrossbarHit(p) {
         if (!bucket) return;
+        const last = p && p.ballLastTouch && p.ballLastTouch.player;
+        cacheMyTeamFromRef(last);
         applyCrossbarHit(bucket, p);
         save(); scheduleRender();
       },

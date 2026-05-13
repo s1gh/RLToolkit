@@ -19,9 +19,9 @@
 .st-pos { color: var(--rlt-cyan, #22d3ee); font-family: var(--rlt-mono, monospace); }
 .st-neg { color: var(--rlt-magenta, #f472b6); font-family: var(--rlt-mono, monospace); }
 .st-name { color: var(--rlt-txt, #e6e9f5); }
-.st-me   { color: var(--rlt-cyan, #22d3ee); }
 
-/* Card */
+/* Card — shared shell used by the dashboard's grouped sections.
+ * The overlay uses its own .st-c-card defined further down. */
 .st-card {
   background: var(--rlt-bg-1, #0f1320);
   border: 1px solid var(--rlt-line, #232a44);
@@ -30,12 +30,6 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.st-h {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
 }
 .st-h-l {
   font-size: 11px;
@@ -56,21 +50,6 @@
 
 .st-row { display: flex; align-items: baseline; gap: 10px; }
 
-.st-record { gap: 12px; }
-.st-wl {
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  font-family: var(--rlt-display, sans-serif);
-  color: var(--rlt-txt, #e6e9f5);
-}
-.st-streak {
-  font-size: 12px;
-  font-family: var(--rlt-mono, monospace);
-  color: var(--rlt-cyan, #22d3ee);
-  letter-spacing: 0.1em;
-}
-
 .st-ticks { gap: 3px; flex-wrap: wrap; }
 .st-tick {
   display: inline-block;
@@ -79,43 +58,6 @@
 }
 .st-tick-win  { background: var(--rlt-cyan, #22d3ee); }
 .st-tick-loss { background: var(--rlt-magenta, #f472b6); }
-
-/* All stat rows share the same horizontal rhythm so the overlay
- * scans top-to-bottom as one consistent grid: 18px between cells,
- * 6px between a label and its value, 12px font with 14px values.
- * Per-row classes only customize behavior that genuinely differs
- * (badges, hardest line layout). */
-.st-row.st-totals,
-.st-row.st-match,
-.st-row.st-ball,
-.st-row.st-mmr,
-.st-row.st-mods {
-  gap: 18px;
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-.st-row.st-totals > span,
-.st-row.st-match > span,
-.st-row.st-ball > span,
-.st-row.st-mmr > span {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.st-row.st-totals .st-val, .st-row.st-totals .st-mut,
-.st-row.st-match  .st-val, .st-row.st-match  .st-mut,
-.st-row.st-ball   .st-val, .st-row.st-ball   .st-mut,
-.st-row.st-mmr    .st-val, .st-row.st-mmr    .st-mut {
-  font-size: 14px;
-  font-weight: 600;
-}
-.st-row.st-totals .st-lbl,
-.st-row.st-match  .st-lbl,
-.st-row.st-ball   .st-lbl,
-.st-row.st-mmr    .st-lbl { letter-spacing: 0.1em; opacity: 0.8; }
-.st-row.st-match  .st-streak { margin-left: auto; }
-
-.st-hardest { font-size: 12px; }
 
 /* Dashboard */
 .st-dash {
@@ -381,15 +323,6 @@ body.overlay-mode #root {
   font-size: 8px;
   vertical-align: middle;
 }
-.st-c-match-result {
-  font-family: var(--rlt-mono, monospace);
-  font-size: 11px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-}
-.st-c-match-result.win  { color: var(--rlt-cyan, #22d3ee); }
-.st-c-match-result.loss { color: var(--rlt-magenta, #f472b6); }
-
 .st-c-match-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
