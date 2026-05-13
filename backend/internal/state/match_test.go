@@ -138,6 +138,62 @@ func TestMatchState_MatchStartedFiresOncePerGuid(t *testing.T) {
 	}
 }
 
+// _MatchStarted fires when MatchCreated arrives with empty Data and
+// the guid only lands later via UpdateState. RL frequently ships
+// MatchCreated without a Data payload; the canonical guid backfills
+// from the first UpdateState frame and the deferred _MatchStarted
+// emission must follow on the next state-changing event.
+func TestMatchState_MatchStartedFiresAfterUpdateStateBackfill(t *testing.T) {
+	ms := New()
+	feed := func(evt bus.Event) []bus.Event {
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	// MatchCreated with empty Data, like RL ships in many cases.
+	feed(bus.Event{Name: "MatchCreated", Data: []byte(`""`)})
+
+	// CountdownBegin transitions to Countdown but with no guid yet, so
+	// _MatchStarted cannot fire. The phase change itself still produces
+	// a _MatchState emission.
+	out := feed(bus.Event{Name: "CountdownBegin", Data: []byte(`""`)})
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted must not fire before a guid is known: %+v", out)
+		}
+	}
+
+	// UpdateState carries the guid in its raw payload. Observe backfills
+	// MatchGuid on the current snapshot and stages the deferred
+	// _MatchStarted emission. The same UpdateState event's Process call
+	// then emits _MatchState (now carrying the guid) AND _MatchStarted.
+	out = feed(bus.Event{
+		Name: "UpdateState",
+		Raw:  []byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"deferred-1\",\"Players\":[]}"}`),
+	})
+	started := false
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			started = true
+			if !contains(string(e.Data), "deferred-1") {
+				t.Errorf("payload missing guid: %s", string(e.Data))
+			}
+		}
+	}
+	if !started {
+		t.Fatalf("expected deferred _MatchStarted after guid backfill, got: %+v", out)
+	}
+
+	// Subsequent state-changing events for the same guid must NOT re-fire
+	// _MatchStarted.
+	out = feed(bus.Event{Name: "RoundStarted", Data: []byte(`""`)})
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted re-fired for the same guid: %+v", out)
+		}
+	}
+}
+
 // _MatchStarted fires only on the first transition into a live-ish
 // phase per guid — a different guid arriving later must re-emit.
 func TestMatchState_MatchStartedFiresPerNewGuid(t *testing.T) {

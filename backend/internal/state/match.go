@@ -141,6 +141,13 @@ func (m *MatchState) Observe(evt bus.Event) {
 		if !m.matchActive.Load() {
 			guid := wire.ExtractMatchGUID(evt.Raw)
 			m.transitionTo(types.PhaseLive, "UpdateState", guid, true)
+		} else {
+			// Backfill MatchGuid when MatchCreated arrived with an empty
+			// Data field (RL frequently ships it that way) and the guid
+			// only landed in UpdateState. Without this, _MatchStarted
+			// never fires because the guid condition stays false through
+			// the entire lobby/countdown/live transition chain.
+			m.backfillMatchGuid(wire.ExtractMatchGUID(evt.Raw))
 		}
 		return
 	}
@@ -253,6 +260,30 @@ func (m *MatchState) transitionTo(phase types.Phase, trigger, guid string, keepA
 // signal before the first goal could possibly fire.
 func isLiveIshPhase(p types.Phase) bool {
 	return p == types.PhaseCountdown || p == types.PhaseLive
+}
+
+// backfillMatchGuid fills in m.cur.MatchGuid when it's empty and a
+// non-empty guid was discovered later (typically via UpdateState).
+// RL ships MatchCreated with an empty Data string in many cases, so
+// the canonical guid only arrives once UpdateState frames start. If
+// _MatchStarted hasn't fired yet for this guid and the current phase
+// is live-ish, this also stages the deferred emission.
+func (m *MatchState) backfillMatchGuid(guid string) {
+	if guid == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cur.MatchGuid != "" {
+		return
+	}
+	m.cur.MatchGuid = guid
+	m.pending.MatchGuid = guid
+	if isLiveIshPhase(m.cur.Phase) && m.lastStartedGuid != guid {
+		m.lastStartedGuid = guid
+		m.pendingStarted = guid
+		m.emit = true
+	}
 }
 
 // transitionIf only transitions when the predicate accepts the current
