@@ -5,6 +5,10 @@
   --mg-bg:        oklch(15% 0.02 265 / 0.9);
   --mg-bg-solid:  oklch(15% 0.02 265);
   --mg-bg-2:      oklch(20% 0.025 265 / 0.95);
+  --mg-bg-3:     oklch(12% 0.025 265);    /* deeper panel: ribbon, table header */
+  --mg-bg-tag:   oklch(20% 0.03 265);     /* chevron tag chip */
+  --mg-track:    oklch(26% 0.02 265);     /* XP / progress bar tracks */
+  --mg-shadow:   oklch(0% 0 0 / 0.4);     /* overlay drop shadow */
   --mg-line:      oklch(34% 0.02 265);
   --mg-line-soft: oklch(34% 0.02 265 / 0.6);
 
@@ -48,7 +52,7 @@ body {
   backdrop-filter: blur(6px);
   border: 1px solid var(--mg-line);
   border-radius: var(--mg-radius);
-  box-shadow: 0 12px 32px oklch(0% 0 0 / 0.4);
+  box-shadow: 0 12px 32px var(--mg-shadow);
   overflow: hidden;
   font-family: var(--mg-display);
 }
@@ -57,7 +61,7 @@ body {
   display: flex;
   align-items: center;
   height: 36px;
-  background: oklch(12% 0.025 265);
+  background: var(--mg-bg-3);
   border-bottom: 1px solid var(--mg-line-soft);
   position: relative;
 }
@@ -71,7 +75,7 @@ body {
   letter-spacing: 0.32em;
   text-transform: uppercase;
   color: var(--mg-txt-3);
-  background: oklch(20% 0.03 265);
+  background: var(--mg-bg-tag);
   clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
 }
 .mg-ribbon-lvl {
@@ -108,7 +112,7 @@ body {
   position: absolute;
   left: 0; right: 0; bottom: -1px;
   height: 2px;
-  background: oklch(26% 0.02 265);
+  background: var(--mg-track);
 }
 .mg-ribbon-bar > i {
   display: block;
@@ -184,7 +188,7 @@ body {
 .mg-obj-progress {
   height: 2px;
   margin-top: 14px;
-  background: oklch(26% 0.02 265);
+  background: var(--mg-track);
   position: relative;
   overflow: hidden;
   border-radius: 999px;

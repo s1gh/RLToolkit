@@ -78,7 +78,7 @@
           <div class="mg-obj-title">${esc(active.title)}</div>
           <div class="mg-obj-meta">
             <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
-            <span class="mg-reward">reward <b>+${active.reward} XP</b></span>
+            <span class="mg-reward">reward <b>+${Number(active.reward) || 0} XP</b></span>
             <span class="mg-timer">${timerLabel}</span>
           </div>
           <div class="mg-obj-progress"><i style="width:${progressPct.toFixed(1)}%"></i></div>
@@ -93,8 +93,8 @@
     return `
       <div class="mg-ribbon">
         <div class="mg-ribbon-tag">Minigames</div>
-        <div class="mg-ribbon-lvl">Lvl <b>${session.level}</b></div>
-        <div class="mg-ribbon-xp">${session.xpInLevel}<em> / ${session.xpToNext} XP</em></div>
+        <div class="mg-ribbon-lvl">Lvl <b>${Number(session.level) || 0}</b></div>
+        <div class="mg-ribbon-xp">${Number(session.xpInLevel) || 0}<em> / ${Number(session.xpToNext) || 0} XP</em></div>
         <div class="mg-ribbon-bar"><i style="width:${pct.toFixed(1)}%"></i></div>
       </div>
     `;
@@ -139,10 +139,7 @@
     // view writes the tick key whenever the displayed second changes or
     // a resolution / match-end fires.
     if (!tick || typeof tick.seq !== 'number') return;
-    if (tick.seq === lastSeenTickSeq) {
-      lastTickEvent = tick;
-      return;
-    }
+    if (tick.seq === lastSeenTickSeq) return;
     lastSeenTickSeq = tick.seq;
     lastTickEvent = tick;
     if (tick.type === 'resolved') {
