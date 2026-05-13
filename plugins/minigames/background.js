@@ -98,7 +98,7 @@
   }
 
   function currentMatch(session) {
-    if (!session?.matches.length) return null;
+    if (!session?.matches?.length) return null;
     return session.matches[session.matches.length - 1];
   }
 
@@ -112,6 +112,7 @@
 
   function recordResolution(session, { outcome, xpDelta }) {
     const m = currentMatch(session);
+    // After endMatch, late-arriving resolutions must not mutate the closed recap.
     if (!m || m.endedAt !== null) return;
     if (outcome === 'completed') m.completed += 1;
     else if (outcome === 'failed') m.failed += 1;
@@ -122,6 +123,7 @@
   function endMatch(session, { matchGuid, now, result }) {
     const m = currentMatch(session);
     if (!m || m.endedAt !== null) return;
+    // Tolerate either side being empty; only reject when both sides are populated and disagree.
     if (matchGuid && m.matchGuid && matchGuid !== m.matchGuid) return;
     m.endedAt = now;
     m.endLevel = session.level;
