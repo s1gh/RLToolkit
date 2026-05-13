@@ -1,7 +1,7 @@
 {
   "name": "synthtracker",
   "title": "SynthTracker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "rl-toolkit",
   "description": "Subscribes to every synthetic event in the catalog and shows live counts + last payload, so you can verify which ones actually fire.",
   "overlay": {
