@@ -515,6 +515,18 @@
 
     async ready() {
       await bootstrap();
+      // DIAG: snapshot the SSE subscription list one tick after the SDK
+      // has had a chance to reconnect with all addEvent() additions.
+      setTimeout(() => {
+        try {
+          const url = (typeof performance !== 'undefined' && performance.getEntriesByType)
+            ? performance.getEntriesByType('resource').filter((e) => e.name.includes('/events?')).map((e) => e.name).slice(-1)[0]
+            : null;
+          store.set('diag-sse', { url, at: Date.now() });
+        } catch (err) {
+          store.set('diag-sse', { err: String(err), at: Date.now() });
+        }
+      }, 500);
     },
 
     events: {
