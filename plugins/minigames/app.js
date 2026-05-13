@@ -25,6 +25,15 @@
     return RLT.ui?.esc ? RLT.ui.esc(String(s == null ? '' : s)) : String(s || '');
   }
 
+  function flash(className, durationMs) {
+    const rootEl = document.getElementById('root');
+    if (!rootEl) return;
+    const card = rootEl.querySelector('.mg-overlay');
+    if (!card) return;
+    card.classList.add(className);
+    setTimeout(() => card.classList.remove(className), durationMs);
+  }
+
   // resolution log (in-memory; cleared on match end via session.matches shape).
   // The log is the last N resolutions of THIS match. We rebuild from the
   // `tick` notifications that the background view publishes.
@@ -305,6 +314,11 @@
         title: tick.title,
         atMs: tick.at,
       });
+      if (RLT.isOverlay) {
+        if (tick.outcome === 'completed') flash('mg-flash-complete', 600);
+        else                              flash('mg-flash-fail', 600);
+        if (tick.deleveled) flash('mg-flash-delevel', 600);
+      }
     } else if (tick.type === 'matchEnded') {
       // Build a recap from the just-ended match in session.matches. The
       // background view writes the matchEnded tick AFTER calling endMatch,

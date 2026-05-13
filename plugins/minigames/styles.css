@@ -430,3 +430,51 @@ body {
   letter-spacing: 0.02em;
 }
 .mg-radio.mg-radio-on { border-color: var(--mg-cyan); }
+
+/* ---- animations ---- */
+
+.mg-obj-title {
+  animation: mg-title-in 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes mg-title-in {
+  0%   { opacity: 0; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.mg-flash-complete .mg-ribbon-bar > i {
+  animation: mg-flash-cyan 600ms ease-out;
+}
+@keyframes mg-flash-cyan {
+  0%   { background: oklch(95% 0.18 200); }
+  60%  { background: oklch(95% 0.18 200); }
+  100% { background: var(--mg-cyan); }
+}
+
+.mg-flash-fail .mg-obj {
+  animation: mg-flash-mag 600ms ease-out;
+}
+@keyframes mg-flash-mag {
+  0%   { background: oklch(28% 0.10 350 / 0.3); }
+  100% { background: transparent; }
+}
+
+.mg-flash-delevel .mg-ribbon-lvl b {
+  animation: mg-flash-delevel 600ms ease-out;
+}
+@keyframes mg-flash-delevel {
+  0%   { color: var(--mg-magenta); transform: scale(1.15); }
+  100% { color: var(--mg-cyan); transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mg-obj-title,
+  .mg-flash-complete .mg-ribbon-bar > i,
+  .mg-flash-fail .mg-obj,
+  .mg-flash-delevel .mg-ribbon-lvl b {
+    animation: none !important;
+  }
+  .mg-ribbon-bar > i,
+  .mg-obj-progress > i {
+    transition: none !important;
+  }
+}
