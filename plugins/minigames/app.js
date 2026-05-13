@@ -197,16 +197,57 @@
     `;
   }
 
+  // ---- settings --------------------------------------------------------
+
+  let lastSettingsState = null;
+
+  const DIFFICULTY_OPTIONS = [
+    { id: 'eased',    name: 'Eased',    desc: 'Early levels heavily weight Easy challenges. Medium creeps in around level 5+, Hard arrives around level 8+. Forgiving climb.' },
+    { id: 'standard', name: 'Standard', desc: 'Even mix at all levels, with the weighting shifting toward Hard as you climb. The default.' },
+    { id: 'sharp',    name: 'Sharp',    desc: 'Hard challenges available from level 1, weighted up. Fastest XP both ways: climb and fall both feel sharper.' },
+  ];
+
+  function renderSettings(rootEl) {
+    const current = lastSettingsState?.difficulty || 'standard';
+    const rows = DIFFICULTY_OPTIONS.map((opt) => {
+      const onCls = opt.id === current ? ' mg-radio-on' : '';
+      const checked = opt.id === current ? ' checked' : '';
+      return `
+        <label class="mg-radio${onCls}">
+          <input type="radio" name="mg-difficulty" value="${esc(opt.id)}"${checked} />
+          <div>
+            <div class="mg-radio-name">${esc(opt.name)}</div>
+            <div class="mg-radio-desc">${esc(opt.desc)}</div>
+          </div>
+        </label>
+      `;
+    }).join('');
+    rootEl.innerHTML = `
+      <div class="mg-settings">
+        <h2>Difficulty bias</h2>
+        <div class="mg-radios">${rows}</div>
+      </div>
+    `;
+    rootEl.querySelectorAll('input[name="mg-difficulty"]').forEach((input) => {
+      input.addEventListener('change', async () => {
+        const v = input.value;
+        await RLT.store.set('settings.difficulty', { difficulty: v });
+      });
+    });
+  }
+
   // ---- store subscription ---------------------------------------------
 
   async function pullState() {
-    const [session, tick, recs] = await Promise.all([
+    const [session, tick, recs, sett] = await Promise.all([
       RLT.store.get('session'),
       RLT.store.get('tick'),
       RLT.store.get('records'),
+      RLT.store.get('settings.difficulty'),
     ]);
     lastSessionState = session;
     lastRecordsState = recs;
+    lastSettingsState = sett;
     if (session?.matches?.length) {
       const m = session.matches[session.matches.length - 1];
       matchStartedAt = m && m.endedAt === null ? m.startedAt : null;
@@ -243,7 +284,7 @@
     if (!el) return;
     if (RLT.isOverlay)      renderOverlay(el);
     if (RLT.isDashboard)    renderDashboard(el);
-    // Settings renderer lands in Task 9.
+    if (RLT.isSettingsView) renderSettings(el);
   }
 
   // ---- register --------------------------------------------------------
@@ -251,9 +292,10 @@
   RLT.plugin.register({
     init() {
       // Subscribe to store changes. Both 'session' and 'tick' trigger rerenders.
-      RLT.store.onChange('session', async () => { await pullState(); rerender(); });
-      RLT.store.onChange('tick',    async () => { await pullState(); rerender(); });
-      RLT.store.onChange('records', async () => { await pullState(); rerender(); });
+      RLT.store.onChange('session',             async () => { await pullState(); rerender(); });
+      RLT.store.onChange('tick',                async () => { await pullState(); rerender(); });
+      RLT.store.onChange('records',             async () => { await pullState(); rerender(); });
+      RLT.store.onChange('settings.difficulty', async () => { await pullState(); rerender(); });
     },
     async ready() {
       await pullState();

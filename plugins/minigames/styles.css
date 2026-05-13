@@ -349,3 +349,54 @@ body {
 @media (max-width: 560px) {
   .mg-records { grid-template-columns: 1fr; }
 }
+
+/* ---- settings ---- */
+
+.mg-settings {
+  padding: 24px;
+  font-family: var(--mg-display);
+  color: var(--mg-txt);
+  background: oklch(13% 0.02 265);
+  min-height: 100vh;
+}
+.mg-settings h2 {
+  font-family: var(--mg-mono);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--mg-txt-3);
+  margin: 0 0 12px 0;
+  font-weight: 500;
+}
+.mg-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mg-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--mg-bg-solid);
+  border: 1px solid var(--mg-line);
+  border-radius: var(--mg-radius);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+.mg-radio:hover { border-color: var(--mg-cyan); }
+.mg-radio input { margin-top: 4px; accent-color: var(--mg-cyan); }
+.mg-radio .mg-radio-name {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--mg-txt);
+  margin-bottom: 4px;
+}
+.mg-radio .mg-radio-desc {
+  font-family: var(--mg-mono);
+  font-size: 11px;
+  color: var(--mg-txt-2);
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+}
+.mg-radio.mg-radio-on { border-color: var(--mg-cyan); }
