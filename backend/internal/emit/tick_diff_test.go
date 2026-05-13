@@ -185,3 +185,162 @@ func TestTickDiff_BoostConsumed_SuppressionResetsBetweenMatches(t *testing.T) {
 		t.Errorf("boost drop in fresh match should NOT be suppressed by stale flag")
 	}
 }
+
+// boostPickup: a single physical pad pickup ramps the Boost field over
+// 2-3 ticks. We coalesce that into a single _BoostPickup event emitted
+// on the first non-rising tick after the streak.
+
+func TestTickDiff_BoostPickup_NoEventWhileRising(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	// Three consecutive rising ticks: 0 → 4 → 8 → 12. No event yet.
+	if got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(0)}, &types.TickPlayer{ID: id, Boost: intp(4)}); got != nil {
+		t.Errorf("rising tick 1: expected nil, got event")
+	}
+	if got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(4)}, &types.TickPlayer{ID: id, Boost: intp(8)}); got != nil {
+		t.Errorf("rising tick 2: expected nil, got event")
+	}
+	if got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(8)}, &types.TickPlayer{ID: id, Boost: intp(12)}); got != nil {
+		t.Errorf("rising tick 3: expected nil, got event")
+	}
+	if s := td.pickupStreaks[id]; s == nil || s.startBoost != 0 || s.lastBoost != 12 {
+		t.Errorf("streak state wrong: %+v", s)
+	}
+}
+
+func TestTickDiff_BoostPickup_FlushesOnPlateau(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	// Ramp 0 → 6 → 12, then plateau at 12. Flush on the plateau tick.
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(0)}, &types.TickPlayer{ID: id, Boost: intp(6)})
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(6)}, &types.TickPlayer{ID: id, Boost: intp(12)})
+	got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(12)}, &types.TickPlayer{ID: id, Boost: intp(12)})
+	if got == nil {
+		t.Fatal("plateau after rise should flush a _BoostPickup event")
+	}
+	if got.Name != "_BoostPickup" {
+		t.Errorf("event name = %q, want _BoostPickup", got.Name)
+	}
+	var payload struct {
+		BoostBefore int `json:"boostBefore"`
+		BoostAfter  int `json:"boostAfter"`
+		Delta       int `json:"delta"`
+	}
+	if err := json.Unmarshal(got.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.BoostBefore != 0 || payload.BoostAfter != 12 || payload.Delta != 12 {
+		t.Errorf("boost fields wrong: %+v", payload)
+	}
+	if _, still := td.pickupStreaks[id]; still {
+		t.Errorf("streak should be cleared after flush")
+	}
+}
+
+func TestTickDiff_BoostPickup_FlushesOnConsume(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	// Ramp 0 → 33 over two ticks, then immediately start consuming.
+	// The first falling tick should flush the pickup.
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(0)}, &types.TickPlayer{ID: id, Boost: intp(20)})
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(20)}, &types.TickPlayer{ID: id, Boost: intp(33)})
+	got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(33)}, &types.TickPlayer{ID: id, Boost: intp(28)})
+	if got == nil {
+		t.Fatal("falling tick after rise should flush a _BoostPickup event")
+	}
+	var payload struct {
+		BoostBefore int `json:"boostBefore"`
+		BoostAfter  int `json:"boostAfter"`
+		Delta       int `json:"delta"`
+	}
+	if err := json.Unmarshal(got.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.BoostBefore != 0 || payload.BoostAfter != 33 || payload.Delta != 33 {
+		t.Errorf("boost fields wrong: %+v", payload)
+	}
+}
+
+func TestTickDiff_BoostPickup_NoEventWithoutStreak(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	// Boost stable, then falling — no rising tick ever happened, so
+	// nothing to flush. Mirrors a player who only spends boost in a
+	// given window.
+	if got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(50)}, &types.TickPlayer{ID: id, Boost: intp(50)}); got != nil {
+		t.Errorf("plateau with no prior rise should emit nothing")
+	}
+	if got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(50)}, &types.TickPlayer{ID: id, Boost: intp(40)}); got != nil {
+		t.Errorf("fall with no prior rise should emit nothing")
+	}
+}
+
+func TestTickDiff_BoostPickup_RespawnEdgeDropsStreak(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	// Player was demolished. The Demolished true→false tick brings
+	// boost from 0 → 33 (RL reseed). That's not a pickup; we must
+	// not start a streak.
+	got := td.boostPickup("g",
+		&types.TickPlayer{ID: id, Demolished: true, Boost: intp(0)},
+		&types.TickPlayer{ID: id, Demolished: false, Boost: intp(33)})
+	if got != nil {
+		t.Errorf("respawn reseed should not emit, got event")
+	}
+	if _, has := td.pickupStreaks[id]; has {
+		t.Errorf("respawn reseed should not open a streak")
+	}
+}
+
+func TestTickDiff_BoostPickup_NilCurrentBoostDropsStreak(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(0)}, &types.TickPlayer{ID: id, Boost: intp(8)})
+	if _, has := td.pickupStreaks[id]; !has {
+		t.Fatal("setup: expected streak to be open")
+	}
+	got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(8)}, &types.TickPlayer{ID: id, Boost: nil})
+	if got != nil {
+		t.Errorf("nil curr.Boost should drop the streak without emitting, got event")
+	}
+	if _, has := td.pickupStreaks[id]; has {
+		t.Errorf("nil curr.Boost should clear the streak")
+	}
+}
+
+func TestTickDiff_BoostPickup_StreakResetsBetweenMatches(t *testing.T) {
+	td := &TickDiff{
+		pendingRespawnSuppress: map[string]bool{},
+		pickupStreaks:          map[string]*pickupStreak{},
+	}
+	id := "p1"
+	td.boostPickup("matchA", &types.TickPlayer{ID: id, Boost: intp(0)}, &types.TickPlayer{ID: id, Boost: intp(20)})
+	td.matchEnded("matchA")
+	if _, has := td.pickupStreaks[id]; has {
+		t.Errorf("match boundary should clear in-flight pickup streaks")
+	}
+}
+
+func TestTickDiff_BoostPickup_StampsIsMeViaResolver(t *testing.T) {
+	td := &TickDiff{
+		roster:        stubResolver{meID: "me-id"},
+		pickupStreaks: map[string]*pickupStreak{},
+	}
+	td.boostPickup("g", &types.TickPlayer{ID: "me-id", Boost: intp(0)}, &types.TickPlayer{ID: "me-id", Boost: intp(33)})
+	got := td.boostPickup("g", &types.TickPlayer{ID: "me-id", Boost: intp(33)}, &types.TickPlayer{ID: "me-id", Boost: intp(33)})
+	if got == nil {
+		t.Fatal("plateau flush expected")
+	}
+	var payload struct {
+		Player struct {
+			ID   string `json:"id"`
+			IsMe bool   `json:"isMe"`
+		} `json:"player"`
+	}
+	if err := json.Unmarshal(got.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Player.IsMe {
+		t.Errorf("isMe should be stamped via resolver, got %+v", payload.Player)
+	}
+}

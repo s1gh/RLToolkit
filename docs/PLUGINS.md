@@ -1423,12 +1423,22 @@ Per-player stat diff. Only fields that moved appear in `delta`.
 
 #### `_BoostPickup`
 
-Fires when a player's boost rises (rising-edge only — respawns and
-boost-resets are suppressed).
+Fires once per physical pad pickup. RL ramps the Boost field over
+2-3 ticks for a single pickup, so the emitter accumulates
+consecutive rising ticks into a streak and emits a single event
+when the rise stops (boost plateaus or starts falling). `delta` is
+the total gain across the streak. Respawn boost reseeds and
+non-spectator-mode dropouts are suppressed.
 
 ```js
 { matchGuid, player: EnrichedPlayer, boostBefore, boostAfter, delta }
 ```
+
+The event is delayed by one tick relative to when the rise ends —
+the streak can't be flushed until we see a non-rising tick. For
+back-to-back pickups with no plateau between them (two pads grabbed
+within ~100ms) the streak coalesces both into one event; rare in
+practice but worth knowing if you're hunting edge cases.
 
 `player.isMe` is stamped via the roster resolver, so plugins can
 filter to their own boost activity with `if (player.isMe)`.

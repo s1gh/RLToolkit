@@ -300,7 +300,7 @@ const catalogData = [
     ['live'],
     'provisional',
     '1.1',
-    'Player Boost rose between ticks (not a respawn).',
+    'One event per physical boost pad pickup. Rising ticks from a single pad are coalesced; delta is the total gain.',
   ],
   [
     '_BoostConsumed',
