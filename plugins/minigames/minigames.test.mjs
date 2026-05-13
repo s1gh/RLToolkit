@@ -557,6 +557,48 @@ test('statfeed trigger: matches eventName via ctx.stats and requires targetIsMe'
   assert.equal(w.completed, 1);
 });
 
+test('instantiate: timeLimitMs:null produces an open-ended runtime challenge', () => {
+  const { ctx } = makeCtx();
+  const inst = C.instantiate({
+    id: 'open', title: 'Open-ended', tier: 'easy', timeLimitMs: null,
+    trigger: { kind: 'matchEndCondition', filters: { noOwnGoal: true } },
+  }, ctx);
+  assert.equal(inst.timeLimitMs, null);
+});
+
+test('validateEntry: timeLimitMs:null is accepted', () => {
+  const errs = C.validateEntry({ id: 'x', title: 'X', tier: 'easy', timeLimitMs: null, trigger: { kind: 'goal' } });
+  assert.deepEqual(errs, []);
+});
+
+test('validateEntry: timeLimitMs:500 is rejected (below 1000ms floor)', () => {
+  const errs = C.validateEntry({ id: 'x', title: 'X', tier: 'easy', timeLimitMs: 500, trigger: { kind: 'goal' } });
+  assert.ok(errs.some((e) => /timeLimitMs/.test(e)));
+});
+
+test('arm: idempotent — second triggering event after completion is a no-op', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'g', title: 'Goal', tier: 'easy', trigger: { kind: 'goal', filters: { isMe: true } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {} });
+  assert.equal(w.completed, 1);
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {} });
+  assert.equal(w.completed, 1, 'onComplete must only fire once');
+});
+
+test('arm: idempotent — second roster-loss after fail is a no-op', () => {
+  const w = makeCtx({ rng: () => 0 });
+  const inst = C.instantiate({
+    id: 'd', title: 'Demo {opponent}', tier: 'hard',
+    trigger: { kind: 'demo', filters: { attackerIsMe: true, victimTargetOpponent: true } },
+  }, w.ctx);
+  inst.arm();
+  w.bus.emit('_RosterChanged', { players: [{ id: 'opp-2' }] });
+  assert.equal(w.failed, 1);
+  w.bus.emit('_RosterChanged', { players: [] });
+  assert.equal(w.failed, 1, 'onFail must only fire once');
+});
+
 test('challenges.json: every entry passes validateEntry', () => {
   const raw = readFileSync(new URL('./challenges.json', import.meta.url), 'utf8');
   const data = JSON.parse(raw);

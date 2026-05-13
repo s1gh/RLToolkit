@@ -140,7 +140,11 @@
     if (entry.count != null && (typeof entry.count !== 'number' || entry.count < 1)) errs.push('count must be a positive integer');
     if (entry.reward != null && typeof entry.reward !== 'number') errs.push('reward must be a number');
     if (entry.failPenalty != null && typeof entry.failPenalty !== 'number') errs.push('failPenalty must be a number');
-    if (entry.timeLimitMs != null && (typeof entry.timeLimitMs !== 'number' || entry.timeLimitMs < 1000)) errs.push('timeLimitMs must be >= 1000');
+    if (entry.timeLimitMs !== undefined && entry.timeLimitMs !== null) {
+      if (typeof entry.timeLimitMs !== 'number' || entry.timeLimitMs < 1000) {
+        errs.push('timeLimitMs must be null or a number >= 1000');
+      }
+    }
     return errs;
   }
 
@@ -189,7 +193,11 @@
       tier,
       reward: typeof entry.reward === 'number' ? entry.reward : td.reward,
       failPenalty: typeof entry.failPenalty === 'number' ? entry.failPenalty : td.failPenalty,
-      timeLimitMs: typeof entry.timeLimitMs === 'number' ? entry.timeLimitMs : td.timeLimitMs,
+      // Explicit null = open-ended (no per-challenge timer). Used by
+      // matchEndCondition challenges that resolve at match end.
+      timeLimitMs: entry.timeLimitMs === null
+        ? null
+        : (typeof entry.timeLimitMs === 'number' ? entry.timeLimitMs : td.timeLimitMs),
       boundOpponent: boundOpponent ? { id: boundOpponent.id, name: boundOpponent.name } : null,
       arm: null,
     };
@@ -217,20 +225,27 @@
     return function arm() {
       const unsubs = [];
       let progress = 0;
+      // Once we've signalled completion or failure, ignore further events.
+      // The caller (Task 6) should dispose the arm on resolution, but the
+      // latch defends against late events arriving in the same tick.
+      let resolved = false;
+      const complete = () => { if (!resolved) { resolved = true; ctx.onComplete(); } };
+      const fail = () => { if (!resolved) { resolved = true; ctx.onFail(); } };
 
       // Roster-loss fail-fast for bound-opponent challenges.
       if (runtime.boundOpponent) {
         unsubs.push(ctx.on('_RosterChanged', (e) => {
           if (!e || !Array.isArray(e.players)) return;
           if (!e.players.some((p) => p.id === runtime.boundOpponent.id)) {
-            ctx.onFail();
+            fail();
           }
         }));
       }
 
       const tick = (delta) => {
+        if (resolved) return;
         progress += (typeof delta === 'number' ? delta : 1);
-        if (progress >= target) ctx.onComplete();
+        if (progress >= target) complete();
       };
 
       const kind = entry.trigger.kind;
@@ -280,24 +295,27 @@
           if (!e?.player) return;
           if (filters.isMe !== false && !e.player.isMe) return;
           sum += (e.delta || 0);
-          if (sum >= goal) ctx.onComplete();
+          if (sum >= goal) complete();
         }));
       } else if (kind === 'touch') {
         const consecutive = filters.consecutive === true;
+        // isMe filter: default true. If true, only count my touches and
+        // (when consecutive) reset on any other touch. If false, count
+        // every ball touch regardless of player.
+        const meOnly = filters.isMe !== false;
         let streak = 0;
         unsubs.push(ctx.on('_BallHit', (e) => {
           if (!e?.player) return;
-          if (filters.isMe !== false && !e.player.isMe) {
+          const counts = !meOnly || e.player.isMe;
+          if (!counts) {
             if (consecutive) streak = 0;
             return;
           }
-          if (filters.isMe !== false && e.player.isMe) {
-            streak += 1;
-            if (consecutive) {
-              if (streak >= target) ctx.onComplete();
-            } else {
-              tick();
-            }
+          streak += 1;
+          if (consecutive) {
+            if (streak >= target) complete();
+          } else {
+            tick();
           }
         }));
       } else if (kind === 'crossbar') {
@@ -326,7 +344,7 @@
             if (e?.deflector?.isMe) dirty = true;
           }));
           unsubs.push(ctx.on('_MatchEnded', () => {
-            if (!dirty) ctx.onComplete();
+            if (!dirty) complete();
           }));
         }
         if (filters.cleanRound) {
@@ -337,7 +355,7 @@
               inRound = true; dirty = false;
             } else if (e.phase !== 'live' && inRound) {
               inRound = false;
-              if (!dirty) ctx.onComplete();
+              if (!dirty) complete();
             }
           }));
           unsubs.push(ctx.on('_GoalScored', (e) => {

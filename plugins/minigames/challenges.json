@@ -146,12 +146,14 @@
       "id": "no-og",
       "title": "Finish the match without an own goal",
       "tier": "easy",
+      "timeLimitMs": null,
       "trigger": { "kind": "matchEndCondition", "filters": { "noOwnGoal": true } }
     },
     {
       "id": "clean-sheet",
       "title": "Finish a round without conceding",
       "tier": "hard",
+      "timeLimitMs": null,
       "trigger": { "kind": "matchEndCondition", "filters": { "cleanRound": true } }
     }
   ]
