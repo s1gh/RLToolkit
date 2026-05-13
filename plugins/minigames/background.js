@@ -530,14 +530,8 @@
     },
 
     events: {
-      // DIAG: log every event the background view sees, so we can confirm
-      // which subscriptions actually get delivered. Remove once verified.
-      '*'(name, data) {
-        if (!store) return;
-        store.set('diag-last-event', { name, hasMatchGuid: !!(data && data.matchGuid), at: Date.now() });
-      },
-
       _MatchStarted(e) {
+        if (store) store.set('diag-last-event', { name: '_MatchStarted', guid: e?.matchGuid, at: Date.now() });
         // Authoritative match-start signal. Resets the per-match log on the
         // backend's "this is a fresh match" edge, so we can rely on it for
         // pushing a new entry onto session.matches.
