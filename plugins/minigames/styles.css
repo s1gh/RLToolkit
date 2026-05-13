@@ -433,7 +433,7 @@ body {
 
 /* ---- animations ---- */
 
-.mg-obj-title {
+.mg-obj-title-anim {
   animation: mg-title-in 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @keyframes mg-title-in {
@@ -467,7 +467,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mg-obj-title,
+  .mg-obj-title-anim,
   .mg-flash-complete .mg-ribbon-bar > i,
   .mg-flash-fail .mg-obj,
   .mg-flash-delevel .mg-ribbon-lvl b {

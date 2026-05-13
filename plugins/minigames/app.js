@@ -25,6 +25,9 @@
     return RLT.ui?.esc ? RLT.ui.esc(String(s == null ? '' : s)) : String(s || '');
   }
 
+  // Apply a transient class to the overlay card for an animation duration.
+  // Callers should guard with `if (RLT.isOverlay)` so the dashboard / settings
+  // views never invoke this; the `.mg-overlay` selector is overlay-specific.
   function flash(className, durationMs) {
     const rootEl = document.getElementById('root');
     if (!rootEl) return;
@@ -49,6 +52,7 @@
   // type === 'matchEnded'; cleared 10s later by the rerender idle path.
   let recapShownUntil = 0;
   let recapData = null;     // {completed, failed, timedOut, xpGained, startLevel, endLevel}
+  let lastRenderedChallengeId = null;
 
   // ---- overlay ---------------------------------------------------------
 
@@ -61,6 +65,7 @@
 
     const inRecap = recapShownUntil > Date.now() && recapData;
     if (inRecap) {
+      lastRenderedChallengeId = null;
       const xp = (recapData.xpGained >= 0 ? '+' : '') + recapData.xpGained;
       const levelLine = recapData.startLevel === recapData.endLevel
         ? 'Level ' + recapData.endLevel
@@ -86,6 +91,7 @@
 
     const active = session.activeChallenge;
     if (!active) {
+      lastRenderedChallengeId = null;
       rootEl.innerHTML = `
         <div class="mg-overlay">
           ${ribbonHtml(session)}
@@ -116,7 +122,7 @@
         ${ribbonHtml(session)}
         <div class="mg-obj">
           <div class="mg-obj-tag">Objective</div>
-          <div class="mg-obj-title">${esc(active.title)}</div>
+          <div class="mg-obj-title${active.id !== lastRenderedChallengeId ? ' mg-obj-title-anim' : ''}">${esc(active.title)}</div>
           <div class="mg-obj-meta">
             <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
             <span class="mg-reward">reward <b>+${Number(active.reward) || 0} XP</b></span>
@@ -127,6 +133,7 @@
         ${priorHtml()}
       </div>
     `;
+    lastRenderedChallengeId = active.id;
   }
 
   function ribbonHtml(session) {
