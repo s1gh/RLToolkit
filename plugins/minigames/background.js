@@ -82,6 +82,66 @@
     return session;
   }
 
+  function freshMatchEntry(matchGuid, now, startLevel) {
+    return {
+      matchGuid: matchGuid || '',
+      startedAt: now,
+      endedAt: null,
+      startLevel,
+      endLevel: startLevel,
+      xpGained: 0,
+      completed: 0,
+      failed: 0,
+      timedOut: 0,
+      result: null,
+    };
+  }
+
+  function currentMatch(session) {
+    if (!session?.matches.length) return null;
+    return session.matches[session.matches.length - 1];
+  }
+
+  function startMatch(session, { matchGuid, now }) {
+    if (!session) return;
+    const top = currentMatch(session);
+    // Idempotency: if the same matchGuid is already the open match, do nothing.
+    if (top && top.matchGuid === matchGuid && top.endedAt === null) return;
+    session.matches.push(freshMatchEntry(matchGuid, now, session.level));
+  }
+
+  function recordResolution(session, { outcome, xpDelta }) {
+    const m = currentMatch(session);
+    if (!m || m.endedAt !== null) return;
+    if (outcome === 'completed') m.completed += 1;
+    else if (outcome === 'failed') m.failed += 1;
+    else if (outcome === 'timedOut') m.timedOut += 1;
+    m.xpGained += xpDelta;
+  }
+
+  function endMatch(session, { matchGuid, now, result }) {
+    const m = currentMatch(session);
+    if (!m || m.endedAt !== null) return;
+    if (matchGuid && m.matchGuid && matchGuid !== m.matchGuid) return;
+    m.endedAt = now;
+    m.endLevel = session.level;
+    m.result = result || null;
+    session.activeChallenge = null;
+  }
+
+  function takeRecord(records, { level, streak, matchXp }) {
+    if (!records) return;
+    if (typeof level === 'number' && level > records.highestLevel) {
+      records.highestLevel = level;
+    }
+    if (typeof streak === 'number' && streak > records.longestStreak) {
+      records.longestStreak = streak;
+    }
+    if (typeof matchXp === 'number' && matchXp > records.bestMatchXp) {
+      records.bestMatchXp = matchXp;
+    }
+  }
+
   root.MinigamesReducers = {
     LEVEL_CAP,
     xpToNext,
@@ -90,6 +150,11 @@
     applyReward,
     applyPenalty,
     wipeIfStaleBoot,
+    startMatch,
+    recordResolution,
+    endMatch,
+    takeRecord,
+    currentMatch,
   };
 
   if (typeof window === 'undefined' || !window.RLT) return;

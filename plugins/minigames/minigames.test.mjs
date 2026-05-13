@@ -138,3 +138,106 @@ test('wipeIfStaleBoot: null/empty input returns fresh', () => {
   assert.equal(fresh.bootId, 'boot');
   assert.equal(fresh.level, 1);
 });
+
+test('startMatch: pushes a fresh match entry with start level snapshot', () => {
+  const s = R.emptySession('b');
+  s.level = 5; s.xpInLevel = 120;
+  R.startMatch(s, { matchGuid: 'g1', now: 1000 });
+  assert.equal(s.matches.length, 1);
+  const m = s.matches[0];
+  assert.equal(m.matchGuid, 'g1');
+  assert.equal(m.startedAt, 1000);
+  assert.equal(m.endedAt, null);
+  assert.equal(m.startLevel, 5);
+  assert.equal(m.endLevel, 5);
+  assert.equal(m.completed, 0);
+  assert.equal(m.failed, 0);
+  assert.equal(m.timedOut, 0);
+  assert.equal(m.xpGained, 0);
+  assert.equal(m.result, null);
+});
+
+test('startMatch: same matchGuid is a no-op (idempotent)', () => {
+  const s = R.emptySession('b');
+  R.startMatch(s, { matchGuid: 'g1', now: 1000 });
+  R.startMatch(s, { matchGuid: 'g1', now: 2000 });
+  assert.equal(s.matches.length, 1);
+  assert.equal(s.matches[0].startedAt, 1000);
+});
+
+test('recordResolution: completed increments completed + xpGained', () => {
+  const s = R.emptySession('b');
+  R.startMatch(s, { matchGuid: 'g1', now: 1000 });
+  R.recordResolution(s, { outcome: 'completed', xpDelta: +90 });
+  const m = s.matches[0];
+  assert.equal(m.completed, 1);
+  assert.equal(m.xpGained, 90);
+});
+
+test('recordResolution: failed increments failed + negative xpDelta', () => {
+  const s = R.emptySession('b');
+  R.startMatch(s, { matchGuid: 'g1', now: 1000 });
+  R.recordResolution(s, { outcome: 'failed', xpDelta: -45 });
+  const m = s.matches[0];
+  assert.equal(m.failed, 1);
+  assert.equal(m.xpGained, -45);
+});
+
+test('recordResolution: timedOut increments timedOut (also counts as fail penalty)', () => {
+  const s = R.emptySession('b');
+  R.startMatch(s, { matchGuid: 'g1', now: 1000 });
+  R.recordResolution(s, { outcome: 'timedOut', xpDelta: -90 });
+  const m = s.matches[0];
+  assert.equal(m.timedOut, 1);
+  assert.equal(m.xpGained, -90);
+});
+
+test('endMatch: stamps endedAt, endLevel, result, and clears activeChallenge', () => {
+  const s = R.emptySession('b');
+  s.level = 3;
+  R.startMatch(s, { matchGuid: 'g1', now: 1000 });
+  s.activeChallenge = { id: 'x' };
+  R.applyReward(s, 200); // pushes to level 4
+  R.endMatch(s, { matchGuid: 'g1', now: 5000, result: 'win' });
+  const m = s.matches[0];
+  assert.equal(m.endedAt, 5000);
+  assert.equal(m.endLevel, 4);
+  assert.equal(m.result, 'win');
+  assert.equal(s.activeChallenge, null);
+});
+
+test('endMatch: ignored if matchGuid does not match current entry', () => {
+  const s = R.emptySession('b');
+  R.startMatch(s, { matchGuid: 'g1', now: 1000 });
+  R.endMatch(s, { matchGuid: 'g-other', now: 5000, result: 'win' });
+  assert.equal(s.matches[0].endedAt, null);
+});
+
+test('takeRecord: bumps highestLevel only when surpassed', () => {
+  const recs = R.emptyRecords();
+  recs.highestLevel = 5;
+  R.takeRecord(recs, { level: 4 });
+  assert.equal(recs.highestLevel, 5);
+  R.takeRecord(recs, { level: 7 });
+  assert.equal(recs.highestLevel, 7);
+});
+
+test('takeRecord: bumps longestStreak only when surpassed', () => {
+  const recs = R.emptyRecords();
+  recs.longestStreak = 3;
+  R.takeRecord(recs, { streak: 2 });
+  assert.equal(recs.longestStreak, 3);
+  R.takeRecord(recs, { streak: 6 });
+  assert.equal(recs.longestStreak, 6);
+});
+
+test('takeRecord: bumps bestMatchXp only when surpassed (positive only)', () => {
+  const recs = R.emptyRecords();
+  recs.bestMatchXp = 100;
+  R.takeRecord(recs, { matchXp: 50 });
+  assert.equal(recs.bestMatchXp, 100);
+  R.takeRecord(recs, { matchXp: 250 });
+  assert.equal(recs.bestMatchXp, 250);
+  R.takeRecord(recs, { matchXp: -500 });
+  assert.equal(recs.bestMatchXp, 250); // negatives never lower the best
+});
