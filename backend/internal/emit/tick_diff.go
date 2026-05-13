@@ -78,6 +78,39 @@ func NewTickDiff(phase PhaseGate, ticks TickHistory, correlation Correlator, fli
 	}
 }
 
+// armKickoffSuppression flags every player currently above 33 boost
+// for one-shot _BoostConsumed suppression. RL resets every player's
+// boost to 33 between CountdownBegin and RoundStarted; without this
+// guard, the resulting tick-over-tick decrease (e.g. 80→33) gets
+// emitted as a 47-point spend and inflates session totals. Players at
+// 33 or below skip the flag — they won't see a decrease at all.
+// Pickup streaks are also dropped: anything mid-pickup at the goal
+// moment is no longer trustworthy across the reset.
+func (e *TickDiff) armKickoffSuppression() {
+	if e.ticks == nil {
+		return
+	}
+	curr := e.ticks.Latest()
+	if curr == nil {
+		return
+	}
+	if e.pendingRespawnSuppress == nil {
+		e.pendingRespawnSuppress = make(map[string]bool)
+	}
+	for i := range curr.Players {
+		p := &curr.Players[i]
+		if p.ID == "" || p.Boost == nil {
+			continue
+		}
+		if *p.Boost > 33 {
+			e.pendingRespawnSuppress[p.ID] = true
+		}
+		if e.pickupStreaks != nil {
+			delete(e.pickupStreaks, p.ID)
+		}
+	}
+}
+
 // matchEnded clears the per-match respawn-suppression bookkeeping and
 // any in-progress pickup streaks. Called from Process on
 // MatchCreated/MatchDestroyed so a flag armed in one match can't carry
@@ -96,6 +129,19 @@ func (e *TickDiff) matchEnded(_ string) {
 func (e *TickDiff) Process(evt bus.Event) []bus.Event {
 	if evt.Name == "MatchCreated" || evt.Name == "MatchDestroyed" {
 		e.matchEnded(evt.Name)
+		return nil
+	}
+	if evt.Name == "CountdownBegin" {
+		e.armKickoffSuppression()
+		return nil
+	}
+	if evt.Name == "RoundStarted" {
+		// By the time live play resumes, any kickoff boost reset has
+		// already landed. Clear any flags still armed so they can't
+		// silently swallow a real boost spend later.
+		for k := range e.pendingRespawnSuppress {
+			delete(e.pendingRespawnSuppress, k)
+		}
 		return nil
 	}
 	if evt.Name != "UpdateState" {

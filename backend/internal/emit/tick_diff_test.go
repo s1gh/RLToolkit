@@ -3,6 +3,7 @@ package emit
 import (
 	"bytes"
 	"encoding/json"
+	"rl-toolkit/backend/internal/bus"
 	"rl-toolkit/backend/internal/types"
 	"testing"
 )
@@ -342,5 +343,99 @@ func TestTickDiff_BoostPickup_StampsIsMeViaResolver(t *testing.T) {
 	}
 	if !payload.Player.IsMe {
 		t.Errorf("isMe should be stamped via resolver, got %+v", payload.Player)
+	}
+}
+
+// stubTickHistory exposes a single latest snapshot for armKickoff
+// tests. Previous() isn't needed because Process only consumes
+// CountdownBegin / RoundStarted on this code path.
+type stubTickHistory struct{ latest *types.TickSnapshot }
+
+func (s stubTickHistory) Latest() *types.TickSnapshot   { return s.latest }
+func (s stubTickHistory) Previous() *types.TickSnapshot { return nil }
+
+// CountdownBegin marks the start of a kickoff. RL resets every
+// player's Boost to 33 between CountdownBegin and RoundStarted, so
+// the next boost decrease for each player must be swallowed —
+// otherwise a 80→33 reset shows up as a 47-point spend.
+func TestTickDiff_Kickoff_ArmsSuppressionForPlayersAboveSpawn(t *testing.T) {
+	tick := &types.TickSnapshot{
+		Players: []types.TickPlayer{
+			{ID: "p1", Boost: intp(80)}, // above spawn → arm
+			{ID: "p2", Boost: intp(20)}, // below spawn → no arm needed
+			{ID: "p3", Boost: intp(33)}, // exactly spawn → no decrease, no arm
+			{ID: "p4", Boost: nil},      // unknown → skip
+			{ID: "", Boost: intp(50)},   // empty ID → skip
+		},
+	}
+	td := &TickDiff{
+		ticks:                  stubTickHistory{latest: tick},
+		pendingRespawnSuppress: map[string]bool{},
+	}
+	td.Process(bus.Event{Name: "CountdownBegin"})
+
+	if !td.pendingRespawnSuppress["p1"] {
+		t.Errorf("p1 (80 boost) should be armed for kickoff suppression")
+	}
+	if td.pendingRespawnSuppress["p2"] {
+		t.Errorf("p2 (20 boost) should NOT be armed — won't decrease")
+	}
+	if td.pendingRespawnSuppress["p3"] {
+		t.Errorf("p3 (33 boost) should NOT be armed — already at spawn")
+	}
+	if td.pendingRespawnSuppress["p4"] {
+		t.Errorf("p4 (nil Boost) should NOT be armed")
+	}
+}
+
+func TestTickDiff_Kickoff_DropsPickupStreaks(t *testing.T) {
+	tick := &types.TickSnapshot{
+		Players: []types.TickPlayer{{ID: "p1", Boost: intp(80)}},
+	}
+	td := &TickDiff{
+		ticks:                  stubTickHistory{latest: tick},
+		pendingRespawnSuppress: map[string]bool{},
+		pickupStreaks:          map[string]*pickupStreak{"p1": {startBoost: 0, lastBoost: 12}},
+	}
+	td.Process(bus.Event{Name: "CountdownBegin"})
+	if _, has := td.pickupStreaks["p1"]; has {
+		t.Errorf("kickoff should drop in-flight pickup streaks")
+	}
+}
+
+// Kickoff suppression must consume on the first decrease. The
+// post-reset value is 33 for everyone; the suppressed event would
+// represent "80→33 = 47 spent" which is bogus.
+func TestTickDiff_Kickoff_SwallowsResetDecrease(t *testing.T) {
+	tick := &types.TickSnapshot{
+		Players: []types.TickPlayer{{ID: "p1", Boost: intp(80)}},
+	}
+	td := &TickDiff{
+		ticks:                  stubTickHistory{latest: tick},
+		pendingRespawnSuppress: map[string]bool{},
+	}
+	td.Process(bus.Event{Name: "CountdownBegin"})
+
+	got := td.boostConsumed("g",
+		&types.TickPlayer{ID: "p1", Boost: intp(80)},
+		&types.TickPlayer{ID: "p1", Boost: intp(33)})
+	if got != nil {
+		t.Errorf("kickoff reset 80→33 should be swallowed, got event")
+	}
+	if td.pendingRespawnSuppress["p1"] {
+		t.Errorf("flag should clear after one-shot consumption")
+	}
+}
+
+// RoundStarted clears any kickoff flags still armed — without that,
+// a player at <=33 boost who never saw a decrease at kickoff would
+// have a stale flag that swallows their first real spend later.
+func TestTickDiff_RoundStarted_ClearsArmedFlags(t *testing.T) {
+	td := &TickDiff{
+		pendingRespawnSuppress: map[string]bool{"p1": true, "p2": true},
+	}
+	td.Process(bus.Event{Name: "RoundStarted"})
+	if len(td.pendingRespawnSuppress) != 0 {
+		t.Errorf("RoundStarted should clear all kickoff flags, still have: %+v", td.pendingRespawnSuppress)
 	}
 }
