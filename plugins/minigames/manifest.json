@@ -7,8 +7,7 @@
   "overlay": {
     "file": "overlay.html",
     "width": 360,
-    "height": "auto",
-    "max_height": 480,
+    "height": 360,
     "anchor": "top-left",
     "offset_x": 16,
     "offset_y": 16,
