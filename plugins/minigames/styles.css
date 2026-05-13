@@ -471,10 +471,12 @@ body {
   .mg-flash-complete .mg-ribbon-bar > i,
   .mg-flash-fail .mg-obj,
   .mg-flash-delevel .mg-ribbon-lvl b {
+    /* biome-ignore lint/complexity/noImportantStyles: WCAG reduced-motion overrides must defeat cascade-order. */
     animation: none !important;
   }
   .mg-ribbon-bar > i,
   .mg-obj-progress > i {
+    /* biome-ignore lint/complexity/noImportantStyles: WCAG reduced-motion overrides must defeat cascade-order. */
     transition: none !important;
   }
 }
