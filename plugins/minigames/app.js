@@ -6,6 +6,18 @@
 
   // ---- shared helpers --------------------------------------------------
 
+  // setHtml writes html into el only when it differs from the last value
+  // we wrote into the same element. Skipping the write when the markup is
+  // identical avoids the visible "blink" caused by browser repaints on
+  // innerHTML reassignment (innerHTML always tears down and rebuilds the
+  // subtree, even when the resulting tree is identical).
+  const lastHtmlByEl = new WeakMap();
+  function setHtml(el, html) {
+    if (lastHtmlByEl.get(el) === html) return;
+    lastHtmlByEl.set(el, html);
+    el.innerHTML = html;
+  }
+
   function fmtMs(ms) {
     const total = Math.max(0, Math.floor((ms || 0) / 1000));
     const m = Math.floor(total / 60);
@@ -71,7 +83,7 @@
   function renderOverlay(rootEl) {
     const session = lastSessionState;
     if (!session) {
-      rootEl.innerHTML = '';
+      setHtml(rootEl, '');
       return;
     }
     // Hold the first render until the background view has had a chance to
@@ -113,7 +125,7 @@
           </div>
         `;
       }
-      rootEl.innerHTML = `
+      setHtml(rootEl, `
         <div class="mg-overlay">
           ${ribbonHtml(session)}
           <div class="mg-obj">
@@ -128,7 +140,7 @@
           </div>
           ${priorHtml()}
         </div>
-      `;
+      `);
       return;
     }
 
@@ -143,24 +155,24 @@
       const objectiveSlot = activeObjective
         ? renderCard(activeObjective, 'objective')
         : '';
-      rootEl.innerHTML = `
+      setHtml(rootEl, `
         <div class="mg-overlay">
           ${ribbonHtml(session)}
           ${objectiveSlot}
           <div class="mg-idle">Waiting for next match</div>
         </div>
-      `;
+      `);
       return;
     }
 
-    rootEl.innerHTML = `
+    setHtml(rootEl, `
       <div class="mg-overlay">
         ${ribbonHtml(session)}
         ${renderCard(activeObjective, 'objective')}
         ${renderCard(activeTask, 'task')}
         ${priorHtml()}
       </div>
-    `;
+    `);
     lastRenderedChallengeId = activeTask ? activeTask.id : null;
   }
 
@@ -302,12 +314,12 @@
     const session = lastSessionState;
     const records = lastRecordsState;
     if (!session || !records) {
-      rootEl.innerHTML = '<div class="mg-dash"><div class="mg-empty">Loading...</div></div>';
+      setHtml(rootEl, '<div class="mg-dash"><div class="mg-empty">Loading...</div></div>');
       return;
     }
     const matches = (session.matches || []).slice().reverse();
 
-    rootEl.innerHTML = `
+    setHtml(rootEl, `
       <div class="mg-dash">
         <div class="mg-dash-h">All-time records</div>
         <div class="mg-records">
@@ -332,7 +344,7 @@
             : matchesTableHtml(matches)}
         </div>
       </div>
-    `;
+    `);
   }
 
   function matchesTableHtml(matches) {
@@ -400,12 +412,12 @@
         </label>
       `;
     }).join('');
-    rootEl.innerHTML = `
+    setHtml(rootEl, `
       <div class="mg-settings">
         <h2>Difficulty bias</h2>
         <div class="mg-radios">${rows}</div>
       </div>
-    `;
+    `);
     rootEl.querySelectorAll('input[name="mg-difficulty"]').forEach((input) => {
       input.addEventListener('change', async () => {
         const v = input.value;
