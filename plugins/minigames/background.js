@@ -730,8 +730,12 @@
     if (!activeTask) return;
     // Open-ended challenge: nothing to count down. Emit a single tick so
     // the overlay knows we're active, then stop bothering the store until
-    // the challenge resolves.
-    if (activeDeadline === null) {
+    // the challenge resolves. Truly open-ended means BOTH activeDeadline
+    // and activePausedRemaining are null. A timed challenge drawn during a
+    // non-live phase has activeDeadline === null but activePausedRemaining
+    // set to the full timeLimitMs, and must fall through to the pause /
+    // unpause logic below.
+    if (activeDeadline === null && activePausedRemaining === null) {
       if (lastTickSecond !== -1) return;
       lastTickSecond = 0;
       pushTickEvent({ type: 'tick', remainingMs: null });
