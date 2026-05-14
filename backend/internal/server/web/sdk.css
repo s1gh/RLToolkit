@@ -430,6 +430,13 @@ body.overlay-mode {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 20px;
+  align-items: stretch;
+}
+/* Cards inside a grid stretch to the row's max height even when their
+   content is shorter, so the row reads as a balanced pair instead of
+   one card looking truncated next to a taller sibling. */
+.rlt-grid > .rlt-card {
+  height: 100%;
 }
 @media (max-width: 860px) {
   .rlt-grid {
