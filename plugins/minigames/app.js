@@ -181,11 +181,17 @@
       `;
     }
 
-    // Task card: keep the timer row + countdown bar.
-    const isOpenEnded = active.timeLimitMs === null || active.deadline === null;
+    // Task card: keep the timer row + countdown bar. Open-ended challenges
+    // have timeLimitMs:null. Timed challenges expose either a live
+    // `deadline` (wall-clock ms-epoch) or a frozen `pausedRemainingMs`
+    // when the timer is paused (between rounds, countdown, replay, menu).
+    const isOpenEnded = active.timeLimitMs === null;
+    const isPaused = !isOpenEnded && typeof active.pausedRemainingMs === 'number';
     let remainingMs;
     if (isOpenEnded) {
       remainingMs = null;
+    } else if (isPaused) {
+      remainingMs = Math.max(0, active.pausedRemainingMs);
     } else if (lastTickEvent && lastTickEvent.type === 'tick' && typeof lastTickEvent.remainingMs === 'number') {
       remainingMs = lastTickEvent.remainingMs;
     } else {
@@ -481,7 +487,12 @@
           const session = lastSessionState;
           const active = session?.activeTask;
           if (!active) return;
-          if (active.timeLimitMs === null || active.deadline === null) return;
+          if (active.timeLimitMs === null) return;
+          // Paused: pausedRemainingMs is a frozen value, no need to repoll
+          // wall-clock. The background view republishes the task whenever
+          // pause state flips, which triggers a rerender through onChange.
+          if (typeof active.pausedRemainingMs === 'number') return;
+          if (active.deadline === null) return;
           const remainingMs = Math.max(0, active.deadline - Date.now());
           const sec = Math.ceil(remainingMs / 1000);
           if (sec === lastDisplayedSecond) return;

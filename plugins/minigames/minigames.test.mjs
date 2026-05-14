@@ -677,6 +677,28 @@ test('boostPickup trigger: minDelta filters out small-pad pickups', () => {
   assert.equal(w.completed, 1);
 });
 
+test('boostPickup trigger: isBigPad:true filter passes only when payload flagged big', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'b', title: 'Big pads', tier: 'easy', count: 2, trigger: { kind: 'boostPickup', filters: { isMe: true, isBigPad: true } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, isBigPad: false, delta: 12 });
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, isBigPad: false, delta: 12 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, isBigPad: true, delta: 88 });
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, isBigPad: true, delta: 60 });
+  assert.equal(w.completed, 1);
+});
+
+test('boostPickup trigger: isBigPad:false filter rejects big pads', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'b', title: 'Small pads', tier: 'easy', count: 1, trigger: { kind: 'boostPickup', filters: { isMe: true, isBigPad: false } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, isBigPad: true, delta: 100 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_BoostPickup', { player: { isMe: true }, isBigPad: false, delta: 12 });
+  assert.equal(w.completed, 1);
+});
+
 test('boostConsumed trigger: sums delta until sumDelta is reached', () => {
   const w = makeCtx();
   const inst = C.instantiate({ id: 'c', title: 'Use 250 boost', tier: 'medium', trigger: { kind: 'boostConsumed', filters: { isMe: true, sumDelta: 250 } } }, w.ctx);

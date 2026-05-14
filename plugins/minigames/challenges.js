@@ -332,10 +332,11 @@
           if (!e?.player) return;
           if (filters.isMe !== false && !e.player.isMe) return;
           if (typeof filters.minDelta === 'number' && (e.delta || 0) < filters.minDelta) return;
-          // Big pads always fill boost to 100 regardless of starting amount,
-          // so boostAfter === 100 is the reliable big-pad detector. delta
-          // is unreliable: starting near full boost yields a tiny delta
-          // even when the pad picked up was a big one.
+          // Backend tags _BoostPickup payloads with isBigPad. Prefer this flag
+          // for big/small pad discrimination; boostAfterEq stays supported for
+          // backward compatibility with older challenge configs.
+          if (filters.isBigPad === true && !e.isBigPad) return;
+          if (filters.isBigPad === false && e.isBigPad) return;
           if (typeof filters.boostAfterEq === 'number' && (e.boostAfter || 0) !== filters.boostAfterEq) return;
           tick();
         }));

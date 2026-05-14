@@ -144,7 +144,7 @@
       "tier": "medium",
       "timeLimitMs": 30000,
       "count": 3,
-      "trigger": { "kind": "boostPickup", "filters": { "isMe": true, "boostAfterEq": 100 } }
+      "trigger": { "kind": "boostPickup", "filters": { "isMe": true, "isBigPad": true } }
     },
     {
       "id": "boost-pickup-10",

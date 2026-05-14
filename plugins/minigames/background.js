@@ -547,10 +547,23 @@
       activeTask = runtime;
       // Open-ended challenges (matchEndCondition) have timeLimitMs === null.
       // The timer engine reads activeDeadline === null as "no timeout."
-      activeDeadline = runtime.timeLimitMs === null
-        ? null
-        : Date.now() + runtime.timeLimitMs;
-      activePausedRemaining = null;
+      //
+      // For timed challenges drawn outside the live phase (e.g. during the
+      // pre-kickoff countdown), keep the deadline null and stash the full
+      // duration in pausedRemainingMs. The first live tick converts that
+      // into a real wall-clock deadline. This stops the overlay from
+      // counting down against wall time while the round hasn't started.
+      const phaseAtDraw = RLT.match?.state?.phase || 'none';
+      if (runtime.timeLimitMs === null) {
+        activeDeadline = null;
+        activePausedRemaining = null;
+      } else if (isTimerActivePhase(phaseAtDraw)) {
+        activeDeadline = Date.now() + runtime.timeLimitMs;
+        activePausedRemaining = null;
+      } else {
+        activeDeadline = null;
+        activePausedRemaining = runtime.timeLimitMs;
+      }
       session.activeTask = serialise(runtime);
       armDispose = runtime.arm();
       startTicking();
@@ -569,6 +582,7 @@
       timeLimitMs: c.timeLimitMs,
       startedAt: Date.now(),
       deadline: activeDeadline,
+      pausedRemainingMs: activePausedRemaining,
       progress: c.progressTarget ? 0 : null,
       progressTarget: c.progressTarget || null,
     };
@@ -717,15 +731,30 @@
     }
     const phase = RLT.match?.state?.phase || 'none';
     if (!isTimerActivePhase(phase)) {
-      // Pause: remember remaining time, freeze deadline.
+      // Pause: remember remaining time, freeze deadline. The serialised
+      // task gets deadline:null + pausedRemainingMs so the overlay renders
+      // a still timer instead of ticking against wall clock.
       if (activePausedRemaining === null) {
-        activePausedRemaining = Math.max(0, activeDeadline - Date.now());
+        activePausedRemaining = activeDeadline === null
+          ? 0
+          : Math.max(0, activeDeadline - Date.now());
+        activeDeadline = null;
+        if (session?.activeTask) {
+          session.activeTask.deadline = null;
+          session.activeTask.pausedRemainingMs = activePausedRemaining;
+          persistSession();
+        }
       }
       return;
     }
     if (activePausedRemaining !== null) {
       activeDeadline = Date.now() + activePausedRemaining;
       activePausedRemaining = null;
+      if (session?.activeTask) {
+        session.activeTask.deadline = activeDeadline;
+        session.activeTask.pausedRemainingMs = null;
+        persistSession();
+      }
     }
     if (Date.now() >= activeDeadline) {
       timeoutActive();
