@@ -297,10 +297,19 @@ body.overlay-mode {
   margin: 0 auto;
   padding: 28px 24px 48px;
 }
-/* Vertical rhythm between direct children of the page (topbar +
-   content sections). 20px matches the gap between cards in
-   .rlt-grid so the page reads as one consistent stack. */
+/* Vertical rhythm. The first rule covers direct children of the page
+   (topbar -> first content block). The second rule covers card / grid
+   stacks anywhere inside the page, so a plugin that hangs its cards
+   off a wrapper (e.g. <div id="root">) still gets the same 20px gap
+   between consecutive blocks that a flat layout would. 20px matches
+   the gap inside .rlt-grid so the whole page reads as one stack. */
 .rlt-page > * + * {
+  margin-top: 20px;
+}
+.rlt-page .rlt-card + .rlt-card,
+.rlt-page .rlt-card + .rlt-grid,
+.rlt-page .rlt-grid + .rlt-card,
+.rlt-page .rlt-grid + .rlt-grid {
   margin-top: 20px;
 }
 .rlt-topbar {
