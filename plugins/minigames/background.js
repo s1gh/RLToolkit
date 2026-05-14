@@ -366,7 +366,15 @@
     activeChallenge = null;
     if (session) session.activeChallenge = null;
     lastTickSecond = -1;
-    if (celebrationTimer) { clearTimeout(celebrationTimer); celebrationTimer = null; }
+    if (celebrationTimer) {
+      // DIAG: track when a pending celebration is cut short by an external
+      // teardown (e.g. someone calling drawNext mid-window).
+      diagCelebrateHistory.push({ event: 'teardown-cancel', at: Date.now() });
+      if (diagCelebrateHistory.length > 20) diagCelebrateHistory.splice(0, diagCelebrateHistory.length - 20);
+      if (store) store.set('diag-celebrate', diagCelebrateHistory.slice());
+      clearTimeout(celebrationTimer);
+      celebrationTimer = null;
+    }
   }
 
   // ---- resolution -------------------------------------------------------
@@ -428,15 +436,24 @@
   }
 
   let celebrationTimer = null;
+  // DIAG: track celebration-window timing across multiple resolutions
+  // so we can verify after-the-fact that each window stays open for
+  // ~CELEBRATE_MS. Capped at 20 entries.
+  const diagCelebrateHistory = [];
   function scheduleCelebrationFlush() {
-    if (celebrationTimer) clearTimeout(celebrationTimer);
+    if (celebrationTimer) {
+      clearTimeout(celebrationTimer);
+      diagCelebrateHistory.push({ event: 'cancelled', at: Date.now() });
+    }
     const scheduledAt = Date.now();
-    // DIAG: write a celebration-timing record to the store so we can verify
-    // the window stays open for CELEBRATE_MS.
-    if (store) store.set('diag-celebrate', { openedAt: scheduledAt });
+    diagCelebrateHistory.push({ event: 'scheduled', at: scheduledAt });
+    if (diagCelebrateHistory.length > 20) diagCelebrateHistory.splice(0, diagCelebrateHistory.length - 20);
+    if (store) store.set('diag-celebrate', diagCelebrateHistory.slice());
     celebrationTimer = setTimeout(() => {
       const closedAt = Date.now();
-      if (store) store.set('diag-celebrate', { openedAt: scheduledAt, closedAt, durationMs: closedAt - scheduledAt });
+      diagCelebrateHistory.push({ event: 'fired', at: closedAt, durationMs: closedAt - scheduledAt });
+      if (diagCelebrateHistory.length > 20) diagCelebrateHistory.splice(0, diagCelebrateHistory.length - 20);
+      if (store) store.set('diag-celebrate', diagCelebrateHistory.slice());
       celebrationTimer = null;
       teardownActive();
       if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
