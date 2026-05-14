@@ -12,8 +12,7 @@
     "offset_x": 16,
     "offset_y": 16,
     "opacity": 1.0,
-    "hide_when_unfocused": true,
-    "show_during_phase": ["countdown", "live", "replay", "paused"]
+    "hide_when_unfocused": true
   },
   "dashboard": { "file": "dashboard.html" },
   "settings":  { "file": "settings.html" },
