@@ -156,13 +156,17 @@
   --rlt-plugin-accent: var(--rlt-cyan);
   --rlt-plugin-accent-2: var(--rlt-violet);
   --rlt-plugin-accent-glow: var(--rlt-cyan-glow);
+  --rlt-plugin-accent-glow-2: var(--rlt-plugin-accent-glow);
 }
 
 /* Page background. Applies to every plugin page that links sdk.css.
-   Two radial washes derived from the plugin's accent vars give each
-   plugin a subtly branded backdrop without the shell having to know
-   which color the plugin picked. Overlay mode overrides this back
-   to transparent in the rule below. */
+   Two radial washes derived from the plugin's accent-glow vars give
+   each plugin a subtly branded backdrop. Each plugin can set
+   --rlt-plugin-accent-glow (top-right) and --rlt-plugin-accent-glow-2
+   (bottom-left) separately for a two-color wash, or just set the
+   first to keep both corners on the same color. The color-mix at
+   25% / 15% keeps the intensity intentional rather than overwhelming.
+   Overlay mode overrides this back to transparent in the rule below. */
 html,
 body {
   height: 100%;
@@ -173,8 +177,8 @@ body {
   font-size: 13px;
   color: var(--rlt-txt);
   background:
-    radial-gradient(900px 500px at 85% -10%, var(--rlt-plugin-accent-glow), transparent 60%),
-    radial-gradient(800px 400px at 0% 110%, var(--rlt-plugin-accent-glow), transparent 60%),
+    radial-gradient(900px 500px at 85% -10%, color-mix(in srgb, var(--rlt-plugin-accent-glow) 25%, transparent), transparent 60%),
+    radial-gradient(800px 400px at 0% 110%, color-mix(in srgb, var(--rlt-plugin-accent-glow-2) 15%, transparent), transparent 60%),
     var(--rlt-bg-0);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
