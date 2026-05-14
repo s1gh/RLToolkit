@@ -1,7 +1,7 @@
 {
   "name": "hello-world",
   "title": "Hello World",
-  "version": "0.4.0",
+  "version": "1.2.0",
   "author": "rl-toolkit",
   "description": "Logs every goal scorer + ball speed. Reference plugin demonstrating the three-view layout (overlay + dashboard + settings).",
   "overlay": {

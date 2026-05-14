@@ -1,7 +1,7 @@
 {
   "name": "demos",
   "title": "Demolitions",
-  "version": "0.4.0",
+  "version": "2.7.0",
   "author": "rl-toolkit",
   "description": "Tracks how many players you've demolished, in this match and across all time",
   "overlay": {
