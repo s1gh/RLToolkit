@@ -89,47 +89,85 @@
       return;
     }
 
-    const active = session.activeTask;
+    const activeTask = session.activeTask;
+    const activeObjective = session.activeObjective;
+
+    rootEl.innerHTML = `
+      <div class="mg-overlay">
+        ${ribbonHtml(session)}
+        ${renderCard(activeObjective, 'objective')}
+        ${renderCard(activeTask, 'task')}
+        ${priorHtml()}
+      </div>
+    `;
+    lastRenderedChallengeId = activeTask ? activeTask.id : null;
+  }
+
+  // Render one challenge card. `kind` is 'task' or 'objective'.
+  // When `active` is null, renders an unobtrusive placeholder card so the
+  // overlay layout stays the same size during the 4s teardown window.
+  function renderCard(active, kind) {
+    const isObjective = kind === 'objective';
+    const metaLabel = isObjective ? 'Objective' : 'Task';
+    const variantCls = isObjective ? ' mg-obj--objective' : ' mg-obj--task';
+
     if (!active) {
-      lastRenderedChallengeId = null;
-      rootEl.innerHTML = `
-        <div class="mg-overlay">
-          ${ribbonHtml(session)}
-          <div class="mg-idle">Waiting for next match</div>
+      return `
+        <div class="mg-obj mg-obj--placeholder${variantCls}">
+          <div class="mg-obj-tag">${esc(metaLabel)}</div>
+          <div class="mg-obj-title mg-obj-title--placeholder">Drawing next ${esc(metaLabel.toLowerCase())}...</div>
         </div>
       `;
-      return;
     }
 
-    // Celebration branch: the background view stamps activeTask with
-    // resolvedAt + outcome on completion / failure, holds it for ~1s before
-    // clearing and drawing the next challenge. Render a distinct card so the
-    // player sees real feedback on what they just earned.
+    // Celebration branch: background stamps active with resolvedAt + outcome
+    // on completion / failure, holds it for the celebrate window before
+    // clearing. Render a distinct card so the player sees real feedback.
     if (active.resolvedAt) {
       const completed = active.resolvedOutcome === 'completed';
       const xp = (active.resolvedXpDelta >= 0 ? '+' : '') + Number(active.resolvedXpDelta || 0);
       const tag = completed ? 'Complete' : (active.resolvedOutcome === 'timedOut' ? 'Time up' : 'Failed');
-      const cls = completed ? 'mg-resolved-ok' : 'mg-resolved-fail';
-      rootEl.innerHTML = `
-        <div class="mg-overlay ${cls}">
-          ${ribbonHtml(session)}
-          <div class="mg-obj">
-            <div class="mg-obj-tag">${esc(tag)}</div>
-            <div class="mg-obj-title">${esc(active.title)}</div>
-            <div class="mg-obj-meta">
-              <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
-              <span class="mg-reward">${esc(xp)} XP</span>
-              <span class="mg-resolved-glyph">${completed ? '✓' : '✕'}</span>
-            </div>
+      const stateCls = completed ? ' mg-resolved-ok' : ' mg-resolved-fail';
+      return `
+        <div class="mg-obj${variantCls}${stateCls}">
+          <div class="mg-obj-tag">${esc(tag)}</div>
+          <div class="mg-obj-title">${esc(active.title)}</div>
+          <div class="mg-obj-meta">
+            <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
+            <span class="mg-reward">${esc(xp)} XP</span>
+            <span class="mg-resolved-glyph">${completed ? '✓' : '✕'}</span>
           </div>
-          ${priorHtml()}
         </div>
       `;
-      return;
     }
 
-    // Compute remaining time. For open-ended challenges (timeLimitMs null,
-    // deadline null), there's no countdown to display.
+    // Progress label for multi-step challenges. Hidden when progressTarget
+    // is null/0/1 (single-step). Objectives use target 1 by default so the
+    // label is typically hidden for them.
+    const progressTarget = Number(active.progressTarget) || 0;
+    const progressVal = Number(active.progress) || 0;
+    const progressLabel = progressTarget > 1
+      ? `<span class="mg-progress-count">${progressVal} / ${progressTarget}</span>`
+      : '';
+
+    if (isObjective) {
+      // Objective card: no timer row, no countdown bar. Meta label reads
+      // OBJECTIVE. Reward is xpReward (set by instantiateObjective).
+      const reward = Number(active.xpReward) || 0;
+      return `
+        <div class="mg-obj mg-obj--objective">
+          <div class="mg-obj-tag">${esc(metaLabel)}</div>
+          <div class="mg-obj-title">${esc(active.title)}</div>
+          <div class="mg-obj-meta">
+            <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
+            <span class="mg-reward">reward <b>+${reward} XP</b></span>
+            ${progressLabel}
+          </div>
+        </div>
+      `;
+    }
+
+    // Task card: keep the timer row + countdown bar.
     const isOpenEnded = active.timeLimitMs === null || active.deadline === null;
     let remainingMs;
     if (isOpenEnded) {
@@ -143,31 +181,21 @@
       ? 0
       : (100 * Math.max(0, remainingMs) / active.timeLimitMs);
     const timerLabel = isOpenEnded ? '···' : fmtMs(remainingMs);
+    const titleAnimCls = active.id !== lastRenderedChallengeId ? ' mg-obj-title-anim' : '';
 
-    // Multi-step progress label, e.g. "2 / 3". Hidden for single-step (count 1)
-    // challenges where progressTarget is null.
-    const progressLabel = active.progressTarget
-      ? `<span class="mg-progress-count">${Number(active.progress) || 0} / ${Number(active.progressTarget) || 0}</span>`
-      : '';
-
-    rootEl.innerHTML = `
-      <div class="mg-overlay">
-        ${ribbonHtml(session)}
-        <div class="mg-obj">
-          <div class="mg-obj-tag">Objective</div>
-          <div class="mg-obj-title${active.id !== lastRenderedChallengeId ? ' mg-obj-title-anim' : ''}">${esc(active.title)}</div>
-          <div class="mg-obj-meta">
-            <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
-            <span class="mg-reward">reward <b>+${Number(active.reward) || 0} XP</b></span>
-            ${progressLabel}
-            <span class="mg-timer">${timerLabel}</span>
-          </div>
-          <div class="mg-obj-progress"><i style="width:${progressPct.toFixed(1)}%"></i></div>
+    return `
+      <div class="mg-obj mg-obj--task">
+        <div class="mg-obj-tag">${esc(metaLabel)}</div>
+        <div class="mg-obj-title${titleAnimCls}">${esc(active.title)}</div>
+        <div class="mg-obj-meta">
+          <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
+          <span class="mg-reward">reward <b>+${Number(active.reward) || 0} XP</b></span>
+          ${progressLabel}
+          <span class="mg-timer">${timerLabel}</span>
         </div>
-        ${priorHtml()}
+        <div class="mg-obj-progress"><i style="width:${progressPct.toFixed(1)}%"></i></div>
       </div>
     `;
-    lastRenderedChallengeId = active.id;
   }
 
   function ribbonHtml(session) {
