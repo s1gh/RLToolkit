@@ -695,6 +695,26 @@ test('fastestShotOfMatch trigger: completes when player is me, optionally above 
   assert.equal(w.completed, 1);
 });
 
+test('firstTouch trigger: completes when players[0] is me', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'ft', title: 'Win kickoff', tier: 'easy', trigger: { kind: 'firstTouch', filters: { isMe: true } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_FirstTouch', { players: [{ isMe: false, id: 'opp-1' }] });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_FirstTouch', { players: [{ isMe: true, id: 'me' }] });
+  assert.equal(w.completed, 1);
+});
+
+test('firstTouch trigger: ignores payloads without players[0]', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'ft', title: 't', tier: 'easy', trigger: { kind: 'firstTouch', filters: { isMe: true } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_FirstTouch', {});
+  w.bus.emit('_FirstTouch', { players: [] });
+  w.bus.emit('_FirstTouch', null);
+  assert.equal(w.completed, 0);
+});
+
 test('targetOpponent: instantiate returns null when no opponents available', () => {
   const w = makeCtx({ opponents: () => [] });
   const inst = C.instantiate({ id: 'd', title: 'Demo {opponent}', tier: 'hard', trigger: { kind: 'demo', filters: { attackerIsMe: true, victimTargetOpponent: true } } }, w.ctx);

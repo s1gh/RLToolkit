@@ -144,7 +144,7 @@
     'goal', 'demo', 'save', 'epicSave', 'statfeed',
     'boostPickup', 'boostConsumed', 'touch', 'crossbar',
     'firstBlood', 'hatTrick', 'demoChain', 'fastestShotOfMatch',
-    'matchEndCondition',
+    'firstTouch', 'matchEndCondition',
   ];
   const COMPOSITE_TRIGGER_KINDS = ['sequence', 'all'];
   const VALID_TRIGGER_KINDS = LEAF_TRIGGER_KINDS.concat(COMPOSITE_TRIGGER_KINDS);
@@ -410,6 +410,17 @@
         if (!e?.player) return;
         if (filters.isMe !== false && !e.player.isMe) return;
         if (typeof filters.minSpeed === 'number' && (e.speed || 0) < filters.minSpeed) return;
+        onFire();
+      });
+    }
+    if (kind === 'firstTouch') {
+      // _FirstTouch is synthesized by the backend on the first _BallHit
+      // after each RoundStarted. Payload shape matches _BallHit:
+      // players[0] is the resolved toucher. Re-arms every round.
+      return ctx.on('_FirstTouch', (e) => {
+        const player = e?.players?.[0];
+        if (!player) return;
+        if (filters.isMe !== false && !player.isMe) return;
         onFire();
       });
     }

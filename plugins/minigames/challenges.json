@@ -197,7 +197,7 @@
       "id": "firsttouch-kickoff",
       "title": "Win the kickoff first touch",
       "tier": "easy",
-      "trigger": { "kind": "statfeed", "filters": { "eventName": "FirstTouch", "targetIsMe": true } }
+      "trigger": { "kind": "firstTouch", "filters": { "isMe": true } }
     },
     {
       "id": "lowfive",
