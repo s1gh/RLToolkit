@@ -258,16 +258,30 @@ pub fn run(args: Args) {
         .on_window_event(|window, event| {
             if window.label() == "launcher" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    let tray_ok = window
-                        .app_handle()
-                        .try_state::<LauncherState>()
-                        .map(|s| s.lock().unwrap().tray_ok)
-                        .unwrap_or(true);
-                    if tray_ok {
-                        api.prevent_close();
-                        let _ = window.hide();
+                    // On Linux, treat a close request as a real close.
+                    // Many Linux compositors (Hyprland, Sway, etc.) ship
+                    // without a system tray, so hide-to-tray orphans the
+                    // process with no way to reach it. Win+Q / wmctrl
+                    // -c / clicking X all flow through here and the user
+                    // has no other recourse if we swallow the event.
+                    // Windows and macOS keep the tray-hide convention.
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        let tray_ok = window
+                            .app_handle()
+                            .try_state::<LauncherState>()
+                            .map(|s| s.lock().unwrap().tray_ok)
+                            .unwrap_or(true);
+                        if tray_ok {
+                            api.prevent_close();
+                            let _ = window.hide();
+                        }
+                        // No tray: allow close → ExitRequested → backend drained.
                     }
-                    // No tray: allow close → ExitRequested → backend drained.
+                    #[cfg(target_os = "linux")]
+                    {
+                        let _ = api;
+                    }
                 }
             }
         })
