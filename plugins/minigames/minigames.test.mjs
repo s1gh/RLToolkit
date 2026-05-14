@@ -663,6 +663,38 @@ test('demo trigger: victimTargetOpponent binds to one chosen opponent and substi
   assert.equal(w.completed, 1);
 });
 
+test('demoChain trigger: completes when attacker is me and count meets minCount', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'dc', title: 'Demo chain 2', tier: 'hard', trigger: { kind: 'demoChain', filters: { isMe: true, minCount: 2 } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_DemoChain', { attacker: { isMe: false }, count: 3 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_DemoChain', { attacker: { isMe: true }, count: 1 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_DemoChain', { attacker: { isMe: true }, count: 2 });
+  assert.equal(w.completed, 1);
+});
+
+test('demoChain trigger: defaults minCount to 2 when filter omitted', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'dc', title: 'chain', tier: 'hard', trigger: { kind: 'demoChain', filters: { isMe: true } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_DemoChain', { attacker: { isMe: true }, count: 2 });
+  assert.equal(w.completed, 1);
+});
+
+test('fastestShotOfMatch trigger: completes when player is me, optionally above minSpeed', () => {
+  const w = makeCtx();
+  const inst = C.instantiate({ id: 'fs', title: 'Fastest shot', tier: 'hard', trigger: { kind: 'fastestShotOfMatch', filters: { isMe: true, minSpeed: 100 } } }, w.ctx);
+  inst.arm();
+  w.bus.emit('_FastestShotOfMatch', { player: { isMe: false }, speed: 150 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_FastestShotOfMatch', { player: { isMe: true }, speed: 80 });
+  assert.equal(w.completed, 0);
+  w.bus.emit('_FastestShotOfMatch', { player: { isMe: true }, speed: 130 });
+  assert.equal(w.completed, 1);
+});
+
 test('targetOpponent: instantiate returns null when no opponents available', () => {
   const w = makeCtx({ opponents: () => [] });
   const inst = C.instantiate({ id: 'd', title: 'Demo {opponent}', tier: 'hard', trigger: { kind: 'demo', filters: { attackerIsMe: true, victimTargetOpponent: true } } }, w.ctx);
@@ -982,8 +1014,8 @@ test('challenges.json: splits cleanly into task and objective pools', () => {
   const all = data.challenges;
   const objectives = all.filter((c) => c.kind === 'objective');
   const tasks = all.filter((c) => (c.kind ?? 'task') === 'task');
-  assert.equal(objectives.length, 4);
-  assert.equal(tasks.length, all.length - 4);
+  assert.equal(objectives.length, 6);
+  assert.equal(tasks.length, all.length - 6);
   const objIds = objectives.map((c) => c.id).sort();
-  assert.deepEqual(objIds, ['clean-sheet', 'goal-overtime', 'mvp', 'no-og']);
+  assert.deepEqual(objIds, ['clean-sheet', 'fastest-shot-match', 'goal-overtime', 'mvp', 'no-og', 'win-match']);
 });

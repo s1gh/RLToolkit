@@ -143,7 +143,8 @@
   const VALID_TRIGGER_KINDS = [
     'goal', 'demo', 'save', 'epicSave', 'statfeed',
     'boostPickup', 'boostConsumed', 'touch', 'crossbar',
-    'firstBlood', 'hatTrick', 'matchEndCondition',
+    'firstBlood', 'hatTrick', 'demoChain', 'fastestShotOfMatch',
+    'matchEndCondition',
   ];
   const VALID_ENTRY_KINDS = ['task', 'objective'];
 
@@ -409,6 +410,24 @@
         unsubs.push(ctx.on('_HatTrick', (e) => {
           if (!e?.mainTarget) return;
           if (filters.isMe !== false && !e.mainTarget.isMe) return;
+          tick();
+        }));
+      } else if (kind === 'demoChain') {
+        // _DemoChain re-fires for each demo inside the rolling window with
+        // the running count. Treat any fire with count >= minCount as a
+        // success; default minCount is 2 (the minimum chain).
+        const minCount = typeof filters.minCount === 'number' && filters.minCount >= 2 ? filters.minCount : 2;
+        unsubs.push(ctx.on('_DemoChain', (e) => {
+          if (!e?.attacker) return;
+          if (filters.isMe !== false && !e.attacker.isMe) return;
+          if ((e.count || 0) < minCount) return;
+          tick();
+        }));
+      } else if (kind === 'fastestShotOfMatch') {
+        unsubs.push(ctx.on('_FastestShotOfMatch', (e) => {
+          if (!e?.player) return;
+          if (filters.isMe !== false && !e.player.isMe) return;
+          if (typeof filters.minSpeed === 'number' && (e.speed || 0) < filters.minSpeed) return;
           tick();
         }));
       } else if (kind === 'matchEndCondition') {
