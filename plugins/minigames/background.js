@@ -252,9 +252,12 @@
     return phase === 'countdown' || phase === 'live' || phase === 'replay' || phase === 'paused';
   }
 
-  function isLiveOrReplay(phase) {
-    // The timer runs in 'live' and 'replay'; it pauses in 'paused' and 'countdown'.
-    return phase === 'live' || phase === 'replay';
+  function isTimerActivePhase(phase) {
+    // Per-challenge timer only counts down during real gameplay. Goal
+    // replays, post-goal kickoff countdown, and menu-paused windows all
+    // freeze the timer because the player can't materially act on the
+    // challenge during those phases.
+    return phase === 'live';
   }
 
   // ---- match lifecycle --------------------------------------------------
@@ -480,7 +483,7 @@
       return;
     }
     const phase = RLT.match?.state?.phase || 'none';
-    if (!isLiveOrReplay(phase)) {
+    if (!isTimerActivePhase(phase)) {
       // Pause: remember remaining time, freeze deadline.
       if (activePausedRemaining === null) {
         activePausedRemaining = Math.max(0, activeDeadline - Date.now());

@@ -330,7 +330,12 @@
           if (!player) return;
           const counts = !meOnly || player.isMe;
           if (!counts) {
-            if (consecutive) streak = 0;
+            if (consecutive && streak > 0) {
+              streak = 0;
+              // Surface the reset so the rendered progress drops back to 0/N
+              // instead of being stuck at the previous high-water mark.
+              if (target > 1 && ctx.onProgress) ctx.onProgress(0, target);
+            }
             return;
           }
           streak += 1;
