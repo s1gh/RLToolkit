@@ -678,6 +678,71 @@ test('validateEntry: treats missing kind as task (accepts entry without xp)', ()
   assert.deepEqual(C.validateEntry(entry), []);
 });
 
+test('validateEntry: rejects objective entry with timeLimitMs:null', () => {
+  const entry = {
+    id: 'clean-sheet',
+    kind: 'objective',
+    title: 't',
+    tier: 'hard',
+    xp: { reward: 250, penalty: 100 },
+    timeLimitMs: null,
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /timeLimitMs/.test(e)), `expected a /timeLimitMs/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: rejects task entry with xp:null', () => {
+  const entry = {
+    id: 'demo-any',
+    kind: 'task',
+    title: 't',
+    tier: 'medium',
+    xp: null,
+    trigger: { kind: 'demo', filters: { attackerIsMe: true } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /xp/.test(e)), `expected an /xp/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: rejects objective xp.reward that is negative', () => {
+  const entry = {
+    id: 'clean-sheet',
+    kind: 'objective',
+    title: 't',
+    tier: 'hard',
+    xp: { reward: -1, penalty: 0 },
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /xp/.test(e)), `expected an /xp/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: rejects objective xp.reward that is NaN', () => {
+  const entry = {
+    id: 'clean-sheet',
+    kind: 'objective',
+    title: 't',
+    tier: 'hard',
+    xp: { reward: NaN, penalty: 0 },
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /xp/.test(e)), `expected an /xp/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: rejects unknown kind with a /kind/ error', () => {
+  const entry = {
+    id: 'demo-any',
+    kind: 'lolwhat',
+    title: 't',
+    tier: 'medium',
+    trigger: { kind: 'demo', filters: { attackerIsMe: true } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /kind/.test(e)), `expected a /kind/ error, got: ${JSON.stringify(errs)}`);
+});
+
 test('challenges.json: splits cleanly into task and objective pools', () => {
   const data = JSON.parse(readFileSync(new URL('./challenges.json', import.meta.url), 'utf8'));
   const all = data.challenges;

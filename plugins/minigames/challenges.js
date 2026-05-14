@@ -151,15 +151,16 @@
     if (!VALID_ENTRY_KINDS.includes(kind)) {
       errs.push('kind must be one of ' + VALID_ENTRY_KINDS.join('/'));
     } else if (kind === 'objective') {
-      if (!entry.xp || typeof entry.xp !== 'object'
-        || typeof entry.xp.reward !== 'number'
-        || typeof entry.xp.penalty !== 'number') {
-        errs.push('objective entry must declare xp.reward and xp.penalty as numbers');
+      if (!entry.xp || typeof entry.xp !== 'object') {
+        errs.push('objective entry must declare an xp object with reward and penalty');
+      } else if (!Number.isFinite(entry.xp.reward) || entry.xp.reward < 0
+        || !Number.isFinite(entry.xp.penalty) || entry.xp.penalty < 0) {
+        errs.push('xp.reward and xp.penalty must be finite non-negative numbers');
       }
-      if (entry.timeLimitMs != null) {
+      if ('timeLimitMs' in entry) {
         errs.push('objective entry must not declare timeLimitMs');
       }
-    } else if (entry.xp != null) {
+    } else if ('xp' in entry) {
       errs.push('task entry must not declare xp (tier table controls XP)');
     }
     return errs;
