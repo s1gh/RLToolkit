@@ -128,6 +128,7 @@
     'boostPickup', 'boostConsumed', 'touch', 'crossbar',
     'firstBlood', 'hatTrick', 'matchEndCondition',
   ];
+  const VALID_ENTRY_KINDS = ['task', 'objective'];
 
   function validateEntry(entry) {
     const errs = [];
@@ -144,6 +145,22 @@
       if (typeof entry.timeLimitMs !== 'number' || entry.timeLimitMs < 1000) {
         errs.push('timeLimitMs must be null or a number >= 1000');
       }
+    }
+    // kind + xp rules. Missing kind is treated as 'task'.
+    const kind = entry.kind == null ? 'task' : entry.kind;
+    if (!VALID_ENTRY_KINDS.includes(kind)) {
+      errs.push('kind must be one of ' + VALID_ENTRY_KINDS.join('/'));
+    } else if (kind === 'objective') {
+      if (!entry.xp || typeof entry.xp !== 'object'
+        || typeof entry.xp.reward !== 'number'
+        || typeof entry.xp.penalty !== 'number') {
+        errs.push('objective entry must declare xp.reward and xp.penalty as numbers');
+      }
+      if (entry.timeLimitMs != null) {
+        errs.push('objective entry must not declare timeLimitMs');
+      }
+    } else if (entry.xp != null) {
+      errs.push('task entry must not declare xp (tier table controls XP)');
     }
     return errs;
   }

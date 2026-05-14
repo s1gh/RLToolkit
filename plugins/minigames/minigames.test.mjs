@@ -616,3 +616,75 @@ test('challenges.json: ids are unique', () => {
   const ids = data.challenges.map((c) => c.id);
   assert.equal(new Set(ids).size, ids.length, 'duplicate ids in challenges.json');
 });
+
+test('validateEntry: accepts kind:"objective" with xp.reward and xp.penalty', () => {
+  const entry = {
+    id: 'clean-sheet',
+    kind: 'objective',
+    title: 'Finish a round without conceding',
+    tier: 'hard',
+    xp: { reward: 250, penalty: 100 },
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  };
+  assert.deepEqual(C.validateEntry(entry), []);
+});
+
+test('validateEntry: rejects objective entry without xp', () => {
+  const entry = {
+    id: 'clean-sheet',
+    kind: 'objective',
+    title: 't',
+    tier: 'hard',
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /xp/.test(e)), `expected an /xp/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: rejects objective entry with timeLimitMs', () => {
+  const entry = {
+    id: 'clean-sheet',
+    kind: 'objective',
+    title: 't',
+    tier: 'hard',
+    xp: { reward: 250, penalty: 100 },
+    timeLimitMs: 30000,
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /timeLimitMs/.test(e)), `expected a /timeLimitMs/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: rejects task entry that declares xp', () => {
+  const entry = {
+    id: 'demo-any',
+    kind: 'task',
+    title: 't',
+    tier: 'medium',
+    xp: { reward: 90, penalty: 45 },
+    trigger: { kind: 'demo', filters: { attackerIsMe: true } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /xp/.test(e)), `expected an /xp/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: treats missing kind as task (accepts entry without xp)', () => {
+  const entry = {
+    id: 'demo-any',
+    title: 't',
+    tier: 'medium',
+    trigger: { kind: 'demo', filters: { attackerIsMe: true } },
+  };
+  assert.deepEqual(C.validateEntry(entry), []);
+});
+
+test('challenges.json: splits cleanly into task and objective pools', () => {
+  const data = JSON.parse(readFileSync(new URL('./challenges.json', import.meta.url), 'utf8'));
+  const all = data.challenges;
+  const objectives = all.filter((c) => c.kind === 'objective');
+  const tasks = all.filter((c) => (c.kind ?? 'task') === 'task');
+  assert.equal(objectives.length, 4);
+  assert.equal(tasks.length, all.length - 4);
+  const objIds = objectives.map((c) => c.id).sort();
+  assert.deepEqual(objIds, ['clean-sheet', 'goal-overtime', 'mvp', 'no-og']);
+});

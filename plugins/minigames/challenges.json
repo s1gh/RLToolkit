@@ -38,8 +38,10 @@
     },
     {
       "id": "goal-overtime",
+      "kind": "objective",
       "title": "Score in overtime",
       "tier": "hard",
+      "xp": { "reward": 250, "penalty": 0 },
       "trigger": {
         "kind": "goal",
         "filters": { "isMe": true, "ownGoal": false, "modifiers": { "overtime": true } }
@@ -124,8 +126,10 @@
     },
     {
       "id": "mvp",
+      "kind": "objective",
       "title": "Be the MVP this match",
       "tier": "hard",
+      "xp": { "reward": 200, "penalty": 0 },
       "trigger": { "kind": "statfeed", "filters": { "eventName": "MVP", "targetIsMe": true } }
     },
     {
@@ -173,16 +177,18 @@
     },
     {
       "id": "no-og",
+      "kind": "objective",
       "title": "Finish the match without an own goal",
       "tier": "easy",
-      "timeLimitMs": null,
+      "xp": { "reward": 80, "penalty": 20 },
       "trigger": { "kind": "matchEndCondition", "filters": { "noOwnGoal": true } }
     },
     {
       "id": "clean-sheet",
+      "kind": "objective",
       "title": "Finish a round without conceding",
       "tier": "hard",
-      "timeLimitMs": null,
+      "xp": { "reward": 250, "penalty": 100 },
       "trigger": { "kind": "matchEndCondition", "filters": { "cleanRound": true } }
     }
   ]
