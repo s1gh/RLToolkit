@@ -340,7 +340,7 @@
     // (e.g. targetOpponent with no current opponents). Skip ineligible
     // entries and try again. After 5 misses, give up for this round.
     for (let i = 0; i < DRAW_RETRY_LIMIT; i += 1) {
-      const entry = root.MinigamesChallenges.draw({
+      const entry = root.MinigamesChallenges.drawTask({
         pool: poolEntries,
         level: session.level,
         bias: settings.difficulty,

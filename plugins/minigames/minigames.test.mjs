@@ -294,7 +294,7 @@ test('interpolateWeights: sharp weights easy at 0.10 at level 10+', () => {
   assert.equal(w.easy.toFixed(2), '0.10');
 });
 
-test('draw: returns a challenge whose id is in the pool', () => {
+test('drawTask: returns a challenge whose id is in the pool', () => {
   const pool = [
     { id: 'e1', tier: 'easy' },
     { id: 'm1', tier: 'medium' },
@@ -302,12 +302,12 @@ test('draw: returns a challenge whose id is in the pool', () => {
   ];
   let rngCalls = 0;
   const rng = () => { rngCalls += 1; return 0.0; }; // always picks the first eligible
-  const got = C.draw({ pool, level: 1, bias: 'standard', rng, exclude: null });
+  const got = C.drawTask({ pool, level: 1, bias: 'standard', rng, exclude: null });
   assert.ok(['e1', 'm1', 'h1'].includes(got.id));
   assert.ok(rngCalls >= 1);
 });
 
-test('draw: rerolls once when the first roll matches the exclude id', () => {
+test('drawTask: rerolls once when the first roll matches the exclude id', () => {
   // pool only has the easy tier present.
   // drawOnce #1 consumes (0.0, 0.0): r1=0 -> easy tier, r2=floor(0*2)=0 -> e1.
   // result.id === 'e1' matches exclude, pool.length > 1, so reroll.
@@ -319,12 +319,12 @@ test('draw: rerolls once when the first roll matches the exclude id', () => {
   let i = 0;
   const sequence = [0.0, 0.0, 0.0, 0.99];
   const rng = () => sequence[i++];
-  const got = C.draw({ pool, level: 1, bias: 'standard', rng, exclude: 'e1' });
+  const got = C.drawTask({ pool, level: 1, bias: 'standard', rng, exclude: 'e1' });
   assert.equal(got.id, 'e2');
   assert.equal(i, 4, 'expected exactly 4 rng draws (2 per drawOnce, called twice)');
 });
 
-test('draw: reroll that also collides still returns the collided result', () => {
+test('drawTask: reroll that also collides still returns the collided result', () => {
   // Both drawOnce calls land on e1; the docblock says "accept whatever comes out".
   const pool = [
     { id: 'e1', tier: 'easy' },
@@ -333,19 +333,19 @@ test('draw: reroll that also collides still returns the collided result', () => 
   let i = 0;
   const sequence = [0.0, 0.0, 0.0, 0.0];
   const rng = () => sequence[i++];
-  const got = C.draw({ pool, level: 1, bias: 'standard', rng, exclude: 'e1' });
+  const got = C.drawTask({ pool, level: 1, bias: 'standard', rng, exclude: 'e1' });
   assert.equal(got.id, 'e1');
   assert.equal(i, 4, 'expected exactly 4 rng draws even when reroll collides');
 });
 
-test('draw: empty pool returns null', () => {
-  const got = C.draw({ pool: [], level: 1, bias: 'standard', rng: () => 0.5, exclude: null });
+test('drawTask: empty pool returns null', () => {
+  const got = C.drawTask({ pool: [], level: 1, bias: 'standard', rng: () => 0.5, exclude: null });
   assert.equal(got, null);
 });
 
-test('draw: single-entry pool returns it even when excluded (no infinite loop)', () => {
+test('drawTask: single-entry pool returns it even when excluded (no infinite loop)', () => {
   const pool = [{ id: 'only', tier: 'easy' }];
-  const got = C.draw({ pool, level: 1, bias: 'standard', rng: () => 0.0, exclude: 'only' });
+  const got = C.drawTask({ pool, level: 1, bias: 'standard', rng: () => 0.0, exclude: 'only' });
   assert.equal(got.id, 'only');
 });
 
@@ -741,6 +741,49 @@ test('validateEntry: rejects unknown kind with a /kind/ error', () => {
   };
   const errs = C.validateEntry(entry);
   assert.ok(errs.some((e) => /kind/.test(e)), `expected a /kind/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('drawTask never returns an objective entry', () => {
+  const pool = [
+    { id: 'a', tier: 'easy', trigger: { kind: 'goal', filters: { isMe: true } } },
+    { id: 'b', kind: 'objective', tier: 'hard', xp: { reward: 1, penalty: 0 },
+      trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } } },
+  ];
+  // rng() returning 0.999 would pick the last entry in a uniform pool; with the
+  // objective filtered out, the only candidate is 'a'.
+  const rng = () => 0.999;
+  const picked = C.drawTask({ pool, level: 1, bias: 'standard', rng, exclude: null });
+  assert.equal(picked.id, 'a');
+});
+
+test('drawObjective only returns objective entries', () => {
+  const pool = [
+    { id: 'a', tier: 'easy', trigger: { kind: 'goal', filters: { isMe: true } } },
+    { id: 'b', kind: 'objective', tier: 'hard', xp: { reward: 1, penalty: 0 },
+      trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } } },
+  ];
+  const rng = () => 0.0;
+  const picked = C.drawObjective({ pool, rng, exclude: new Set() });
+  assert.equal(picked.id, 'b');
+});
+
+test('drawObjective uses uniform random (no difficulty bias)', () => {
+  const pool = [
+    { id: 'o1', kind: 'objective', tier: 'easy', xp: { reward: 1, penalty: 0 },
+      trigger: { kind: 'matchEndCondition', filters: { noOwnGoal: true } } },
+    { id: 'o2', kind: 'objective', tier: 'hard', xp: { reward: 1, penalty: 0 },
+      trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } } },
+  ];
+  let count1 = 0; let count2 = 0;
+  for (let i = 0; i < 1000; i += 1) {
+    const rng = () => i / 1000;
+    const picked = C.drawObjective({ pool, rng, exclude: new Set() });
+    if (picked.id === 'o1') count1 += 1; else count2 += 1;
+  }
+  // rng returns 0..0.999 linearly, so Math.floor(rng * 2) is 0 for i<500 and
+  // 1 for i>=500 -> exact 500/500 split when uniform. The 50-count slop leaves
+  // room if the implementation chooses to weight, in which case this fails.
+  assert.ok(Math.abs(count1 - count2) < 50, `expected ~50/50, got ${count1}/${count2}`);
 });
 
 test('challenges.json: splits cleanly into task and objective pools', () => {

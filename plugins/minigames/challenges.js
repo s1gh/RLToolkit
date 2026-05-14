@@ -63,20 +63,37 @@
     };
   }
 
-  // Weighted draw. `pool` is an array of {id, tier, ...}. Step 1 picks a tier
-  // weighted by the tier weights renormalised over only the tiers present in
-  // the pool. Step 2 picks uniformly from the entries within that tier. If
-  // the result matches `exclude` and the pool has more than one entry, we
-  // reroll once and accept the second result.
-  function draw({ pool, level, bias, rng, exclude }) {
+  // Weighted draw for tasks. `pool` is an array of {id, tier, kind?, ...}.
+  // Entries with `kind: "objective"` are filtered out so the task draw pool is
+  // disjoint from the objective draw pool. Step 1 picks a tier weighted by the
+  // tier weights renormalised over only the tiers present in the pool. Step 2
+  // picks uniformly from the entries within that tier. If the result matches
+  // `exclude` and the filtered pool has more than one entry, we reroll once
+  // and accept the second result.
+  function drawTask({ pool, level, bias, rng, exclude }) {
     if (!Array.isArray(pool) || pool.length === 0) return null;
-    const result = drawOnce(pool, level, bias, rng);
+    const tasks = pool.filter((e) => (e.kind == null ? 'task' : e.kind) === 'task');
+    if (tasks.length === 0) return null;
+    const result = drawOnce(tasks, level, bias, rng);
     if (!result) return null;
-    if (exclude && result.id === exclude && pool.length > 1) {
-      const second = drawOnce(pool, level, bias, rng);
+    if (exclude && result.id === exclude && tasks.length > 1) {
+      const second = drawOnce(tasks, level, bias, rng);
       return second || result;
     }
     return result;
+  }
+
+  // Uniform draw for objectives. No tier weighting, no level/bias inputs.
+  // `exclude` is a Set of ids to skip (objectives use a different exclusion
+  // model from tasks since they live across an entire session).
+  function drawObjective({ pool, rng, exclude }) {
+    if (!Array.isArray(pool) || pool.length === 0) return null;
+    const skip = exclude instanceof Set ? exclude : new Set();
+    const objs = pool.filter((e) => e.kind === 'objective' && !skip.has(e.id));
+    if (objs.length === 0) return null;
+    const r = typeof rng === 'function' ? rng() : Math.random();
+    const idx = Math.floor((r || 0) * objs.length);
+    return objs[Math.min(idx, objs.length - 1)];
   }
 
   function drawOnce(pool, level, bias, rng) {
@@ -494,7 +511,8 @@
     tierDefaults,
     weightAnchors,
     interpolateWeights,
-    draw,
+    drawTask,
+    drawObjective,
     validateEntry,
     instantiate,
     loadPool,
