@@ -310,25 +310,27 @@
     // from what the stored session was stamped with, wipe and reseed.
     // The _BootId event handler below also catches the live case where
     // the launcher restarts while this iframe is still mounted.
+    // Drawing happens after bootId reconciliation completes so a delayed
+    // reseed cannot wipe the freshly drawn task/objective slot.
     resolveBootID().then(async (liveBootId) => {
-      if (!liveBootId) return;
-      if (session.bootId === liveBootId) return;
-      teardownActive();
-      session = root.MinigamesReducers.emptySession(liveBootId);
-      try { await store.set(SESSION_KEY, session); } catch (_) {}
+      if (liveBootId && session.bootId !== liveBootId) {
+        teardownActive();
+        session = root.MinigamesReducers.emptySession(liveBootId);
+        try { await store.set(SESSION_KEY, session); } catch (_) {}
+      }
+
+      // 4. If we booted mid-match (rare: toolkit started while a match is
+      // live), draw immediately so we don't waste the round.
+      if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
+        ensureMatchEntry();
+        drawNext();
+      }
+
+      // 5. Always seat an objective if one isn't already active. Objectives are
+      // session-scoped, not match-scoped, so we draw at boot regardless of match
+      // phase and let the (future) _MatchEnded handler decide when to resolve.
+      drawNextObjective();
     });
-
-    // 4. If we booted mid-match (rare: toolkit started while a match is
-    // live), draw immediately so we don't waste the round.
-    if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
-      ensureMatchEntry();
-      drawNext();
-    }
-
-    // 5. Always seat an objective if one isn't already active. Objectives are
-    // session-scoped, not match-scoped, so we draw at boot regardless of match
-    // phase and let the (future) _MatchEnded handler decide when to resolve.
-    drawNextObjective();
   }
 
   function opponentsFromRoster() {
@@ -387,6 +389,7 @@
     if (poolEntries.length === 0) return;
     const entry = root.MinigamesChallenges.drawObjective({
       pool: poolEntries,
+      // TODO: empty exclude set is provisional; objective exclusion tracking lands in a later task.
       exclude: new Set(),
     });
     if (!entry) return;
