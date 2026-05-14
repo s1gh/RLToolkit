@@ -128,6 +128,10 @@ func runServe() {
 	closeLogs := installLogSinks(cfg.DataDir)
 	defer func() { _ = closeLogs() }()
 
+	// Tie our lifetime to the launcher's. No-op when launched
+	// standalone (parent is the user's shell or init).
+	installParentDeathSignal()
+
 	printStartupBanner(cfg)
 	printRLSetupNotice()
 	printLogsSectionHeader()
