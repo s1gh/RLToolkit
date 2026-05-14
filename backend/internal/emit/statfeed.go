@@ -10,14 +10,15 @@ import (
 
 // Statfeed owns every Statfeed-driven synthetic event: the catch-all
 // _StatfeedEvent, the promoted dedicated events (_Save, _EpicSave,
-// _Shot, _Assist, _Center, _Clear, _BicycleHit, _FlipReset, _HatTrick,
+// _Shot, _Assist, _Center, _Clear, _BicycleHit, _FlipReset,
 // _Demolish), and _UnknownStatfeed for variants not in the verified
-// registry.
+// registry. _HatTrick is emitted from Goal instead — RL's HatTrick
+// statfeed is unreliable, so the authoritative signal is the
+// real-goal counter hitting 3.
 //
 // Owns flipResetArmed (consumed by Goal for IsFlipResetGoal) and
 // flipResetCountByID (per-match counter on _FlipReset). Reads roster,
-// correlation lookback, realGoals (HatTrick suppression) and
-// discoveries (unknown-variant recording).
+// correlation lookback and discoveries (unknown-variant recording).
 //
 // _Demolish is consumed by the Demos emitter, which produces
 // _PlayerDemolished and _DemoChain. Per-match maps are cleared on
@@ -26,7 +27,6 @@ type Statfeed struct {
 	roster      RosterResolver
 	correlation Correlator
 	discoveries DiscoveryRecorder
-	realGoals   RealGoalsLookup
 
 	flipResetMu        sync.Mutex
 	flipResetArmed     map[string]bool
@@ -37,13 +37,11 @@ func NewStatfeed(
 	roster RosterResolver,
 	correlation Correlator,
 	discoveries DiscoveryRecorder,
-	realGoals RealGoalsLookup,
 ) *Statfeed {
 	return &Statfeed{
 		roster:             roster,
 		correlation:        correlation,
 		discoveries:        discoveries,
-		realGoals:          realGoals,
 		flipResetArmed:     make(map[string]bool),
 		flipResetCountByID: make(map[string]int),
 	}
@@ -191,10 +189,6 @@ func (e *Statfeed) processStatfeed(evt bus.Event) []bus.Event {
 		if v := e.flipReset(guid, resolvedMain); v != nil {
 			out = append(out, *v)
 		}
-	case "HatTrick":
-		if v := e.hatTrick(guid, resolvedMain); v != nil {
-			out = append(out, *v)
-		}
 	case "Save":
 		if v := e.save(guid, resolvedMain, "_Save"); v != nil {
 			out = append(out, *v)
@@ -273,29 +267,6 @@ func (e *Statfeed) flipReset(guid string, main *types.EnrichedPlayer) *bus.Event
 		return nil
 	}
 	return &bus.Event{Name: "_FlipReset", Data: body}
-}
-
-func (e *Statfeed) hatTrick(guid string, main *types.EnrichedPlayer) *bus.Event {
-	if main == nil {
-		return nil
-	}
-	// RL's HatTrick statfeed counts own goals; we don't.
-	if e.realGoals == nil || e.realGoals.RealGoals(main.ID) < 3 {
-		return nil
-	}
-	body, err := json.Marshal(struct {
-		MatchGUID      string                `json:"matchGuid,omitempty"`
-		MainTarget     *types.EnrichedPlayer `json:"mainTarget"`
-		GoalsThisMatch int                   `json:"goalsThisMatch"`
-	}{
-		MatchGUID:      guid,
-		MainTarget:     main,
-		GoalsThisMatch: e.realGoals.RealGoals(main.ID),
-	})
-	if err != nil {
-		return nil
-	}
-	return &bus.Event{Name: "_HatTrick", Data: body}
 }
 
 func (e *Statfeed) save(guid string, main *types.EnrichedPlayer, eventName string) *bus.Event {

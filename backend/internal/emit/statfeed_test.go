@@ -8,13 +8,7 @@ import (
 	"testing"
 )
 
-// fakeRealGoals is a minimal RealGoalsLookup used by tests that don't
-// need a full OwnGoal counter for HatTrick suppression coverage.
-type fakeRealGoals struct{ counts map[string]int }
-
-func (f *fakeRealGoals) RealGoals(id string) int { return f.counts[id] }
-
-// rosterByName resolves a stub by Name only — sufficient for the
+// rosterByName resolves a stub by Name only, sufficient for the
 // statfeed paths that don't care about platform/id beyond what the
 // test seeded.
 type rosterByName struct{ players map[string]*types.EnrichedPlayer }
@@ -27,7 +21,7 @@ func (r rosterByName) ResolveByShortcut(ref types.ShortcutRef) *types.EnrichedPl
 }
 
 func TestStatfeed_PublishesCatchall(t *testing.T) {
-	e := NewStatfeed(rosterByName{}, correlation.New(8), nil, &fakeRealGoals{})
+	e := NewStatfeed(rosterByName{}, correlation.New(8), nil)
 
 	out := e.Process(makeStatfeed(t, "Save", "Ada", 1, "", 0))
 	if !hasName(out, "_StatfeedEvent") {
@@ -36,7 +30,7 @@ func TestStatfeed_PublishesCatchall(t *testing.T) {
 }
 
 func TestStatfeed_PromotesKnownVariants(t *testing.T) {
-	e := NewStatfeed(rosterByName{}, correlation.New(8), nil, &fakeRealGoals{})
+	e := NewStatfeed(rosterByName{}, correlation.New(8), nil)
 
 	cases := []struct {
 		name    string
@@ -63,7 +57,7 @@ func TestStatfeed_FlipResetArmsAndConsumes(t *testing.T) {
 	roster := rosterByName{players: map[string]*types.EnrichedPlayer{
 		"Ada": {ID: "Steam|7|0", Name: "Ada", Team: 0},
 	}}
-	e := NewStatfeed(roster, correlation.New(8), nil, &fakeRealGoals{})
+	e := NewStatfeed(roster, correlation.New(8), nil)
 
 	_ = e.Process(makeStatfeed(t, "FlipReset", "Ada", 0, "", 0))
 	if !e.ConsumeFlipResetArm("Steam|7|0") {
@@ -74,31 +68,12 @@ func TestStatfeed_FlipResetArmsAndConsumes(t *testing.T) {
 	}
 }
 
-func TestStatfeed_HatTrickSuppressedBelowThreshold(t *testing.T) {
-	roster := rosterByName{players: map[string]*types.EnrichedPlayer{
-		"Ada": {ID: "Steam|7|0", Name: "Ada", Team: 0},
-	}}
-	rg := &fakeRealGoals{counts: map[string]int{"Steam|7|0": 2}}
-	e := NewStatfeed(roster, correlation.New(8), nil, rg)
-
-	out := e.Process(makeStatfeed(t, "HatTrick", "Ada", 0, "", 0))
-	if hasName(out, "_HatTrick") {
-		t.Fatalf("HatTrick should be suppressed when real goals < 3, got %v", evtNames(out))
-	}
-
-	rg.counts["Steam|7|0"] = 3
-	out = e.Process(makeStatfeed(t, "HatTrick", "Ada", 0, "", 0))
-	if !hasName(out, "_HatTrick") {
-		t.Fatalf("HatTrick should fire at 3 real goals, got %v", evtNames(out))
-	}
-}
-
 func TestStatfeed_DemolishPublishesTypedEvent(t *testing.T) {
 	roster := rosterByName{players: map[string]*types.EnrichedPlayer{
 		"Ada": {ID: "Steam|1|0", Name: "Ada", Team: 0},
 		"Ben": {ID: "Steam|2|0", Name: "Ben", Team: 1},
 	}}
-	e := NewStatfeed(roster, correlation.New(8), nil, &fakeRealGoals{})
+	e := NewStatfeed(roster, correlation.New(8), nil)
 
 	out := e.Process(makeStatfeed(t, "Demolish", "Ada", 0, "Ben", 1))
 	if !hasName(out, "_Demolish") {
@@ -111,7 +86,7 @@ func TestStatfeed_DemolishPublishesTypedEvent(t *testing.T) {
 }
 
 func TestStatfeed_UnknownStatfeedFires(t *testing.T) {
-	e := NewStatfeed(rosterByName{}, correlation.New(8), nil, &fakeRealGoals{})
+	e := NewStatfeed(rosterByName{}, correlation.New(8), nil)
 
 	out := e.Process(makeStatfeed(t, "MysteryStatfeed", "Ada", 0, "", 0))
 	if !hasName(out, "_UnknownStatfeed") {

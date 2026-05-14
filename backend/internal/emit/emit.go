@@ -80,18 +80,10 @@ type FlipResetConsumer interface {
 
 // GoalCounter is the slim view Goal needs into OwnGoal: bump the
 // per-player honest-goal counter on every non-own-goal score, and
-// look it up to suppress _HatTrick when RL counted own goals.
+// look it up to gate _HatTrick emission at the third real goal.
 type GoalCounter interface {
 	RealGoals(playerID string) int
 	BumpRealGoals(playerID string)
-}
-
-// RealGoalsLookup is the slim view Statfeed needs from OwnGoal: how
-// many honest (non-own-goal) goals the player has scored this match.
-// Used to suppress _HatTrick when RL counted own goals toward the
-// threshold.
-type RealGoalsLookup interface {
-	RealGoals(playerID string) int
 }
 
 // DiscoveryRecorder is the slim view Statfeed needs from the
