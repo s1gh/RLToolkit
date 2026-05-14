@@ -56,15 +56,26 @@
 
   // ---- overlay ---------------------------------------------------------
 
+  // DIAG: track every overlay render so we can correlate against the
+  // background's celebration history. Capped at 30 entries.
+  const diagRenderHistory = [];
+  function recordRender(branch, extra) {
+    diagRenderHistory.push({ branch, at: Date.now(), ...(extra || {}) });
+    if (diagRenderHistory.length > 30) diagRenderHistory.splice(0, diagRenderHistory.length - 30);
+    if (RLT.store && RLT.store.set) RLT.store.set('diag-render', diagRenderHistory.slice());
+  }
+
   function renderOverlay(rootEl) {
     const session = lastSessionState;
     if (!session) {
+      recordRender('no-session');
       rootEl.innerHTML = '';
       return;
     }
 
     const inRecap = recapShownUntil > Date.now() && recapData;
     if (inRecap) {
+      recordRender('recap');
       lastRenderedChallengeId = null;
       const xp = (recapData.xpGained >= 0 ? '+' : '') + recapData.xpGained;
       const levelLine = recapData.startLevel === recapData.endLevel
@@ -91,6 +102,7 @@
 
     const active = session.activeChallenge;
     if (!active) {
+      recordRender('idle');
       lastRenderedChallengeId = null;
       rootEl.innerHTML = `
         <div class="mg-overlay">
@@ -106,6 +118,7 @@
     // clearing and drawing the next challenge. Render a distinct card so the
     // player sees real feedback on what they just earned.
     if (active.resolvedAt) {
+      recordRender('celebrate', { id: active.id, outcome: active.resolvedOutcome });
       const completed = active.resolvedOutcome === 'completed';
       const xp = (active.resolvedXpDelta >= 0 ? '+' : '') + Number(active.resolvedXpDelta || 0);
       const tag = completed ? 'Complete' : (active.resolvedOutcome === 'timedOut' ? 'Time up' : 'Failed');
@@ -150,6 +163,7 @@
       ? `<span class="mg-progress-count">${Number(active.progress) || 0} / ${Number(active.progressTarget) || 0}</span>`
       : '';
 
+    recordRender('active', { id: active.id, hasResolvedAt: !!active.resolvedAt });
     rootEl.innerHTML = `
       <div class="mg-overlay">
         ${ribbonHtml(session)}
