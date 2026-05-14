@@ -683,10 +683,6 @@
       '<span class="st-tick st-tick-' + escA(r) + '"></span>'
     ).join('');
 
-    const startedTime = new Date(b.startedAt).toLocaleTimeString('en', {
-      hour12: false, hour: '2-digit', minute: '2-digit',
-    });
-
     const hardest = b.crossbar.hardest;
     let hardestBlock;
     if (!hardest) {
@@ -735,55 +731,48 @@
     const totalsCls = (v) => v > 0 ? 'st-val' : 'st-mut';
 
     root.innerHTML =
-      '<div class="st-dash">' +
-        '<div class="st-dash-h">' +
-          '<span class="st-h-l">SESSION TRACKER</span>' +
-          '<span class="st-h-r"><span class="st-mut">started ' + esc(startedTime) + ' · ' + esc(fmtDuration(b.startedAt)) + ' elapsed</span></span>' +
+      '<div class="st-dash-grid">' +
+        '<div class="st-card st-card-record">' +
+          '<div class="st-card-h">RECORD</div>' +
+          '<div class="st-record-big">' + b.results.wins + ' – ' + b.results.losses + '</div>' +
+          '<div class="st-record-lbl"><span class="st-lbl">WINS</span> <span class="st-lbl">LOSSES</span></div>' +
+          '<div class="st-row st-ticks">' + (ticks || '<span class="st-mut">no matches yet</span>') + '</div>' +
+          (streakLabel ? '<div class="st-mut">' + esc(streakLabel) + '</div>' : '') +
         '</div>' +
 
-        '<div class="st-dash-grid">' +
-          '<div class="st-card st-card-record">' +
-            '<div class="st-card-h">RECORD</div>' +
-            '<div class="st-record-big">' + b.results.wins + ' – ' + b.results.losses + '</div>' +
-            '<div class="st-record-lbl"><span class="st-lbl">WINS</span> <span class="st-lbl">LOSSES</span></div>' +
-            '<div class="st-row st-ticks">' + (ticks || '<span class="st-mut">no matches yet</span>') + '</div>' +
-            (streakLabel ? '<div class="st-mut">' + esc(streakLabel) + '</div>' : '') +
+        '<div class="st-card st-card-stats">' +
+          '<div class="st-card-h">STATS</div>' +
+          '<div class="st-stats-big">' +
+            '<div><div class="' + totalsCls(b.totals.goals) + ' st-num">' + b.totals.goals + '</div><div class="st-lbl">GOALS</div></div>' +
+            '<div><div class="' + totalsCls(b.totals.saves) + ' st-num">' + b.totals.saves + '</div><div class="st-lbl">SAVES</div></div>' +
+            '<div><div class="' + totalsCls(b.totals.demos) + ' st-num">' + b.totals.demos + '</div><div class="st-lbl">DEMOS</div></div>' +
           '</div>' +
-
-          '<div class="st-card st-card-stats">' +
-            '<div class="st-card-h">STATS</div>' +
-            '<div class="st-stats-big">' +
-              '<div><div class="' + totalsCls(b.totals.goals) + ' st-num">' + b.totals.goals + '</div><div class="st-lbl">GOALS</div></div>' +
-              '<div><div class="' + totalsCls(b.totals.saves) + ' st-num">' + b.totals.saves + '</div><div class="st-lbl">SAVES</div></div>' +
-              '<div><div class="' + totalsCls(b.totals.demos) + ' st-num">' + b.totals.demos + '</div><div class="st-lbl">DEMOS</div></div>' +
-            '</div>' +
-            '<div class="st-stats-info">' +
-              '<div><span class="' + (b.ball.fastestKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.fastestKmh) + '</span> <span class="st-lbl">FASTEST BALL</span></div>' +
-              '<div>' +
-                '<span class="' + (hardest ? 'st-val' : 'st-mut') + '">' + (hardest ? fmtImpact(hardest.impact) + ' · ' + fmtSpeed(hardest.speed) : '—') + '</span>' +
-                ' <span class="st-lbl">HARDEST CROSSBAR</span>' +
-                (hardest && hardest.player ? '<div class="st-mut">· by ' + esc(hardest.player.name || '?') + '</div>' : '') +
-              '</div>' +
+          '<div class="st-stats-info">' +
+            '<div><span class="' + (b.ball.fastestKmh ? 'st-val' : 'st-mut') + '">' + fmtSpeed(b.ball.fastestKmh) + '</span> <span class="st-lbl">FASTEST BALL</span></div>' +
+            '<div>' +
+              '<span class="' + (hardest ? 'st-val' : 'st-mut') + '">' + (hardest ? fmtImpact(hardest.impact) + ' · ' + fmtSpeed(hardest.speed) : '—') + '</span>' +
+              ' <span class="st-lbl">HARDEST CROSSBAR</span>' +
+              (hardest && hardest.player ? '<div class="st-mut">· by ' + esc(hardest.player.name || '?') + '</div>' : '') +
             '</div>' +
           '</div>' +
         '</div>' +
+      '</div>' +
 
-        (mmrRows.length > 0 ? (
-          '<div class="st-card">' +
-            '<div class="st-card-h">MMR</div>' +
-            '<table class="st-table"><tbody>' + mmrRows.join('') + '</tbody></table>' +
-          '</div>'
-        ) : '') +
-
+      (mmrRows.length > 0 ? (
         '<div class="st-card">' +
-          '<div class="st-card-h">GOAL MODIFIERS</div>' +
-          '<div class="st-mods-grid">' + modCells + '</div>' +
-        '</div>' +
+          '<div class="st-card-h">MMR</div>' +
+          '<table class="st-table"><tbody>' + mmrRows.join('') + '</tbody></table>' +
+        '</div>'
+      ) : '') +
 
-        '<div class="st-card">' +
-          '<div class="st-card-h">CROSSBAR</div>' +
-          hardestBlock +
-        '</div>' +
+      '<div class="st-card">' +
+        '<div class="st-card-h">GOAL MODIFIERS</div>' +
+        '<div class="st-mods-grid">' + modCells + '</div>' +
+      '</div>' +
+
+      '<div class="st-card">' +
+        '<div class="st-card-h">CROSSBAR</div>' +
+        hardestBlock +
       '</div>';
   }
   function renderSettings(root) {
@@ -836,6 +825,7 @@
   RLT.plugin.register({
     async ready() {
       bucket = (await RLT.store.get(STORE_KEY)) || null;
+      RLT.ui.bindStatusPill('conn');
       // Mount immediately with whatever we have (stored bucket or a
       // bootId-less empty one). Waiting on resolveBootID() here used
       // to stall mountView() for up to 2s on a toggle-on while we

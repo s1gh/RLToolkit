@@ -8,7 +8,31 @@
     <script src="/sdk.js" data-plugin="sessiontracker" data-view="dashboard"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <main class="rlt-page">
+      <header class="rlt-topbar">
+        <div class="rlt-brand">
+          <div class="rlt-logo">ST</div>
+          <div>
+            <h1 class="rlt-brand-title">Session Tracker</h1>
+            <div class="rlt-brand-tag">Your record, stats, and MMR for this session</div>
+          </div>
+        </div>
+        <div class="rlt-topbar-right">
+          <span class="rlt-pill rlt-conn-pill" id="conn" data-status="disconnected">offline</span>
+          <button
+            type="button"
+            class="rlt-icon-btn"
+            id="open-overlay"
+            title="Open overlay"
+            onclick="window.open('overlay.html', '_blank')"
+          >
+            ⧉
+          </button>
+        </div>
+      </header>
+
+      <div id="root"></div>
+    </main>
     <script src="app.js"></script>
   </body>
 </html>

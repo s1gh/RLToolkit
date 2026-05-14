@@ -1,5 +1,11 @@
 /* Session Tracker — shared styles for overlay, dashboard, settings. */
 
+:root {
+  --rlt-plugin-accent: var(--rlt-violet);
+  --rlt-plugin-accent-2: var(--rlt-magenta);
+  --rlt-plugin-accent-glow: var(--rlt-violet-glow);
+}
+
 #root {
   font-family: var(--rlt-display, sans-serif);
   color: var(--rlt-txt, #e6e9f5);
@@ -60,20 +66,6 @@
 .st-tick-loss { background: var(--rlt-magenta, #f472b6); }
 
 /* Dashboard */
-.st-dash {
-  max-width: 900px;
-  margin: 24px auto;
-  padding: 0 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.st-dash-h {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 0 4px;
-}
 .st-dash-grid {
   display: grid;
   grid-template-columns: 1fr 2fr;
