@@ -52,6 +52,12 @@
   // type === 'matchEnded'; cleared 10s later by the rerender idle path.
   let recapShownUntil = 0;
   let recapData = null;     // {completed, failed, timedOut, xpGained, startLevel, endLevel}
+  // Pending recap waits until phase === 'lobby' before going live, so the
+  // player isn't covered with a summary card while the post-match podium
+  // and replay screens are still in front of them.
+  let pendingRecap = null;
+  let pendingRecapObjective = null;
+  let currentPhase = null;
   let lastRenderedChallengeId = null;
 
   // ---- overlay ---------------------------------------------------------
@@ -71,10 +77,9 @@
         ? 'Level ' + recapData.endLevel
         : 'Level ' + recapData.startLevel + ' -> ' + recapData.endLevel;
       const failedTotal = recapData.failed + recapData.timedOut;
-      // If the objective resolved this match, surface its result inside the
-      // recap card. The objective slot stays populated through the recap
-      // window before scheduleObjectiveCelebrationFlush clears it.
-      const obj = session.activeObjective;
+      // The objective snapshot was captured at matchEnded tick time so it
+      // survives even after the celebration flush clears session.activeObjective.
+      const obj = recapData.objective;
       let objectiveBlock = '';
       if (obj && obj.resolution) {
         const ok = obj.resolution === 'complete';
@@ -430,14 +435,13 @@
       // Build a recap from the just-ended match in session.matches. The
       // background view writes the matchEnded tick AFTER calling endMatch,
       // and pullState re-reads session before handleTick fires, so the
-      // last entry is the closed match. The resolution log stays visible
-      // for the recap window; rerender clears it after the window expires.
+      // last entry is the closed match.
       const s = lastSessionState;
       const lastMatch = s?.matches?.length > 0
         ? s.matches[s.matches.length - 1]
         : null;
       if (lastMatch) {
-        recapData = {
+        pendingRecap = {
           completed: Number(lastMatch.completed) || 0,
           failed:    Number(lastMatch.failed)    || 0,
           timedOut:  Number(lastMatch.timedOut)  || 0,
@@ -445,9 +449,30 @@
           startLevel: Number(lastMatch.startLevel) || 0,
           endLevel:   Number(lastMatch.endLevel)   || 0,
         };
-        recapShownUntil = Date.now() + RECAP_WINDOW_MS;
+        // Snapshot the resolved objective now; session.activeObjective gets
+        // cleared 4s later by the celebration flush, well before the player
+        // reaches the lobby.
+        const obj = s.activeObjective;
+        pendingRecapObjective = obj && obj.resolution
+          ? { title: obj.title || '', resolution: obj.resolution }
+          : null;
+        // If we're already in the lobby (rare; happens on a forfeit-while-paused
+        // or similar), show the recap immediately. Otherwise wait for the
+        // _MatchState transition.
+        if (currentPhase === 'lobby') {
+          promotePendingRecap();
+        }
       }
     }
+  }
+
+  function promotePendingRecap() {
+    if (!pendingRecap) return;
+    recapData = pendingRecap;
+    recapData.objective = pendingRecapObjective;
+    pendingRecap = null;
+    pendingRecapObjective = null;
+    recapShownUntil = Date.now() + RECAP_WINDOW_MS;
   }
 
   function rerender() {
@@ -469,6 +494,25 @@
 
   RLT.plugin.register({
     init() {
+      // Track match phase so the recap card can wait for the lobby before
+      // showing. RL's post-match podium and replay screens cover the same
+      // overlay surface, so the player can't see the recap until they're
+      // back in the menu.
+      RLT.on('_MatchState', (p) => {
+        const prev = currentPhase;
+        currentPhase = p?.phase || null;
+        if (currentPhase === 'lobby' && pendingRecap) {
+          promotePendingRecap();
+          rerender();
+        } else if (currentPhase === 'countdown' && prev !== 'countdown') {
+          // Next match starting: clear any lingering recap.
+          recapData = null;
+          recapShownUntil = 0;
+          pendingRecap = null;
+          pendingRecapObjective = null;
+          rerender();
+        }
+      });
       // Subscribe to store changes. Both 'session' and 'tick' trigger rerenders.
       RLT.store.onChange('session',             async () => { await pullState(); rerender(); });
       RLT.store.onChange('tick',                async () => { await pullState(); rerender(); });
