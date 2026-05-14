@@ -180,7 +180,7 @@
 
   const TICK_INTERVAL_MS = 250;  // timer poll rate; tick events emit at 1Hz, see onTick
   const DRAW_RETRY_LIMIT = 5;    // max ineligible-entry retries per drawNext call
-  const CELEBRATE_MS    = 1000;  // hold the just-resolved card visible before drawing next
+  const CELEBRATE_MS    = 4000;  // hold the just-resolved card visible before drawing next
 
   let session  = null;
   let records  = null;
@@ -367,11 +367,6 @@
     if (session) session.activeChallenge = null;
     lastTickSecond = -1;
     if (celebrationTimer) {
-      // DIAG: track when a pending celebration is cut short by an external
-      // teardown (e.g. someone calling drawNext mid-window).
-      diagCelebrateHistory.push({ event: 'teardown-cancel', at: Date.now() });
-      if (diagCelebrateHistory.length > 20) diagCelebrateHistory.splice(0, diagCelebrateHistory.length - 20);
-      if (store) store.set('diag-celebrate', diagCelebrateHistory.slice());
       clearTimeout(celebrationTimer);
       celebrationTimer = null;
     }
@@ -436,24 +431,9 @@
   }
 
   let celebrationTimer = null;
-  // DIAG: track celebration-window timing across multiple resolutions
-  // so we can verify after-the-fact that each window stays open for
-  // ~CELEBRATE_MS. Capped at 20 entries.
-  const diagCelebrateHistory = [];
   function scheduleCelebrationFlush() {
-    if (celebrationTimer) {
-      clearTimeout(celebrationTimer);
-      diagCelebrateHistory.push({ event: 'cancelled', at: Date.now() });
-    }
-    const scheduledAt = Date.now();
-    diagCelebrateHistory.push({ event: 'scheduled', at: scheduledAt });
-    if (diagCelebrateHistory.length > 20) diagCelebrateHistory.splice(0, diagCelebrateHistory.length - 20);
-    if (store) store.set('diag-celebrate', diagCelebrateHistory.slice());
+    if (celebrationTimer) clearTimeout(celebrationTimer);
     celebrationTimer = setTimeout(() => {
-      const closedAt = Date.now();
-      diagCelebrateHistory.push({ event: 'fired', at: closedAt, durationMs: closedAt - scheduledAt });
-      if (diagCelebrateHistory.length > 20) diagCelebrateHistory.splice(0, diagCelebrateHistory.length - 20);
-      if (store) store.set('diag-celebrate', diagCelebrateHistory.slice());
       celebrationTimer = null;
       teardownActive();
       if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
