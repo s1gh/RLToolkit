@@ -148,11 +148,17 @@
   function applyPlayerScoreChanged(bucket, payload) {
     if (!payload || !payload.player || !payload.player.isMe) return;
     const d = payload.delta || {};
-    if (typeof d.goals === 'number') {
+    // Only positive deltas count. RL's scoreboard zeroes out across
+    // certain match-boundary transitions (real match -> freeplay being
+    // the canonical one), and the resulting negative delta would
+    // otherwise decrement a session counter the user already earned.
+    // The backend tick-diff guard suppresses this at the source; this
+    // is belt-and-braces so a stat counter can never go backwards.
+    if (typeof d.goals === 'number' && d.goals > 0) {
       bucket.totals.goals += d.goals;
       bucket.match.goals += d.goals;
     }
-    if (typeof d.saves === 'number') {
+    if (typeof d.saves === 'number' && d.saves > 0) {
       bucket.totals.saves += d.saves;
       bucket.match.saves += d.saves;
     }

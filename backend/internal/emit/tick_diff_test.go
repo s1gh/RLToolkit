@@ -426,13 +426,14 @@ func TestTickDiff_BoostPickup_StampsIsMeViaResolver(t *testing.T) {
 	}
 }
 
-// stubTickHistory exposes a single latest snapshot for armKickoff
-// tests. Previous() isn't needed because Process only consumes
-// CountdownBegin / RoundStarted on this code path.
-type stubTickHistory struct{ latest *types.TickSnapshot }
+// stubTickHistory exposes a latest (and optional previous) snapshot.
+// previous is only needed for tests that exercise UpdateState diffing.
+type stubTickHistory struct {
+	latest, previous *types.TickSnapshot
+}
 
 func (s stubTickHistory) Latest() *types.TickSnapshot   { return s.latest }
-func (s stubTickHistory) Previous() *types.TickSnapshot { return nil }
+func (s stubTickHistory) Previous() *types.TickSnapshot { return s.previous }
 
 // CountdownBegin marks the start of a kickoff. RL resets every
 // player's Boost to 33 between CountdownBegin and RoundStarted, so
@@ -504,6 +505,97 @@ func TestTickDiff_Kickoff_SwallowsResetDecrease(t *testing.T) {
 	}
 	if td.pendingRespawnSuppress["p1"] {
 		t.Errorf("flag should clear after one-shot consumption")
+	}
+}
+
+// updateStateRaw fabricates a minimal UpdateState envelope. The
+// tick-diff Process path only needs the event name to dispatch; the
+// Latest/Previous snapshots come from the injected TickHistory stub.
+func updateStateRaw() []byte { return []byte(`{}`) }
+
+// Real-match -> freeplay can land a boundary tick where one side has
+// the previous match's GUID and the other has an empty GUID (freeplay
+// hasn't settled yet, or the post-match tick lost its guid first).
+// The original guard required BOTH sides non-empty before suppressing
+// the diff, so this case slipped through and produced a negative
+// _PlayerScoreChanged delta (Goals 3 → 0 = -3) that stat plugins
+// applied as a decrement on the user's session totals.
+func TestTickDiff_Process_GuidGoingEmptySuppressesDiff(t *testing.T) {
+	prev := &types.TickSnapshot{
+		MatchGUID: "match-A",
+		Players:   []types.TickPlayer{{ID: "me", Goals: 3, Saves: 2}},
+	}
+	curr := &types.TickSnapshot{
+		MatchGUID: "",
+		Players:   []types.TickPlayer{{ID: "me", Goals: 0, Saves: 0}},
+	}
+	td := &TickDiff{
+		phase:                  stubPhase{phase: types.PhaseLive},
+		ticks:                  stubTickHistory{latest: curr, previous: prev},
+		pendingRespawnSuppress: map[string]bool{},
+		pickupStreaks:          map[string]*pickupStreak{},
+	}
+	out := td.Process(bus.Event{Name: "UpdateState", Raw: updateStateRaw()})
+	for _, e := range out {
+		if e.Name == "_PlayerScoreChanged" {
+			t.Fatalf("guid going empty must suppress diff, got %s", e.Name)
+		}
+	}
+}
+
+// Mirror of the above for the empty -> non-empty direction (freeplay
+// settling into a fresh match guid). Same risk: a stat reset would be
+// emitted as a positive delta and double-count.
+func TestTickDiff_Process_GuidComingFromEmptySuppressesDiff(t *testing.T) {
+	prev := &types.TickSnapshot{
+		MatchGUID: "",
+		Players:   []types.TickPlayer{{ID: "me", Goals: 0}},
+	}
+	curr := &types.TickSnapshot{
+		MatchGUID: "match-B",
+		Players:   []types.TickPlayer{{ID: "me", Goals: 3}},
+	}
+	td := &TickDiff{
+		phase:                  stubPhase{phase: types.PhaseLive},
+		ticks:                  stubTickHistory{latest: curr, previous: prev},
+		pendingRespawnSuppress: map[string]bool{},
+		pickupStreaks:          map[string]*pickupStreak{},
+	}
+	out := td.Process(bus.Event{Name: "UpdateState", Raw: updateStateRaw()})
+	for _, e := range out {
+		if e.Name == "_PlayerScoreChanged" {
+			t.Fatalf("guid arriving from empty must suppress diff, got %s", e.Name)
+		}
+	}
+}
+
+// Same-guid ticks must still diff normally — the guard widening is a
+// no-op for the common case.
+func TestTickDiff_Process_SameGuidStillDiffs(t *testing.T) {
+	prev := &types.TickSnapshot{
+		MatchGUID: "match-A",
+		Players:   []types.TickPlayer{{ID: "me", Goals: 1}},
+	}
+	curr := &types.TickSnapshot{
+		MatchGUID: "match-A",
+		Players:   []types.TickPlayer{{ID: "me", Goals: 2}},
+	}
+	td := &TickDiff{
+		phase:                  stubPhase{phase: types.PhaseLive},
+		ticks:                  stubTickHistory{latest: curr, previous: prev},
+		pendingRespawnSuppress: map[string]bool{},
+		pickupStreaks:          map[string]*pickupStreak{},
+	}
+	out := td.Process(bus.Event{Name: "UpdateState", Raw: updateStateRaw()})
+	saw := false
+	for _, e := range out {
+		if e.Name == "_PlayerScoreChanged" {
+			saw = true
+			break
+		}
+	}
+	if !saw {
+		t.Fatalf("same-guid tick should still emit _PlayerScoreChanged")
 	}
 }
 

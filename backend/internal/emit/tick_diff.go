@@ -153,8 +153,14 @@ func (e *TickDiff) Process(evt bus.Event) []bus.Event {
 		return nil
 	}
 	// A match guid change means the new tick is a fresh baseline; any
-	// diff against the previous snapshot would be misleading.
-	if prev.MatchGUID != "" && curr.MatchGUID != "" && prev.MatchGUID != curr.MatchGUID {
+	// diff against the previous snapshot would be misleading. Includes
+	// transitions to/from an empty guid (e.g. real match -> freeplay,
+	// where one side of the boundary tick can ship an empty MatchGUID
+	// before the freeplay session settles). Without this, the
+	// post-match scoreboard (Goals=N, Saves=N) gets diffed against the
+	// freeplay reset (Goals=0, Saves=0) and the resulting negative
+	// delta is applied by stat plugins as a decrement.
+	if prev.MatchGUID != curr.MatchGUID {
 		e.matchEnded(prev.MatchGUID)
 		return nil
 	}

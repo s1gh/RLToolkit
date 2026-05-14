@@ -92,6 +92,22 @@ test('applyPlayerScoreChanged: assists/shots/score ignored', () => {
   assert.equal(b.totals.assists, undefined);
 });
 
+// Real match -> freeplay can produce a negative delta when the
+// scoreboard goes from "Goals 3" to "Goals 0". The reducer must
+// refuse to decrement a counter the user already earned, even if
+// such a delta slips past the backend's match-boundary guard.
+test('applyPlayerScoreChanged: negative delta does not decrement totals', () => {
+  const b = R.emptyBucket('b');
+  R.applyPlayerScoreChanged(b, { player: { isMe: true }, delta: { goals: 3, saves: 2 } });
+  assert.equal(b.totals.goals, 3);
+  assert.equal(b.totals.saves, 2);
+  R.applyPlayerScoreChanged(b, { player: { isMe: true }, delta: { goals: -3, saves: -2 } });
+  assert.equal(b.totals.goals, 3);
+  assert.equal(b.totals.saves, 2);
+  assert.equal(b.match.goals, 3);
+  assert.equal(b.match.saves, 2);
+});
+
 test('applyPlayerDemolished: I am attacker → demos++', () => {
   const b = R.emptyBucket('b');
   R.applyPlayerDemolished(b, { attacker: { isMe: true }, victim: { isMe: false } });
