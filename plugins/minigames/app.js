@@ -89,7 +89,7 @@
       return;
     }
 
-    const active = session.activeChallenge;
+    const active = session.activeTask;
     if (!active) {
       lastRenderedChallengeId = null;
       rootEl.innerHTML = `
@@ -101,7 +101,7 @@
       return;
     }
 
-    // Celebration branch: the background view stamps activeChallenge with
+    // Celebration branch: the background view stamps activeTask with
     // resolvedAt + outcome on completion / failure, holds it for ~1s before
     // clearing and drawing the next challenge. Render a distinct card so the
     // player sees real feedback on what they just earned.
@@ -437,7 +437,7 @@
         let lastDisplayedSecond = -1;
         setInterval(() => {
           const session = lastSessionState;
-          const active = session?.activeChallenge;
+          const active = session?.activeTask;
           if (!active) return;
           if (active.timeLimitMs === null || active.deadline === null) return;
           const remainingMs = Math.max(0, active.deadline - Date.now());

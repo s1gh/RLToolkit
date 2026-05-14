@@ -18,7 +18,8 @@
       xpInLevel: 0,
       xpToNext: xpToNext(1),
       matches: [],
-      activeChallenge: null,
+      activeTask: null,
+      activeObjective: null,
       currentStreak: 0,
     };
   }
@@ -28,8 +29,25 @@
       highestLevel: 1,
       longestStreak: 0,
       bestMatchXp: 0,
+      objectivesCompleted: 0,
+      objectivesFailed: 0,
       firstSeenAt: Date.now(),
     };
+  }
+
+  // migrateSession upgrades a persisted session shape from earlier versions
+  // (which had activeChallenge) to the current shape (activeTask plus the
+  // activeObjective slot). Returns the input as-is for null / undefined.
+  function migrateSession(s) {
+    if (!s) return s;
+    const { activeChallenge, ...rest } = s;
+    const out = { ...rest };
+    if (activeChallenge !== undefined && out.activeTask === undefined) {
+      out.activeTask = activeChallenge;
+    }
+    if (!('activeTask' in out)) out.activeTask = null;
+    if (!('activeObjective' in out)) out.activeObjective = null;
+    return out;
   }
 
   function applyReward(session, amount) {
@@ -128,7 +146,7 @@
     m.endedAt = now;
     m.endLevel = session.level;
     m.result = result || null;
-    session.activeChallenge = null;
+    session.activeTask = null;
   }
 
   function takeRecord(records, { level, streak, matchXp }) {
@@ -149,6 +167,7 @@
     xpToNext,
     emptySession,
     emptyRecords,
+    migrateSession,
     applyReward,
     applyPenalty,
     wipeIfStaleBoot,
@@ -187,7 +206,7 @@
   let settings = { difficulty: 'standard' };
 
   // Timer engine state. Stored in-memory only; never written to disk.
-  let activeChallenge = null;    // the instantiated runtime challenge object
+  let activeTask = null;    // the instantiated runtime task object
   let armDispose = null;         // dispose fn returned by arm()
   let activeDeadline = null;     // ms-epoch when timer expires, or null for open-ended challenges
   let activePausedRemaining = null; // ms remaining if paused (null for open-ended)
@@ -247,13 +266,19 @@
 
     // 2. Session + records + settings. Hydrate with whatever bootId the
     // stored session carries; we'll resolve the real bootId asynchronously
-    // below and reseed if it differs.
+    // below and reseed if it differs. Run migrateSession over any persisted
+    // session so legacy shapes (activeChallenge slot) become the current
+    // shape (activeTask + activeObjective).
     const rawSession = await store.get(SESSION_KEY);
-    session = rawSession || root.MinigamesReducers.emptySession('');
+    session = rawSession
+      ? root.MinigamesReducers.migrateSession(rawSession)
+      : root.MinigamesReducers.emptySession('');
     if (!rawSession) await store.set(SESSION_KEY, session);
 
+    // Records: merge persisted on top of emptyRecords() so any new counters
+    // added in later versions default to 0 rather than undefined.
     const rawRecords = await store.get(RECORDS_KEY);
-    records = rawRecords || root.MinigamesReducers.emptyRecords();
+    records = { ...root.MinigamesReducers.emptyRecords(), ...(rawRecords || {}) };
     if (!rawRecords) await store.set(RECORDS_KEY, records);
 
     const rawSettings = await store.get(SETTINGS_KEY);
@@ -352,14 +377,14 @@
       const runtime = root.MinigamesChallenges.instantiate(entry, ctx);
       if (!runtime) continue; // ineligible (e.g. no opponents); try another
       lastDrawnId = entry.id;
-      activeChallenge = runtime;
+      activeTask = runtime;
       // Open-ended challenges (matchEndCondition) have timeLimitMs === null.
       // The timer engine reads activeDeadline === null as "no timeout."
       activeDeadline = runtime.timeLimitMs === null
         ? null
         : Date.now() + runtime.timeLimitMs;
       activePausedRemaining = null;
-      session.activeChallenge = serialise(runtime);
+      session.activeTask = serialise(runtime);
       armDispose = runtime.arm();
       startTicking();
       persistSession();
@@ -397,9 +422,9 @@
       onComplete: () => resolveActive('completed'),
       onFail: () => resolveActive('failed'),
       onProgress: (current, target) => {
-        if (!activeChallenge || !session.activeChallenge) return;
-        session.activeChallenge.progress = current;
-        session.activeChallenge.progressTarget = target;
+        if (!activeTask || !session.activeTask) return;
+        session.activeTask.progress = current;
+        session.activeTask.progressTarget = target;
         persistSession();
       },
     };
@@ -407,8 +432,8 @@
 
   function teardownActive() {
     stopPredicate();
-    activeChallenge = null;
-    if (session) session.activeChallenge = null;
+    activeTask = null;
+    if (session) session.activeTask = null;
     lastTickSecond = -1;
     if (celebrationTimer) {
       clearTimeout(celebrationTimer);
@@ -419,8 +444,8 @@
   // ---- resolution -------------------------------------------------------
 
   function resolveActive(outcome) {
-    if (!activeChallenge) return;
-    const c = activeChallenge;
+    if (!activeTask) return;
+    const c = activeTask;
     let xpDelta = 0;
     let result;
     if (outcome === 'completed') {
@@ -451,14 +476,14 @@
 
     // Two-phase resolution: stop the predicate machinery (event subs, timer)
     // immediately so further game events don't bleed into the next round, but
-    // keep session.activeChallenge populated with a `resolvedAt` stamp so the
+    // keep session.activeTask populated with a `resolvedAt` stamp so the
     // overlay can render a "Challenge complete!" treatment for a moment. The
     // delayed drawNext then clears the marker and arms the next challenge.
     stopPredicate();
-    if (session.activeChallenge) {
-      session.activeChallenge.resolvedAt = Date.now();
-      session.activeChallenge.resolvedOutcome = outcome;
-      session.activeChallenge.resolvedXpDelta = xpDelta;
+    if (session.activeTask) {
+      session.activeTask.resolvedAt = Date.now();
+      session.activeTask.resolvedOutcome = outcome;
+      session.activeTask.resolvedXpDelta = xpDelta;
     }
     persistSession();
 
@@ -489,7 +514,7 @@
   }
 
   // stopPredicate halts the event subscriptions and timer for the active
-  // challenge without nulling session.activeChallenge. Used by the
+  // challenge without nulling session.activeTask. Used by the
   // celebrate-then-draw flow; full teardown happens in teardownActive.
   function stopPredicate() {
     if (armDispose) { try { armDispose(); } catch (_) {} armDispose = null; }
@@ -499,7 +524,7 @@
   }
 
   function timeoutActive() {
-    if (!activeChallenge) return;
+    if (!activeTask) return;
     resolveActive('timedOut');
   }
 
@@ -513,7 +538,7 @@
     if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
   }
   function onTick() {
-    if (!activeChallenge) return;
+    if (!activeTask) return;
     // Open-ended challenge: nothing to count down. Emit a single tick so
     // the overlay knows we're active, then stop bothering the store until
     // the challenge resolves.
@@ -636,13 +661,13 @@
       _MatchStarted(e) {
         if (!e?.matchGuid) return;
         ensureMatchEntry(e.matchGuid);
-        if (!activeChallenge && isGameplay(RLT.match?.state?.phase)) {
+        if (!activeTask && isGameplay(RLT.match?.state?.phase)) {
           drawNext();
         }
       },
 
       _MatchEnded(e) {
-        if (activeChallenge) timeoutActive();
+        if (activeTask) timeoutActive();
         const guid = e?.matchGuid || currentMatchGuid();
         const winner = typeof e?.winnerTeamNum === 'number' ? e.winnerTeamNum : null;
         const my = myTeamNum();
@@ -655,7 +680,7 @@
       },
 
       _MatchAbandoned(e) {
-        if (activeChallenge) resolveActive('failed');
+        if (activeTask) resolveActive('failed');
         const guid = e?.matchGuid || currentMatchGuid();
         finishMatch(guid, 'forfeit');
       },

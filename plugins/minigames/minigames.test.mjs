@@ -29,7 +29,8 @@ test('emptySession: starts at level 1, 0 XP, empty matches', () => {
   assert.equal(s.xpInLevel, 0);
   assert.equal(s.xpToNext, 100);
   assert.deepEqual(s.matches, []);
-  assert.equal(s.activeChallenge, null);
+  assert.equal(s.activeTask, null);
+  assert.equal(s.activeObjective, null);
   assert.equal(s.currentStreak, 0);
 });
 
@@ -192,18 +193,18 @@ test('recordResolution: timedOut increments timedOut (also counts as fail penalt
   assert.equal(m.xpGained, -90);
 });
 
-test('endMatch: stamps endedAt, endLevel, result, and clears activeChallenge', () => {
+test('endMatch: stamps endedAt, endLevel, result, and clears activeTask', () => {
   const s = R.emptySession('b');
   s.level = 3;
   R.startMatch(s, { matchGuid: 'g1', now: 1000 });
-  s.activeChallenge = { id: 'x' };
+  s.activeTask = { id: 'x' };
   R.applyReward(s, 200); // pushes to level 4
   R.endMatch(s, { matchGuid: 'g1', now: 5000, result: 'win' });
   const m = s.matches[0];
   assert.equal(m.endedAt, 5000);
   assert.equal(m.endLevel, 4);
   assert.equal(m.result, 'win');
-  assert.equal(s.activeChallenge, null);
+  assert.equal(s.activeTask, null);
 });
 
 test('endMatch: ignored if matchGuid does not match current entry', () => {
@@ -240,6 +241,41 @@ test('takeRecord: bumps bestMatchXp only when surpassed (positive only)', () => 
   assert.equal(recs.bestMatchXp, 250);
   R.takeRecord(recs, { matchXp: -500 });
   assert.equal(recs.bestMatchXp, 250); // negatives never lower the best
+});
+
+test('emptySession has activeTask and activeObjective fields', () => {
+  const s = R.emptySession('boot-1');
+  assert.equal(s.bootId, 'boot-1');
+  assert.ok('activeTask' in s);
+  assert.ok('activeObjective' in s);
+  assert.equal(s.activeTask, null);
+  assert.equal(s.activeObjective, null);
+  assert.equal(s.activeChallenge, undefined);
+});
+
+test('emptyRecords includes objectivesCompleted/objectivesFailed defaults', () => {
+  const r = R.emptyRecords();
+  assert.equal(r.objectivesCompleted, 0);
+  assert.equal(r.objectivesFailed, 0);
+});
+
+test('migrateSession converts legacy activeChallenge to activeTask', () => {
+  const legacy = {
+    bootId: 'old', level: 3, xpInLevel: 50, xpToNext: 200,
+    matches: [], activeChallenge: { id: 'demo-any', title: 't' },
+    currentStreak: 0,
+  };
+  const migrated = R.migrateSession(legacy);
+  assert.equal(migrated.activeTask.id, 'demo-any');
+  assert.equal(migrated.activeObjective, null);
+  assert.equal(migrated.activeChallenge, undefined);
+});
+
+test('migrateSession fills missing activeTask/activeObjective on modern shape', () => {
+  const modern = { bootId: 'x', level: 1, xpInLevel: 0, xpToNext: 100, matches: [], currentStreak: 0 };
+  const migrated = R.migrateSession(modern);
+  assert.equal(migrated.activeTask, null);
+  assert.equal(migrated.activeObjective, null);
 });
 
 const csb = { window: {} };
