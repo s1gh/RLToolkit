@@ -148,6 +148,14 @@
   /* shape */
   --rlt-radius: 10px;
   --rlt-radius-lg: 14px;
+
+  /* per-plugin theming knobs — override on the plugin's :root or
+     anywhere above the shell to brand the logo tile and title text.
+     Defaults pick the SDK cyan/violet pair so an unstyled plugin
+     still produces a coherent shell. */
+  --rlt-plugin-accent: var(--rlt-cyan);
+  --rlt-plugin-accent-2: var(--rlt-violet);
+  --rlt-plugin-accent-glow: var(--rlt-cyan-glow);
 }
 
 /* In overlay mode the iframe is sized to manifest width/height. By default
@@ -218,6 +226,143 @@ body.overlay-mode {
     0 0 20px var(--rlt-cyan-glow),
     0 0 28px var(--rlt-violet-glow);
   color: var(--rlt-bg-0);
+}
+
+/* ─── Dashboard shell ───────────────────────────────────────
+   Shared chrome promoted from plugins/demos so every plugin
+   dashboard wears the same top bar, page width, and visual
+   rhythm. Plugins set --rlt-plugin-accent / -accent-2 /
+   -accent-glow to brand the logo tile and title text without
+   touching the shell rules themselves. */
+.rlt-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+}
+.rlt-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, var(--rlt-bg-1), var(--rlt-bg-2));
+  border: 1px solid var(--rlt-line);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.rlt-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.rlt-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--rlt-plugin-accent), var(--rlt-plugin-accent-2));
+  box-shadow: 0 0 24px var(--rlt-plugin-accent-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--rlt-display);
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--rlt-bg-0);
+  letter-spacing: -0.02em;
+}
+.rlt-brand-title {
+  font-family: var(--rlt-display);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #fff 30%, var(--rlt-plugin-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
+}
+.rlt-brand-tag {
+  font-family: var(--rlt-ui);
+  font-size: 11px;
+  color: var(--rlt-txt-3);
+  letter-spacing: 0.02em;
+  font-weight: 500;
+}
+.rlt-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.rlt-conn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--rlt-bg-3);
+  border: 1px solid var(--rlt-line);
+  border-radius: 99px;
+  font-family: var(--rlt-ui);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rlt-txt-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rlt-conn-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rlt-txt-3);
+}
+.rlt-conn-pill[data-status="connected"]::before {
+  background: var(--rlt-green);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+  animation: rlt-conn-pulse 1.4s ease-in-out infinite alternate;
+}
+.rlt-conn-pill[data-status="disconnected"]::before {
+  background: #ef4444;
+}
+@keyframes rlt-conn-pulse {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+.rlt-icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--rlt-bg-3);
+  border: 1px solid var(--rlt-line);
+  color: var(--rlt-txt-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.rlt-icon-btn:hover {
+  border-color: var(--rlt-plugin-accent);
+  color: var(--rlt-plugin-accent);
+  box-shadow: 0 0 16px var(--rlt-plugin-accent-glow);
+}
+.rlt-substrip {
+  background: var(--rlt-bg-1);
+  border: 1px solid var(--rlt-line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 4px;
+  font-family: var(--rlt-ui);
+  font-size: 13px;
+  color: var(--rlt-txt-2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* Toast. Created by RLT.ui.toast(); plugins can override any token below
