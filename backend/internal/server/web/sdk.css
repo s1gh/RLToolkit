@@ -294,21 +294,10 @@ body.overlay-mode {
   align-items: center;
   gap: 12px;
 }
-.rlt-conn-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--rlt-bg-3);
-  border: 1px solid var(--rlt-line);
-  border-radius: 99px;
-  font-family: var(--rlt-ui);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--rlt-txt-2);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
+/* rlt-conn-pill is meant to be used together with rlt-pill:
+   <span class="rlt-pill rlt-conn-pill" data-status="...">. The base
+   visual (padding, font, border, radius) comes from rlt-pill; this
+   class only owns the leading status dot and the data-status colors. */
 .rlt-conn-pill::before {
   content: "";
   width: 7px;
