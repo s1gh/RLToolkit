@@ -204,13 +204,6 @@ body.overlay-mode {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
   color: var(--rlt-txt);
   padding: 20px 22px;
-  /* Flex column so the card's chrome (gradient, border, shadow)
-     renders the full grid-cell height even when the card's content
-     is shorter than its sibling in the same row. Without this,
-     a content-tall card stretches to the row max but a content-short
-     card looks truncated against its sibling. */
-  display: flex;
-  flex-direction: column;
 }
 .rlt-card-head {
   display: flex;
@@ -313,10 +306,13 @@ body.overlay-mode {
 .rlt-page > * + * {
   margin-top: 20px;
 }
-.rlt-page .rlt-card + .rlt-card,
-.rlt-page .rlt-card + .rlt-grid,
-.rlt-page .rlt-grid + .rlt-card,
-.rlt-page .rlt-grid + .rlt-grid {
+/* Don't fire on cards that are children of an .rlt-grid: those are
+   laid out by the grid itself and any margin-top would push them off
+   the row top (and ruin the equal-height behavior). */
+.rlt-page :not(.rlt-grid) > .rlt-card + .rlt-card,
+.rlt-page :not(.rlt-grid) > .rlt-card + .rlt-grid,
+.rlt-page :not(.rlt-grid) > .rlt-grid + .rlt-card,
+.rlt-page :not(.rlt-grid) > .rlt-grid + .rlt-grid {
   margin-top: 20px;
 }
 .rlt-topbar {
