@@ -149,6 +149,26 @@
     session.activeTask = null;
   }
 
+  // instantiateObjective builds the runtime shape stored on session.activeObjective.
+  // Objectives are untimed (no expiresAt) and resolve only at _MatchEnded; the
+  // progress fields exist so trigger-based objectives (goal-overtime, mvp) can
+  // accumulate firings mid-match without resolving until the match closes.
+  function instantiateObjective(entry, now) {
+    return {
+      id: entry.id,
+      title: entry.title,
+      tier: entry.tier,
+      xpReward: entry.xp.reward,
+      xpPenalty: entry.xp.penalty,
+      trigger: entry.trigger,
+      progress: 0,
+      progressTarget: 1,
+      drawnAt: now,
+      resolvedAt: null,
+      resolution: null,
+    };
+  }
+
   function takeRecord(records, { level, streak, matchXp }) {
     if (!records) return;
     if (typeof level === 'number' && level > records.highestLevel) {
@@ -168,6 +188,7 @@
     emptySession,
     emptyRecords,
     migrateSession,
+    instantiateObjective,
     applyReward,
     applyPenalty,
     wipeIfStaleBoot,
@@ -303,6 +324,11 @@
       ensureMatchEntry();
       drawNext();
     }
+
+    // 5. Always seat an objective if one isn't already active. Objectives are
+    // session-scoped, not match-scoped, so we draw at boot regardless of match
+    // phase and let the (future) _MatchEnded handler decide when to resolve.
+    drawNextObjective();
   }
 
   function opponentsFromRoster() {
@@ -350,6 +376,23 @@
   }
 
   // ---- drawing ----------------------------------------------------------
+
+  // drawNextObjective seats a long-form objective in session.activeObjective.
+  // Unlike tasks, objectives are untimed and resolve only at _MatchEnded; this
+  // function only handles the draw + persist. Mid-match progress tracking and
+  // resolution arrive in a later task.
+  function drawNextObjective() {
+    if (!session) return;
+    if (session.activeObjective) return;
+    if (poolEntries.length === 0) return;
+    const entry = root.MinigamesChallenges.drawObjective({
+      pool: poolEntries,
+      exclude: new Set(),
+    });
+    if (!entry) return;
+    session.activeObjective = root.MinigamesReducers.instantiateObjective(entry, Date.now());
+    persistSession();
+  }
 
   let lastDrawnId = null;
   function drawNext() {

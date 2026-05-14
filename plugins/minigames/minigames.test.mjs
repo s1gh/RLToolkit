@@ -278,6 +278,30 @@ test('migrateSession fills missing activeTask/activeObjective on modern shape', 
   assert.equal(migrated.activeObjective, null);
 });
 
+test('instantiateObjective builds a runtime objective with no expiresAt', () => {
+  const entry = {
+    id: 'clean-sheet',
+    kind: 'objective',
+    title: 'Finish a round without conceding',
+    tier: 'hard',
+    xp: { reward: 250, penalty: 100 },
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  };
+  const now = 1700000000000;
+  const rt = R.instantiateObjective(entry, now);
+  assert.equal(rt.id, 'clean-sheet');
+  assert.equal(rt.title, entry.title);
+  assert.equal(rt.tier, 'hard');
+  assert.equal(rt.xpReward, 250);
+  assert.equal(rt.xpPenalty, 100);
+  assert.equal(rt.drawnAt, now);
+  assert.equal(rt.resolvedAt, null);
+  assert.equal(rt.resolution, null);
+  assert.equal(rt.progress, 0);
+  assert.equal(rt.progressTarget, 1);
+  assert.ok(!('expiresAt' in rt));
+});
+
 const csb = { window: {} };
 new Function('window', readFileSync(new URL('./challenges.js', import.meta.url), 'utf8'))(csb.window);
 const C = csb.window.MinigamesChallenges;
