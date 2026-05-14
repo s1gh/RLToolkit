@@ -270,6 +270,15 @@
   // draw time, fresh, so each draw can resolve targetOpponent independently.
   let poolEntries = [];
 
+  // Diagnostic ring buffer persisted to store.diag for offline inspection.
+  const diagLog = [];
+  function diag(label, fields) {
+    if (!store) return;
+    diagLog.push({ t: new Date().toISOString().slice(11, 23), label, ...fields });
+    if (diagLog.length > 50) diagLog.shift();
+    try { store.set('diag', diagLog.slice()); } catch (_) {}
+  }
+
   // ---- bootstrap --------------------------------------------------------
 
   // resolveBootID waits for the first _BootId SSE frame, falling back to
@@ -355,6 +364,7 @@
     // session-scoped, not match-scoped, so we draw at boot regardless of match
     // phase and let the _MatchEnded handler decide when to resolve.
     drawNextObjective();
+    diag('bootstrapDone', { phase: RLT.match?.state?.phase, guid: currentMatchGuid(), poolSize: poolEntries.length });
   }
 
   function opponentsFromRoster() {
@@ -846,23 +856,27 @@
       await bootstrap();
     },
 
+    onState(phase, prevPhase) {
+      diag('onState', { phase, prevPhase, guid: currentMatchGuid(), hasTask: !!activeTask });
+    },
+
     events: {
+      MatchCreated()      { diag('MatchCreated',      { guid: currentMatchGuid(), phase: RLT.match?.state?.phase, hasTask: !!activeTask }); },
+      MatchInitialized()  { diag('MatchInitialized',  { guid: currentMatchGuid(), phase: RLT.match?.state?.phase, hasTask: !!activeTask }); },
+      CountdownBegin()    { diag('CountdownBegin',    { guid: currentMatchGuid(), phase: RLT.match?.state?.phase, hasTask: !!activeTask }); },
       RoundStarted() {
-        // Fires on every kickoff, including the first one of a match. Used
-        // as the recovery hook when the plugin started up before the match
-        // actually began: _MatchStarted may have fired pre-subscription
-        // (the backend cold-bootstraps to PhaseLive on the first UpdateState,
-        // which can emit _MatchStarted before our SSE connection is ready),
-        // and the subsequent real lobby->countdown->live transitions are
-        // no-ops in state.onChange because phase was already wrongly Live.
-        // RoundStarted is the authoritative "a round is now playable"
-        // signal RL sends per-kickoff, so we use it to seed a task when
-        // the slot is empty.
-        if (activeTask) return;
-        const guid = currentMatchGuid();
-        if (!guid) return;
-        ensureMatchEntry(guid);
-        drawNext();
+        diag('RoundStarted', { guid: currentMatchGuid(), phase: RLT.match?.state?.phase, hasTask: !!activeTask });
+        if (!activeTask) {
+          const guid = currentMatchGuid();
+          if (guid) {
+            diag('drawNext from RoundStarted', { guid, phase: RLT.match?.state?.phase });
+            ensureMatchEntry(guid);
+            drawNext();
+            diag('drawNext done from RoundStarted', { hasTask: !!activeTask, taskId: activeTask?.id });
+            return;
+          }
+          diag('RoundStarted skip: no guid', {});
+        }
       },
 
       _BootId(e) {
@@ -878,10 +892,15 @@
       },
 
       _MatchStarted(e) {
+        diag('_MatchStarted', { guid: e?.matchGuid, phase: RLT.match?.state?.phase, hasTask: !!activeTask });
         if (!e?.matchGuid) return;
         ensureMatchEntry(e.matchGuid);
         if (!activeTask && isGameplay(RLT.match?.state?.phase)) {
+          diag('drawNext from _MatchStarted', { phase: RLT.match?.state?.phase });
           drawNext();
+          diag('drawNext done from _MatchStarted', { hasTask: !!activeTask, taskId: activeTask?.id });
+        } else {
+          diag('_MatchStarted draw skipped', { phase: RLT.match?.state?.phase, hasTask: !!activeTask });
         }
       },
 
