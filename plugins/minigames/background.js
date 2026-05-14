@@ -270,14 +270,6 @@
   // draw time, fresh, so each draw can resolve targetOpponent independently.
   let poolEntries = [];
 
-  // Diagnostic ring buffer persisted to store.diag for offline inspection.
-  const diagLog = [];
-  function diag(label, fields) {
-    if (!store) return;
-    diagLog.push({ t: new Date().toISOString().slice(11, 23), label, ...fields });
-    if (diagLog.length > 50) diagLog.shift();
-    try { store.set('diag', diagLog.slice()); } catch (_) {}
-  }
 
   // ---- bootstrap --------------------------------------------------------
 
@@ -364,7 +356,6 @@
     // session-scoped, not match-scoped, so we draw at boot regardless of match
     // phase and let the _MatchEnded handler decide when to resolve.
     drawNextObjective();
-    diag('bootstrapDone', { phase: RLT.match?.state?.phase, guid: currentMatchGuid(), poolSize: poolEntries.length });
   }
 
   function opponentsFromRoster() {
@@ -856,27 +847,16 @@
       await bootstrap();
     },
 
-    onState(phase, prevPhase) {
-      diag('onState', { phase, prevPhase, guid: currentMatchGuid(), hasTask: !!activeTask });
-    },
-
     events: {
-      MatchCreated()      { diag('MatchCreated',      { guid: currentMatchGuid(), phase: RLT.match?.state?.phase, hasTask: !!activeTask }); },
-      MatchInitialized()  { diag('MatchInitialized',  { guid: currentMatchGuid(), phase: RLT.match?.state?.phase, hasTask: !!activeTask }); },
-      CountdownBegin()    { diag('CountdownBegin',    { guid: currentMatchGuid(), phase: RLT.match?.state?.phase, hasTask: !!activeTask }); },
       RoundStarted() {
-        diag('RoundStarted', { guid: currentMatchGuid(), phase: RLT.match?.state?.phase, hasTask: !!activeTask });
-        if (!activeTask) {
-          const guid = currentMatchGuid();
-          if (guid) {
-            diag('drawNext from RoundStarted', { guid, phase: RLT.match?.state?.phase });
-            ensureMatchEntry(guid);
-            drawNext();
-            diag('drawNext done from RoundStarted', { hasTask: !!activeTask, taskId: activeTask?.id });
-            return;
-          }
-          diag('RoundStarted skip: no guid', {});
-        }
+        // RoundStarted fires per-kickoff and is our recovery hook when
+        // _MatchStarted fired before the plugin subscribed (cold-bootstrap
+        // race). Don't gate on currentMatchGuid() — RLT.match.current can
+        // lag, and we don't need the guid to draw a task; ensureMatchEntry
+        // is a no-op without one and we'll get it the next time around.
+        if (activeTask) return;
+        ensureMatchEntry(currentMatchGuid());
+        drawNext();
       },
 
       _BootId(e) {
@@ -892,15 +872,10 @@
       },
 
       _MatchStarted(e) {
-        diag('_MatchStarted', { guid: e?.matchGuid, phase: RLT.match?.state?.phase, hasTask: !!activeTask });
         if (!e?.matchGuid) return;
         ensureMatchEntry(e.matchGuid);
         if (!activeTask && isGameplay(RLT.match?.state?.phase)) {
-          diag('drawNext from _MatchStarted', { phase: RLT.match?.state?.phase });
           drawNext();
-          diag('drawNext done from _MatchStarted', { hasTask: !!activeTask, taskId: activeTask?.id });
-        } else {
-          diag('_MatchStarted draw skipped', { phase: RLT.match?.state?.phase, hasTask: !!activeTask });
         }
       },
 
