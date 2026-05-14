@@ -314,14 +314,14 @@
     const session = lastSessionState;
     const records = lastRecordsState;
     if (!session || !records) {
-      setHtml(rootEl, '<div class="mg-dash"><div class="mg-empty">Loading...</div></div>');
+      setHtml(rootEl, '<section class="rlt-card"><div class="mg-empty">Loading...</div></section>');
       return;
     }
     const matches = (session.matches || []).slice().reverse();
 
     setHtml(rootEl, `
-      <div class="mg-dash">
-        <div class="mg-dash-h">All-time records</div>
+      <section class="rlt-card">
+        <div class="rlt-card-head"><h2>All-time records</h2></div>
         <div class="mg-records">
           <div class="mg-record">
             <span class="mg-record-lbl">Highest level</span>
@@ -336,14 +336,16 @@
             <span class="mg-record-val">${(Number(records.bestMatchXp) || 0) > 0 ? '+' + Number(records.bestMatchXp) : '-'}</span>
           </div>
         </div>
+      </section>
 
-        <div class="mg-dash-h">This session</div>
+      <section class="rlt-card">
+        <div class="rlt-card-head"><h2>This session</h2></div>
         <div class="mg-matches">
           ${matches.length === 0
             ? '<div class="mg-empty">No matches played yet this session. Hop in a queue.</div>'
             : matchesTableHtml(matches)}
         </div>
-      </div>
+      </section>
     `);
   }
 
@@ -570,6 +572,11 @@
       });
     },
     async ready() {
+      // Wire the SDK status pill on the dashboard. The helper no-ops when
+      // #conn isn't in the DOM, so it's safe to call from every view.
+      if (RLT.ui && typeof RLT.ui.bindStatusPill === 'function') {
+        RLT.ui.bindStatusPill('conn');
+      }
       // Start the initial-render hold timer before the first pullState so
       // the overlay stays blank until the background view's objective draw
       // has had a chance to land (or the hold expires, whichever first).

@@ -11,7 +11,31 @@
     <script src="/sdk.js" data-plugin="minigames" data-view="dashboard"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <main class="rlt-page">
+      <header class="rlt-topbar">
+        <div class="rlt-brand">
+          <div class="rlt-logo">MG</div>
+          <div>
+            <h1 class="rlt-brand-title">Minigames</h1>
+            <div class="rlt-brand-tag">In-match challenges with XP, levels, and streaks</div>
+          </div>
+        </div>
+        <div class="rlt-topbar-right">
+          <span class="rlt-pill rlt-conn-pill" id="conn" data-status="disconnected">offline</span>
+          <button
+            type="button"
+            class="rlt-icon-btn"
+            id="open-overlay"
+            title="Open overlay"
+            onclick="window.open('overlay.html', '_blank')"
+          >
+            ⧉
+          </button>
+        </div>
+      </header>
+
+      <div id="root"></div>
+    </main>
     <script src="app.js"></script>
   </body>
 </html>

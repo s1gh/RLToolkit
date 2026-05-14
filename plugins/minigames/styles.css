@@ -27,15 +27,18 @@
   --mg-mono:    'JetBrains Mono', ui-monospace, monospace;
 
   --mg-radius: 4px;
+
+  /* SDK shell theming. Maps minigames' green/cyan palette onto the
+     dashboard shell so the logo tile gradient, title gradient, and
+     icon-button hover match the plugin's existing accents. */
+  --rlt-plugin-accent: var(--mg-cyan);
+  --rlt-plugin-accent-2: var(--mg-green);
+  --rlt-plugin-accent-glow: oklch(80% 0.14 200 / 0.4);
+  --rlt-plugin-accent-glow-2: oklch(78% 0.16 150 / 0.4);
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-body {
-  font-family: var(--mg-display);
-  color: var(--mg-txt);
-  background: transparent;
-}
 
 #root:empty::before {
   /* placeholder while JS boots, keeps the overlay window measurable */
@@ -350,35 +353,10 @@ body {
 
 /* ---- dashboard ---- */
 
-.mg-dash {
-  max-width: 900px;
-  margin: 24px auto;
-  padding: 0 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  font-family: var(--mg-display);
-  color: var(--mg-txt);
-  background: var(--mg-panel);
-  min-height: 100vh;
-}
-.mg-dash-h {
-  font-family: var(--mg-mono);
-  font-size: 11px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--mg-txt-3);
-  margin-top: 12px;
-}
-
 .mg-records {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  background: var(--mg-bg-solid);
-  border: 1px solid var(--mg-line);
-  border-radius: var(--mg-radius);
-  padding: 16px;
 }
 .mg-record {
   display: flex;
@@ -402,9 +380,6 @@ body {
 }
 
 .mg-matches {
-  background: var(--mg-bg-solid);
-  border: 1px solid var(--mg-line);
-  border-radius: var(--mg-radius);
   overflow-x: auto;
 }
 .mg-matches table {
