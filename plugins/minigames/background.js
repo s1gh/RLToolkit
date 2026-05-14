@@ -149,6 +149,36 @@
     session.activeTask = null;
   }
 
+  // resolveObjective stamps an outcome on session.activeObjective and updates the
+  // xp / records side effects. Reuses applyReward / applyPenalty so level
+  // transitions (and the level-1 floor) match the task path exactly. Mutates
+  // both session and records in place to fit the existing reducer style.
+  // Returns { xpDelta, deleveled } so callers can surface the deltas to overlays.
+  function resolveObjective(session, records, outcome, now) {
+    if (!session?.activeObjective) return { xpDelta: 0, deleveled: false };
+    const obj = session.activeObjective;
+    let xpDelta = 0;
+    let deleveled = false;
+    if (outcome === 'complete') {
+      xpDelta = obj.xpReward || 0;
+      if (xpDelta > 0) {
+        const r = applyReward(session, xpDelta);
+        deleveled = r.deleveled;
+      }
+      if (records) records.objectivesCompleted = (records.objectivesCompleted || 0) + 1;
+    } else if (outcome === 'failed') {
+      xpDelta = -(obj.xpPenalty || 0);
+      if (obj.xpPenalty > 0) {
+        const r = applyPenalty(session, obj.xpPenalty);
+        deleveled = r.deleveled;
+      }
+      if (records) records.objectivesFailed = (records.objectivesFailed || 0) + 1;
+    }
+    obj.resolvedAt = now;
+    obj.resolution = outcome;
+    return { xpDelta, deleveled };
+  }
+
   // instantiateObjective builds the runtime shape stored on session.activeObjective.
   // Objectives are untimed (no expiresAt) and resolve only at _MatchEnded; the
   // progress fields exist so trigger-based objectives (goal-overtime, mvp) can
@@ -189,6 +219,7 @@
     emptyRecords,
     migrateSession,
     instantiateObjective,
+    resolveObjective,
     applyReward,
     applyPenalty,
     wipeIfStaleBoot,
@@ -315,6 +346,7 @@
     resolveBootID().then(async (liveBootId) => {
       if (liveBootId && session.bootId !== liveBootId) {
         teardownActive();
+        teardownActiveObjective();
         session = root.MinigamesReducers.emptySession(liveBootId);
         try { await store.set(SESSION_KEY, session); } catch (_) {}
       }
@@ -379,22 +411,111 @@
 
   // ---- drawing ----------------------------------------------------------
 
-  // drawNextObjective seats a long-form objective in session.activeObjective.
-  // Unlike tasks, objectives are untimed and resolve only at _MatchEnded; this
-  // function only handles the draw + persist. Mid-match progress tracking and
-  // resolution arrive in a later task.
+  // Live arming state for the objective. objectiveArmDispose is the unsubscribe
+  // function returned by the predicate engine's arm(); we hold it so teardown
+  // can detach the event subscriptions without leaving stale handlers behind.
+  let objectiveArmDispose = null;
+  let objectiveCelebrationTimer = null;
+
+  // drawNextObjective seats a long-form objective in session.activeObjective
+  // and arms its trigger predicate. Objectives are untimed; resolution flows
+  // through ctx.onComplete (predicate fires) or through the _MatchEnded fail
+  // path below when the match ends without a positive signal.
   function drawNextObjective() {
     if (!session) return;
     if (session.activeObjective) return;
     if (poolEntries.length === 0) return;
-    const entry = root.MinigamesChallenges.drawObjective({
-      pool: poolEntries,
-      // TODO: empty exclude set is provisional; objective exclusion tracking lands in a later task.
-      exclude: new Set(),
+    for (let i = 0; i < DRAW_RETRY_LIMIT; i += 1) {
+      const entry = root.MinigamesChallenges.drawObjective({
+        pool: poolEntries,
+        // TODO: empty exclude set is provisional; objective exclusion tracking lands in a later task.
+        exclude: new Set(),
+      });
+      if (!entry) return;
+      const ctx = buildObjectiveArmContext();
+      const runtime = root.MinigamesChallenges.instantiate(entry, ctx);
+      if (!runtime) continue; // ineligible (e.g. targetOpponent with no opponents); reroll
+      session.activeObjective = root.MinigamesReducers.instantiateObjective(entry, Date.now());
+      objectiveArmDispose = runtime.arm();
+      persistSession();
+      return;
+    }
+  }
+
+  function buildObjectiveArmContext() {
+    return {
+      on: (eventName, handler) => {
+        const unsub = RLT.on(eventName, handler);
+        return typeof unsub === 'function' ? unsub : (() => RLT.off?.(eventName, handler));
+      },
+      matchState: () => RLT.match?.state?.phase || 'none',
+      myTeam: myTeamNum,
+      opponents: opponentsFromRoster,
+      stats: RLT.stats || {},
+      now: () => Date.now(),
+      rng: Math.random,
+      // Predicate engine signals success here. Objectives have no mid-match
+      // "fail" concept on the positive triggers (goal, statfeed); the
+      // matchEndCondition predicates only ever call complete(), which is
+      // exactly what we want.
+      onComplete: () => resolveObjectiveOutcome('complete'),
+      // onFail can still fire from the roster-loss path inside the engine.
+      // Treat it as a failure for the objective.
+      onFail: () => resolveObjectiveOutcome('failed'),
+      onProgress: (current, target) => {
+        if (!session?.activeObjective) return;
+        session.activeObjective.progress = current;
+        session.activeObjective.progressTarget = target;
+        persistSession();
+      },
+    };
+  }
+
+  function resolveObjectiveOutcome(outcome) {
+    if (!session?.activeObjective) return;
+    if (session.activeObjective.resolution) return; // already resolved
+    const r = root.MinigamesReducers.resolveObjective(session, records, outcome, Date.now());
+    persistRecords();
+    pushTickEvent({
+      type: 'objectiveResolved',
+      outcome,
+      xpDelta: r.xpDelta,
+      deleveled: r.deleveled,
+      id: session.activeObjective.id,
+      title: session.activeObjective.title,
     });
-    if (!entry) return;
-    session.activeObjective = root.MinigamesReducers.instantiateObjective(entry, Date.now());
+    // Dispose the predicate subscriptions now so further events in the same
+    // tick don't bleed in. The runtime stays on session for the celebration
+    // window so the overlay can render the resolved state.
+    stopObjectivePredicate();
     persistSession();
+    scheduleObjectiveCelebrationFlush();
+  }
+
+  function stopObjectivePredicate() {
+    if (objectiveArmDispose) {
+      try { objectiveArmDispose(); } catch (_) {}
+      objectiveArmDispose = null;
+    }
+  }
+
+  function teardownActiveObjective() {
+    stopObjectivePredicate();
+    if (session) session.activeObjective = null;
+    if (objectiveCelebrationTimer) {
+      clearTimeout(objectiveCelebrationTimer);
+      objectiveCelebrationTimer = null;
+    }
+  }
+
+  function scheduleObjectiveCelebrationFlush() {
+    if (objectiveCelebrationTimer) clearTimeout(objectiveCelebrationTimer);
+    objectiveCelebrationTimer = setTimeout(() => {
+      objectiveCelebrationTimer = null;
+      teardownActiveObjective();
+      drawNextObjective();
+      persistSession();
+    }, CELEBRATE_MS);
   }
 
   let lastDrawnId = null;
@@ -700,6 +821,7 @@
         const live = e?.bootId;
         if (!live || !session || session.bootId === live) return;
         teardownActive();
+        teardownActiveObjective();
         session = root.MinigamesReducers.emptySession(live);
         persistSession();
       },
@@ -723,12 +845,23 @@
         else if (winner === my) result = 'win';
         else result = 'loss';
         finishMatch(guid, result);
+        // Objective fallback: matchEndCondition predicates call complete()
+        // synchronously inside their own _MatchEnded handler. Defer one task
+        // so those run first. If the objective is still unresolved, the
+        // condition didn't hold and we count it as a failure.
+        setTimeout(() => {
+          if (!session?.activeObjective) return;
+          if (session.activeObjective.resolution) return;
+          resolveObjectiveOutcome('failed');
+        }, 0);
       },
 
       _MatchAbandoned(e) {
         if (activeTask) resolveActive('failed');
         const guid = e?.matchGuid || currentMatchGuid();
         finishMatch(guid, 'forfeit');
+        // _MatchAbandoned is intentionally a no-op for objectives. The
+        // current objective survives into the next match unchanged.
       },
     },
 
@@ -737,6 +870,14 @@
       if (armDispose) {
         try { armDispose(); } catch (_) {}
         armDispose = null;
+      }
+      if (objectiveArmDispose) {
+        try { objectiveArmDispose(); } catch (_) {}
+        objectiveArmDispose = null;
+      }
+      if (objectiveCelebrationTimer) {
+        clearTimeout(objectiveCelebrationTimer);
+        objectiveCelebrationTimer = null;
       }
     },
   });

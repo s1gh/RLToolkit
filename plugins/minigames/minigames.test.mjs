@@ -302,6 +302,78 @@ test('instantiateObjective builds a runtime objective with no expiresAt', () => 
   assert.ok(!('expiresAt' in rt));
 });
 
+function makeObjectiveSession(xpInLevel, level) {
+  const s = R.emptySession('b');
+  s.level = level || 1;
+  s.xpToNext = R.xpToNext(s.level);
+  s.xpInLevel = xpInLevel || 0;
+  return s;
+}
+
+test('resolveObjective(complete) adds xpReward and increments objectivesCompleted', () => {
+  const s = makeObjectiveSession(0, 1);
+  const recs = R.emptyRecords();
+  s.activeObjective = R.instantiateObjective({
+    id: 'clean-sheet', kind: 'objective', title: 't', tier: 'hard',
+    xp: { reward: 250, penalty: 100 },
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  }, 1000);
+  const result = R.resolveObjective(s, recs, 'complete', 2000);
+  // 0 + 250: level 1 to 2 costs 100, level 2 to 3 costs 150. Lands at level 3, xpInLevel 0.
+  assert.equal(s.level, 3);
+  assert.equal(s.xpInLevel, 0);
+  assert.equal(recs.objectivesCompleted, 1);
+  assert.equal(recs.objectivesFailed, 0);
+  assert.equal(s.activeObjective.resolvedAt, 2000);
+  assert.equal(s.activeObjective.resolution, 'complete');
+  assert.equal(result.xpDelta, 250);
+});
+
+test('resolveObjective(failed) subtracts xpPenalty and increments objectivesFailed', () => {
+  const s = makeObjectiveSession(200, 1);
+  s.xpToNext = 500; // synthetic high cap so xpInLevel stays in-level
+  const recs = R.emptyRecords();
+  s.activeObjective = R.instantiateObjective({
+    id: 'clean-sheet', kind: 'objective', title: 't', tier: 'hard',
+    xp: { reward: 250, penalty: 100 },
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  }, 1000);
+  R.resolveObjective(s, recs, 'failed', 2000);
+  assert.equal(s.xpInLevel, 100);
+  assert.equal(s.level, 1);
+  assert.equal(recs.objectivesCompleted, 0);
+  assert.equal(recs.objectivesFailed, 1);
+  assert.equal(s.activeObjective.resolution, 'failed');
+});
+
+test('resolveObjective(failed) with xpPenalty=0 does not change xp', () => {
+  const s = makeObjectiveSession(50, 1);
+  const recs = R.emptyRecords();
+  s.activeObjective = R.instantiateObjective({
+    id: 'mvp', kind: 'objective', title: 't', tier: 'hard',
+    xp: { reward: 200, penalty: 0 },
+    trigger: { kind: 'statfeed', filters: { eventName: 'MVP', targetIsMe: true } },
+  }, 1000);
+  R.resolveObjective(s, recs, 'failed', 2000);
+  assert.equal(s.xpInLevel, 50);
+  assert.equal(s.level, 1);
+  assert.equal(recs.objectivesFailed, 1);
+});
+
+test('resolveObjective floors xp at level 1 / xpInLevel 0', () => {
+  const s = makeObjectiveSession(10, 1);
+  const recs = R.emptyRecords();
+  s.activeObjective = R.instantiateObjective({
+    id: 'clean-sheet', kind: 'objective', title: 't', tier: 'hard',
+    xp: { reward: 250, penalty: 100 },
+    trigger: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+  }, 1000);
+  R.resolveObjective(s, recs, 'failed', 2000);
+  assert.equal(s.level, 1);
+  assert.equal(s.xpInLevel, 0);
+  assert.equal(recs.objectivesFailed, 1);
+});
+
 const csb = { window: {} };
 new Function('window', readFileSync(new URL('./challenges.js', import.meta.url), 'utf8'))(csb.window);
 const C = csb.window.MinigamesChallenges;
