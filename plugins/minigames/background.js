@@ -316,16 +316,21 @@
       poolEntries = [];
     }
 
-    // 2. Session + records + settings. Hydrate with whatever bootId the
-    // stored session carries; we'll resolve the real bootId asynchronously
-    // below and reseed if it differs. Run migrateSession over any persisted
-    // session so legacy shapes (activeChallenge slot) become the current
-    // shape (activeTask + activeObjective).
+    // 2. Resolve the real launcher bootId before hydrating session, so a
+    // stale active task / objective from a previous launcher session can't
+    // flash on the overlay during the bootId reconciliation window.
+    const liveBootId = await resolveBootID();
+
+    // 3. Session + records + settings. If the persisted session was stamped
+    // with a different bootId (launcher restart), start fresh. Otherwise
+    // migrate the legacy shape forward.
     const rawSession = await store.get(SESSION_KEY);
-    session = rawSession
-      ? root.MinigamesReducers.migrateSession(rawSession)
-      : root.MinigamesReducers.emptySession('');
-    if (!rawSession) await store.set(SESSION_KEY, session);
+    if (rawSession && rawSession.bootId === liveBootId) {
+      session = root.MinigamesReducers.migrateSession(rawSession);
+    } else {
+      session = root.MinigamesReducers.emptySession(liveBootId || '');
+      await store.set(SESSION_KEY, session);
+    }
 
     // Records: merge persisted on top of emptyRecords() so any new counters
     // added in later versions default to 0 rather than undefined.
@@ -337,32 +342,17 @@
     if (rawSettings?.difficulty) settings = rawSettings;
     if (!rawSettings) await store.set(SETTINGS_KEY, settings);
 
-    // 3. Resolve the real launcher bootId asynchronously. If it differs
-    // from what the stored session was stamped with, wipe and reseed.
-    // The _BootId event handler below also catches the live case where
-    // the launcher restarts while this iframe is still mounted.
-    // Drawing happens after bootId reconciliation completes so a delayed
-    // reseed cannot wipe the freshly drawn task/objective slot.
-    resolveBootID().then(async (liveBootId) => {
-      if (liveBootId && session.bootId !== liveBootId) {
-        teardownActive();
-        teardownActiveObjective();
-        session = root.MinigamesReducers.emptySession(liveBootId);
-        try { await store.set(SESSION_KEY, session); } catch (_) {}
-      }
+    // 4. If we booted mid-match (rare: toolkit started while a match is
+    // live), draw immediately so we don't waste the round.
+    if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
+      ensureMatchEntry();
+      drawNext();
+    }
 
-      // 4. If we booted mid-match (rare: toolkit started while a match is
-      // live), draw immediately so we don't waste the round.
-      if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
-        ensureMatchEntry();
-        drawNext();
-      }
-
-      // 5. Always seat an objective if one isn't already active. Objectives are
-      // session-scoped, not match-scoped, so we draw at boot regardless of match
-      // phase and let the (future) _MatchEnded handler decide when to resolve.
-      drawNextObjective();
-    });
+    // 5. Always seat an objective if one isn't already active. Objectives are
+    // session-scoped, not match-scoped, so we draw at boot regardless of match
+    // phase and let the _MatchEnded handler decide when to resolve.
+    drawNextObjective();
   }
 
   function opponentsFromRoster() {
