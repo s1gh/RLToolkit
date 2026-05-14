@@ -431,12 +431,14 @@
   function scheduleCelebrationFlush() {
     if (celebrationTimer) clearTimeout(celebrationTimer);
     const scheduledAt = Date.now();
-    console.log('[minigames] celebration window opened at', scheduledAt);
+    // DIAG: write a celebration-timing record to the store so we can verify
+    // the window stays open for CELEBRATE_MS.
+    if (store) store.set('diag-celebrate', { openedAt: scheduledAt });
     celebrationTimer = setTimeout(() => {
-      console.log('[minigames] celebration window closing after', Date.now() - scheduledAt, 'ms');
+      const closedAt = Date.now();
+      if (store) store.set('diag-celebrate', { openedAt: scheduledAt, closedAt, durationMs: closedAt - scheduledAt });
       celebrationTimer = null;
       teardownActive();
-      // Only draw the next one if we're still in a gameplay phase.
       if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
         drawNext();
       } else {
