@@ -390,24 +390,6 @@
   }
 
   function renderControl() {
-    // Identity strip — read-only mirror of the SDK's current claim.
-    // Display name comes from the encounter ledger keyed by RLT.me.id.
-    const idVal = document.getElementById('id-val');
-    const idHint = document.getElementById('id-hint');
-    const myId = RLT.me && RLT.me.id ? RLT.me.id : '';
-    if (myId) {
-      const enc = RLT.encounters && RLT.encounters.get ? RLT.encounters.get(myId) : null;
-      const name =
-        enc && enc.names && enc.names.length ? enc.names[enc.names.length - 1] : 'Player';
-      idVal.textContent = name;
-      idVal.classList.remove('empty');
-      if (idHint) idHint.hidden = true;
-    } else {
-      idVal.textContent = 'unclaimed';
-      idVal.classList.add('empty');
-      if (idHint) idHint.hidden = false;
-    }
-
     const badge = document.getElementById('match-badge');
     if (badge) {
       const phase = RLT.match?.state?.phase || 'none';
@@ -433,30 +415,79 @@
       current,
       'no demos yet — go hunting',
     );
-    document.getElementById('all-list').innerHTML = listHtml(
-      totals,
-      'play a few matches and your rivals show up here',
-    );
+    renderAllList();
   }
 
-  function listHtml(map, emptyMsg) {
-    const rows = Object.entries(map)
+  // Page size for the all-time list. Small enough that a heavy
+  // session doesn't push the page taller than the viewport, large
+  // enough that it's only one click to skim a typical Rocket League
+  // friend group's worth of rivals.
+  const ALL_LIST_PAGE_SIZE = 10;
+  let allListPage = 0;
+
+  function sortedRows(map) {
+    return Object.entries(map)
       .map(([id, e]) => ({ id, name: e.name || 'Unknown', count: e.count || 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    if (rows.length === 0) {
-      return '<div class="card-empty">' + esc(emptyMsg) + '</div>';
-    }
+  }
+
+  function rowsHtml(rows) {
     return rows
       .map(
         (r) =>
-          '<div class="row"><div class="r-count">x' +
-          r.count +
-          '</div>' +
-          '<div class="r-name">' +
+          '<div class="row"><div class="row-name">' +
           esc(r.name) +
+          '</div><div class="row-count"><span class="x">x</span>' +
+          r.count +
           '</div></div>',
       )
       .join('');
+  }
+
+  function listHtml(map, emptyMsg) {
+    const rows = sortedRows(map);
+    if (rows.length === 0) {
+      return '<div class="card-empty">' + esc(emptyMsg) + '</div>';
+    }
+    return rowsHtml(rows);
+  }
+
+  function renderAllList() {
+    const host = document.getElementById('all-list');
+    if (!host) return;
+    const rows = sortedRows(totals);
+    if (rows.length === 0) {
+      host.innerHTML =
+        '<div class="card-empty">play a few matches and your rivals show up here</div>';
+      return;
+    }
+    const pageCount = Math.max(1, Math.ceil(rows.length / ALL_LIST_PAGE_SIZE));
+    if (allListPage >= pageCount) allListPage = pageCount - 1;
+    if (allListPage < 0) allListPage = 0;
+    const start = allListPage * ALL_LIST_PAGE_SIZE;
+    const slice = rows.slice(start, start + ALL_LIST_PAGE_SIZE);
+    let html = rowsHtml(slice);
+    if (pageCount > 1) {
+      html +=
+        '<div class="pager">' +
+        '<button type="button" class="pager-btn" id="pager-prev"' +
+        (allListPage === 0 ? ' disabled' : '') +
+        '>Prev</button>' +
+        '<span class="pager-info">' +
+        (allListPage + 1) +
+        ' / ' +
+        pageCount +
+        '</span>' +
+        '<button type="button" class="pager-btn" id="pager-next"' +
+        (allListPage >= pageCount - 1 ? ' disabled' : '') +
+        '>Next</button>' +
+        '</div>';
+    }
+    host.innerHTML = html;
+    const prev = document.getElementById('pager-prev');
+    const next = document.getElementById('pager-next');
+    if (prev) prev.addEventListener('click', () => { allListPage--; renderAllList(); });
+    if (next) next.addEventListener('click', () => { allListPage++; renderAllList(); });
   }
 
   // Per-demo bookkeeping.

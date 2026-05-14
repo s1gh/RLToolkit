@@ -15,45 +15,6 @@
         overflow: hidden;
       }
 
-      /* Identity strip — read-only mirror of the SDK's current claim. */
-      .identity-strip {
-        background: var(--rlt-bg-1);
-        border: 1px solid var(--rlt-line);
-        border-radius: 10px;
-        padding: 10px 14px;
-        margin-bottom: 4px;
-        font-size: 13px;
-        color: var(--rlt-txt-2);
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-      .il-label {
-        text-transform: uppercase;
-        font-size: 10px;
-        letter-spacing: 0.16em;
-        font-weight: 700;
-        color: var(--rlt-txt-3);
-      }
-      .il-name {
-        font-family: var(--rlt-display);
-        font-size: 16px;
-        font-weight: 600;
-        color: #fff;
-        letter-spacing: 0.01em;
-      }
-      .il-name.empty {
-        color: var(--rlt-txt-3);
-        font-style: italic;
-        font-weight: 500;
-      }
-      .il-hint {
-        font-style: italic;
-        color: var(--rlt-txt-3);
-        font-size: 12px;
-      }
-
       /* Victim row — flush list with separators between rows. */
       .row {
         display: grid;
@@ -90,6 +51,51 @@
         font-weight: 500;
         color: var(--rlt-txt-3);
         margin-right: 2px;
+      }
+
+      /* Pager — Prev / page indicator / Next strip rendered below
+         the list when more than one page of rivals exists. */
+      .pager {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--rlt-line);
+      }
+      .pager-btn {
+        font-family: var(--rlt-ui);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--rlt-txt-2);
+        background: var(--rlt-bg-3);
+        border: 1px solid var(--rlt-line);
+        border-radius: 7px;
+        padding: 6px 12px;
+        cursor: pointer;
+        transition:
+          border-color 0.15s ease,
+          color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+      .pager-btn:hover:not(:disabled) {
+        border-color: var(--rlt-orange);
+        color: var(--rlt-orange);
+        box-shadow: 0 0 12px var(--rlt-orange-glow);
+      }
+      .pager-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .pager-info {
+        font-family: var(--rlt-mono);
+        font-size: 11px;
+        color: var(--rlt-txt-3);
+        letter-spacing: 0.1em;
+        font-variant-numeric: tabular-nums;
       }
 
       .card-empty {
