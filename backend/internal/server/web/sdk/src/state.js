@@ -13,6 +13,7 @@ export const state = (function () {
   let matchActive = false;
   let matchGUID = '';
   let since = null;
+  let isFreeplay = false;
 
   function applySnapshot(snap) {
     const newPhase = String(snap.phase || 'none');
@@ -28,6 +29,7 @@ export const state = (function () {
     matchActive = newActive;
     matchGUID = newGUID;
     since = snap.since || null;
+    isFreeplay = !!snap.isFreeplay;
 
     if (phaseChanged) ev.emit('change', phase, prevPhase);
     if (activeChanged) matchActiveEv.emit('change', matchActive);
@@ -57,6 +59,9 @@ export const state = (function () {
     },
     get since() {
       return since;
+    },
+    get isFreeplay() {
+      return isFreeplay;
     },
     onChange(fn) {
       return ev.on('change', fn);

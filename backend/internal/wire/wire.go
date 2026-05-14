@@ -130,6 +130,32 @@ func ExtractMatchGUID(raw []byte) string {
 	return ""
 }
 
+// primaryIdMarkers covers the casings/escape-forms of the per-player
+// `"PrimaryId":"…"` key inside UpdateState. One marker hit means one
+// player on the roster. Allocation-free and tolerant of RL's varied
+// escape conventions (Data may be a JSON-encoded string, in which
+// case the inner quotes are backslash-escaped).
+var primaryIdMarkers = [][]byte{
+	[]byte(`\"PrimaryId\":\"`),
+	[]byte(`\"primaryid\":\"`),
+	[]byte(`"PrimaryId":"`),
+	[]byte(`"primaryid":"`),
+}
+
+// CountPlayers returns the number of player entries in an UpdateState
+// payload by counting `"PrimaryId"` occurrences. Each player block
+// contains exactly one PrimaryId field, so the count maps 1:1 to
+// roster size. Returns 0 if no marker matches (freeplay, lobby with
+// no replication yet, or a malformed frame).
+func CountPlayers(raw []byte) int {
+	for _, m := range primaryIdMarkers {
+		if bytes.Contains(raw, m) {
+			return bytes.Count(raw, m)
+		}
+	}
+	return 0
+}
+
 // GUIDFromData reads MatchGuid from a typed event's Data payload. RL
 // ships Data as a JSON-encoded *string* containing JSON, hence the
 // double decode.

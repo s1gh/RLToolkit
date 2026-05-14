@@ -25,6 +25,13 @@ type Snapshot struct {
 	Since                time.Time   `json:"since"`
 	PhaseDurationSeconds float64     `json:"phaseDurationSeconds"`
 	Trigger              string      `json:"trigger"`
+	// IsFreeplay is true when no MatchCreated has been observed since
+	// the last MatchDestroyed AND the current roster has at most one
+	// player. Freeplay never fires MatchCreated, so the absence of that
+	// event combined with a 0-or-1-player roster reliably identifies
+	// the mode. Flips back to false the moment a friend joins (roster
+	// grows past 1) or a real match begins.
+	IsFreeplay bool `json:"isFreeplay"`
 }
 
 // matchActiveTimeout is how long we tolerate silence on the
@@ -69,6 +76,17 @@ type MatchState struct {
 	matchActive atomic.Bool
 	inReplay    atomic.Bool
 
+	// matchCreatedSeen tracks whether a MatchCreated event has been
+	// observed since the last clean teardown (MatchDestroyed). Used
+	// together with rosterSize to derive IsFreeplay: freeplay never
+	// fires MatchCreated, real matches always do.
+	matchCreatedSeen bool
+	// rosterSize is the player count from the most recent UpdateState
+	// frame. Counted from raw bytes to avoid pulling a roster
+	// dependency into the state subsystem. Reset on MatchDestroyed
+	// and connection-loss alongside matchCreatedSeen.
+	rosterSize int
+
 	lastTickMu sync.Mutex
 	lastTick   time.Time
 
@@ -99,7 +117,9 @@ func New() *MatchState {
 func (m *MatchState) Snapshot() Snapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.cur
+	out := m.cur
+	out.IsFreeplay = !m.matchCreatedSeen && m.rosterSize <= 1
+	return out
 }
 
 // CurrentPhase returns just the current Phase. Convenience over
@@ -122,6 +142,13 @@ func (m *MatchState) Observe(evt bus.Event) {
 		m.lastTickMu.Lock()
 		m.lastTick = time.Now()
 		m.lastTickMu.Unlock()
+
+		// Track current roster size so IsFreeplay can flip cleanly when
+		// a friend joins (or leaves) a freeplay session mid-stream.
+		size := wire.CountPlayers(evt.Raw)
+		m.mu.Lock()
+		m.rosterSize = size
+		m.mu.Unlock()
 
 		wasReplay := m.inReplay.Load()
 		nowReplay := wire.ScanBReplay(evt.Raw)
@@ -154,6 +181,9 @@ func (m *MatchState) Observe(evt bus.Event) {
 
 	switch evt.Name {
 	case "MatchCreated":
+		m.mu.Lock()
+		m.matchCreatedSeen = true
+		m.mu.Unlock()
 		m.transitionTo(types.PhaseLobby, "MatchCreated", wire.GUIDFromData(evt.Data), true)
 	case "CountdownBegin":
 		m.transitionTo(types.PhaseCountdown, "CountdownBegin", "", true)
@@ -173,6 +203,10 @@ func (m *MatchState) Observe(evt bus.Event) {
 	case "MatchDestroyed":
 		m.inReplay.Store(false)
 		m.armAbandonedIfUnended()
+		m.mu.Lock()
+		m.matchCreatedSeen = false
+		m.rosterSize = 0
+		m.mu.Unlock()
 		m.transitionTo(types.PhaseNone, "MatchDestroyed", "clear", false)
 	case "_ConnectionStatus":
 		var env struct {
@@ -180,6 +214,10 @@ func (m *MatchState) Observe(evt bus.Event) {
 		}
 		if err := json.Unmarshal(evt.Raw, &env); err == nil && env.Status != "" && env.Status != connectedStatus {
 			m.inReplay.Store(false)
+			m.mu.Lock()
+			m.matchCreatedSeen = false
+			m.rosterSize = 0
+			m.mu.Unlock()
 			m.transitionTo(types.PhaseNone, "connectionLost", "clear", false)
 		}
 	}
@@ -328,6 +366,7 @@ func (m *MatchState) Process(evt bus.Event) []bus.Event {
 		return nil
 	}
 	pending := m.pending
+	pending.IsFreeplay = !m.matchCreatedSeen && m.rosterSize <= 1
 	startedGuid := m.pendingStarted
 	abandonedGuid := m.pendingAbandoned
 	m.pendingStarted = ""

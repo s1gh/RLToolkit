@@ -418,7 +418,7 @@ const catalogData = [
     '*',
     'stable',
     '2.0',
-    'Authoritative gameplay state on every transition.',
+    'Authoritative gameplay state on every transition. Carries isFreeplay (no MatchCreated since the last MatchDestroyed and roster.length <= 1).',
   ],
   [
     '_IdentityChanged',

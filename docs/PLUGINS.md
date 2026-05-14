@@ -1149,12 +1149,28 @@ The authoritative current phase. Fires on every transition.
   trigger: 'MatchCreated'|'UpdateState'|'CountdownBegin'|'RoundStarted'|
            'MatchPaused'|'MatchUnpaused'|'MatchEnded'|'PodiumStart'|
            'MatchDestroyed'|'bReplayEdge'|'connectionLost'|
-           'watchdogTimeout'|'initial'
+           'watchdogTimeout'|'initial',
+  isFreeplay: boolean                 // see below
 }
 ```
 
 This is the event that drives `RLT.match.state.phase` and the
 `whilePhase` / `show_during_phase` gates.
+
+`isFreeplay` is true when no `MatchCreated` event has been observed
+since the last `MatchDestroyed` AND the current roster has at most
+one player. Freeplay sessions never fire `MatchCreated`, so the
+absence of that event combined with a solo roster reliably identifies
+the mode. The flag is mirrored on `RLT.match.state.isFreeplay` and is
+recomputed on every snapshot read, so it transitions cleanly when
+conditions change (for example, a friend joining your freeplay
+session pushes the roster to 2 and flips the flag to false). Use this
+to suppress tracking that should not run in freeplay (boost-pickup
+counters, demos, ball-touch tallies, and similar per-match stats).
+Note: `_MatchState` is only re-emitted on phase transitions, so
+plugins that need to react to a mid-session roster change should also
+listen for `_RosterChanged` and re-check `RLT.match.state.isFreeplay`
+at that moment.
 
 #### `_OvertimeStarted`
 

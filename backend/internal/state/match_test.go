@@ -319,6 +319,96 @@ func TestMatchState_NoEmissionOnIdentityTransition(t *testing.T) {
 	}
 }
 
+// updateStateWith builds an UpdateState envelope with the given player
+// count. The inner Data is a JSON-encoded string, so PrimaryId quotes
+// are escaped — matching the wire shape RL ships.
+func updateStateWith(t *testing.T, players int, guid string) bus.Event {
+	t.Helper()
+	var inner string
+	inner = `{\"MatchGuid\":\"` + guid + `\",\"Players\":[`
+	for i := 0; i < players; i++ {
+		if i > 0 {
+			inner += `,`
+		}
+		inner += `{\"PrimaryId\":\"Steam|` + string(rune('1'+i)) + `|0\",\"Name\":\"P\",\"TeamNum\":0}`
+	}
+	inner += `]}`
+	raw := []byte(`{"Event":"UpdateState","Data":"` + inner + `"}`)
+	return bus.Event{Name: "UpdateState", Raw: raw, Data: []byte(`"` + inner + `"`)}
+}
+
+// Freeplay scenario: one player on the field, no MatchCreated. The
+// flag must be true.
+func TestMatchState_IsFreeplayWhenSoloAndNoMatchCreated(t *testing.T) {
+	ms := New()
+	evt := updateStateWith(t, 1, "fp")
+	ms.Observe(evt)
+	_ = ms.Process(evt)
+
+	snap := ms.Snapshot()
+	if !snap.IsFreeplay {
+		t.Fatalf("expected IsFreeplay=true for solo session without MatchCreated, got false (rosterSize=%d, matchCreatedSeen=%v)", ms.rosterSize, ms.matchCreatedSeen)
+	}
+}
+
+// A second player joins freeplay (rare but valid; freeplay still
+// never fires MatchCreated). The roster check fails, so IsFreeplay
+// must flip to false.
+func TestMatchState_IsFreeplayFalseWithTwoPlayersAndNoMatchCreated(t *testing.T) {
+	ms := New()
+	evt := updateStateWith(t, 2, "fp")
+	ms.Observe(evt)
+	_ = ms.Process(evt)
+
+	snap := ms.Snapshot()
+	if snap.IsFreeplay {
+		t.Fatalf("expected IsFreeplay=false with two players, got true")
+	}
+}
+
+// Real 1v0 scenario (e.g. a private match with only the local
+// player). MatchCreated fired, so even with rosterSize<=1 the flag
+// must be false.
+func TestMatchState_IsFreeplayFalseAfterMatchCreated(t *testing.T) {
+	ms := New()
+
+	mc := bus.Event{Name: "MatchCreated", Data: []byte(`"{\"MatchGuid\":\"real-1\"}"`)}
+	ms.Observe(mc)
+	_ = ms.Process(mc)
+
+	up := updateStateWith(t, 1, "real-1")
+	ms.Observe(up)
+	_ = ms.Process(up)
+
+	snap := ms.Snapshot()
+	if snap.IsFreeplay {
+		t.Fatalf("expected IsFreeplay=false after MatchCreated, got true")
+	}
+}
+
+// After MatchDestroyed, matchCreatedSeen resets and a fresh solo
+// UpdateState should once again register as freeplay.
+func TestMatchState_IsFreeplayResumesAfterMatchDestroyed(t *testing.T) {
+	ms := New()
+
+	mc := bus.Event{Name: "MatchCreated", Data: []byte(`"{\"MatchGuid\":\"real-2\"}"`)}
+	ms.Observe(mc)
+	_ = ms.Process(mc)
+
+	md := bus.Event{Name: "MatchDestroyed", Data: []byte(`""`)}
+	ms.Observe(md)
+	_ = ms.Process(md)
+
+	up := updateStateWith(t, 1, "fp")
+	ms.Observe(up)
+	_ = ms.Process(up)
+
+	snap := ms.Snapshot()
+	if !snap.IsFreeplay {
+		t.Fatalf("expected IsFreeplay=true after teardown and solo UpdateState, got false")
+	}
+}
+
 func TestMatchState_WatchdogFlipsInactive(t *testing.T) {
 	ms := New()
 	ms.timeout = 50 * time.Millisecond
