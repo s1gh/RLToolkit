@@ -126,6 +126,16 @@ test('wipeIfStaleBoot: stale bootId returns fresh session', () => {
   assert.equal(fresh.xpInLevel, 0);
 });
 
+test('wipeIfStaleBoot: stale boot clears activeObjective and activeTask', () => {
+  const stale = R.emptySession('old-boot');
+  stale.activeTask = { id: 'task-x' };
+  stale.activeObjective = { id: 'obj-y', title: 'something' };
+  const fresh = R.wipeIfStaleBoot(stale, 'new-boot');
+  assert.equal(fresh.bootId, 'new-boot');
+  assert.equal(fresh.activeTask, null);
+  assert.equal(fresh.activeObjective, null);
+});
+
 test('wipeIfStaleBoot: same bootId returns the same session', () => {
   const s = R.emptySession('boot');
   s.level = 5;
