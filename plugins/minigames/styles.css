@@ -303,6 +303,41 @@ body {
   font-variant-numeric: tabular-nums;
   margin-right: 4px;
 }
+.mg-recap-obj {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mg-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  margin: 0 0 10px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--mg-bg-3);
+}
+.mg-recap-obj-glyph {
+  font-family: var(--mg-display);
+  font-size: 16px;
+  font-weight: 700;
+}
+.mg-recap-obj-label {
+  color: var(--mg-txt-3);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+.mg-recap-obj-title {
+  color: var(--mg-txt-1);
+  font-size: 12px;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mg-recap-obj-ok .mg-recap-obj-glyph { color: var(--mg-green); }
+.mg-recap-obj-fail .mg-recap-obj-glyph { color: var(--mg-magenta); }
+.mg-recap-obj-fail .mg-recap-obj-title { text-decoration: line-through; text-decoration-color: var(--mg-txt-4); color: var(--mg-txt-3); }
+
 .mg-recap-foot {
   font-family: var(--mg-mono);
   font-size: 11px;

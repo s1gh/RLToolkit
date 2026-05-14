@@ -71,6 +71,23 @@
         ? 'Level ' + recapData.endLevel
         : 'Level ' + recapData.startLevel + ' -> ' + recapData.endLevel;
       const failedTotal = recapData.failed + recapData.timedOut;
+      // If the objective resolved this match, surface its result inside the
+      // recap card. The objective slot stays populated through the recap
+      // window before scheduleObjectiveCelebrationFlush clears it.
+      const obj = session.activeObjective;
+      let objectiveBlock = '';
+      if (obj && obj.resolution) {
+        const ok = obj.resolution === 'complete';
+        const glyph = ok ? '✓' : '✕';
+        const cls = ok ? 'mg-recap-obj-ok' : 'mg-recap-obj-fail';
+        objectiveBlock = `
+          <div class="mg-recap-obj ${cls}">
+            <span class="mg-recap-obj-glyph">${glyph}</span>
+            <span class="mg-recap-obj-label">Objective</span>
+            <span class="mg-recap-obj-title">${esc(obj.title || '')}</span>
+          </div>
+        `;
+      }
       rootEl.innerHTML = `
         <div class="mg-overlay">
           ${ribbonHtml(session)}
@@ -81,6 +98,7 @@
               <span><b>${failedTotal}</b> failed</span>
               <span>net <b>${esc(xp)} XP</b></span>
             </div>
+            ${objectiveBlock}
             <div class="mg-recap-foot">${esc(levelLine)}</div>
           </div>
           ${priorHtml()}

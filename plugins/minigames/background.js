@@ -881,15 +881,16 @@
         else if (my === null) result = null;
         else if (winner === my) result = 'win';
         else result = 'loss';
-        finishMatch(guid, result);
-        // Objective fallback: matchEndCondition predicates call complete()
-        // synchronously inside their own _MatchEnded handler. Defer one task
-        // so those run first. If the objective is still unresolved, the
-        // condition didn't hold and we count it as a failure.
+        // Defer the match-end resolution one task so any predicates that call
+        // complete() synchronously inside their own _MatchEnded handler land
+        // first. The recap card needs to include the objective outcome, so we
+        // must settle the objective before pushing the matchEnded tick.
         setTimeout(() => {
-          if (!session?.activeObjective) return;
-          if (session.activeObjective.resolution) return;
-          resolveObjectiveOutcome('failed');
+          if (session?.activeObjective && !session.activeObjective.resolution) {
+            // matchEndCondition predicate didn't fire complete() -> failed.
+            resolveObjectiveOutcome('failed');
+          }
+          finishMatch(guid, result);
         }, 0);
       },
 
