@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod edit_mode;
 pub mod ipc;
+pub mod job_object;
 pub mod settings;
 pub mod shortcut;
 pub mod tray;

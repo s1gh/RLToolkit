@@ -95,6 +95,10 @@ pub enum BackendOwnership {
 
 impl BackendOwnership {
     pub fn from_raw(c: std::process::Child) -> Self {
+        // Mirror the sidecar path: attach to the launcher's Job
+        // Object on Windows so test fakes also get cleaned up if the
+        // test binary is killed mid-run. No-op elsewhere.
+        crate::launcher::job_object::attach(c.id());
         BackendOwnership::SpawnedRaw(c)
     }
 }
@@ -234,6 +238,12 @@ pub fn spawn_sidecar(
     }
 
     let (mut rx, child) = cmd.spawn().map_err(|e| format!("spawn sidecar: {e}"))?;
+
+    // On Windows, hand the child to the launcher's Job Object so that
+    // any death of the launcher (clean or violent) takes the sidecar
+    // with it. No-op elsewhere; Linux uses PR_SET_PDEATHSIG inside
+    // the backend itself.
+    crate::launcher::job_object::attach(child.pid());
 
     if let Some(parent) = log_path.parent() {
         let _ = std::fs::create_dir_all(parent);
