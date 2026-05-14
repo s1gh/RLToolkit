@@ -92,6 +92,20 @@
     const activeTask = session.activeTask;
     const activeObjective = session.activeObjective;
 
+    // Idle: no live task means we're between matches (or pre-first-match).
+    // Skip the stacked cards so we don't display misleading "Drawing next..."
+    // placeholders when the player isn't actually in a match.
+    if (!activeTask) {
+      lastRenderedChallengeId = null;
+      rootEl.innerHTML = `
+        <div class="mg-overlay">
+          ${ribbonHtml(session)}
+          <div class="mg-idle">Waiting for next match</div>
+        </div>
+      `;
+      return;
+    }
+
     rootEl.innerHTML = `
       <div class="mg-overlay">
         ${ribbonHtml(session)}
