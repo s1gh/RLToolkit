@@ -200,22 +200,13 @@
       "trigger": { "kind": "firstTouch", "filters": { "isMe": true } }
     },
     {
-      "id": "lowfive",
-      "title": "Get a Low Five",
-      "tier": "easy",
-      "trigger": { "kind": "statfeed", "filters": { "eventName": "LowFive", "targetIsMe": true } }
-    },
-    {
-      "id": "highfive",
-      "title": "Get a High Five",
-      "tier": "easy",
-      "trigger": { "kind": "statfeed", "filters": { "eventName": "HighFive", "targetIsMe": true } }
-    },
-    {
       "id": "bicycle-hit",
       "title": "Hit the ball with a bicycle",
       "tier": "medium",
-      "trigger": { "kind": "statfeed", "filters": { "eventName": "BicycleHit", "targetIsMe": true } }
+      "trigger": {
+        "kind": "statfeed",
+        "filters": { "eventName": "BicycleHit", "targetIsMe": true }
+      }
     },
     {
       "id": "flipreset-any",
@@ -239,13 +230,19 @@
       "id": "goal-backwards",
       "title": "Score a backwards goal",
       "tier": "hard",
-      "trigger": { "kind": "statfeed", "filters": { "eventName": "BackwardsGoal", "targetIsMe": true } }
+      "trigger": {
+        "kind": "statfeed",
+        "filters": { "eventName": "BackwardsGoal", "targetIsMe": true }
+      }
     },
     {
       "id": "goal-turtle",
       "title": "Score a turtle goal",
       "tier": "hard",
-      "trigger": { "kind": "statfeed", "filters": { "eventName": "TurtleGoal", "targetIsMe": true } }
+      "trigger": {
+        "kind": "statfeed",
+        "filters": { "eventName": "TurtleGoal", "targetIsMe": true }
+      }
     },
     {
       "id": "demo-chain-2",
@@ -308,7 +305,10 @@
         "kind": "sequence",
         "filters": {
           "withinMs": 10000,
-          "first": { "kind": "demo", "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true } },
+          "first": {
+            "kind": "demo",
+            "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true }
+          },
           "then": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
         }
       }
@@ -339,7 +339,10 @@
           "of": [
             { "kind": "save", "filters": { "isMe": true } },
             { "kind": "statfeed", "filters": { "eventName": "Shot", "targetIsMe": true } },
-            { "kind": "demo", "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true } }
+            {
+              "kind": "demo",
+              "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true }
+            }
           ]
         }
       }
@@ -353,7 +356,10 @@
         "kind": "sequence",
         "filters": {
           "withinMs": 5000,
-          "first": { "kind": "statfeed", "filters": { "eventName": "FlipReset", "targetIsMe": true } },
+          "first": {
+            "kind": "statfeed",
+            "filters": { "eventName": "FlipReset", "targetIsMe": true }
+          },
           "then": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
         }
       }
