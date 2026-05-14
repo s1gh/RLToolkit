@@ -1398,7 +1398,7 @@ listed below; everything except `_PlayerDemolished` carries
 | ------------------- | --------------------------------------------------------------------------- |
 | `_PlayerDemolished` | `attacker`, `victim`, `isSelfDemo`, `isTeamDemo`, `attackerSpeed?`, `attackerWasSupersonic?` (no `mainTarget`/`secondaryTarget`) |
 | `_FlipReset`        | `flipResetsThisMatch` (counter)                                             |
-| `_HatTrick`         | `goalsThisMatch` (counter; the event is suppressed entirely until the player has 3 non-own-goal goals) |
+| `_HatTrick`         | `goalsThisMatch` (always `3`). NOT a statfeed promotion: emitted from the Goal pipeline the moment a scorer's non-own-goal count hits 3. Fires exactly once per scorer per match. RL's own HatTrick statfeed is ignored because it's delayed and unreliable across game modes. |
 | `_Save`             | `correlatedShot: EnrichedPlayer \| null` (within the last 15 statfeed events) |
 | `_EpicSave`         | `correlatedShot: EnrichedPlayer \| null`                                    |
 | `_Shot`             | `correlatedTouch: { player, preHitSpeed, postHitSpeed } \| null` (last 3 ball-hits) |
@@ -1466,8 +1466,14 @@ the total gain across the streak. Respawn boost reseeds and
 non-spectator-mode dropouts are suppressed.
 
 ```js
-{ matchGuid, player: EnrichedPlayer, boostBefore, boostAfter, delta }
+{ matchGuid, player: EnrichedPlayer, boostBefore, boostAfter, delta, isBigPad }
 ```
+
+`isBigPad` is `true` when the cumulative `delta` for the streak is
+≥ 20. Small pads cap at 12, so any rise of 20+ is unambiguously a big
+pad. Use this in preference to checking `boostAfter === 100`, which
+misses big pads picked up while the player is consuming boost (the
+streak's `lastBoost` can plateau below 100 in that case).
 
 The event is delayed by one tick relative to when the rise ends —
 the streak can't be flushed until we see a non-rising tick. For
