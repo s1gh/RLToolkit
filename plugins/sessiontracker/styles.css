@@ -37,13 +37,6 @@
   flex-direction: column;
   gap: 8px;
 }
-.st-h-l {
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--rlt-txt, #e6e9f5);
-}
-.st-h-r { font-size: 11px; font-family: var(--rlt-mono, monospace); }
 
 .st-card-h {
   font-size: 11px;
