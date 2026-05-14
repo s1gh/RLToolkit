@@ -62,13 +62,245 @@ func TestMatchState_TransitionsThroughBasicMatch(t *testing.T) {
 		if snap.Phase != c.want {
 			t.Fatalf("after %s: phase=%q, want %q", c.name, snap.Phase, c.want)
 		}
-		if c.emit && len(emitted) != 1 {
-			t.Fatalf("after %s: expected 1 _MatchState emission, got %d", c.name, len(emitted))
+		if c.emit && len(emitted) == 0 {
+			t.Fatalf("after %s: expected at least one emission, got 0", c.name)
 		}
 		if c.emit && emitted[0].Name != "_MatchState" {
-			t.Fatalf("after %s: emission name=%q, want _MatchState", c.name, emitted[0].Name)
+			t.Fatalf("after %s: emission[0] name=%q, want _MatchState", c.name, emitted[0].Name)
 		}
 	}
+}
+
+// _MatchStarted fires exactly once per matchGuid, on the first
+// transition into a live-ish phase (Countdown or Live).
+func TestMatchState_MatchStartedFiresOncePerGuid(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	// MatchCreated stamps the guid but doesn't enter a live-ish phase.
+	out := feed("MatchCreated", `"{\"MatchGuid\":\"match-1\"}"`)
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted must not fire on lobby phase: %+v", out)
+		}
+	}
+
+	// CountdownBegin transitions into the live-ish Countdown phase
+	// with guid carried over. _MatchStarted should fire.
+	out = feed("CountdownBegin", `""`)
+	started := false
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			started = true
+			if !contains(string(e.Data), "match-1") {
+				t.Errorf("payload missing guid: %s", string(e.Data))
+			}
+		}
+	}
+	if !started {
+		t.Fatalf("expected _MatchStarted on first CountdownBegin, got: %+v", out)
+	}
+
+	// RoundStarted transitions into Live with the same guid; no
+	// re-emit because this isn't a new match.
+	out = feed("RoundStarted", `""`)
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted re-fired for the same guid: %+v", out)
+		}
+	}
+
+	// Goal kickoff: countdown phase again, same guid. No re-emit.
+	out = feed("CountdownBegin", `""`)
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted re-fired for the same guid on next kickoff: %+v", out)
+		}
+	}
+
+	// MatchDestroyed should clear lastStartedGuid so a replay of the
+	// same guid would emit again.
+	feed("MatchDestroyed", `""`)
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-1\"}"`)
+	out = feed("CountdownBegin", `""`)
+	again := false
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			again = true
+		}
+	}
+	if !again {
+		t.Fatalf("MatchDestroyed should reset _MatchStarted gating, got: %+v", out)
+	}
+}
+
+// _MatchStarted fires when MatchCreated arrives with empty Data and
+// the guid only lands later via UpdateState. RL frequently ships
+// MatchCreated without a Data payload; the canonical guid backfills
+// from the first UpdateState frame and the deferred _MatchStarted
+// emission must follow on the next state-changing event.
+func TestMatchState_MatchStartedFiresAfterUpdateStateBackfill(t *testing.T) {
+	ms := New()
+	feed := func(evt bus.Event) []bus.Event {
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	// MatchCreated with empty Data, like RL ships in many cases.
+	feed(bus.Event{Name: "MatchCreated", Data: []byte(`""`)})
+
+	// CountdownBegin transitions to Countdown but with no guid yet, so
+	// _MatchStarted cannot fire. The phase change itself still produces
+	// a _MatchState emission.
+	out := feed(bus.Event{Name: "CountdownBegin", Data: []byte(`""`)})
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted must not fire before a guid is known: %+v", out)
+		}
+	}
+
+	// UpdateState carries the guid in its raw payload. Observe backfills
+	// MatchGuid on the current snapshot and stages the deferred
+	// _MatchStarted emission. The same UpdateState event's Process call
+	// then emits _MatchState (now carrying the guid) AND _MatchStarted.
+	out = feed(bus.Event{
+		Name: "UpdateState",
+		Raw:  []byte(`{"Event":"UpdateState","Data":"{\"MatchGuid\":\"deferred-1\",\"Players\":[]}"}`),
+	})
+	started := false
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			started = true
+			if !contains(string(e.Data), "deferred-1") {
+				t.Errorf("payload missing guid: %s", string(e.Data))
+			}
+		}
+	}
+	if !started {
+		t.Fatalf("expected deferred _MatchStarted after guid backfill, got: %+v", out)
+	}
+
+	// Subsequent state-changing events for the same guid must NOT re-fire
+	// _MatchStarted.
+	out = feed(bus.Event{Name: "RoundStarted", Data: []byte(`""`)})
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			t.Fatalf("_MatchStarted re-fired for the same guid: %+v", out)
+		}
+	}
+}
+
+// _MatchStarted fires only on the first transition into a live-ish
+// phase per guid — a different guid arriving later must re-emit.
+func TestMatchState_MatchStartedFiresPerNewGuid(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-A\"}"`)
+	feed("CountdownBegin", `""`) // _MatchStarted for match-A
+	feed("MatchEnded", `""`)
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-B\"}"`)
+	out := feed("CountdownBegin", `""`)
+
+	for _, e := range out {
+		if e.Name == "_MatchStarted" {
+			if !contains(string(e.Data), "match-B") {
+				t.Errorf("expected match-B in payload, got %s", string(e.Data))
+			}
+			return
+		}
+	}
+	t.Fatalf("expected _MatchStarted for match-B, got: %+v", out)
+}
+
+// _MatchAbandoned fires when MatchDestroyed lands without a
+// preceding MatchEnded for the same guid (user ragequit, connection
+// lost mid-match, etc.). RL itself counts this as a forfeit-loss on
+// the leaver's record; plugins use this event to mirror that.
+func TestMatchState_MatchAbandonedFiresOnEarlyLeave(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-X\"}"`)
+	feed("CountdownBegin", `""`)
+	feed("RoundStarted", `""`)
+	// No MatchEnded — user ragequits.
+	out := feed("MatchDestroyed", `""`)
+
+	abandoned := false
+	for _, e := range out {
+		if e.Name == "_MatchAbandoned" {
+			abandoned = true
+			if !contains(string(e.Data), "match-X") {
+				t.Errorf("payload missing guid: %s", string(e.Data))
+			}
+		}
+	}
+	if !abandoned {
+		t.Fatalf("expected _MatchAbandoned on early leave, got: %+v", out)
+	}
+}
+
+// A clean MatchEnded followed by MatchDestroyed is normal teardown,
+// not an abandon. _MatchAbandoned must NOT fire in that case.
+func TestMatchState_MatchAbandonedSkipsCleanEnd(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	feed("MatchCreated", `"{\"MatchGuid\":\"match-Y\"}"`)
+	feed("CountdownBegin", `""`)
+	feed("RoundStarted", `""`)
+	feed("MatchEnded", `""`)
+	out := feed("MatchDestroyed", `""`)
+
+	for _, e := range out {
+		if e.Name == "_MatchAbandoned" {
+			t.Fatalf("_MatchAbandoned must not fire after a clean MatchEnded: %+v", out)
+		}
+	}
+}
+
+// MatchDestroyed before any match was started (lobby teardown,
+// reconnect noise) has no guid to fire for and must be silent.
+func TestMatchState_MatchAbandonedSilentWithoutStart(t *testing.T) {
+	ms := New()
+	feed := func(name, data string) []bus.Event {
+		evt := bus.Event{Name: name, Data: []byte(data)}
+		ms.Observe(evt)
+		return ms.Process(evt)
+	}
+
+	out := feed("MatchDestroyed", `""`)
+	for _, e := range out {
+		if e.Name == "_MatchAbandoned" {
+			t.Fatalf("_MatchAbandoned must not fire without a prior _MatchStarted: %+v", out)
+		}
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 func TestMatchState_NoEmissionOnIdentityTransition(t *testing.T) {

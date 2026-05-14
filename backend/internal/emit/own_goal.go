@@ -14,9 +14,9 @@ import (
 // forfeits and mercy-rule score-ups don't false-positive.
 //
 // Also owns the per-player honest-goal counter (realGoalsByID), bumped
-// by Goal on every non-own-goal score and read by Statfeed for
-// HatTrick suppression — "is this a real goal?" is this detector's
-// authoritative question.
+// by Goal on every non-own-goal score and read back by Goal to drive
+// _HatTrick emission on the third real goal. "Is this a real goal?"
+// is this detector's authoritative question.
 type OwnGoal struct {
 	phase       PhaseGate
 	ticks       TickHistory
@@ -36,8 +36,8 @@ func NewOwnGoal(phase PhaseGate, ticks TickHistory, correlation Correlator) *Own
 }
 
 // RealGoals returns the per-match honest-goal count for `playerID`,
-// satisfying the realGoalsLookup interface Statfeed consumes for
-// HatTrick suppression.
+// satisfying the GoalCounter interface Goal consumes for _HatTrick
+// emission.
 func (e *OwnGoal) RealGoals(playerID string) int {
 	if playerID == "" {
 		return 0

@@ -125,17 +125,14 @@ func (e *Goal) Process(evt bus.Event) []bus.Event {
 		e.mu.Unlock()
 		return nil
 	case "GoalScored":
-		if g := e.processGoal(evt); g != nil {
-			return []bus.Event{*g}
-		}
-		return nil
+		return e.processGoal(evt)
 	case "UpdateState":
 		return e.maybeReplayStarted()
 	}
 	return nil
 }
 
-func (e *Goal) processGoal(evt bus.Event) *bus.Event {
+func (e *Goal) processGoal(evt bus.Event) []bus.Event {
 	inner := wire.UnwrapInnerData(evt.Raw)
 	if inner == "" {
 		return nil
@@ -228,9 +225,13 @@ func (e *Goal) processGoal(evt bus.Event) *bus.Event {
 
 	// Bump the per-player real-goal counter on honest goals.
 	// RL's HatTrick counter includes own goals; we filter them out
-	// to verify the threshold against actual scoring.
+	// to verify the threshold against actual scoring. The bumped
+	// count is also the authoritative signal for _HatTrick emission
+	// below.
+	var realGoalsAfter int
 	if !out.IsOwnGoal && e.goals != nil {
 		e.goals.BumpRealGoals(scorer.ID)
+		realGoalsAfter = e.goals.RealGoals(scorer.ID)
 	}
 
 	mods := collectGoalModifiers(e.correlation, scorerRef)
@@ -269,7 +270,40 @@ func (e *Goal) processGoal(evt bus.Event) *bus.Event {
 	if err != nil {
 		return nil
 	}
-	return &bus.Event{Name: "_GoalScored", Data: body}
+	events := []bus.Event{{Name: "_GoalScored", Data: body}}
+
+	// _HatTrick fires when the scorer's real-goal counter hits
+	// exactly 3. We emit from here (not from Statfeed) because RL's
+	// HatTrick statfeed is unreliable: it skips, delays, and sometimes
+	// fires globally every 3 goals instead of per scorer.
+	if realGoalsAfter == 3 {
+		if hat := buildHatTrick(guid, scorer); hat != nil {
+			events = append(events, *hat)
+		}
+	}
+	return events
+}
+
+// buildHatTrick assembles the _HatTrick bus event for `scorer`.
+// GoalsThisMatch is hardcoded to 3 because this fires only on the
+// scorer's third real goal; subsequent goals don't re-trigger.
+func buildHatTrick(guid string, scorer *types.EnrichedPlayer) *bus.Event {
+	if scorer == nil {
+		return nil
+	}
+	body, err := json.Marshal(struct {
+		MatchGUID      string                `json:"matchGuid,omitempty"`
+		MainTarget     *types.EnrichedPlayer `json:"mainTarget"`
+		GoalsThisMatch int                   `json:"goalsThisMatch"`
+	}{
+		MatchGUID:      guid,
+		MainTarget:     scorer,
+		GoalsThisMatch: 3,
+	})
+	if err != nil {
+		return nil
+	}
+	return &bus.Event{Name: "_HatTrick", Data: body}
 }
 
 func (e *Goal) maybeReplayStarted() []bus.Event {

@@ -110,6 +110,24 @@ const catalogData = [
     'Match-history replay loaded (NOT goal replays).',
   ],
   [
+    '_MatchStarted',
+    'lifecycle',
+    'match-started',
+    '*',
+    'provisional',
+    '1.3',
+    'First time a new matchGuid lands in Countdown / Live. The "new match has begun" signal — use it to reset per-match counters. Cleared on MatchDestroyed.',
+  ],
+  [
+    '_MatchAbandoned',
+    'lifecycle',
+    'match-started',
+    '*',
+    'provisional',
+    '1.3',
+    'MatchDestroyed arrived without a matching MatchEnded (ragequit, disconnect). RL counts this as a forfeit-loss; plugins should mirror that.',
+  ],
+  [
     '_StatfeedEvent',
     'stat',
     'stat-enriched',
@@ -300,7 +318,7 @@ const catalogData = [
     ['live'],
     'provisional',
     '1.1',
-    'Player Boost rose between ticks (not a respawn).',
+    'One event per physical boost pad pickup. Rising ticks from a single pad are coalesced; delta is the total gain.',
   ],
   [
     '_BoostConsumed',

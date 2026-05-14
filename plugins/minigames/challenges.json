@@ -1,0 +1,368 @@
+{
+  "challenges": [
+    {
+      "id": "goal-aerial",
+      "title": "Score an aerial goal",
+      "tier": "hard",
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "aerial": true } }
+      }
+    },
+    {
+      "id": "goal-bicycle",
+      "title": "Score a bicycle goal",
+      "tier": "hard",
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "bicycle": true } }
+      }
+    },
+    {
+      "id": "goal-flipreset",
+      "title": "Score a flip-reset goal",
+      "tier": "hard",
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "flipReset": true } }
+      }
+    },
+    {
+      "id": "goal-long",
+      "title": "Score from long range",
+      "tier": "medium",
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "long": true } }
+      }
+    },
+    {
+      "id": "goal-overtime",
+      "kind": "objective",
+      "title": "Score in overtime",
+      "tier": "hard",
+      "xp": { "reward": 250, "penalty": 0 },
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "modifiers": { "overtime": true } }
+      }
+    },
+    {
+      "id": "goal-fast",
+      "title": "Score a goal above 100 km/h",
+      "tier": "medium",
+      "trigger": {
+        "kind": "goal",
+        "filters": { "isMe": true, "ownGoal": false, "goalSpeedMin": 100 }
+      }
+    },
+    {
+      "id": "goal-in-30s",
+      "title": "Score a goal in the next 30 seconds",
+      "tier": "medium",
+      "timeLimitMs": 30000,
+      "trigger": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
+    },
+    {
+      "id": "goal-firstblood",
+      "title": "Score the first goal of the match",
+      "tier": "medium",
+      "trigger": { "kind": "firstBlood", "filters": { "isMe": true } }
+    },
+    {
+      "id": "goal-hattrick",
+      "title": "Get a hat trick",
+      "tier": "hard",
+      "trigger": { "kind": "hatTrick", "filters": { "isMe": true } }
+    },
+    {
+      "id": "demo-any",
+      "title": "Demo any opponent",
+      "tier": "medium",
+      "trigger": {
+        "kind": "demo",
+        "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true }
+      }
+    },
+    {
+      "id": "demo-target-2",
+      "title": "Demo {opponent} 2 times in 70 seconds",
+      "tier": "hard",
+      "timeLimitMs": 70000,
+      "count": 2,
+      "trigger": {
+        "kind": "demo",
+        "filters": {
+          "attackerIsMe": true,
+          "victimTargetOpponent": true,
+          "excludeSelfDemo": true,
+          "excludeTeamDemo": true
+        }
+      }
+    },
+    {
+      "id": "save-any",
+      "title": "Get a save",
+      "tier": "easy",
+      "trigger": { "kind": "save", "filters": { "isMe": true } }
+    },
+    {
+      "id": "save-epic",
+      "title": "Get an Epic Save",
+      "tier": "medium",
+      "trigger": { "kind": "epicSave", "filters": { "isMe": true } }
+    },
+    {
+      "id": "mvp",
+      "kind": "objective",
+      "title": "Be the MVP this match",
+      "tier": "hard",
+      "xp": { "reward": 200, "penalty": 0 },
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "MVP", "targetIsMe": true } }
+    },
+    {
+      "id": "crossbar",
+      "title": "Hit a crossbar this round",
+      "tier": "medium",
+      "trigger": { "kind": "crossbar", "filters": { "isMe": true } }
+    },
+    {
+      "id": "bigpads-3",
+      "title": "Pick up 3 big boost pads in 30 seconds",
+      "tier": "medium",
+      "timeLimitMs": 30000,
+      "count": 3,
+      "trigger": { "kind": "boostPickup", "filters": { "isMe": true, "isBigPad": true } }
+    },
+    {
+      "id": "boost-pickup-10",
+      "title": "Pick up 10 boost pads",
+      "tier": "easy",
+      "count": 10,
+      "trigger": { "kind": "boostPickup", "filters": { "isMe": true } }
+    },
+    {
+      "id": "boost-burn-250",
+      "title": "Use 250 boost in 30 seconds",
+      "tier": "medium",
+      "timeLimitMs": 30000,
+      "trigger": { "kind": "boostConsumed", "filters": { "isMe": true, "sumDelta": 250 } }
+    },
+    {
+      "id": "touches-12-30s",
+      "title": "Get 12 ball touches in 30 seconds",
+      "tier": "medium",
+      "timeLimitMs": 30000,
+      "count": 12,
+      "trigger": { "kind": "touch", "filters": { "isMe": true } }
+    },
+    {
+      "id": "touches-streak-5",
+      "title": "Get 5 consecutive ball touches without another player touching",
+      "tier": "easy",
+      "count": 5,
+      "trigger": { "kind": "touch", "filters": { "isMe": true, "consecutive": true } }
+    },
+    {
+      "id": "assist-1",
+      "title": "Get an assist",
+      "tier": "easy",
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "Assist", "targetIsMe": true } }
+    },
+    {
+      "id": "shot-3-60s",
+      "title": "Get 3 shots on goal in 60 seconds",
+      "tier": "medium",
+      "timeLimitMs": 60000,
+      "count": 3,
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "Shot", "targetIsMe": true } }
+    },
+    {
+      "id": "clear-3-60s",
+      "title": "Clear the ball 3 times in 60 seconds",
+      "tier": "easy",
+      "timeLimitMs": 60000,
+      "count": 3,
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "Clear", "targetIsMe": true } }
+    },
+    {
+      "id": "center-2-60s",
+      "title": "Get 2 center passes in 60 seconds",
+      "tier": "easy",
+      "timeLimitMs": 60000,
+      "count": 2,
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "Center", "targetIsMe": true } }
+    },
+    {
+      "id": "firsttouch-kickoff",
+      "title": "Win the kickoff first touch",
+      "tier": "easy",
+      "trigger": { "kind": "firstTouch", "filters": { "isMe": true } }
+    },
+    {
+      "id": "bicycle-hit",
+      "title": "Hit the ball with a bicycle",
+      "tier": "medium",
+      "trigger": {
+        "kind": "statfeed",
+        "filters": { "eventName": "BicycleHit", "targetIsMe": true }
+      }
+    },
+    {
+      "id": "flipreset-any",
+      "title": "Get a flip reset",
+      "tier": "medium",
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "FlipReset", "targetIsMe": true } }
+    },
+    {
+      "id": "playmaker",
+      "title": "Get a Playmaker",
+      "tier": "medium",
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "Playmaker", "targetIsMe": true } }
+    },
+    {
+      "id": "savior",
+      "title": "Get a Savior",
+      "tier": "medium",
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "Savior", "targetIsMe": true } }
+    },
+    {
+      "id": "goal-backwards",
+      "title": "Score a backwards goal",
+      "tier": "hard",
+      "trigger": {
+        "kind": "statfeed",
+        "filters": { "eventName": "BackwardsGoal", "targetIsMe": true }
+      }
+    },
+    {
+      "id": "goal-turtle",
+      "title": "Score a turtle goal",
+      "tier": "hard",
+      "trigger": {
+        "kind": "statfeed",
+        "filters": { "eventName": "TurtleGoal", "targetIsMe": true }
+      }
+    },
+    {
+      "id": "demo-chain-2",
+      "title": "Demo 2 opponents within 5 seconds",
+      "tier": "hard",
+      "trigger": { "kind": "demoChain", "filters": { "isMe": true, "minCount": 2 } }
+    },
+    {
+      "id": "fastest-shot-match",
+      "kind": "objective",
+      "title": "Hit the fastest shot of the match",
+      "tier": "hard",
+      "xp": { "reward": 200, "penalty": 0 },
+      "trigger": { "kind": "fastestShotOfMatch", "filters": { "isMe": true } }
+    },
+    {
+      "id": "win-match",
+      "kind": "objective",
+      "title": "Win the match",
+      "tier": "hard",
+      "xp": { "reward": 300, "penalty": 0 },
+      "trigger": { "kind": "statfeed", "filters": { "eventName": "Win", "targetIsMe": true } }
+    },
+    {
+      "id": "no-og",
+      "kind": "objective",
+      "title": "Finish the match without an own goal",
+      "tier": "easy",
+      "xp": { "reward": 80, "penalty": 20 },
+      "trigger": { "kind": "matchEndCondition", "filters": { "noOwnGoal": true } }
+    },
+    {
+      "id": "clean-sheet",
+      "kind": "objective",
+      "title": "Finish a round without conceding",
+      "tier": "hard",
+      "xp": { "reward": 250, "penalty": 100 },
+      "trigger": { "kind": "matchEndCondition", "filters": { "cleanRound": true } }
+    },
+    {
+      "id": "save-then-goal",
+      "title": "Score within 30s of making a save",
+      "tier": "medium",
+      "timeLimitMs": 90000,
+      "trigger": {
+        "kind": "sequence",
+        "filters": {
+          "withinMs": 30000,
+          "first": { "kind": "save", "filters": { "isMe": true } },
+          "then": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
+        }
+      }
+    },
+    {
+      "id": "demo-then-goal",
+      "title": "Score within 10s of demoing an opponent",
+      "tier": "hard",
+      "timeLimitMs": 60000,
+      "trigger": {
+        "kind": "sequence",
+        "filters": {
+          "withinMs": 10000,
+          "first": {
+            "kind": "demo",
+            "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true }
+          },
+          "then": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
+        }
+      }
+    },
+    {
+      "id": "crossbar-then-save",
+      "title": "Hit a crossbar, then save within 20s",
+      "tier": "hard",
+      "timeLimitMs": 120000,
+      "trigger": {
+        "kind": "sequence",
+        "filters": {
+          "withinMs": 20000,
+          "first": { "kind": "crossbar", "filters": { "isMe": true } },
+          "then": { "kind": "save", "filters": { "isMe": true } }
+        }
+      }
+    },
+    {
+      "id": "triple-threat",
+      "title": "Get a save, shot, and demo within 60s",
+      "tier": "medium",
+      "timeLimitMs": 90000,
+      "trigger": {
+        "kind": "all",
+        "filters": {
+          "withinMs": 60000,
+          "of": [
+            { "kind": "save", "filters": { "isMe": true } },
+            { "kind": "statfeed", "filters": { "eventName": "Shot", "targetIsMe": true } },
+            {
+              "kind": "demo",
+              "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "flipreset-then-goal",
+      "title": "Get a flip reset, then score within 5s",
+      "tier": "hard",
+      "timeLimitMs": 120000,
+      "trigger": {
+        "kind": "sequence",
+        "filters": {
+          "withinMs": 5000,
+          "first": {
+            "kind": "statfeed",
+            "filters": { "eventName": "FlipReset", "targetIsMe": true }
+          },
+          "then": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
+        }
+      }
+    }
+  ]
+}

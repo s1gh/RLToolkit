@@ -171,7 +171,83 @@ fn set_clickthrough<R: Runtime>(
     {
         window
             .set_ignore_cursor_events(clickthrough)
-            .map_err(|e| format!("set_ignore_cursor_events({clickthrough}): {e}"))
+            .map_err(|e| format!("set_ignore_cursor_events({clickthrough}): {e}"))?;
+
+        #[cfg(target_os = "windows")]
+        {
+            reassert_layered(window);
+            force_nc_redraw(window);
+        }
+
+        Ok(())
+    }
+}
+
+/// Re-assert WS_EX_LAYERED on the overlay HWND after a click-through
+/// toggle. Tauri's set_ignore_cursor_events(false) on Windows clears
+/// WS_EX_LAYERED along with WS_EX_TRANSPARENT, which drops the window
+/// out of layered composition. The HWND's background brush then paints
+/// the unmapped portion of the client area (the strip above where
+/// WebView2 actually draws), producing a white bar at the top of the
+/// screen the moment edit mode activates.
+///
+/// Fix: re-set WS_EX_LAYERED and reapply per-pixel alpha. Best-effort;
+/// failures are silent because this is a paint cleanup, not a
+/// correctness invariant.
+#[cfg(target_os = "windows")]
+fn reassert_layered<R: Runtime>(window: &WebviewWindow<R>) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, GWL_EXSTYLE, LWA_ALPHA,
+        WS_EX_LAYERED,
+    };
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd: HWND = hwnd.0;
+
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if ex == 0 {
+            return;
+        }
+        let new_ex = ex | (WS_EX_LAYERED as isize);
+        if new_ex != ex {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex);
+        }
+        // LWA_ALPHA with bAlpha=255 keeps the window fully opaque at
+        // the layered-attribute level so the WebView2 per-pixel alpha
+        // (via .transparent(true)) remains the source of truth.
+        let _ = SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+    }
+}
+
+/// Force a non-client repaint of the overlay HWND. Independent of any
+/// style toggle, DWM caches a stale NC frame containing the window's
+/// title text and renders it as a ghost bar across the top of the
+/// screen the next time the window is touched (focus change, click
+/// elsewhere, edit-mode flip). Invalidating the frame with
+/// RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW makes DWM rebuild the
+/// cache against the current style (no caption, layered, transparent)
+/// and the ghost bar disappears. Confirmed via live PowerShell tests
+/// that RedrawWindow alone clears the bar whether or not the window
+/// region is also touched.
+#[cfg(target_os = "windows")]
+fn force_nc_redraw<R: Runtime>(window: &WebviewWindow<R>) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Gdi::{
+        RedrawWindow, RDW_FRAME, RDW_INVALIDATE, RDW_UPDATENOW,
+    };
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd: HWND = hwnd.0;
+
+    unsafe {
+        let _ = RedrawWindow(
+            hwnd,
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW,
+        );
     }
 }
 

@@ -176,7 +176,7 @@ func runServe() {
 	tickStore := tick.New()
 	disc := discoveries.New(cfg.DataDir)
 	ownGoal := emit.NewOwnGoal(matchState, tickStore, corr)
-	statfeed := emit.NewStatfeed(rt, corr, disc, ownGoal)
+	statfeed := emit.NewStatfeed(rt, corr, disc)
 	demos := emit.NewDemos(tickStore)
 	goalEmit := emit.NewGoal(rt, corr, tickStore, statfeed, ownGoal)
 	tickDiff := emit.NewTickDiff(matchState, tickStore, corr, statfeed, rt)

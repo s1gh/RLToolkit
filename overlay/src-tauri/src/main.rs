@@ -503,6 +503,75 @@ fn apply_windows_no_border(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Subclass the overlay HWND so we can swallow NC paint messages
+/// entirely. Even with WS_CAPTION cleared and DWMWA_NCRENDERING_POLICY
+/// disabled, DWM still triggers a WM_NCPAINT that ends up rendering
+/// the window's title in a ghost caption strip across the top of the
+/// screen on focus changes after edit mode has flipped click-through
+/// off and back on. RedrawWindow from the edit-mode toggle clears it
+/// once, but the next focus/activation event re-issues the NC paint
+/// and the bar comes back. The only fix that holds is intercepting
+/// the message itself.
+///
+/// The subclass handles:
+///   - WM_NCPAINT: return 0, telling Windows we painted nothing.
+///   - WM_NCCALCSIZE (wParam=TRUE): zero the suggested client rect
+///     adjustment so the entire window rect is reported as client
+///     area. DWM then has no non-client region to draw into.
+///
+/// All other messages flow through DefSubclassProc to the original
+/// window proc. Best-effort: SetWindowSubclass failures are silent
+/// because they only affect this paint cleanup, not correctness.
+#[cfg(target_os = "windows")]
+fn install_overlay_nc_subclass(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_NCCALCSIZE, WM_NCPAINT};
+
+    // Arbitrary stable ID for this subclass slot on the HWND.
+    // Picked to be unlikely to collide with anything Tao/Tauri installs.
+    const SUBCLASS_ID: usize = 0x524C544B; // "RLTK"
+
+    unsafe extern "system" fn proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        _id: usize,
+        _ref: usize,
+    ) -> LRESULT {
+        const WM_NCACTIVATE: u32 = 0x0086;
+        match msg {
+            // Swallow the NC paint entirely. Returning 0 tells Windows
+            // we handled the message; no further drawing happens.
+            WM_NCPAINT => 0,
+            // DefWindowProc's handler for WM_NCACTIVATE repaints the
+            // caption to reflect focus state, which on this layered +
+            // transparent overlay manifests as the ghost title bar
+            // returning whenever focus changes (e.g. clicking another
+            // window after exiting edit mode). Return TRUE without
+            // chaining to default to tell Windows we handled the
+            // activation visually and the frame should be left alone.
+            WM_NCACTIVATE => 1,
+            // wParam=TRUE means lParam is an NCCALCSIZE_PARAMS whose
+            // rgrc[0] is the proposed window rect; the system expects
+            // us to write the new client rect back into rgrc[0].
+            // Leaving rgrc[0] unchanged means client area == window
+            // rect, i.e. zero non-client area. Return 0 (default
+            // handling for the size change otherwise).
+            WM_NCCALCSIZE if wparam != 0 => 0,
+            _ => unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) },
+        }
+    }
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd: HWND = hwnd.0;
+
+    unsafe {
+        let _ = SetWindowSubclass(hwnd, Some(proc), SUBCLASS_ID, 0);
+    }
+}
+
 /// Build the tray icon with a Quit menu item. Best-effort: errors
 /// bubble up so the caller can log and continue.
 fn setup_tray(app: &AppHandle, tooltip: &str) -> Result<(), String> {
@@ -618,7 +687,10 @@ fn build_overlay_window(
     let window = builder.build()?;
 
     #[cfg(target_os = "windows")]
-    apply_windows_no_border(&window);
+    {
+        apply_windows_no_border(&window);
+        install_overlay_nc_subclass(&window);
+    }
 
     match mode {
         Mode::Plugin { manifest } => {

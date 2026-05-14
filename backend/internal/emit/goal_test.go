@@ -239,6 +239,111 @@ func TestGoal_ConsumesModifierStatfeeds(t *testing.T) {
 	}
 }
 
+func TestGoal_EmitsHatTrickOnThirdRealGoal(t *testing.T) {
+	roster := goalRoster(t, &types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0})
+	gc := &fakeGoalCounter{}
+	e := NewGoal(roster, correlation.New(8), tick.New(), &fakeFlipReset{}, gc)
+
+	// First goal: no _HatTrick.
+	out := e.Process(makeGoalScored(t, "Ada", 100))
+	if hasName(out, "_HatTrick") {
+		t.Fatalf("first goal should not emit _HatTrick, got %v", evtNames(out))
+	}
+	// Second goal: no _HatTrick.
+	out = e.Process(makeGoalScored(t, "Ada", 100))
+	if hasName(out, "_HatTrick") {
+		t.Fatalf("second goal should not emit _HatTrick, got %v", evtNames(out))
+	}
+	// Third goal: _HatTrick fires alongside _GoalScored.
+	out = e.Process(makeGoalScored(t, "Ada", 100))
+	if !hasName(out, "_GoalScored") {
+		t.Fatalf("third goal should still emit _GoalScored, got %v", evtNames(out))
+	}
+	if !hasName(out, "_HatTrick") {
+		t.Fatalf("third real goal should emit _HatTrick, got %v", evtNames(out))
+	}
+
+	// Verify the _HatTrick payload shape.
+	var hat bus.Event
+	for _, e := range out {
+		if e.Name == "_HatTrick" {
+			hat = e
+			break
+		}
+	}
+	var payload struct {
+		MatchGUID      string                `json:"matchGuid"`
+		MainTarget     *types.EnrichedPlayer `json:"mainTarget"`
+		GoalsThisMatch int                   `json:"goalsThisMatch"`
+	}
+	if err := json.Unmarshal(hat.Data, &payload); err != nil {
+		t.Fatalf("unmarshal _HatTrick: %v", err)
+	}
+	if payload.MainTarget == nil || payload.MainTarget.ID != "Steam|1|0" {
+		t.Fatalf("_HatTrick mainTarget not enriched: %+v", payload.MainTarget)
+	}
+	if payload.GoalsThisMatch != 3 {
+		t.Fatalf("_HatTrick goalsThisMatch: want 3, got %d", payload.GoalsThisMatch)
+	}
+	if payload.MatchGUID != "G1" {
+		t.Fatalf("_HatTrick matchGuid: want G1, got %q", payload.MatchGUID)
+	}
+}
+
+func TestGoal_HatTrickFiresOnlyOnce(t *testing.T) {
+	roster := goalRoster(t, &types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0})
+	e := NewGoal(roster, correlation.New(8), tick.New(), &fakeFlipReset{}, &fakeGoalCounter{})
+
+	for i := 0; i < 2; i++ {
+		_ = e.Process(makeGoalScored(t, "Ada", 100))
+	}
+	// Third goal: expect _HatTrick.
+	out := e.Process(makeGoalScored(t, "Ada", 100))
+	if !hasName(out, "_HatTrick") {
+		t.Fatalf("third goal should emit _HatTrick, got %v", evtNames(out))
+	}
+	// Fourth goal: no second _HatTrick.
+	out = e.Process(makeGoalScored(t, "Ada", 100))
+	if hasName(out, "_HatTrick") {
+		t.Fatalf("fourth real goal should not re-emit _HatTrick, got %v", evtNames(out))
+	}
+	// Fifth goal: still no _HatTrick.
+	out = e.Process(makeGoalScored(t, "Ada", 100))
+	if hasName(out, "_HatTrick") {
+		t.Fatalf("fifth real goal should not re-emit _HatTrick, got %v", evtNames(out))
+	}
+}
+
+func TestGoal_HatTrickIgnoresOwnGoals(t *testing.T) {
+	roster := goalRoster(t,
+		&types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|2|0", Name: "Ben", Team: 1},
+	)
+	corr := correlation.New(8)
+	// Last toucher is on the conceding team every time, so every goal
+	// is flagged as an own goal and the real-goal counter does not bump.
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|2|0", Team: 1},
+	})
+	gc := &fakeGoalCounter{}
+	e := NewGoal(roster, corr, tick.New(), &fakeFlipReset{}, gc)
+
+	for i := 0; i < 3; i++ {
+		// Re-record the BallHit each iteration since Recent reads
+		// the buffer non-destructively but we want consistent state.
+		corr.Record("BallHit", &types.BallHitRecord{
+			Player: &types.EnrichedPlayer{ID: "Steam|2|0", Team: 1},
+		})
+		out := e.Process(makeGoalScoredFor(t, "Ada", 0, 100))
+		if hasName(out, "_HatTrick") {
+			t.Fatalf("own goal #%d must not emit _HatTrick, got %v", i+1, evtNames(out))
+		}
+	}
+	if gc.RealGoals("Steam|1|0") != 0 {
+		t.Fatalf("own goals must not bump real-goal counter, got %d", gc.RealGoals("Steam|1|0"))
+	}
+}
+
 func makeGoalScored(t *testing.T, scorerName string, speed float64) bus.Event {
 	t.Helper()
 	return makeGoalScoredFor(t, scorerName, 0, speed)

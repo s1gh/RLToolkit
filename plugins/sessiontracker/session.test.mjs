@@ -12,10 +12,10 @@ test('emptyBucket: shape contains all top-level keys', () => {
   assert.equal(b.bootId, 'boot-1');
   assert.equal(typeof b.startedAt, 'string');
   assert.deepEqual(b.results, { wins: 0, losses: 0, last: [] });
-  assert.deepEqual(b.totals, { goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 });
+  assert.deepEqual(b.totals, { goals: 0, saves: 0, demos: 0, boost: 0, pickups: 0 });
   assert.equal(b.modifiers.aerial, 0);
   assert.equal(b.modifiers.poolShot, 0);
-  assert.deepEqual(b.ball, { fastestKmh: null, myFastestHitKmh: null });
+  assert.deepEqual(b.ball, { fastestKmh: null, myFastestHitKmh: null, fastestGoalKmh: null });
   assert.deepEqual(b.crossbar, { hits: 0, hardest: null });
   assert.deepEqual(b.mmr, { ranked: {}, casual: null });
 });
@@ -307,14 +307,36 @@ test('currentStreak: alternating → 1 → null', () => {
 // until applyMatchEnded stamps it.
 test('emptyBucket: includes match block with zeros + null result', () => {
   const b = R.emptyBucket('b');
-  assert.deepEqual(b.match, { result: null, goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 });
+  assert.equal(b.match.result, null);
+  assert.equal(b.match.goals, 0);
+  assert.equal(b.match.saves, 0);
+  assert.equal(b.match.demos, 0);
+  assert.equal(b.match.boost, 0);
+  assert.equal(b.match.pickups, 0);
+  assert.equal(b.match.modifiers.aerial, 0);
+  assert.equal(b.match.modifiers.poolShot, 0);
+  assert.equal(b.match.modifiers.ownGoal, 0);
 });
 
 test('resetMatch: zeros per-match counters and clears result', () => {
   const b = R.emptyBucket('b');
-  b.match = { result: 'win', goals: 3, saves: 2, demos: 1 };
+  b.match.result = 'win';
+  b.match.goals = 3;
+  b.match.saves = 2;
+  b.match.demos = 1;
+  b.match.boost = 40;
+  b.match.pickups = 60;
+  b.match.modifiers.aerial = 2;
+  b.match.modifiers.ownGoal = 1;
   R.resetMatch(b);
-  assert.deepEqual(b.match, { result: null, goals: 0, saves: 0, demos: 0, boost: 0, ownGoals: 0 });
+  assert.equal(b.match.result, null);
+  assert.equal(b.match.goals, 0);
+  assert.equal(b.match.saves, 0);
+  assert.equal(b.match.demos, 0);
+  assert.equal(b.match.boost, 0);
+  assert.equal(b.match.pickups, 0);
+  assert.equal(b.match.modifiers.aerial, 0);
+  assert.equal(b.match.modifiers.ownGoal, 0);
 });
 
 test('applyPlayerScoreChanged: bumps both session and match totals', () => {
@@ -504,39 +526,39 @@ test('applyBoostConsumed: missing or non-positive delta is a no-op', () => {
   assert.equal(b.totals.boost, 0);
 });
 
-// Own goals: count when I'm the deflector. Bumps both session and
-// per-match.
+// Own goals: a special goal modifier. Counts in both session
+// modifiers and the per-match modifier block when I'm the deflector.
 test('applyOwnGoal: ignores opponent own goals', () => {
   const b = R.emptyBucket('b');
   R.applyOwnGoal(b, { deflector: { isMe: false } });
-  assert.equal(b.totals.ownGoals, 0);
-  assert.equal(b.match.ownGoals, 0);
+  assert.equal(b.modifiers.ownGoal, 0);
+  assert.equal(b.match.modifiers.ownGoal, 0);
 });
 
-test('applyOwnGoal: bumps both session and match when mine', () => {
+test('applyOwnGoal: bumps both session and match modifier slots when mine', () => {
   const b = R.emptyBucket('b');
   R.applyOwnGoal(b, { deflector: { isMe: true } });
   R.applyOwnGoal(b, { deflector: { isMe: true } });
-  assert.equal(b.totals.ownGoals, 2);
-  assert.equal(b.match.ownGoals, 2);
+  assert.equal(b.modifiers.ownGoal, 2);
+  assert.equal(b.match.modifiers.ownGoal, 2);
 });
 
 test('applyOwnGoal: missing deflector is a no-op', () => {
   const b = R.emptyBucket('b');
   R.applyOwnGoal(b, {});
   R.applyOwnGoal(b, null);
-  assert.equal(b.totals.ownGoals, 0);
+  assert.equal(b.modifiers.ownGoal, 0);
 });
 
-test('resetMatch: clears boost + ownGoals on the match block', () => {
+test('resetMatch: clears boost + ownGoal modifier on the match block', () => {
   const b = R.emptyBucket('b');
   R.applyBoostConsumed(b, { delta: 50, player: { isMe: true } });
   R.applyOwnGoal(b, { deflector: { isMe: true } });
   R.resetMatch(b);
   assert.equal(b.match.boost, 0);
-  assert.equal(b.match.ownGoals, 0);
+  assert.equal(b.match.modifiers.ownGoal, 0);
   assert.equal(b.totals.boost, 50, 'session totals untouched');
-  assert.equal(b.totals.ownGoals, 1, 'session totals untouched');
+  assert.equal(b.modifiers.ownGoal, 1, 'session modifiers untouched');
 });
 
 // CROSSBAR hits and HARDEST hit follow the same me-only rule. The
@@ -560,4 +582,224 @@ test('applyCrossbarHit: missing ballLastTouch.player → no-op', () => {
   const b = R.emptyBucket('b');
   R.applyCrossbarHit(b, { impactForce: 5000 });
   assert.equal(b.crossbar.hits, 0);
+});
+
+// applyMatchStarted is the canonical "new match has begun" hook
+// driven by the backend's _MatchStarted event. It clears the per-
+// match block and stamps the guid so abandon detection has identity.
+test('applyMatchStarted: clears match block and stamps guid', () => {
+  const b = R.emptyBucket('b');
+  b.match.result = 'loss';
+  b.match.goals = 1;
+  b.match.saves = 2;
+  b.match.boost = 30;
+  b.match.pickups = 80;
+  b.match.modifiers.aerial = 1;
+  b.match.modifiers.ownGoal = 1;
+  R.applyMatchStarted(b, { matchGuid: 'g1' });
+  assert.equal(b.match.result, null);
+  assert.equal(b.match.goals, 0);
+  assert.equal(b.match.boost, 0);
+  assert.equal(b.match.pickups, 0);
+  assert.equal(b.match.modifiers.aerial, 0);
+  assert.equal(b.match.modifiers.ownGoal, 0);
+  assert.equal(b.lastMatchGuid, 'g1');
+});
+
+test('applyMatchStarted: empty guid still resets and stamps empty', () => {
+  const b = R.emptyBucket('b');
+  b.match.goals = 3;
+  R.applyMatchStarted(b, { matchGuid: '' });
+  assert.equal(b.match.goals, 0);
+  assert.equal(b.lastMatchGuid, '');
+});
+
+test('applyMatchStarted: bad payload is a no-op', () => {
+  const b = R.emptyBucket('b');
+  b.match.goals = 2;
+  R.applyMatchStarted(b, null);
+  assert.equal(b.match.goals, 2);
+});
+
+// applyMatchAbandoned tallies a forfeit loss when MatchDestroyed
+// arrives without _MatchEnded having tallied first. Dedupes via
+// lastTalliedGuid so a normal end-of-match destroy is a no-op.
+test('applyMatchAbandoned: untallied match counts as a loss', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchStarted(b, { matchGuid: 'g1' });
+  R.applyMatchAbandoned(b, 0);
+  assert.equal(b.results.losses, 1);
+  assert.equal(b.results.wins, 0);
+  assert.deepEqual(b.results.last, ['loss']);
+  assert.equal(b.match.result, 'loss');
+  assert.equal(b.lastTalliedGuid, 'g1');
+});
+
+test('applyMatchAbandoned: already-tallied match is a no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchStarted(b, { matchGuid: 'g1' });
+  R.applyMatchEnded(b, { matchGuid: 'g1', winnerTeamNum: 0 }, 0);
+  assert.equal(b.results.wins, 1);
+  R.applyMatchAbandoned(b, 0);
+  assert.equal(b.results.wins, 1, 'win should survive');
+  assert.equal(b.results.losses, 0, 'should not double-tally as loss');
+});
+
+test('applyMatchAbandoned: no current match → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchAbandoned(b, 0);
+  assert.equal(b.results.losses, 0);
+});
+
+test('applyMatchAbandoned: myTeam null → no-op (can\'t determine result)', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchStarted(b, { matchGuid: 'g1' });
+  R.applyMatchAbandoned(b, null);
+  assert.equal(b.results.losses, 0);
+});
+
+test('applyMatchAbandoned: empty current guid → no-op (no identity to dedupe against)', () => {
+  const b = R.emptyBucket('b');
+  R.applyMatchStarted(b, { matchGuid: '' });
+  R.applyMatchAbandoned(b, 0);
+  assert.equal(b.results.losses, 0);
+});
+
+// Boost pickups: count of _BoostPickup events (one per pad grab), not
+// a sum of boost percent. The delta still gates validity (we only
+// count events that look like a real pickup with delta > 0) but each
+// such event increments by 1.
+test('emptyBucket: zeros pickups on totals and match', () => {
+  const b = R.emptyBucket('b');
+  assert.equal(b.totals.pickups, 0);
+  assert.equal(b.match.pickups, 0);
+});
+
+test('applyBoostPickup: ignores opponents', () => {
+  const b = R.emptyBucket('b');
+  R.applyBoostPickup(b, { delta: 33, player: { isMe: false } });
+  assert.equal(b.totals.pickups, 0);
+  assert.equal(b.match.pickups, 0);
+});
+
+test('applyBoostPickup: counts each pickup once into both totals and match', () => {
+  const b = R.emptyBucket('b');
+  R.applyBoostPickup(b, { delta: 12, player: { isMe: true } });
+  R.applyBoostPickup(b, { delta: 100, player: { isMe: true } });
+  assert.equal(b.totals.pickups, 2);
+  assert.equal(b.match.pickups, 2);
+});
+
+test('applyBoostPickup: missing or non-positive delta is a no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyBoostPickup(b, { player: { isMe: true } });
+  R.applyBoostPickup(b, { delta: 0, player: { isMe: true } });
+  R.applyBoostPickup(b, { delta: -5, player: { isMe: true } });
+  R.applyBoostPickup(b, null);
+  assert.equal(b.totals.pickups, 0);
+  assert.equal(b.match.pickups, 0);
+});
+
+test('resetMatch: clears pickups on the match block, session preserved', () => {
+  const b = R.emptyBucket('b');
+  R.applyBoostPickup(b, { delta: 50, player: { isMe: true } });
+  R.applyBoostPickup(b, { delta: 12, player: { isMe: true } });
+  R.resetMatch(b);
+  assert.equal(b.match.pickups, 0);
+  assert.equal(b.totals.pickups, 2, 'session totals untouched');
+});
+
+// Goal modifiers: today only tracked at session scope. Mirror the
+// goals/saves/demos pattern so the match block has its own modifier
+// counts that reset between matches.
+test('emptyBucket: includes match.modifiers with same keys as session modifiers', () => {
+  const b = R.emptyBucket('b');
+  assert.equal(typeof b.match.modifiers, 'object');
+  assert.equal(b.match.modifiers.aerial, 0);
+  assert.equal(b.match.modifiers.flipReset, 0);
+  assert.equal(b.match.modifiers.hatTrick, 0);
+  // Keys must match session modifiers exactly so the renderer can
+  // iterate either with the same MOD_LABEL table.
+  assert.deepEqual(
+    Object.keys(b.match.modifiers).sort(),
+    Object.keys(b.modifiers).sort(),
+  );
+});
+
+test('applyGoalScored: bumps both session and match modifier counters', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, {
+    scorer: { isMe: true },
+    modifiers: { isAerialGoal: true, isFlipResetGoal: true },
+  });
+  assert.equal(b.modifiers.aerial, 1);
+  assert.equal(b.match.modifiers.aerial, 1);
+  assert.equal(b.modifiers.flipReset, 1);
+  assert.equal(b.match.modifiers.flipReset, 1);
+});
+
+test('applyGoalScored: opponent goal does not touch either modifier block', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, {
+    scorer: { isMe: false },
+    modifiers: { isAerialGoal: true },
+  });
+  assert.equal(b.modifiers.aerial, 0);
+  assert.equal(b.match.modifiers.aerial, 0);
+});
+
+// applyMyFastestGoal: from _GoalScored, tracks the fastest goal I've
+// scored this session. Filters scorer.isMe. Skips own goals.
+// Defensive ratchet so out-of-order events can't lower the record.
+test('applyMyFastestGoal: ignores opponent goals', () => {
+  const b = R.emptyBucket('b');
+  R.applyMyFastestGoal(b, { scorer: { isMe: false }, goalSpeed: 150 });
+  assert.equal(b.ball.fastestGoalKmh, null);
+});
+
+test('applyMyFastestGoal: ignores own goals even when scorer is me', () => {
+  const b = R.emptyBucket('b');
+  R.applyMyFastestGoal(b, { scorer: { isMe: true }, isOwnGoal: true, goalSpeed: 150 });
+  assert.equal(b.ball.fastestGoalKmh, null);
+});
+
+test('applyMyFastestGoal: records my goal speed', () => {
+  const b = R.emptyBucket('b');
+  R.applyMyFastestGoal(b, { scorer: { isMe: true }, goalSpeed: 132.4 });
+  assert.equal(b.ball.fastestGoalKmh, 132.4);
+});
+
+test('applyMyFastestGoal: keeps the fastest', () => {
+  const b = R.emptyBucket('b');
+  R.applyMyFastestGoal(b, { scorer: { isMe: true }, goalSpeed: 100 });
+  R.applyMyFastestGoal(b, { scorer: { isMe: true }, goalSpeed: 180 });
+  R.applyMyFastestGoal(b, { scorer: { isMe: true }, goalSpeed: 120 });
+  assert.equal(b.ball.fastestGoalKmh, 180);
+});
+
+test('applyMyFastestGoal: missing or non-finite goalSpeed → no-op', () => {
+  const b = R.emptyBucket('b');
+  R.applyMyFastestGoal(b, { scorer: { isMe: true } });
+  R.applyMyFastestGoal(b, { scorer: { isMe: true }, goalSpeed: 'fast' });
+  R.applyMyFastestGoal(b, { scorer: { isMe: true }, goalSpeed: Infinity });
+  R.applyMyFastestGoal(b, null);
+  assert.equal(b.ball.fastestGoalKmh, null);
+});
+
+test('emptyBucket: fastestGoalKmh starts null', () => {
+  const b = R.emptyBucket('b');
+  assert.equal(b.ball.fastestGoalKmh, null);
+});
+
+test('resetMatch: zeros match.modifiers, session modifiers preserved', () => {
+  const b = R.emptyBucket('b');
+  R.applyGoalScored(b, {
+    scorer: { isMe: true },
+    modifiers: { isAerialGoal: true, isHatTrickGoal: true },
+  });
+  R.resetMatch(b);
+  assert.equal(b.match.modifiers.aerial, 0);
+  assert.equal(b.match.modifiers.hatTrick, 0);
+  assert.equal(b.modifiers.aerial, 1, 'session modifiers untouched');
+  assert.equal(b.modifiers.hatTrick, 1, 'session modifiers untouched');
 });

@@ -121,8 +121,9 @@ bus.on('ClockUpdatedSeconds', (d) => {
   '_FirstBlood',
   '_OvertimeStarted',
   '_GoalReplayStarted',
-  '_MatchEnded',
   '_MatchState',
+  '_MatchStarted',
+  '_MatchAbandoned',
   '_IdentityChanged',
   // UpdateState-diff synthetics — same bridge contract as the rest:
   // raw bus delivers them, register({ events }) handlers listen on
@@ -136,6 +137,7 @@ bus.on('ClockUpdatedSeconds', (d) => {
   '_TeamScoreChanged',
   '_DemoChain',
   '_FastestShotOfMatch',
+  '_SavedReplay',
 ].forEach((name) => {
   bus.on(name, (payload) => emitTyped(name, payload));
 });
@@ -196,6 +198,7 @@ export const events = {
   onPlayerLeft: makeOn('_PlayerLeft'),
   onPlayerScoreChanged: makeOn('_PlayerScoreChanged'),
   onBoostPickup: makeOn('_BoostPickup'),
+  onBoostConsumed: makeOn('_BoostConsumed'),
   onBallPossessionChanged: makeOn('_BallPossessionChanged'),
   onTeamScoreChanged: makeOn('_TeamScoreChanged'),
   onFirstTouch: makeOn('_FirstTouch'),
@@ -204,6 +207,9 @@ export const events = {
   onDemoChain: makeOn('_DemoChain'),
   onFastestShotOfMatch: makeOn('_FastestShotOfMatch'),
   onGoalReplayStarted: makeOn('_GoalReplayStarted'),
+  onMatchStarted: makeOn('_MatchStarted'),
+  onMatchAbandoned: makeOn('_MatchAbandoned'),
   onMatchEnded: makeOn('_MatchEnded'),
   onUnknownStatfeed: makeOn('_UnknownStatfeed'),
+  onSavedReplay: makeOn('_SavedReplay'),
 };

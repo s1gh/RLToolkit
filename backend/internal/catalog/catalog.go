@@ -7,8 +7,9 @@
 //
 // Plumbing / framing events are deliberately not cataloged:
 // _ConnectionStatus, _RosterChanged, _DevPluginReload,
-// _OverridesChanged, _SurfaceChanged, _StoreChanged. See
-// backend/internal/bus/bus.go:framingSignals for the bypass list.
+// _OverridesChanged, _PluginUpdated, _SurfaceChanged, _StoreChanged,
+// _ReplayWatcherChanged. See backend/internal/bus/bus.go:framingSignals
+// for the bypass list.
 package catalog
 
 // Entry is one row in the catalog.
@@ -64,6 +65,8 @@ var Entries = []Entry{
 	{Name: "ReplayCreated", Category: "lifecycle", Shape: "match", LivePhases: anyPhase, Desc: "Match-history replay loaded (NOT goal replays).", Stability: "stable", Since: "1.0"},
 
 	// ─── Synthetic events ──────────────────────────────────────
+	{Name: "_MatchStarted", Category: "lifecycle", Shape: "match-started", LivePhases: anyPhase, Desc: "First time a new matchGuid lands in a live-ish phase (Countdown / Live). Fires once per match — the dedicated 'new match has begun' signal plugins should use to reset per-match counters. Cleaner than chaining CountdownBegin + matchGuid-change detection. Cleared on MatchDestroyed, so a reconnect or replay of the same match re-emits.", Stability: "provisional", Since: "1.3"},
+	{Name: "_MatchAbandoned", Category: "lifecycle", Shape: "match-started", LivePhases: anyPhase, Desc: "MatchDestroyed arrived without a matching MatchEnded for the same guid (user ragequit, connection lost mid-match, server crash). RL itself counts this as a forfeit-loss on the leaver's record; plugins should mirror that. Payload is the abandoned matchGuid. Fires at most once per match; a clean MatchEnded followed by MatchDestroyed is normal teardown and is silent.", Stability: "provisional", Since: "1.3"},
 	{Name: "_StatfeedEvent", Category: "stat", Shape: "stat-enriched", LivePhases: liveOrReplay, Desc: "StatfeedEvent with MainTarget/SecondaryTarget pre-resolved against the live roster. NOTE: fires for every Statfeed variant including those with dedicated promoted events (_Save, _Shot, _PlayerDemolished, …). Subscribing to both this and a promoted event will see the same Statfeed twice.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:catchall"},
 	{Name: "_BallHit", Category: "play", Shape: "ballhit-enriched", LivePhases: liveOnly, Desc: "BallHit with Players[] pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
 	{Name: "_CrossbarHit", Category: "play", Shape: "crossbar-enriched", LivePhases: liveOnly, Desc: "CrossbarHit with BallLastTouch.Player pre-resolved against the live roster.", Stability: "provisional", Since: "1.1"},
@@ -74,7 +77,7 @@ var Entries = []Entry{
 	// ─── Statfeed promotions ──────────────────────────────────
 	{Name: "_PlayerDemolished", Category: "stat", Shape: "demolish", LivePhases: liveOrReplay, Desc: "Demolish with attacker / victim resolved + isSelfDemo / isTeamDemo flags + attackerSpeed / attackerWasSupersonic from the most recent UpdateState (SPECTATOR-only).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
 	{Name: "_FlipReset", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "FlipReset with MainTarget resolved + flipResetsThisMatch counter.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
-	{Name: "_HatTrick", Category: "stat", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "HatTrick with MainTarget resolved + goalsThisMatch counter.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
+	{Name: "_HatTrick", Category: "scoring", Shape: "stat-simple", LivePhases: liveOrReplay, Desc: "Fires when a player scores their third real (non-own-goal) goal of the match. MainTarget resolved + goalsThisMatch counter (always 3). Emitted from the Goal pipeline using the authoritative real-goal counter, not RL's HatTrick statfeed (which is delayed and unreliable).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "scoring"},
 	{Name: "_Save", Category: "stat", Shape: "save", LivePhases: liveOrReplay, Desc: "Save with MainTarget resolved + correlatedShot (most recent opposing-team Shot).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
 	{Name: "_EpicSave", Category: "stat", Shape: "save", LivePhases: liveOrReplay, Desc: "Same as _Save but for the EpicSave variant. Mutually exclusive with _Save on the wire.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
 	{Name: "_Shot", Category: "stat", Shape: "shot", LivePhases: liveOrReplay, Desc: "Shot with MainTarget resolved + correlatedTouch (same-frame BallHit with pre/post hit speeds).", Stability: "provisional", Since: "1.1", SubscriptionGroup: "statfeed:promoted"},
@@ -87,7 +90,7 @@ var Entries = []Entry{
 	{Name: "_PlayerJoined", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player appeared this tick that wasn't in the previous tick. Includes current lifecycle phase so consumers can distinguish lobby joins from mid-match joins.", Stability: "provisional", Since: "1.1"},
 	{Name: "_PlayerLeft", Category: "roster", Shape: "player-event", LivePhases: anyPhase, Desc: "Roster diff: player disappeared this tick. Includes current lifecycle phase so consumers can distinguish lobby leaves from mid-match rage-quits.", Stability: "provisional", Since: "1.1"},
 	{Name: "_PlayerScoreChanged", Category: "stat", Shape: "score-delta", LivePhases: anyPhase, Desc: "Per-player stat diff (score, goals, assists, saves, shots, touches, demos). Only fields that moved appear in delta.", Stability: "provisional", Since: "1.1"},
-	{Name: "_BoostPickup", Category: "play", Shape: "boost-pickup", LivePhases: liveOnly, Desc: "Player's Boost increased between ticks (and not because of a respawn). Boost field is omitted in non-spectator mode for opponents — pickup detection only works for visible players.", Stability: "provisional", Since: "1.1"},
+	{Name: "_BoostPickup", Category: "play", Shape: "boost-pickup", LivePhases: liveOnly, Desc: "Player picked up a boost pad. One event per physical pickup — the emitter accumulates the 2-3 rising ticks RL spreads a pad over and flushes when boost stops rising, so delta is the total gain. Respawn reseeds are suppressed. Boost field is omitted in non-spectator mode for opponents, so pickup detection only works for visible players.", Stability: "provisional", Since: "1.1"},
 	{Name: "_BoostConsumed", Category: "play", Shape: "boost-consumed", LivePhases: liveOnly, Desc: "Player's Boost decreased between ticks (and not because of a respawn). Same visibility caveat as _BoostPickup: only emits for players whose Boost field is present in the tick stream.", Stability: "provisional", Since: "1.1"},
 	{Name: "_BallPossessionChanged", Category: "play", Shape: "possession", LivePhases: liveOnly, Desc: "Game.Ball.TeamNum changed between ticks. before/after are nullable — RL's untouched sentinel (255) is normalized to null. Includes triggeredBy (player + pre/post hit speeds) from the most recent BallHit when available.", Stability: "provisional", Since: "1.1"},
 	{Name: "_TeamScoreChanged", Category: "scoring", Shape: "team-score-delta", LivePhases: liveOrReplay, Desc: "A team's Score moved between ticks. Catch-all for score changes — fires alongside _GoalScored (regular goals) and _OwnGoal (verified own goals). Subscribe to one of the three depending on the level of detail you need; subscribing to all means every goal is delivered three times.", Stability: "provisional", Since: "1.1", SubscriptionGroup: "scoring"},

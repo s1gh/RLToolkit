@@ -47,6 +47,23 @@ type TickDiff struct {
 	// the previous match can't swallow the first real spend of the
 	// next.
 	pendingRespawnSuppress map[string]bool
+
+	// pickupStreaks[playerID] tracks an in-progress boost pickup. RL
+	// ramps the Boost field over 2-3 ticks for a single physical pad
+	// pickup, so a naive "one event per rising tick" emits multiple
+	// _BoostPickup events for one pad. We accumulate consecutive
+	// rising ticks into a streak and emit a single _BoostPickup when
+	// the rise stops (boost plateaus or starts falling). delta on the
+	// emitted event is the cumulative gain across the streak.
+	pickupStreaks map[string]*pickupStreak
+}
+
+// pickupStreak holds the in-progress accumulation for one player.
+// startBoost is the Boost value on the tick before the rise began;
+// lastBoost is the latest observed value while still rising.
+type pickupStreak struct {
+	startBoost int
+	lastBoost  int
 }
 
 func NewTickDiff(phase PhaseGate, ticks TickHistory, correlation Correlator, flipReset FlipResetClearer, roster PrimaryIdResolver) *TickDiff {
@@ -57,22 +74,74 @@ func NewTickDiff(phase PhaseGate, ticks TickHistory, correlation Correlator, fli
 		flipReset:              flipReset,
 		roster:                 roster,
 		pendingRespawnSuppress: make(map[string]bool),
+		pickupStreaks:          make(map[string]*pickupStreak),
 	}
 }
 
-// matchEnded clears the per-match respawn-suppression bookkeeping.
-// Called from Process on MatchCreated/MatchDestroyed so a flag armed
-// in one match can't carry over and silently swallow the first real
-// boost spend in the next.
+// armKickoffSuppression flags every player currently above 33 boost
+// for one-shot _BoostConsumed suppression. RL resets every player's
+// boost to 33 between CountdownBegin and RoundStarted; without this
+// guard, the resulting tick-over-tick decrease (e.g. 80→33) gets
+// emitted as a 47-point spend and inflates session totals. Players at
+// 33 or below skip the flag — they won't see a decrease at all.
+// Pickup streaks are also dropped: anything mid-pickup at the goal
+// moment is no longer trustworthy across the reset.
+func (e *TickDiff) armKickoffSuppression() {
+	if e.ticks == nil {
+		return
+	}
+	curr := e.ticks.Latest()
+	if curr == nil {
+		return
+	}
+	if e.pendingRespawnSuppress == nil {
+		e.pendingRespawnSuppress = make(map[string]bool)
+	}
+	for i := range curr.Players {
+		p := &curr.Players[i]
+		if p.ID == "" || p.Boost == nil {
+			continue
+		}
+		if *p.Boost > 33 {
+			e.pendingRespawnSuppress[p.ID] = true
+		}
+		if e.pickupStreaks != nil {
+			delete(e.pickupStreaks, p.ID)
+		}
+	}
+}
+
+// matchEnded clears the per-match respawn-suppression bookkeeping and
+// any in-progress pickup streaks. Called from Process on
+// MatchCreated/MatchDestroyed so a flag armed in one match can't carry
+// over and silently swallow the first real boost spend in the next,
+// and so a half-accumulated pickup from the previous match doesn't
+// flush with stale numbers on the first tick of the new one.
 func (e *TickDiff) matchEnded(_ string) {
 	for k := range e.pendingRespawnSuppress {
 		delete(e.pendingRespawnSuppress, k)
+	}
+	for k := range e.pickupStreaks {
+		delete(e.pickupStreaks, k)
 	}
 }
 
 func (e *TickDiff) Process(evt bus.Event) []bus.Event {
 	if evt.Name == "MatchCreated" || evt.Name == "MatchDestroyed" {
 		e.matchEnded(evt.Name)
+		return nil
+	}
+	if evt.Name == "CountdownBegin" {
+		e.armKickoffSuppression()
+		return nil
+	}
+	if evt.Name == "RoundStarted" {
+		// By the time live play resumes, any kickoff boost reset has
+		// already landed. Clear any flags still armed so they can't
+		// silently swallow a real boost spend later.
+		for k := range e.pendingRespawnSuppress {
+			delete(e.pendingRespawnSuppress, k)
+		}
 		return nil
 	}
 	if evt.Name != "UpdateState" {
@@ -280,11 +349,26 @@ func (e *TickDiff) playerScoreChanged(guid string, prev, curr *types.TickPlayer)
 	return &bus.Event{Name: "_PlayerScoreChanged", Data: body}
 }
 
-// boostPickup fires when Boost increased. Suppresses respawn boost
-// reset (demolished → not demolished) and the first observation in
-// non-spectator mode (prev.Boost nil).
+// boostPickup emits one _BoostPickup per physical pad pickup. RL
+// ramps the Boost field over 2-3 ticks for a single pad, so a "one
+// event per rising tick" approach over-counts. We accumulate
+// consecutive rising ticks into a streak and emit the event when the
+// rise stops (boost plateaus or falls).
+//
+//   - Rising tick (curr > prev): open or extend a streak for the
+//     player; return nil (no event yet).
+//   - Non-rising tick (curr <= prev): if a streak was open, flush it
+//     as one _BoostPickup; otherwise nothing to do.
+//
+// Suppressions:
+//   - Respawn edge (Demolished true→false): the boost jump from 0 to
+//     33 is RL reseeding the spawn boost, not a pickup. Drop any open
+//     streak and don't open a new one for this tick's rise.
+//   - curr.Boost nil: non-spectator mode dropped the field; drop any
+//     open streak and emit nothing.
 func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.Event {
 	if curr.Boost == nil {
+		e.dropPickupStreak(curr.ID)
 		return nil
 	}
 	// RL omits Boost when 0; treat nil as 0 so pickups from empty
@@ -293,16 +377,57 @@ func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.E
 	if prev.Boost != nil {
 		prevBoost = *prev.Boost
 	}
-	if *curr.Boost <= prevBoost {
+	respawnEdge := prev.Demolished && !curr.Demolished
+	rising := *curr.Boost > prevBoost
+
+	if respawnEdge {
+		// The post-respawn reseed isn't a pickup. Discard any
+		// in-flight streak so the reseed tick can't extend it.
+		e.dropPickupStreak(curr.ID)
 		return nil
 	}
-	if prev.Demolished && !curr.Demolished {
+
+	if rising {
+		streak, ok := e.pickupStreaks[curr.ID]
+		if !ok {
+			if e.pickupStreaks == nil {
+				e.pickupStreaks = make(map[string]*pickupStreak)
+			}
+			e.pickupStreaks[curr.ID] = &pickupStreak{
+				startBoost: prevBoost,
+				lastBoost:  *curr.Boost,
+			}
+		} else {
+			streak.lastBoost = *curr.Boost
+		}
 		return nil
 	}
-	// Route through the roster resolver so IsMe (and any other
-	// roster-derived fields) get stamped. A manual EnrichedPlayer
-	// build here would leave IsMe as false even for the local
-	// player, which silently breaks any plugin filtering on isMe.
+
+	// Not rising: flush any open streak as a single event.
+	streak, ok := e.pickupStreaks[curr.ID]
+	if !ok {
+		return nil
+	}
+	delete(e.pickupStreaks, curr.ID)
+	return e.makePickupEvent(guid, curr, streak.startBoost, streak.lastBoost)
+}
+
+// dropPickupStreak removes any in-flight streak for the player without
+// emitting. Used when the data is no longer trustworthy (respawn
+// reseed, missing Boost field).
+func (e *TickDiff) dropPickupStreak(id string) {
+	if id == "" {
+		return
+	}
+	if _, ok := e.pickupStreaks[id]; ok {
+		delete(e.pickupStreaks, id)
+	}
+}
+
+// makePickupEvent builds the _BoostPickup envelope for a flushed
+// streak. Mirrors the resolver+enrichment shape used by
+// boostConsumed so the two events expose identical player payloads.
+func (e *TickDiff) makePickupEvent(guid string, curr *types.TickPlayer, beforeBoost, afterBoost int) *bus.Event {
 	var enriched *types.EnrichedPlayer
 	if e.roster != nil {
 		enriched = e.roster.ResolveByPrimaryId(curr.ID)
@@ -316,25 +441,29 @@ func (e *TickDiff) boostPickup(guid string, prev, curr *types.TickPlayer) *bus.E
 			IsBot:    types.IsBotID(curr.ID),
 		}
 	} else if enriched.Name == "" {
-		// ResolveByPrimaryId returns a minimal stub if the player
-		// isn't in the current roster snapshot yet (early ticks).
-		// Fill the name/team from the live tick so the payload is
-		// still useful.
 		enriched.Name = curr.Name
 		enriched.Team = curr.Team
 	}
+	// Small pads max out at 12 boost; anything with a cumulative rise
+	// of 20+ is unambiguously a big pad. Plugins should filter on this
+	// flag instead of boostAfter==100, since RL clamps mid-rise: a big
+	// pad picked up while consuming boost can leave lastBoost at 88,
+	// 92, 95, etc.
+	delta := afterBoost - beforeBoost
 	body, err := json.Marshal(struct {
 		MatchGUID   string                `json:"matchGuid,omitempty"`
 		Player      *types.EnrichedPlayer `json:"player"`
 		BoostBefore int                   `json:"boostBefore"`
 		BoostAfter  int                   `json:"boostAfter"`
 		Delta       int                   `json:"delta"`
+		IsBigPad    bool                  `json:"isBigPad"`
 	}{
 		MatchGUID:   guid,
 		Player:      enriched,
-		BoostBefore: prevBoost,
-		BoostAfter:  *curr.Boost,
-		Delta:       *curr.Boost - prevBoost,
+		BoostBefore: beforeBoost,
+		BoostAfter:  afterBoost,
+		Delta:       delta,
+		IsBigPad:    delta >= 20,
 	})
 	if err != nil {
 		return nil
