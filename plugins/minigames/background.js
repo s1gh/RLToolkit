@@ -201,6 +201,35 @@
 
   // ---- bootstrap --------------------------------------------------------
 
+  // resolveBootID waits for the first _BootId SSE frame, falling back to
+  // /api/boot-id after a short delay. The SDK doesn't expose RLT.bootId
+  // as a synchronous property; the launcher's boot identifier arrives
+  // asynchronously via the bus. Same pattern as sessiontracker.
+  function resolveBootID() {
+    return new Promise((resolve) => {
+      let resolved = false;
+      const off = RLT.on('_BootId', (p) => {
+        if (resolved) return;
+        resolved = true; off();
+        resolve(p?.bootId || '');
+      });
+      setTimeout(async () => {
+        if (resolved) return;
+        try {
+          const r = await fetch('/api/boot-id');
+          const j = await r.json();
+          if (resolved) return;
+          resolved = true; off();
+          resolve(j?.bootId || '');
+        } catch (_) {
+          if (resolved) return;
+          resolved = true; off();
+          resolve('');
+        }
+      }, 2000);
+    });
+  }
+
   async function bootstrap() {
     // 1. Load challenges.json.
     try {
@@ -216,12 +245,12 @@
       poolEntries = [];
     }
 
-    // 2. Session + records + settings.
+    // 2. Session + records + settings. Hydrate with whatever bootId the
+    // stored session carries; we'll resolve the real bootId asynchronously
+    // below and reseed if it differs.
     const rawSession = await store.get(SESSION_KEY);
-    session = rawSession
-      ? root.MinigamesReducers.wipeIfStaleBoot(rawSession, RLT.bootId || '')
-      : root.MinigamesReducers.emptySession(RLT.bootId || '');
-    if (session !== rawSession) await store.set(SESSION_KEY, session);
+    session = rawSession || root.MinigamesReducers.emptySession('');
+    if (!rawSession) await store.set(SESSION_KEY, session);
 
     const rawRecords = await store.get(RECORDS_KEY);
     records = rawRecords || root.MinigamesReducers.emptyRecords();
@@ -231,8 +260,20 @@
     if (rawSettings?.difficulty) settings = rawSettings;
     if (!rawSettings) await store.set(SETTINGS_KEY, settings);
 
-    // If we booted mid-match (rare: toolkit started while a match is live),
-    // draw immediately so we don't waste the round.
+    // 3. Resolve the real launcher bootId asynchronously. If it differs
+    // from what the stored session was stamped with, wipe and reseed.
+    // The _BootId event handler below also catches the live case where
+    // the launcher restarts while this iframe is still mounted.
+    resolveBootID().then(async (liveBootId) => {
+      if (!liveBootId) return;
+      if (session.bootId === liveBootId) return;
+      teardownActive();
+      session = root.MinigamesReducers.emptySession(liveBootId);
+      try { await store.set(SESSION_KEY, session); } catch (_) {}
+    });
+
+    // 4. If we booted mid-match (rare: toolkit started while a match is
+    // live), draw immediately so we don't waste the round.
     if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
       ensureMatchEntry();
       drawNext();
@@ -581,6 +622,17 @@
     },
 
     events: {
+      _BootId(e) {
+        // Launcher backend boot ID changed (process restarted while the
+        // iframe stayed mounted). Wipe the per-session state so the level
+        // resets like a fresh launch.
+        const live = e?.bootId;
+        if (!live || !session || session.bootId === live) return;
+        teardownActive();
+        session = root.MinigamesReducers.emptySession(live);
+        persistSession();
+      },
+
       _MatchStarted(e) {
         if (!e?.matchGuid) return;
         ensureMatchEntry(e.matchGuid);
