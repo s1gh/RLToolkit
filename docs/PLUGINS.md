@@ -36,7 +36,7 @@ overlays on top of the game.
   - [Touch & ball events](#touch--ball-events)
   - [Statfeed events](#statfeed-events)
   - [Demo correlation](#demo-correlation)
-  - [Tick-diff events](#tick-diff-events)
+  - [Tick-diff and match-boundary events](#tick-diff-and-match-boundary-events)
   - [Tick stream](#tick-stream)
   - [Identity & boot signals](#identity--boot-signals)
 - [Phase gating](#phase-gating)
@@ -118,15 +118,21 @@ read.
 
 Behaviors that vary by view:
 
-- **`RLT.widget.*` calls** (resize, anchor, opacity, autoSize, …) only
-  do anything inside the Tauri overlay window. In dashboard/settings
-  contexts they no-op gracefully (resolve to `false`). Safe to call
-  unconditionally; gate on `RLT.widget.isHosted()` if the no-op would
+- **`RLT.widget.*` window-shape ops** (`size`, `anchor`, `margin`,
+  `opacity`, `visible`) only do anything inside the Tauri overlay
+  window. Outside Tauri they resolve to `false`. The sizing helpers
+  (`autoSize`, `fitWidth`) also work in hosted iframes — they post the
+  measured size to the parent aggregator (web overlay / OBS browser
+  source), which honors the message only on axes the manifest declared
+  as `"auto"`. All of these are safe to call unconditionally; gate on
+  `RLT.widget.isHosted()` (which means "in Tauri") if a no-op would
   hide a real bug.
 - **`RLT.store` writes** are allowed from the overlay and settings
   views (which are user-controlled and trustworthy). The dashboard
-  view is read-only by default; override with `allowWrites: true` on
-  `register()` if you have interactive write UI in the dashboard.
+  and background views are read-only by default; override with
+  `allowWrites: true` on `register()` if your view has legitimate
+  reasons to write (interactive UI in the dashboard, an autonomous
+  worker in the background).
 - **`RLT.settings.close()`** only does anything in the settings view
   (it posts to the dashboard parent telling it to close the modal).
 - **Cross-view state sync** is automatic via `RLT.store.onChange` —
@@ -465,19 +471,24 @@ no nested top-level folder. The canonical filename is
 `<name>-<version>.rltp`, derived from the manifest.
 
 The `rl-toolkit` binary has subcommands for working with `.rltp`
-files:
+files and plugin folders:
 
 ```sh
-rl-toolkit pack [-out <dir>] <plugin-folder>
+rl-toolkit new <name> [-plugins <dir>]
+# Scaffolds a new plugin folder under plugins/<name> with a minimal
+# manifest.json + overlay.html. The fastest way to start authoring.
+
+rl-toolkit pack [<plugin-folder>] [-out <dir>]
 # Zips a plugin source folder into <name>-<version>.rltp.
 
-rl-toolkit install [-plugins <dir>] <file.rltp>
+rl-toolkit install <file.rltp> [-plugins <dir>]
 # Unzips a .rltp into the plugins directory (default: the per-OS
 # RLToolkit data dir, e.g. ~/.local/share/RLToolkit/plugins on Linux,
 # %LOCALAPPDATA%\RLToolkit\plugins on Windows, or
-# ~/Library/Application Support/RLToolkit/plugins on macOS).
+# ~/Library/Application Support/RLToolkit/plugins on macOS). This
+# writes to disk directly — it does not require a running backend.
 
-rl-toolkit uninstall [-plugins <dir>] <name>
+rl-toolkit uninstall <name> [-plugins <dir>]
 # Removes an installed plugin folder.
 
 rl-toolkit dev <plugin-folder>
@@ -518,10 +529,12 @@ isn't running with the dev API on. Restart it with `-dev`.
 End users install third-party plugins two ways: the dashboard's
 "Install plugin…" button (in the Plugins section header) opens a
 native file picker for a `.rltp`, or `rl-toolkit install path/to/plugin.rltp`
-from a terminal. Both run the same install path: validate the
-manifest, replace the existing plugin folder if any, write the new
-files. The picker uploads to the same `POST /api/sideload` endpoint
-the CLI's HTTP path uses.
+from a terminal. Both share the same underlying install logic
+(validate the manifest, replace the existing plugin folder if any,
+write the new files), but use different transports: the dashboard
+picker uploads to `POST /api/sideload` on the running backend, while
+the CLI writes to the plugins directory on disk directly — it doesn't
+talk to a running server.
 
 To remove a plugin, click the trash icon on its dashboard card (a
 confirm modal protects against accidents) or run `rl-toolkit uninstall <name>`.
@@ -683,7 +696,7 @@ The proxy:
 | `RLT.encounters`                      | Cross-plugin player-encounter ledger.                    |
 | `RLT.store`                           | Per-plugin K/V storage (namespaced by your plugin name). |
 | `RLT.events`                          | Typed event subscription helpers.                        |
-| `RLT.events.catalog`                  | The full 51-entry event catalog (read-only).             |
+| `RLT.events.catalog`                  | The full 55-entry event catalog (read-only).             |
 | `RLT.events.byCategory`               | `{tick, scoring, play, stat, lifecycle, replay, roster}` index. |
 | `RLT.stats`                           | Statfeed `eventName` registry.                           |
 | `RLT.ui`                              | Toasts, time formatting, platform icons.                 |
@@ -693,8 +706,10 @@ The proxy:
 | `RLT.status()` / `RLT.onStatus(fn)`   | Raw bus connection state.                                |
 | `RLT.statusStable()` / `RLT.onStatusStable(fn)` | Debounced version (smooths reconnect blips).   |
 | `RLT.on(ev, fn)` / `RLT.off(ev, fn)` | Low-level bus subscribe / unsubscribe.                   |
-| `RLT.view`                            | `'overlay'` / `'dashboard'` / `'settings'` — see [Render contexts](#render-contexts). |
-| `RLT.isOverlay` / `RLT.isDashboard` / `RLT.isSettingsView` | Boolean shorthands for `RLT.view`.    |
+| `RLT.onIdentityChange(fn)`            | Subscribe to identity changes (alias for `RLT.me.onChange`). |
+| `RLT._reconnect()`                    | Force-close and reopen the SSE connection. Useful from debug consoles. |
+| `RLT.view`                            | `'overlay'` / `'dashboard'` / `'settings'` / `'background'` — see [Render contexts](#render-contexts). |
+| `RLT.isOverlay` / `RLT.isDashboard` / `RLT.isSettingsView` / `RLT.isBackground` | Boolean shorthands for `RLT.view`. |
 | `RLT.settings.close()`                | Closes the settings panel (settings view only).          |
 
 ### Plugin lifecycle: `RLT.plugin.register`
@@ -702,7 +717,9 @@ The proxy:
 ```js
 const handle = RLT.plugin.register({
   // Optional: gate handlers to specific phases. Default = always fire.
-  // 'idle' is a back-compat alias for 'none'.
+  // Accepts an array of phase names, a single phase string, or '*' for
+  // "every phase" (same as omitting the option). 'idle' is a back-compat
+  // alias for 'none'.
   whilePhase: ['live', 'replay', 'paused', 'countdown'],
 
   // Event handlers. Object keys are event names; values are functions.
@@ -720,6 +737,8 @@ const handle = RLT.plugin.register({
   onIdentity(id)  { /* fires when the user's identity changes */ },
   onEncounters(map) { /* fires when the encounter ledger changes */ },
   onState(next, prev) { /* fires on every phase change */ },
+  // onLifecycle is accepted as an alias for onState; new plugins should
+  // use onState. Only one of the two will be wired.
   onMatchActive(active) { /* fires when matchActive flips */ },
   onFocusChange(active) { /* fires when game-window focus changes */ },
 
@@ -742,6 +761,7 @@ handle.author
 handle.manifest  // parsed manifest object (or null until loaded)
 handle.store     // per-plugin K/V store
 handle.events    // array of subscribed event names
+handle.spec      // the spec object you passed to register() (escape hatch)
 handle.disposed  // boolean
 handle.dispose() // unsubscribe everything + invoke spec.dispose
 ```
@@ -1041,7 +1061,7 @@ that, the SSE stream would filter it out.
 
 ## Event reference
 
-There are 51 events in the catalog. They fall into two camps:
+There are 55 events in the catalog. They fall into two camps:
 
 - **Raw events** — produced by Rocket League's stats API and forwarded
   by the toolkit. Names are PascalCase (e.g. `GoalScored`,
@@ -1066,14 +1086,23 @@ Every "player" reference in synthetic event payloads has this shape:
   id,        // "Platform|UserId|SubId", e.g. "Steam|76561198000000000|0", or "Bot|<name>"
   name,      // display name
   team,      // 0 (blue) or 1 (orange)
-  platform,  // "Steam" | "Epic" | "PS4" | "PS5" | "Xbox" | "Switch" | …
+  platform,  // "Steam" | "Epic" | "PS4" | "PS5" | "Xbox" | "Switch" | … (omitted when empty)
   isBot,     // boolean
-  isMe,      // true if id === RLT.me.id (stamped by the SDK)
+  isMe,      // true if id === RLT.me.id (stamped by the SDK; omitted when false)
   encounter, // RLT.encounters record for this player, if known (stamped by the SDK)
 }
 ```
 
-`encounter` is `undefined` for first-time-seen players.
+`isMe` and `encounter` are stamped by the SDK only on synthetic
+(`_`-prefixed) event payloads. Raw RL events are not walked: any player
+object reached via the `raw` field of a lifecycle event won't have
+these fields, so resolve from `id` against `RLT.me` / `RLT.encounters`
+if you need them in that context.
+
+`encounter` is `undefined` for first-time-seen players. `platform` and
+`isMe` carry `omitempty` on the wire, so they're absent from the JSON
+when empty / false rather than present-with-falsy-value — guard with
+`?.` or default checks accordingly.
 
 ### Lifecycle events
 
@@ -1114,8 +1143,8 @@ The authoritative current phase. Fires on every transition.
   matchActive: boolean,              // true while a match is in flight
   phase: 'none'|'lobby'|'countdown'|'live'|'paused'|'replay'|'ended'|'podium',
   previousPhase: <phase>,
-  matchGuid: string,
-  since: '2026-05-07T12:34:56.000+00:00', // ISO 8601
+  matchGuid: string,                  // omitted when empty
+  since: '2026-05-07T12:34:56Z',      // ISO 8601 (Go's default time.Time encoding)
   phaseDurationSeconds: number,       // how long we've been in this phase
   trigger: 'MatchCreated'|'UpdateState'|'CountdownBegin'|'RoundStarted'|
            'MatchPaused'|'MatchUnpaused'|'MatchEnded'|'PodiumStart'|
@@ -1397,9 +1426,15 @@ per-demo `_PlayerDemolished` stream.
 }
 ```
 
-### Tick-diff events
+### Tick-diff and match-boundary events
 
-These watch UpdateState frame-to-frame and emit on changes.
+`_PlayerScoreChanged`, `_BoostPickup`, and `_BoostConsumed` watch
+UpdateState frame-to-frame and emit on changes. The rest are
+match-boundary signals (`_MatchStarted`, `_MatchAbandoned`,
+`_MatchEnded`) and disk-watcher signals (`_SavedReplay`) emitted by
+the state machine and the replay watcher respectively, grouped here
+because plugins typically subscribe to them alongside the diff events
+when tracking per-match state.
 
 #### `_PlayerScoreChanged`
 
@@ -1807,7 +1842,7 @@ without doing the math themselves.
 | 405 | Method not GET | `{"error":"method not allowed"}` |
 | 409 | `/api/mmr` called with no identity set | `{"error":"identity not set"}` |
 | 501 | Self route, identity uses an unknown platform prefix | `{"error":"platform not supported","platform":"stadia"}` |
-| 502 | Cloudflare blocked us, or upstream returned an unexpected status | `{"error":"upstream blocked","upstreamStatus":403}` or `{"error":"upstream error","upstreamStatus":500}` (status omitted for network / parse failures) |
+| 502 | Cloudflare blocked us, or upstream returned an unexpected status | `{"error":"upstream blocked","upstreamStatus":403}` (always carries `upstreamStatus`; the block path is always an HTTP 403/429) or `{"error":"upstream error","upstreamStatus":500}` (`upstreamStatus` omitted for network / parse failures that don't carry an HTTP status) |
 | 503 + `Retry-After` | Local rate limit or breaker is open | `{"error":"rate limited"}` or `{"error":"upstream temporarily unavailable"}` |
 | 504 | Request context cancelled or timed out before tracker.gg responded | `{"error":"upstream timeout"}` |
 
