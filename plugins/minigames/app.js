@@ -59,6 +59,12 @@
   let pendingRecapObjective = null;
   let currentPhase = null;
   let lastRenderedChallengeId = null;
+  // Hide the overlay during the first ~400ms after init so the background
+  // view's async objective draw lands before we render anything. Prevents a
+  // visible "Waiting for next match" -> objective card pop-in blink at start.
+  const INITIAL_RENDER_HOLD_MS = 400;
+  let firstPopulatedRenderHappened = false;
+  let holdInitialRenderUntil = 0;
 
   // ---- overlay ---------------------------------------------------------
 
@@ -67,6 +73,20 @@
     if (!session) {
       rootEl.innerHTML = '';
       return;
+    }
+    // Hold the first render until the background view has had a chance to
+    // seat the objective. Without this, the overlay renders a transient
+    // "Waiting for next match" state for ~100-300ms before the objective
+    // pops in, which reads as a visible blink. Once we've rendered the
+    // populated state at least once, subsequent renders go through normally.
+    if (!firstPopulatedRenderHappened) {
+      const hasObjective = !!session.activeObjective;
+      const hasTask = !!session.activeTask;
+      const isWaitingForObjective = !hasObjective && !hasTask && !recapData;
+      if (isWaitingForObjective && Date.now() < holdInitialRenderUntil) {
+        return;
+      }
+      firstPopulatedRenderHappened = true;
     }
 
     const inRecap = recapShownUntil > Date.now() && recapData;
@@ -538,8 +558,18 @@
       });
     },
     async ready() {
+      // Start the initial-render hold timer before the first pullState so
+      // the overlay stays blank until the background view's objective draw
+      // has had a chance to land (or the hold expires, whichever first).
+      holdInitialRenderUntil = Date.now() + INITIAL_RENDER_HOLD_MS;
       await pullState();
       rerender();
+      // Force a rerender after the hold window expires so we paint even if
+      // the background view never gets around to seating an objective
+      // (e.g. empty pool, or the user has no objectives configured).
+      if (RLT.isOverlay) {
+        setTimeout(() => { rerender(); }, INITIAL_RENDER_HOLD_MS + 50);
+      }
       // The overlay's countdown display is one-second resolution; the
       // background writes tick events at 1Hz already, so we only need
       // a local check often enough to catch the second-flip in case
