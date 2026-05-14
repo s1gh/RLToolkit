@@ -867,6 +867,22 @@
         }
       },
 
+      _MatchState(p) {
+        // _MatchState fires on every real phase transition. Use it to catch
+        // the case where the plugin started up while a match was already in
+        // progress — _MatchStarted fired before we subscribed, but the first
+        // _MatchState transition into a gameplay phase still reaches us and
+        // we can draw then. Gated on currentMatchGuid() so we don't draw
+        // during a lobby->countdown transition for a match the plugin never
+        // saw the start of.
+        if (!p || !isGameplay(p.phase)) return;
+        if (activeTask) return;
+        const guid = currentMatchGuid();
+        if (!guid) return;
+        ensureMatchEntry(guid);
+        drawNext();
+      },
+
       _MatchEnded(e) {
         if (activeTask) timeoutActive();
         const guid = e?.matchGuid || currentMatchGuid();
