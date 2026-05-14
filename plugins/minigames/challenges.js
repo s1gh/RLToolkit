@@ -140,13 +140,28 @@
   // ---- DSL: validation ---------------------------------------------------
 
   const VALID_TIERS = ['easy', 'medium', 'hard'];
-  const VALID_TRIGGER_KINDS = [
+  const LEAF_TRIGGER_KINDS = [
     'goal', 'demo', 'save', 'epicSave', 'statfeed',
     'boostPickup', 'boostConsumed', 'touch', 'crossbar',
     'firstBlood', 'hatTrick', 'demoChain', 'fastestShotOfMatch',
     'matchEndCondition',
   ];
+  const COMPOSITE_TRIGGER_KINDS = ['sequence', 'all'];
+  const VALID_TRIGGER_KINDS = LEAF_TRIGGER_KINDS.concat(COMPOSITE_TRIGGER_KINDS);
+  // matchEndCondition is itself a composite predicate and cannot nest inside
+  // a sequence/all composite. sequence/all also cannot nest.
+  const VALID_SUBTRIGGER_KINDS = LEAF_TRIGGER_KINDS.filter((k) => k !== 'matchEndCondition');
   const VALID_ENTRY_KINDS = ['task', 'objective'];
+
+  function validateSubTrigger(spec, path, errs) {
+    if (!spec || typeof spec !== 'object') {
+      errs.push(path + ' must be an object');
+      return;
+    }
+    if (!VALID_SUBTRIGGER_KINDS.includes(spec.kind)) {
+      errs.push(path + '.kind unsupported in composite: ' + spec.kind);
+    }
+  }
 
   function validateEntry(entry) {
     const errs = [];
@@ -156,6 +171,18 @@
     if (!VALID_TIERS.includes(entry.tier)) errs.push('tier must be one of ' + VALID_TIERS.join('/'));
     if (!entry.trigger || typeof entry.trigger !== 'object') errs.push('trigger must be an object');
     else if (!VALID_TRIGGER_KINDS.includes(entry.trigger.kind)) errs.push('trigger.kind unknown: ' + entry.trigger.kind);
+    else if (entry.trigger.kind === 'sequence') {
+      const f = entry.trigger.filters || {};
+      validateSubTrigger(f.first, 'trigger.filters.first', errs);
+      validateSubTrigger(f.then, 'trigger.filters.then', errs);
+    } else if (entry.trigger.kind === 'all') {
+      const f = entry.trigger.filters || {};
+      if (!Array.isArray(f.of) || f.of.length === 0) {
+        errs.push('trigger.filters.of must be a non-empty array');
+      } else {
+        f.of.forEach((spec, i) => validateSubTrigger(spec, 'trigger.filters.of[' + i + ']', errs));
+      }
+    }
     if (entry.count != null && (typeof entry.count !== 'number' || entry.count < 1)) errs.push('count must be a positive integer');
     if (entry.reward != null && typeof entry.reward !== 'number') errs.push('reward must be a number');
     if (entry.failPenalty != null && typeof entry.failPenalty !== 'number') errs.push('failPenalty must be a number');
@@ -272,6 +299,126 @@
 
   // ---- DSL: armers per trigger kind --------------------------------------
 
+  // attachLeaf subscribes a single leaf trigger kind to the bus and calls
+  // onFire() whenever the predicate matches. It returns a disposer that
+  // removes the subscription. Used both by buildArmer for the count-driven
+  // path (with tick() as onFire) and by composite triggers (sequence/all)
+  // to wire up sub-triggers without the outer arm() shell.
+  //
+  // Note: for `touch`, this fires per qualifying touch (no consecutive
+  // logic). For `boostConsumed`, it encapsulates the sum and fires onFire
+  // exactly once when sumDelta is reached. For `boostPickup`, it fires per
+  // qualifying pickup.
+  function attachLeaf(kind, filters, runtime, ctx, onFire) {
+    if (kind === 'goal') {
+      return ctx.on('_GoalScored', (e) => {
+        if (matchGoal(e, filters, runtime)) onFire();
+      });
+    }
+    if (kind === 'demo') {
+      return ctx.on('_PlayerDemolished', (e) => {
+        if (matchDemo(e, filters, runtime)) onFire();
+      });
+    }
+    if (kind === 'save') {
+      return ctx.on('_StatfeedEvent', (e) => {
+        const want = ctx.stats?.SAVE || 'Save';
+        if (!e || e.eventName !== want) return;
+        if (filters.isMe !== false && !e.mainTarget?.isMe) return;
+        onFire();
+      });
+    }
+    if (kind === 'epicSave') {
+      return ctx.on('_EpicSave', (e) => {
+        if (filters.isMe !== false && !e?.mainTarget?.isMe) return;
+        onFire();
+      });
+    }
+    if (kind === 'statfeed') {
+      return ctx.on('_StatfeedEvent', (e) => {
+        const want = ctx.stats?.[filters.eventName] || filters.eventName;
+        if (!e || e.eventName !== want) return;
+        if (filters.targetIsMe !== false && !e.mainTarget?.isMe) return;
+        onFire();
+      });
+    }
+    if (kind === 'boostPickup') {
+      return ctx.on('_BoostPickup', (e) => {
+        if (!e?.player) return;
+        if (filters.isMe !== false && !e.player.isMe) return;
+        if (typeof filters.minDelta === 'number' && (e.delta || 0) < filters.minDelta) return;
+        if (filters.isBigPad === true && !e.isBigPad) return;
+        if (filters.isBigPad === false && e.isBigPad) return;
+        if (typeof filters.boostAfterEq === 'number' && (e.boostAfter || 0) !== filters.boostAfterEq) return;
+        onFire();
+      });
+    }
+    if (kind === 'boostConsumed') {
+      const goal = typeof filters.sumDelta === 'number' && filters.sumDelta > 0 ? filters.sumDelta : 0;
+      let sum = 0;
+      let fired = false;
+      return ctx.on('_BoostConsumed', (e) => {
+        if (fired) return;
+        if (!e?.player) return;
+        if (filters.isMe !== false && !e.player.isMe) return;
+        sum += (e.delta || 0);
+        if (sum >= goal) { fired = true; onFire(); }
+      });
+    }
+    if (kind === 'touch') {
+      const meOnly = filters.isMe !== false;
+      return ctx.on('_BallHit', (e) => {
+        const player = e?.players?.[0];
+        if (!player) return;
+        if (meOnly && !player.isMe) return;
+        onFire();
+      });
+    }
+    if (kind === 'crossbar') {
+      return ctx.on('_CrossbarHit', (e) => {
+        const player = e?.ballLastTouch?.player;
+        if (!player) return;
+        if (filters.isMe !== false && !player.isMe) return;
+        onFire();
+      });
+    }
+    if (kind === 'firstBlood') {
+      return ctx.on('_FirstBlood', (e) => {
+        if (!e?.scorer) return;
+        if (filters.isMe !== false && !e.scorer.isMe) return;
+        onFire();
+      });
+    }
+    if (kind === 'hatTrick') {
+      return ctx.on('_HatTrick', (e) => {
+        if (!e?.mainTarget) return;
+        if (filters.isMe !== false && !e.mainTarget.isMe) return;
+        onFire();
+      });
+    }
+    if (kind === 'demoChain') {
+      const minCount = typeof filters.minCount === 'number' && filters.minCount >= 2 ? filters.minCount : 2;
+      return ctx.on('_DemoChain', (e) => {
+        if (!e?.attacker) return;
+        if (filters.isMe !== false && !e.attacker.isMe) return;
+        if ((e.count || 0) < minCount) return;
+        onFire();
+      });
+    }
+    if (kind === 'fastestShotOfMatch') {
+      return ctx.on('_FastestShotOfMatch', (e) => {
+        if (!e?.player) return;
+        if (filters.isMe !== false && !e.player.isMe) return;
+        if (typeof filters.minSpeed === 'number' && (e.speed || 0) < filters.minSpeed) return;
+        onFire();
+      });
+    }
+    // Unsupported as a leaf in a composite (matchEndCondition) or unknown
+    // kind: return a no-op disposer. validateEntry rejects this earlier so
+    // we never reach here in practice.
+    return () => {};
+  }
+
   function buildArmer(entry, runtime, ctx) {
     const filters = entry.trigger?.filters || {};
     const target = entry.count && entry.count > 1 ? entry.count : 1;
@@ -307,49 +454,7 @@
 
       const kind = entry.trigger.kind;
 
-      if (kind === 'goal') {
-        unsubs.push(ctx.on('_GoalScored', (e) => {
-          if (!matchGoal(e, filters, runtime)) return;
-          tick();
-        }));
-      } else if (kind === 'demo') {
-        unsubs.push(ctx.on('_PlayerDemolished', (e) => {
-          if (!matchDemo(e, filters, runtime)) return;
-          tick();
-        }));
-      } else if (kind === 'save') {
-        unsubs.push(ctx.on('_StatfeedEvent', (e) => {
-          const want = ctx.stats?.SAVE || 'Save';
-          if (!e || e.eventName !== want) return;
-          if (filters.isMe !== false && !e.mainTarget?.isMe) return;
-          tick();
-        }));
-      } else if (kind === 'epicSave') {
-        unsubs.push(ctx.on('_EpicSave', (e) => {
-          if (filters.isMe !== false && !e?.mainTarget?.isMe) return;
-          tick();
-        }));
-      } else if (kind === 'statfeed') {
-        unsubs.push(ctx.on('_StatfeedEvent', (e) => {
-          const want = ctx.stats?.[filters.eventName] || filters.eventName;
-          if (!e || e.eventName !== want) return;
-          if (filters.targetIsMe !== false && !e.mainTarget?.isMe) return;
-          tick();
-        }));
-      } else if (kind === 'boostPickup') {
-        unsubs.push(ctx.on('_BoostPickup', (e) => {
-          if (!e?.player) return;
-          if (filters.isMe !== false && !e.player.isMe) return;
-          if (typeof filters.minDelta === 'number' && (e.delta || 0) < filters.minDelta) return;
-          // Backend tags _BoostPickup payloads with isBigPad. Prefer this flag
-          // for big/small pad discrimination; boostAfterEq stays supported for
-          // backward compatibility with older challenge configs.
-          if (filters.isBigPad === true && !e.isBigPad) return;
-          if (filters.isBigPad === false && e.isBigPad) return;
-          if (typeof filters.boostAfterEq === 'number' && (e.boostAfter || 0) !== filters.boostAfterEq) return;
-          tick();
-        }));
-      } else if (kind === 'boostConsumed') {
+      if (kind === 'boostConsumed') {
         // boostConsumed is sum-based, not count-based: ignore `count` and instead
         // accumulate `delta` until `filters.sumDelta` is reached.
         const goal = typeof filters.sumDelta === 'number' && filters.sumDelta > 0 ? filters.sumDelta : 0;
@@ -391,45 +496,52 @@
             tick();
           }
         }));
-      } else if (kind === 'crossbar') {
-        unsubs.push(ctx.on('_CrossbarHit', (e) => {
-          // _CrossbarHit reports the last ball-toucher under
-          // ballLastTouch.player; there is no top-level player field.
-          const player = e?.ballLastTouch?.player;
-          if (!player) return;
-          if (filters.isMe !== false && !player.isMe) return;
-          tick();
-        }));
-      } else if (kind === 'firstBlood') {
-        unsubs.push(ctx.on('_FirstBlood', (e) => {
-          if (!e?.scorer) return;
-          if (filters.isMe !== false && !e.scorer.isMe) return;
-          tick();
-        }));
-      } else if (kind === 'hatTrick') {
-        unsubs.push(ctx.on('_HatTrick', (e) => {
-          if (!e?.mainTarget) return;
-          if (filters.isMe !== false && !e.mainTarget.isMe) return;
-          tick();
-        }));
-      } else if (kind === 'demoChain') {
-        // _DemoChain re-fires for each demo inside the rolling window with
-        // the running count. Treat any fire with count >= minCount as a
-        // success; default minCount is 2 (the minimum chain).
-        const minCount = typeof filters.minCount === 'number' && filters.minCount >= 2 ? filters.minCount : 2;
-        unsubs.push(ctx.on('_DemoChain', (e) => {
-          if (!e?.attacker) return;
-          if (filters.isMe !== false && !e.attacker.isMe) return;
-          if ((e.count || 0) < minCount) return;
-          tick();
-        }));
-      } else if (kind === 'fastestShotOfMatch') {
-        unsubs.push(ctx.on('_FastestShotOfMatch', (e) => {
-          if (!e?.player) return;
-          if (filters.isMe !== false && !e.player.isMe) return;
-          if (typeof filters.minSpeed === 'number' && (e.speed || 0) < filters.minSpeed) return;
-          tick();
-        }));
+      } else if (kind === 'sequence') {
+        // filters: { first: {kind, filters}, then: {kind, filters}, withinMs }
+        const firstSpec = filters.first || {};
+        const thenSpec = filters.then || {};
+        const withinMs = typeof filters.withinMs === 'number' ? filters.withinMs : 30000;
+        let firstAt = 0; // 0 means "not yet fired"
+        let thenDispose = null;
+        const armThen = () => {
+          if (thenDispose) return;
+          thenDispose = attachLeaf(thenSpec.kind, thenSpec.filters || {}, runtime, ctx, () => {
+            if (firstAt === 0) return;
+            const now = ctx.now ? ctx.now() : Date.now();
+            if (now - firstAt <= withinMs) {
+              tick();
+              try { if (thenDispose) thenDispose(); } catch (_) {}
+              thenDispose = null;
+              // Reset so a subsequent first event can re-arm for count > 1.
+              firstAt = 0;
+            }
+          });
+        };
+        const firstDispose = attachLeaf(firstSpec.kind, firstSpec.filters || {}, runtime, ctx, () => {
+          firstAt = ctx.now ? ctx.now() : Date.now();
+          armThen();
+        });
+        unsubs.push(firstDispose);
+        unsubs.push(() => { try { if (thenDispose) thenDispose(); } catch (_) {} });
+      } else if (kind === 'all') {
+        // filters: { of: [{kind, filters}, ...], withinMs }
+        const subs = Array.isArray(filters.of) ? filters.of : [];
+        const withinMs = typeof filters.withinMs === 'number' ? filters.withinMs : 60000;
+        const fireTimes = subs.map(() => 0);
+        subs.forEach((spec, i) => {
+          const dispose = attachLeaf(spec.kind, spec.filters || {}, runtime, ctx, () => {
+            fireTimes[i] = ctx.now ? ctx.now() : Date.now();
+            if (fireTimes.every((t) => t > 0)) {
+              const lo = Math.min.apply(null, fireTimes);
+              const hi = Math.max.apply(null, fireTimes);
+              if (hi - lo <= withinMs) {
+                tick();
+                for (let j = 0; j < fireTimes.length; j += 1) fireTimes[j] = 0;
+              }
+            }
+          });
+          unsubs.push(dispose);
+        });
       } else if (kind === 'matchEndCondition') {
         // Composite predicates resolved at match end.
         if (filters.noOwnGoal) {
@@ -459,6 +571,12 @@
             if (e.concedingTeam === my) dirty = true;
           }));
         }
+      } else {
+        // All remaining leaf kinds (goal, demo, save, epicSave, statfeed,
+        // boostPickup, crossbar, firstBlood, hatTrick, demoChain,
+        // fastestShotOfMatch) share a uniform "fire once per match" shape,
+        // so we route them through attachLeaf with tick() as the callback.
+        unsubs.push(attachLeaf(kind, filters, runtime, ctx, () => tick()));
       }
 
       return () => { for (const u of unsubs) { try { u(); } catch (_) {} } };

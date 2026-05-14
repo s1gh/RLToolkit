@@ -284,6 +284,79 @@
       "tier": "hard",
       "xp": { "reward": 250, "penalty": 100 },
       "trigger": { "kind": "matchEndCondition", "filters": { "cleanRound": true } }
+    },
+    {
+      "id": "save-then-goal",
+      "title": "Score within 30s of making a save",
+      "tier": "medium",
+      "timeLimitMs": 90000,
+      "trigger": {
+        "kind": "sequence",
+        "filters": {
+          "withinMs": 30000,
+          "first": { "kind": "save", "filters": { "isMe": true } },
+          "then": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
+        }
+      }
+    },
+    {
+      "id": "demo-then-goal",
+      "title": "Score within 10s of demoing an opponent",
+      "tier": "hard",
+      "timeLimitMs": 60000,
+      "trigger": {
+        "kind": "sequence",
+        "filters": {
+          "withinMs": 10000,
+          "first": { "kind": "demo", "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true } },
+          "then": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
+        }
+      }
+    },
+    {
+      "id": "crossbar-then-save",
+      "title": "Hit a crossbar, then save within 20s",
+      "tier": "hard",
+      "timeLimitMs": 120000,
+      "trigger": {
+        "kind": "sequence",
+        "filters": {
+          "withinMs": 20000,
+          "first": { "kind": "crossbar", "filters": { "isMe": true } },
+          "then": { "kind": "save", "filters": { "isMe": true } }
+        }
+      }
+    },
+    {
+      "id": "triple-threat",
+      "title": "Get a save, shot, and demo within 60s",
+      "tier": "medium",
+      "timeLimitMs": 90000,
+      "trigger": {
+        "kind": "all",
+        "filters": {
+          "withinMs": 60000,
+          "of": [
+            { "kind": "save", "filters": { "isMe": true } },
+            { "kind": "statfeed", "filters": { "eventName": "Shot", "targetIsMe": true } },
+            { "kind": "demo", "filters": { "attackerIsMe": true, "excludeSelfDemo": true, "excludeTeamDemo": true } }
+          ]
+        }
+      }
+    },
+    {
+      "id": "flipreset-then-goal",
+      "title": "Get a flip reset, then score within 5s",
+      "tier": "hard",
+      "timeLimitMs": 120000,
+      "trigger": {
+        "kind": "sequence",
+        "filters": {
+          "withinMs": 5000,
+          "first": { "kind": "statfeed", "filters": { "eventName": "FlipReset", "targetIsMe": true } },
+          "then": { "kind": "goal", "filters": { "isMe": true, "ownGoal": false } }
+        }
+      }
     }
   ]
 }

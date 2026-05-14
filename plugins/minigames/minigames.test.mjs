@@ -1019,3 +1019,250 @@ test('challenges.json: splits cleanly into task and objective pools', () => {
   const objIds = objectives.map((c) => c.id).sort();
   assert.deepEqual(objIds, ['clean-sheet', 'fastest-shot-match', 'goal-overtime', 'mvp', 'no-og', 'win-match']);
 });
+
+// ---- composite trigger tests (sequence + all) ----
+
+test('validateEntry: rejects sequence with nested sequence', () => {
+  const entry = {
+    id: 'bad', title: 'bad', tier: 'medium',
+    trigger: {
+      kind: 'sequence',
+      filters: {
+        withinMs: 5000,
+        first: { kind: 'sequence', filters: {} },
+        then: { kind: 'goal', filters: { isMe: true } },
+      },
+    },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /first/.test(e) && /sequence/.test(e)), `expected nested-sequence error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: rejects sequence with matchEndCondition sub', () => {
+  const entry = {
+    id: 'bad', title: 'bad', tier: 'medium',
+    trigger: {
+      kind: 'sequence',
+      filters: {
+        withinMs: 5000,
+        first: { kind: 'matchEndCondition', filters: { cleanRound: true } },
+        then: { kind: 'goal', filters: { isMe: true } },
+      },
+    },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /matchEndCondition/.test(e)), `expected matchEndCondition error, got: ${JSON.stringify(errs)}`);
+});
+
+test('validateEntry: accepts sequence with goal+save subs', () => {
+  const entry = {
+    id: 'ok', title: 'ok', tier: 'medium',
+    trigger: {
+      kind: 'sequence',
+      filters: {
+        withinMs: 5000,
+        first: { kind: 'save', filters: { isMe: true } },
+        then: { kind: 'goal', filters: { isMe: true, ownGoal: false } },
+      },
+    },
+  };
+  assert.deepEqual(C.validateEntry(entry), []);
+});
+
+test('validateEntry: accepts all with three subs', () => {
+  const entry = {
+    id: 'ok', title: 'ok', tier: 'medium',
+    trigger: {
+      kind: 'all',
+      filters: {
+        withinMs: 60000,
+        of: [
+          { kind: 'save', filters: { isMe: true } },
+          { kind: 'demo', filters: { attackerIsMe: true } },
+          { kind: 'statfeed', filters: { eventName: 'Shot', targetIsMe: true } },
+        ],
+      },
+    },
+  };
+  assert.deepEqual(C.validateEntry(entry), []);
+});
+
+test('validateEntry: rejects all with empty of array', () => {
+  const entry = {
+    id: 'bad', title: 'bad', tier: 'medium',
+    trigger: { kind: 'all', filters: { of: [] } },
+  };
+  const errs = C.validateEntry(entry);
+  assert.ok(errs.some((e) => /of/.test(e)), `expected /of/ error, got: ${JSON.stringify(errs)}`);
+});
+
+test('sequence trigger: completes when first fires then then within window', () => {
+  const fakeNow = { value: 1000 };
+  const w = makeCtx({ now: () => fakeNow.value });
+  const inst = C.instantiate({
+    id: 'seq', title: 'Save then goal', tier: 'medium',
+    trigger: {
+      kind: 'sequence',
+      filters: {
+        withinMs: 30000,
+        first: { kind: 'save', filters: { isMe: true } },
+        then: { kind: 'goal', filters: { isMe: true, ownGoal: false } },
+      },
+    },
+  }, w.ctx);
+  inst.arm();
+  fakeNow.value = 1000;
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  fakeNow.value = 10000; // 9s later, still inside 30s window
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {} });
+  assert.equal(w.completed, 1);
+});
+
+test('sequence trigger: ignores then when no first has fired', () => {
+  const fakeNow = { value: 1000 };
+  const w = makeCtx({ now: () => fakeNow.value });
+  const inst = C.instantiate({
+    id: 'seq', title: 'Save then goal', tier: 'medium',
+    trigger: {
+      kind: 'sequence',
+      filters: {
+        withinMs: 30000,
+        first: { kind: 'save', filters: { isMe: true } },
+        then: { kind: 'goal', filters: { isMe: true, ownGoal: false } },
+      },
+    },
+  }, w.ctx);
+  inst.arm();
+  // Fire then without first ever firing. Should not complete.
+  fakeNow.value = 5000;
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {} });
+  assert.equal(w.completed, 0);
+});
+
+test('sequence trigger: window timeout, then beyond withinMs does not complete', () => {
+  const fakeNow = { value: 1000 };
+  const w = makeCtx({ now: () => fakeNow.value });
+  const inst = C.instantiate({
+    id: 'seq', title: 'Save then goal', tier: 'medium',
+    trigger: {
+      kind: 'sequence',
+      filters: {
+        withinMs: 10000,
+        first: { kind: 'save', filters: { isMe: true } },
+        then: { kind: 'goal', filters: { isMe: true, ownGoal: false } },
+      },
+    },
+  }, w.ctx);
+  inst.arm();
+  fakeNow.value = 1000;
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  fakeNow.value = 15000; // 14s later, beyond 10s window
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {} });
+  assert.equal(w.completed, 0);
+});
+
+test('sequence trigger: re-arms on new first event', () => {
+  const fakeNow = { value: 1000 };
+  const w = makeCtx({ now: () => fakeNow.value });
+  const inst = C.instantiate({
+    id: 'seq', title: 'Save then goal', tier: 'medium',
+    trigger: {
+      kind: 'sequence',
+      filters: {
+        withinMs: 10000,
+        first: { kind: 'save', filters: { isMe: true } },
+        then: { kind: 'goal', filters: { isMe: true, ownGoal: false } },
+      },
+    },
+  }, w.ctx);
+  inst.arm();
+  // First save at t=1000, then second save at t=20000 (after the original
+  // window would have closed), then goal at t=22000 (within 10s of second save).
+  fakeNow.value = 1000;
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  fakeNow.value = 20000;
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  fakeNow.value = 22000;
+  w.bus.emit('_GoalScored', { scorer: { isMe: true }, isOwnGoal: false, modifiers: {} });
+  assert.equal(w.completed, 1);
+});
+
+test('all trigger: completes when all subs fire within window', () => {
+  const fakeNow = { value: 1000 };
+  const w = makeCtx({ now: () => fakeNow.value });
+  const inst = C.instantiate({
+    id: 'all3', title: 'triple', tier: 'medium',
+    trigger: {
+      kind: 'all',
+      filters: {
+        withinMs: 60000,
+        of: [
+          { kind: 'save', filters: { isMe: true } },
+          { kind: 'demo', filters: { attackerIsMe: true, excludeSelfDemo: true, excludeTeamDemo: true } },
+          { kind: 'statfeed', filters: { eventName: 'Shot', targetIsMe: true } },
+        ],
+      },
+    },
+  }, w.ctx);
+  inst.arm();
+  fakeNow.value = 1000;
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  fakeNow.value = 20000;
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { isMe: false }, isSelfDemo: false, isTeamDemo: false });
+  fakeNow.value = 40000; // 39s span, inside 60s window
+  w.bus.emit('_StatfeedEvent', { eventName: 'Shot', mainTarget: { isMe: true } });
+  assert.equal(w.completed, 1);
+});
+
+test('all trigger: incomplete if any sub missing', () => {
+  const fakeNow = { value: 1000 };
+  const w = makeCtx({ now: () => fakeNow.value });
+  const inst = C.instantiate({
+    id: 'all3', title: 'triple', tier: 'medium',
+    trigger: {
+      kind: 'all',
+      filters: {
+        withinMs: 60000,
+        of: [
+          { kind: 'save', filters: { isMe: true } },
+          { kind: 'demo', filters: { attackerIsMe: true, excludeSelfDemo: true, excludeTeamDemo: true } },
+          { kind: 'statfeed', filters: { eventName: 'Shot', targetIsMe: true } },
+        ],
+      },
+    },
+  }, w.ctx);
+  inst.arm();
+  fakeNow.value = 1000;
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  fakeNow.value = 5000;
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { isMe: false }, isSelfDemo: false, isTeamDemo: false });
+  // shot is never fired.
+  assert.equal(w.completed, 0);
+});
+
+test('all trigger: incomplete if span exceeds withinMs', () => {
+  const fakeNow = { value: 1000 };
+  const w = makeCtx({ now: () => fakeNow.value });
+  const inst = C.instantiate({
+    id: 'all3', title: 'triple', tier: 'medium',
+    trigger: {
+      kind: 'all',
+      filters: {
+        withinMs: 10000,
+        of: [
+          { kind: 'save', filters: { isMe: true } },
+          { kind: 'demo', filters: { attackerIsMe: true, excludeSelfDemo: true, excludeTeamDemo: true } },
+          { kind: 'statfeed', filters: { eventName: 'Shot', targetIsMe: true } },
+        ],
+      },
+    },
+  }, w.ctx);
+  inst.arm();
+  fakeNow.value = 1000;
+  w.bus.emit('_StatfeedEvent', { eventName: 'Save', mainTarget: { isMe: true } });
+  fakeNow.value = 5000;
+  w.bus.emit('_PlayerDemolished', { attacker: { isMe: true }, victim: { isMe: false }, isSelfDemo: false, isTeamDemo: false });
+  fakeNow.value = 30000; // span 29s > 10s
+  w.bus.emit('_StatfeedEvent', { eventName: 'Shot', mainTarget: { isMe: true } });
+  assert.equal(w.completed, 0);
+});
