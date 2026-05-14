@@ -324,14 +324,18 @@
         const meOnly = filters.isMe !== false;
         let streak = 0;
         unsubs.push(ctx.on('_BallHit', (e) => {
-          if (!e?.player) return;
-          const counts = !meOnly || e.player.isMe;
+          // _BallHit ships an array of primary touchers (typically one);
+          // players[0] is the resolved EnrichedPlayer for the touch.
+          const player = e?.players?.[0];
+          if (!player) return;
+          const counts = !meOnly || player.isMe;
           if (!counts) {
             if (consecutive) streak = 0;
             return;
           }
           streak += 1;
           if (consecutive) {
+            if (target > 1 && ctx.onProgress) ctx.onProgress(Math.min(streak, target), target);
             if (streak >= target) complete();
           } else {
             tick();
@@ -339,8 +343,11 @@
         }));
       } else if (kind === 'crossbar') {
         unsubs.push(ctx.on('_CrossbarHit', (e) => {
-          if (!e?.player) return;
-          if (filters.isMe !== false && !e.player.isMe) return;
+          // _CrossbarHit reports the last ball-toucher under
+          // ballLastTouch.player; there is no top-level player field.
+          const player = e?.ballLastTouch?.player;
+          if (!player) return;
+          if (filters.isMe !== false && !player.isMe) return;
           tick();
         }));
       } else if (kind === 'firstBlood') {

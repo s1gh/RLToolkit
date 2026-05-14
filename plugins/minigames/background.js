@@ -430,7 +430,10 @@
   let celebrationTimer = null;
   function scheduleCelebrationFlush() {
     if (celebrationTimer) clearTimeout(celebrationTimer);
+    const scheduledAt = Date.now();
+    console.log('[minigames] celebration window opened at', scheduledAt);
     celebrationTimer = setTimeout(() => {
+      console.log('[minigames] celebration window closing after', Date.now() - scheduledAt, 'ms');
       celebrationTimer = null;
       teardownActive();
       // Only draw the next one if we're still in a gameplay phase.

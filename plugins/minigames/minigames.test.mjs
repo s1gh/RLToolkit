@@ -539,11 +539,12 @@ test('touch trigger: consecutive resets on any other player', () => {
   const w = makeCtx();
   const inst = C.instantiate({ id: 't', title: '5 in a row', tier: 'easy', count: 5, trigger: { kind: 'touch', filters: { isMe: true, consecutive: true } } }, w.ctx);
   inst.arm();
-  for (let i = 0; i < 4; i += 1) w.bus.emit('_BallHit', { player: { isMe: true } });
-  w.bus.emit('_BallHit', { player: { isMe: false } });
-  w.bus.emit('_BallHit', { player: { isMe: true } });
+  // _BallHit ships the primary toucher under players[0], not a singular player.
+  for (let i = 0; i < 4; i += 1) w.bus.emit('_BallHit', { players: [{ isMe: true }] });
+  w.bus.emit('_BallHit', { players: [{ isMe: false }] });
+  w.bus.emit('_BallHit', { players: [{ isMe: true }] });
   assert.equal(w.completed, 0);
-  for (let i = 0; i < 4; i += 1) w.bus.emit('_BallHit', { player: { isMe: true } });
+  for (let i = 0; i < 4; i += 1) w.bus.emit('_BallHit', { players: [{ isMe: true }] });
   assert.equal(w.completed, 1);
 });
 
