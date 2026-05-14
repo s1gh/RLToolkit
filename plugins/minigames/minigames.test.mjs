@@ -374,6 +374,17 @@ test('resolveObjective floors xp at level 1 / xpInLevel 0', () => {
   assert.equal(recs.objectivesFailed, 1);
 });
 
+test('resolveObjective returns no-op shape when session.activeObjective is null', () => {
+  const s = R.emptySession('b');
+  const recs = R.emptyRecords();
+  const r = R.resolveObjective(s, recs, 'complete', 1000);
+  // Null-guard contract: bails safely with a zeroed delta and no side effects.
+  assert.equal(s.activeObjective, null);
+  assert.deepEqual(r, { xpDelta: 0, deleveled: false });
+  assert.equal(recs.objectivesCompleted, 0);
+  assert.equal(recs.objectivesFailed, 0);
+});
+
 const csb = { window: {} };
 new Function('window', readFileSync(new URL('./challenges.js', import.meta.url), 'utf8'))(csb.window);
 const C = csb.window.MinigamesChallenges;

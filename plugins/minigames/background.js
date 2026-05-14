@@ -459,9 +459,9 @@
       // matchEndCondition predicates only ever call complete(), which is
       // exactly what we want.
       onComplete: () => resolveObjectiveOutcome('complete'),
-      // onFail can still fire from the roster-loss path inside the engine.
-      // Treat it as a failure for the objective.
-      onFail: () => resolveObjectiveOutcome('failed'),
+      // Objectives only resolve at _MatchEnded, so mid-match fail signals from
+      // the predicate engine (currently only the roster-loss fast-fail) are ignored.
+      onFail: () => {},
       onProgress: (current, target) => {
         if (!session?.activeObjective) return;
         session.activeObjective.progress = current;
