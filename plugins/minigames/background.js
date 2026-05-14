@@ -342,12 +342,14 @@
     if (rawSettings?.difficulty) settings = rawSettings;
     if (!rawSettings) await store.set(SETTINGS_KEY, settings);
 
-    // 4. If we booted mid-match (rare: toolkit started while a match is
-    // live), draw immediately so we don't waste the round.
-    if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
-      ensureMatchEntry();
-      drawNext();
-    }
+    // 4. Do NOT draw a task on boot. The backend's match state machine
+    // cold-bootstraps to PhaseLive from the first UpdateState frame, even
+    // when RL is actually in team-select / lobby. That makes RLT.match.state.phase
+    // unreliable as a "is the match really in progress" signal at this moment.
+    // Trust only the discrete _MatchStarted event, which fires the first time
+    // a guid lands in a live-ish phase via a real transition. If the plugin
+    // cold-starts in the middle of an already-live match (rare), the user
+    // simply waits for the next match to get a task.
 
     // 5. Always seat an objective if one isn't already active. Objectives are
     // session-scoped, not match-scoped, so we draw at boot regardless of match
