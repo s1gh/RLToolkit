@@ -1,4 +1,9 @@
       /* Tokens (--rlt-*) come from sdk.css. Accent is --rlt-orange. */
+      :root {
+        --rlt-plugin-accent: var(--rlt-orange);
+        --rlt-plugin-accent-2: var(--rlt-magenta);
+        --rlt-plugin-accent-glow: var(--rlt-orange-glow);
+      }
       * {
         margin: 0;
         padding: 0;
@@ -23,124 +28,6 @@
       body.overlay-mode {
         background: transparent;
         overflow: hidden;
-      }
-
-      /* ─── Control page (dashboard tab) ──────────────────────── */
-      .page {
-        max-width: 1280px;
-        margin: 0 auto;
-        padding: 28px 24px 48px;
-      }
-
-      .topbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 16px;
-        padding: 14px 18px;
-        background: linear-gradient(135deg, var(--rlt-bg-1), var(--rlt-bg-2));
-        border: 1px solid var(--rlt-line);
-        border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-      }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-      }
-      .logo {
-        width: 36px;
-        height: 36px;
-        border-radius: 9px;
-        background: linear-gradient(135deg, var(--rlt-orange), var(--rlt-magenta));
-        box-shadow: 0 0 24px var(--rlt-orange-glow);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: var(--rlt-display);
-        font-weight: 700;
-        font-size: 18px;
-        color: var(--rlt-bg-0);
-        letter-spacing: -0.02em;
-      }
-      h1 {
-        font-family: var(--rlt-display);
-        font-weight: 700;
-        font-size: 20px;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
-        background: linear-gradient(90deg, #fff 30%, var(--rlt-orange));
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-      }
-      .tag {
-        font-size: 11px;
-        color: var(--rlt-txt-3);
-        letter-spacing: 0.02em;
-        font-weight: 500;
-      }
-      .topbar-right {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-
-      .conn-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 12px;
-        background: var(--rlt-bg-3);
-        border: 1px solid var(--rlt-line);
-        border-radius: 99px;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--rlt-txt-2);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-      .conn-pill::before {
-        content: "";
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--rlt-txt-3);
-      }
-      .conn-pill[data-status="connected"]::before {
-        background: var(--rlt-green);
-        box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
-        animation: pulse 1.4s ease-in-out infinite alternate;
-      }
-      .conn-pill[data-status="disconnected"]::before {
-        background: #ef4444;
-      }
-      @keyframes pulse {
-        from { opacity: 0.55; }
-        to { opacity: 1; }
-      }
-
-      .icon-btn {
-        width: 34px;
-        height: 34px;
-        border-radius: 8px;
-        background: var(--rlt-bg-3);
-        border: 1px solid var(--rlt-line);
-        color: var(--rlt-txt-2);
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 15px;
-        transition:
-          border-color 0.15s ease,
-          color 0.15s ease,
-          box-shadow 0.15s ease;
-      }
-      .icon-btn:hover {
-        border-color: var(--rlt-orange);
-        color: var(--rlt-orange);
-        box-shadow: 0 0 16px var(--rlt-orange-glow);
       }
 
       /* Identity strip — read-only mirror of the SDK's current claim. */
@@ -742,7 +629,7 @@
       }
 
       /* Mode gates. SDK adds .overlay-mode on body when ?overlay=1. */
-      body.overlay-mode .page {
+      body.overlay-mode .rlt-page {
         display: none;
       }
       body:not(.overlay-mode) .ov {

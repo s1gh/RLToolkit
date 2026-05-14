@@ -9,20 +9,20 @@
     <script src="/sdk.js" data-plugin="demos" data-view="dashboard"></script>
   </head>
   <body>
-    <main class="page">
-      <header class="topbar">
-        <div class="brand">
-          <div class="logo">DM</div>
+    <main class="rlt-page">
+      <header class="rlt-topbar">
+        <div class="rlt-brand">
+          <div class="rlt-logo">DM</div>
           <div>
-            <h1>Demolitions</h1>
-            <div class="tag">Who you've sent flying</div>
+            <h1 class="rlt-brand-title">Demolitions</h1>
+            <div class="rlt-brand-tag">Who you've sent flying</div>
           </div>
         </div>
-        <div class="topbar-right">
-          <span class="conn-pill" id="conn" data-status="disconnected">offline</span>
+        <div class="rlt-topbar-right">
+          <span class="rlt-pill rlt-conn-pill" id="conn" data-status="disconnected">offline</span>
           <button
             type="button"
-            class="icon-btn"
+            class="rlt-icon-btn"
             id="open-overlay"
             title="Open overlay"
             onclick="window.open('overlay.html', '_blank')"
@@ -54,8 +54,7 @@
               <span id="all-count">0</span> rivals<span id="all-best-wrap" hidden>
                 · best <span id="all-best">x0</span>
                 <span id="all-best-word"></span></span
-              ></span
-            >
+              ></span>
           </div>
           <div id="all-list"></div>
         </section>
