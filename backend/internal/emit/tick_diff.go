@@ -444,18 +444,26 @@ func (e *TickDiff) makePickupEvent(guid string, curr *types.TickPlayer, beforeBo
 		enriched.Name = curr.Name
 		enriched.Team = curr.Team
 	}
+	// Small pads max out at 12 boost; anything with a cumulative rise
+	// of 20+ is unambiguously a big pad. Plugins should filter on this
+	// flag instead of boostAfter==100, since RL clamps mid-rise: a big
+	// pad picked up while consuming boost can leave lastBoost at 88,
+	// 92, 95, etc.
+	delta := afterBoost - beforeBoost
 	body, err := json.Marshal(struct {
 		MatchGUID   string                `json:"matchGuid,omitempty"`
 		Player      *types.EnrichedPlayer `json:"player"`
 		BoostBefore int                   `json:"boostBefore"`
 		BoostAfter  int                   `json:"boostAfter"`
 		Delta       int                   `json:"delta"`
+		IsBigPad    bool                  `json:"isBigPad"`
 	}{
 		MatchGUID:   guid,
 		Player:      enriched,
 		BoostBefore: beforeBoost,
 		BoostAfter:  afterBoost,
-		Delta:       afterBoost - beforeBoost,
+		Delta:       delta,
+		IsBigPad:    delta >= 20,
 	})
 	if err != nil {
 		return nil

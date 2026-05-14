@@ -262,6 +262,86 @@ func TestTickDiff_BoostPickup_FlushesOnConsume(t *testing.T) {
 	}
 }
 
+// isBigPad must be true when the cumulative rise is >=20 (big pads
+// always give more than the 12 a small pad caps at). Plugins rely on
+// this flag instead of guessing from boostAfter, because RL clamps
+// mid-rise: picking up a big pad while consuming boost can land
+// lastBoost at 88, 92, 95, etc.
+func TestTickDiff_BoostPickup_IsBigPadTrueOnLargeRise(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	// Rise of 88 (clearly big pad, e.g. picked up at 0 boost while moving).
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(0)}, &types.TickPlayer{ID: id, Boost: intp(40)})
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(40)}, &types.TickPlayer{ID: id, Boost: intp(88)})
+	got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(88)}, &types.TickPlayer{ID: id, Boost: intp(88)})
+	if got == nil {
+		t.Fatal("expected flush event")
+	}
+	var payload struct {
+		BoostBefore int  `json:"boostBefore"`
+		BoostAfter  int  `json:"boostAfter"`
+		Delta       int  `json:"delta"`
+		IsBigPad    bool `json:"isBigPad"`
+	}
+	if err := json.Unmarshal(got.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.IsBigPad {
+		t.Errorf("rise of 88 should be isBigPad=true, got payload %+v", payload)
+	}
+}
+
+// Small pads top out at 12. A rise of <20 must be classified as a
+// small pad pickup (isBigPad=false).
+func TestTickDiff_BoostPickup_IsBigPadFalseOnSmallRise(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	// 0 → 12 over two ticks: textbook small pad.
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(0)}, &types.TickPlayer{ID: id, Boost: intp(6)})
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(6)}, &types.TickPlayer{ID: id, Boost: intp(12)})
+	got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(12)}, &types.TickPlayer{ID: id, Boost: intp(12)})
+	if got == nil {
+		t.Fatal("expected flush event")
+	}
+	var payload struct {
+		Delta    int  `json:"delta"`
+		IsBigPad bool `json:"isBigPad"`
+	}
+	if err := json.Unmarshal(got.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.IsBigPad {
+		t.Errorf("rise of 12 should be isBigPad=false, got payload %+v", payload)
+	}
+}
+
+// Threshold is >=20, so a rise of exactly 20 must be classified as a
+// big pad. This is the boundary case.
+func TestTickDiff_BoostPickup_IsBigPadTrueAtBoundary(t *testing.T) {
+	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
+	id := "p1"
+	// 13 → 33 = delta 20 exactly. Boundary case.
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(13)}, &types.TickPlayer{ID: id, Boost: intp(25)})
+	td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(25)}, &types.TickPlayer{ID: id, Boost: intp(33)})
+	got := td.boostPickup("g", &types.TickPlayer{ID: id, Boost: intp(33)}, &types.TickPlayer{ID: id, Boost: intp(33)})
+	if got == nil {
+		t.Fatal("expected flush event")
+	}
+	var payload struct {
+		Delta    int  `json:"delta"`
+		IsBigPad bool `json:"isBigPad"`
+	}
+	if err := json.Unmarshal(got.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Delta != 20 {
+		t.Fatalf("setup: expected delta=20, got %d", payload.Delta)
+	}
+	if !payload.IsBigPad {
+		t.Errorf("rise of exactly 20 should be isBigPad=true (threshold is >=20)")
+	}
+}
+
 func TestTickDiff_BoostPickup_NoEventWithoutStreak(t *testing.T) {
 	td := &TickDiff{pickupStreaks: map[string]*pickupStreak{}}
 	id := "p1"
