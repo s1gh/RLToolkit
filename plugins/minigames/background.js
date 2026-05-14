@@ -846,22 +846,25 @@
       await bootstrap();
     },
 
-    onState(phase, previousPhase) {
-      // Fires on every real _MatchState transition. Catches the case where
-      // the plugin started up while a match was already in progress: the
-      // backend's _MatchStarted fired before we subscribed, but the first
-      // real transition into a gameplay phase (e.g. lobby -> countdown when
-      // the round actually begins) still reaches us. Gated on currentMatchGuid()
-      // so we draw only when there's an actual match in scope.
-      if (!isGameplay(phase)) return;
-      if (activeTask) return;
-      const guid = currentMatchGuid();
-      if (!guid) return;
-      ensureMatchEntry(guid);
-      drawNext();
-    },
-
     events: {
+      RoundStarted() {
+        // Fires on every kickoff, including the first one of a match. Used
+        // as the recovery hook when the plugin started up before the match
+        // actually began: _MatchStarted may have fired pre-subscription
+        // (the backend cold-bootstraps to PhaseLive on the first UpdateState,
+        // which can emit _MatchStarted before our SSE connection is ready),
+        // and the subsequent real lobby->countdown->live transitions are
+        // no-ops in state.onChange because phase was already wrongly Live.
+        // RoundStarted is the authoritative "a round is now playable"
+        // signal RL sends per-kickoff, so we use it to seed a task when
+        // the slot is empty.
+        if (activeTask) return;
+        const guid = currentMatchGuid();
+        if (!guid) return;
+        ensureMatchEntry(guid);
+        drawNext();
+      },
+
       _BootId(e) {
         // Launcher backend boot ID changed (process restarted while the
         // iframe stayed mounted). Wipe the per-session state so the level
