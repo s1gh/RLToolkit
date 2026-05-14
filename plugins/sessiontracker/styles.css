@@ -26,27 +26,6 @@
 .st-neg { color: var(--rlt-magenta, #f472b6); font-family: var(--rlt-mono, monospace); }
 .st-name { color: var(--rlt-txt, #e6e9f5); }
 
-/* Card — shared shell used by the dashboard's grouped sections.
- * The overlay uses its own .st-c-card defined further down. */
-.st-card {
-  background: var(--rlt-bg-1, #0f1320);
-  border: 1px solid var(--rlt-line, #232a44);
-  border-radius: var(--rlt-radius, 10px);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.st-card-h {
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--rlt-txt, #e6e9f5);
-  border-bottom: 1px solid var(--rlt-line, #232a44);
-  padding-bottom: 6px;
-}
-
 .st-row { display: flex; align-items: baseline; gap: 10px; }
 
 .st-ticks { gap: 3px; flex-wrap: wrap; }
@@ -59,15 +38,6 @@
 .st-tick-loss { background: var(--rlt-magenta, #f472b6); }
 
 /* Dashboard */
-.st-dash-grid {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 16px;
-}
-@media (max-width: 720px) {
-  .st-dash-grid { grid-template-columns: 1fr; }
-}
-
 .st-record-big {
   font-size: 44px;
   font-weight: 700;

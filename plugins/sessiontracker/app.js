@@ -731,17 +731,16 @@
     const totalsCls = (v) => v > 0 ? 'st-val' : 'st-mut';
 
     root.innerHTML =
-      '<div class="st-dash-grid">' +
-        '<div class="st-card st-card-record">' +
-          '<div class="st-card-h">RECORD</div>' +
+      '<div class="rlt-grid">' +
+        '<section class="rlt-card">' +
+          '<div class="rlt-card-head"><h2>Record</h2>' + (streakLabel ? '<span class="rlt-badge">' + esc(streakLabel) + '</span>' : '') + '</div>' +
           '<div class="st-record-big">' + b.results.wins + ' – ' + b.results.losses + '</div>' +
           '<div class="st-record-lbl"><span class="st-lbl">WINS</span> <span class="st-lbl">LOSSES</span></div>' +
           '<div class="st-row st-ticks">' + (ticks || '<span class="st-mut">no matches yet</span>') + '</div>' +
-          (streakLabel ? '<div class="st-mut">' + esc(streakLabel) + '</div>' : '') +
-        '</div>' +
+        '</section>' +
 
-        '<div class="st-card st-card-stats">' +
-          '<div class="st-card-h">STATS</div>' +
+        '<section class="rlt-card">' +
+          '<div class="rlt-card-head"><h2>Stats</h2></div>' +
           '<div class="st-stats-big">' +
             '<div><div class="' + totalsCls(b.totals.goals) + ' st-num">' + b.totals.goals + '</div><div class="st-lbl">GOALS</div></div>' +
             '<div><div class="' + totalsCls(b.totals.saves) + ' st-num">' + b.totals.saves + '</div><div class="st-lbl">SAVES</div></div>' +
@@ -755,25 +754,25 @@
               (hardest && hardest.player ? '<div class="st-mut">· by ' + esc(hardest.player.name || '?') + '</div>' : '') +
             '</div>' +
           '</div>' +
-        '</div>' +
+        '</section>' +
       '</div>' +
 
       (mmrRows.length > 0 ? (
-        '<div class="st-card">' +
-          '<div class="st-card-h">MMR</div>' +
+        '<section class="rlt-card">' +
+          '<div class="rlt-card-head"><h2>MMR</h2></div>' +
           '<table class="st-table"><tbody>' + mmrRows.join('') + '</tbody></table>' +
-        '</div>'
+        '</section>'
       ) : '') +
 
-      '<div class="st-card">' +
-        '<div class="st-card-h">GOAL MODIFIERS</div>' +
+      '<section class="rlt-card">' +
+        '<div class="rlt-card-head"><h2>Goal Modifiers</h2></div>' +
         '<div class="st-mods-grid">' + modCells + '</div>' +
-      '</div>' +
+      '</section>' +
 
-      '<div class="st-card">' +
-        '<div class="st-card-h">CROSSBAR</div>' +
+      '<section class="rlt-card">' +
+        '<div class="rlt-card-head"><h2>Crossbar</h2></div>' +
         hardestBlock +
-      '</div>';
+      '</section>';
   }
   function renderSettings(root) {
     root.innerHTML =
