@@ -449,6 +449,10 @@
         return typeof unsub === 'function' ? unsub : (() => RLT.off?.(eventName, handler));
       },
       matchState: () => RLT.match?.state?.phase || 'none',
+      score: () => ({
+        blue: RLT.match?.state?.scoreBlue ?? 0,
+        orange: RLT.match?.state?.scoreOrange ?? 0,
+      }),
       myTeam: myTeamNum,
       opponents: opponentsFromRoster,
       stats: RLT.stats || {},
@@ -595,6 +599,10 @@
         return typeof unsub === 'function' ? unsub : (() => RLT.off?.(eventName, handler));
       },
       matchState: () => RLT.match?.state?.phase || 'none',
+      score: () => ({
+        blue: RLT.match?.state?.scoreBlue ?? 0,
+        orange: RLT.match?.state?.scoreOrange ?? 0,
+      }),
       myTeam: myTeamNum,
       opponents: opponentsFromRoster,
       stats: RLT.stats || {},

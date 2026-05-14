@@ -568,6 +568,22 @@ test('instantiate: fills defaults from tier when reward/penalty/time not set', (
   assert.equal(inst.timeLimitMs, 75000);
 });
 
+test('instantiate: firstBlood is ineligible once any goal has been scored', () => {
+  const fresh = makeCtx({ score: () => ({ blue: 0, orange: 0 }) });
+  const stale = makeCtx({ score: () => ({ blue: 1, orange: 0 }) });
+  const both = makeCtx({ score: () => ({ blue: 2, orange: 3 }) });
+  const entry = { id: 'fb', title: 'First Blood', tier: 'medium', trigger: { kind: 'firstBlood', filters: { isMe: true } } };
+  assert.ok(C.instantiate(entry, fresh.ctx) !== null);
+  assert.equal(C.instantiate(entry, stale.ctx), null);
+  assert.equal(C.instantiate(entry, both.ctx), null);
+});
+
+test('instantiate: firstBlood eligibility falls through when ctx.score is missing', () => {
+  const { ctx } = makeCtx({ score: undefined });
+  const entry = { id: 'fb', title: 'First Blood', tier: 'medium', trigger: { kind: 'firstBlood', filters: { isMe: true } } };
+  assert.ok(C.instantiate(entry, ctx) !== null);
+});
+
 test('instantiate: honors explicit reward/penalty/time overrides', () => {
   const { ctx } = makeCtx();
   const inst = C.instantiate({ id: 'x', title: 'X', tier: 'medium', timeLimitMs: 30000, reward: 200, failPenalty: 80, trigger: { kind: 'save' } }, ctx);

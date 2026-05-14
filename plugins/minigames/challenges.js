@@ -207,6 +207,14 @@
     const tier = entry.tier;
     const td = tierDefaults[tier];
 
+    // 1a. Trigger-specific eligibility: refuse to instantiate when the
+    // window for the challenge has already closed. The draw loop will
+    // pick another entry.
+    if (entry.trigger?.kind === 'firstBlood' && ctx.score) {
+      const s = ctx.score();
+      if ((s?.blue || 0) + (s?.orange || 0) > 0) return null;
+    }
+
     // 1. Resolve a target opponent if the entry requests one.
     const opponentBindings = collectOpponentBindings(entry);
     let boundOpponent = null;
