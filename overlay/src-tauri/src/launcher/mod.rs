@@ -281,7 +281,19 @@ pub fn run(args: Args) {
                     }
                     #[cfg(target_os = "linux")]
                     {
+                        // Allow the close to proceed AND request app
+                        // exit. Tauri 2 doesn't auto-exit when the last
+                        // window closes (no AppKit-style "active app
+                        // without windows" concept on Linux either,
+                        // but Tauri leaves the process alive anyway),
+                        // so without this the launcher window vanishes
+                        // and the rl-widget process keeps running
+                        // headless. exit(0) flows through the
+                        // RunEvent::ExitRequested handler below, which
+                        // drains the backend sidecar before tearing
+                        // the runtime down.
                         let _ = api;
+                        window.app_handle().exit(0);
                     }
                 }
             }
