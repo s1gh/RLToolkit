@@ -1,7 +1,7 @@
 {
   "name": "minigames",
   "title": "Minigames",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "author": "rl-toolkit",
   "description": "Random in-match challenges. Complete them to gain XP and level up your session.",
   "overlay": {
