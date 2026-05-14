@@ -480,3 +480,45 @@ body {
     transition: none !important;
   }
 }
+
+/* ---- progress + celebration ---- */
+
+.mg-obj-meta .mg-progress-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--mg-cyan);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.mg-obj-meta .mg-progress-count + .mg-timer {
+  margin-left: 14px;
+}
+
+.mg-resolved-ok {
+  border-color: var(--mg-cyan);
+  box-shadow: 0 12px 32px var(--mg-shadow), 0 0 0 1px var(--mg-cyan) inset;
+}
+.mg-resolved-ok .mg-obj-tag { color: var(--mg-green); }
+.mg-resolved-ok .mg-obj-tag::before { background: var(--mg-green); }
+.mg-resolved-ok .mg-reward { color: var(--mg-green); font-weight: 600; }
+
+.mg-resolved-fail {
+  border-color: var(--mg-magenta);
+}
+.mg-resolved-fail .mg-obj-tag { color: var(--mg-magenta); }
+.mg-resolved-fail .mg-obj-tag::before { background: var(--mg-magenta); }
+.mg-resolved-fail .mg-reward { color: var(--mg-magenta); font-weight: 600; }
+.mg-resolved-fail .mg-obj-title {
+  text-decoration: line-through;
+  text-decoration-color: var(--mg-txt-4);
+  color: var(--mg-txt-3);
+}
+
+.mg-resolved-glyph {
+  margin-left: auto;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.mg-resolved-ok   .mg-resolved-glyph { color: var(--mg-green); }
+.mg-resolved-fail .mg-resolved-glyph { color: var(--mg-magenta); }

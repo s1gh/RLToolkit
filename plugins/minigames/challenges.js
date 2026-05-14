@@ -187,6 +187,15 @@
       ? entry.title.replace(/\{opponent\}/g, boundOpponent.name || 'them')
       : entry.title;
 
+    // progressTarget surfaces multi-step challenges to the renderer.
+    // boostConsumed uses sumDelta (not count) so its target is the sum.
+    // Single-step (count == 1, no sumDelta) entries set null so the
+    // renderer can omit the progress label entirely.
+    const isBoostSum = entry.trigger?.kind === 'boostConsumed'
+      && typeof entry.trigger?.filters?.sumDelta === 'number';
+    const countTarget = entry.count && entry.count > 1 ? entry.count : null;
+    const progressTarget = isBoostSum ? entry.trigger.filters.sumDelta : countTarget;
+
     const runtime = {
       id: entry.id,
       title,
@@ -198,6 +207,7 @@
       timeLimitMs: entry.timeLimitMs === null
         ? null
         : (typeof entry.timeLimitMs === 'number' ? entry.timeLimitMs : td.timeLimitMs),
+      progressTarget,
       boundOpponent: boundOpponent ? { id: boundOpponent.id, name: boundOpponent.name } : null,
       arm: null,
     };
@@ -245,6 +255,9 @@
       const tick = (delta) => {
         if (resolved) return;
         progress += (typeof delta === 'number' ? delta : 1);
+        // Notify only for multi-step challenges; single-step (target == 1)
+        // resolves immediately on the first increment via complete().
+        if (target > 1 && ctx.onProgress) ctx.onProgress(Math.min(progress, target), target);
         if (progress >= target) complete();
       };
 
@@ -284,6 +297,11 @@
           if (!e?.player) return;
           if (filters.isMe !== false && !e.player.isMe) return;
           if (typeof filters.minDelta === 'number' && (e.delta || 0) < filters.minDelta) return;
+          // Big pads always fill boost to 100 regardless of starting amount,
+          // so boostAfter === 100 is the reliable big-pad detector. delta
+          // is unreliable: starting near full boost yields a tiny delta
+          // even when the pad picked up was a big one.
+          if (typeof filters.boostAfterEq === 'number' && (e.boostAfter || 0) !== filters.boostAfterEq) return;
           tick();
         }));
       } else if (kind === 'boostConsumed') {
@@ -295,6 +313,7 @@
           if (!e?.player) return;
           if (filters.isMe !== false && !e.player.isMe) return;
           sum += (e.delta || 0);
+          if (ctx.onProgress) ctx.onProgress(Math.min(sum, goal), goal);
           if (sum >= goal) complete();
         }));
       } else if (kind === 'touch') {

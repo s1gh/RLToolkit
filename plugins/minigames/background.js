@@ -180,6 +180,7 @@
 
   const TICK_INTERVAL_MS = 250;  // timer poll rate; tick events emit at 1Hz, see onTick
   const DRAW_RETRY_LIMIT = 5;    // max ineligible-entry retries per drawNext call
+  const CELEBRATE_MS    = 1000;  // hold the just-resolved card visible before drawing next
 
   let session  = null;
   let records  = null;
@@ -268,8 +269,12 @@
     return typeof me.team === 'number' ? me.team : null;
   }
 
-  function ensureMatchEntry() {
-    const guid = currentMatchGuid();
+  function ensureMatchEntry(guidHint) {
+    // Prefer the explicit guid passed by _MatchStarted, falling back to the
+    // SDK's current-match snapshot. RLT.match.current can be a tick or two
+    // behind the _MatchStarted emission, so the event payload is the more
+    // reliable source when the handler fires.
+    const guid = guidHint || currentMatchGuid();
     if (!guid) return;
     root.MinigamesReducers.startMatch(session, { matchGuid: guid, now: Date.now() });
     persistSession();
@@ -281,6 +286,12 @@
   function drawNext() {
     teardownActive();
     if (poolEntries.length === 0) return;
+    // Defensive: drawNext can fire from bootstrap (mid-match recovery) or
+    // from resolveActive (next challenge in the same match) before
+    // _MatchStarted has stamped a match entry. If RLT.match.current has
+    // a guid by now, make sure the entry exists so resolutions record
+    // against the right match.
+    ensureMatchEntry();
     // Up to 5 attempts: the first weighted pick may not be instantiable
     // (e.g. targetOpponent with no current opponents). Skip ineligible
     // entries and try again. After 5 misses, give up for this round.
@@ -322,6 +333,8 @@
       timeLimitMs: c.timeLimitMs,
       startedAt: Date.now(),
       deadline: activeDeadline,
+      progress: c.progressTarget ? 0 : null,
+      progressTarget: c.progressTarget || null,
     };
   }
 
@@ -339,17 +352,21 @@
       rng: Math.random,
       onComplete: () => resolveActive('completed'),
       onFail: () => resolveActive('failed'),
+      onProgress: (current, target) => {
+        if (!activeChallenge || !session.activeChallenge) return;
+        session.activeChallenge.progress = current;
+        session.activeChallenge.progressTarget = target;
+        persistSession();
+      },
     };
   }
 
   function teardownActive() {
-    if (armDispose) { try { armDispose(); } catch (_) {} armDispose = null; }
+    stopPredicate();
     activeChallenge = null;
-    activeDeadline = null;
-    activePausedRemaining = null;
     if (session) session.activeChallenge = null;
-    stopTicking();
     lastTickSecond = -1;
+    if (celebrationTimer) { clearTimeout(celebrationTimer); celebrationTimer = null; }
   }
 
   // ---- resolution -------------------------------------------------------
@@ -384,14 +401,55 @@
       id: c.id,
       title: c.title,
     });
-    teardownActive();
+
+    // Two-phase resolution: stop the predicate machinery (event subs, timer)
+    // immediately so further game events don't bleed into the next round, but
+    // keep session.activeChallenge populated with a `resolvedAt` stamp so the
+    // overlay can render a "Challenge complete!" treatment for a moment. The
+    // delayed drawNext then clears the marker and arms the next challenge.
+    stopPredicate();
+    if (session.activeChallenge) {
+      session.activeChallenge.resolvedAt = Date.now();
+      session.activeChallenge.resolvedOutcome = outcome;
+      session.activeChallenge.resolvedXpDelta = xpDelta;
+    }
     persistSession();
 
-    // Only draw the next one if we're still in a gameplay phase. Match-end
-    // and match-abandoned paths skip this so the recap can render.
-    if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
-      drawNext();
+    // Match-end and match-abandoned paths bypass the celebrate-then-draw flow
+    // because the recap card takes over the overlay surface entirely; trying
+    // to celebrate AND recap fights for the same space.
+    if (!(RLT.match?.state && isGameplay(RLT.match.state.phase))) {
+      teardownActive();
+      persistSession();
+      return;
     }
+
+    scheduleCelebrationFlush();
+  }
+
+  let celebrationTimer = null;
+  function scheduleCelebrationFlush() {
+    if (celebrationTimer) clearTimeout(celebrationTimer);
+    celebrationTimer = setTimeout(() => {
+      celebrationTimer = null;
+      teardownActive();
+      // Only draw the next one if we're still in a gameplay phase.
+      if (RLT.match?.state && isGameplay(RLT.match.state.phase)) {
+        drawNext();
+      } else {
+        persistSession();
+      }
+    }, CELEBRATE_MS);
+  }
+
+  // stopPredicate halts the event subscriptions and timer for the active
+  // challenge without nulling session.activeChallenge. Used by the
+  // celebrate-then-draw flow; full teardown happens in teardownActive.
+  function stopPredicate() {
+    if (armDispose) { try { armDispose(); } catch (_) {} armDispose = null; }
+    activeDeadline = null;
+    activePausedRemaining = null;
+    stopTicking();
   }
 
   function timeoutActive() {
@@ -520,7 +578,7 @@
     events: {
       _MatchStarted(e) {
         if (!e?.matchGuid) return;
-        ensureMatchEntry();
+        ensureMatchEntry(e.matchGuid);
         if (!activeChallenge && isGameplay(RLT.match?.state?.phase)) {
           drawNext();
         }

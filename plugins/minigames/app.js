@@ -101,6 +101,33 @@
       return;
     }
 
+    // Celebration branch: the background view stamps activeChallenge with
+    // resolvedAt + outcome on completion / failure, holds it for ~1s before
+    // clearing and drawing the next challenge. Render a distinct card so the
+    // player sees real feedback on what they just earned.
+    if (active.resolvedAt) {
+      const completed = active.resolvedOutcome === 'completed';
+      const xp = (active.resolvedXpDelta >= 0 ? '+' : '') + Number(active.resolvedXpDelta || 0);
+      const tag = completed ? 'Complete' : (active.resolvedOutcome === 'timedOut' ? 'Time up' : 'Failed');
+      const cls = completed ? 'mg-resolved-ok' : 'mg-resolved-fail';
+      rootEl.innerHTML = `
+        <div class="mg-overlay ${cls}">
+          ${ribbonHtml(session)}
+          <div class="mg-obj">
+            <div class="mg-obj-tag">${esc(tag)}</div>
+            <div class="mg-obj-title">${esc(active.title)}</div>
+            <div class="mg-obj-meta">
+              <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
+              <span class="mg-reward">${esc(xp)} XP</span>
+              <span class="mg-resolved-glyph">${completed ? '✓' : '✕'}</span>
+            </div>
+          </div>
+          ${priorHtml()}
+        </div>
+      `;
+      return;
+    }
+
     // Compute remaining time. For open-ended challenges (timeLimitMs null,
     // deadline null), there's no countdown to display.
     const isOpenEnded = active.timeLimitMs === null || active.deadline === null;
@@ -117,6 +144,12 @@
       : (100 * Math.max(0, remainingMs) / active.timeLimitMs);
     const timerLabel = isOpenEnded ? '···' : fmtMs(remainingMs);
 
+    // Multi-step progress label, e.g. "2 / 3". Hidden for single-step (count 1)
+    // challenges where progressTarget is null.
+    const progressLabel = active.progressTarget
+      ? `<span class="mg-progress-count">${Number(active.progress) || 0} / ${Number(active.progressTarget) || 0}</span>`
+      : '';
+
     rootEl.innerHTML = `
       <div class="mg-overlay">
         ${ribbonHtml(session)}
@@ -126,6 +159,7 @@
           <div class="mg-obj-meta">
             <span class="mg-tier mg-tier-${esc(active.tier)}">${esc(active.tier)}</span>
             <span class="mg-reward">reward <b>+${Number(active.reward) || 0} XP</b></span>
+            ${progressLabel}
             <span class="mg-timer">${timerLabel}</span>
           </div>
           <div class="mg-obj-progress"><i style="width:${progressPct.toFixed(1)}%"></i></div>
@@ -392,11 +426,27 @@
     async ready() {
       await pullState();
       rerender();
-      // Drive a low-rate local timer for the overlay so the countdown moves
-      // smoothly between background-view tick events. The background writes
-      // the tick key at 1Hz; a 250ms local rerender keeps the displayed
-      // seconds responsive without depending on store IPC latency.
-      if (RLT.isOverlay) setInterval(rerender, 250);
+      // The overlay's countdown display is one-second resolution; the
+      // background writes tick events at 1Hz already, so we only need
+      // a local check often enough to catch the second-flip in case
+      // IPC lags. 500ms with a "only rerender if the displayed second
+      // changed" guard keeps the overlay responsive without blasting
+      // innerHTML rewrites every 250ms while the game is running. A
+      // full innerHTML rewrite per tick was visible as in-game stutter.
+      if (RLT.isOverlay) {
+        let lastDisplayedSecond = -1;
+        setInterval(() => {
+          const session = lastSessionState;
+          const active = session?.activeChallenge;
+          if (!active) return;
+          if (active.timeLimitMs === null || active.deadline === null) return;
+          const remainingMs = Math.max(0, active.deadline - Date.now());
+          const sec = Math.ceil(remainingMs / 1000);
+          if (sec === lastDisplayedSecond) return;
+          lastDisplayedSecond = sec;
+          rerender();
+        }, 500);
+      }
     },
   });
 })(typeof window === 'undefined' ? globalThis : window);
