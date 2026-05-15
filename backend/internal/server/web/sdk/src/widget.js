@@ -192,15 +192,27 @@ export const widget = (function () {
         const el = resolveTarget(opts.target);
         if (!el) return;
         const r = el.getBoundingClientRect();
-        // A 0x0 rect means the target is hidden (display:none, e.g. the
-        // hide_when_unfocused gate flipped off). Reporting that to the
-        // host would shrink the iframe to 1x1, which then becomes the
-        // viewport when focus returns — body has no room to lay out, so
-        // it stays small and the widget never recovers. Skip the post
-        // and wait for the next tick when the target is visible again.
-        if (r.width === 0 && r.height === 0) return;
-        const w = Math.max(minW, Math.min(maxW, Math.ceil(r.width)));
-        const h = Math.max(minH, Math.min(maxH, Math.ceil(r.height)));
+        // scrollWidth/Height report content extent even when the
+        // element is clamped by its container. Inside an iframe on
+        // Chromium-based WebView2 (Windows), body { width: max-content }
+        // can report the BoundingClientRect clamped to the iframe
+        // viewport instead of the actual content width, which feeds a
+        // too-small size back into the host and clips the widget.
+        // WebKitGTK (Linux) reports the unclamped value via
+        // getBoundingClientRect already, so the Math.max is a no-op
+        // there and only changes behavior on Chromium-in-iframe.
+        const rawW = Math.max(r.width, el.scrollWidth);
+        const rawH = Math.max(r.height, el.scrollHeight);
+        // A 0x0 result means the target is hidden (display:none, e.g.
+        // the hide_when_unfocused gate flipped off). Reporting that to
+        // the host would shrink the iframe to 1x1, which then becomes
+        // the viewport when focus returns — body has no room to lay
+        // out, so it stays small and the widget never recovers. Skip
+        // the post and wait for the next tick when the target is
+        // visible again.
+        if (rawW === 0 && rawH === 0) return;
+        const w = Math.max(minW, Math.min(maxW, Math.ceil(rawW)));
+        const h = Math.max(minH, Math.min(maxH, Math.ceil(rawH)));
         if (w === lastW && h === lastH) return;
         lastW = w;
         lastH = h;
