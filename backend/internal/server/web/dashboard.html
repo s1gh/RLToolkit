@@ -1795,6 +1795,49 @@ if (inLauncher) {
   });
 })();
 
+// ─── Check for updates button ───────────────────────────────
+//
+// Manual catalog refresh. While in flight the button is disabled and
+// shows a transient label; on completion it flashes a success or
+// failure message for a couple of seconds before restoring. The
+// refreshInFlight flag is held through the display window so rapid
+// clicks during the flash don't clobber the label.
+(function wireCheckUpdates() {
+  const btn = document.getElementById('check-updates-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (refreshInFlight) return;
+    refreshInFlight = true;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    try {
+      await refreshPluginUpdates({ trigger: 'manual' });
+      if (catalogError) {
+        throw new Error(catalogError);
+      }
+      if (activeTab === 'browse') {
+        await refetchCatalog();
+        renderBrowse();
+      }
+      btn.textContent = 'Checked just now';
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+        refreshInFlight = false;
+      }, 2000);
+    } catch (e) {
+      console.warn('check-updates failed', e);
+      btn.textContent = 'Check failed';
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+        refreshInFlight = false;
+      }, 3000);
+    }
+  });
+})();
+
 // ─── Install plugin from file ───────────────────────────────
 //
 // Click the "Install plugin…" button → native file picker → upload
