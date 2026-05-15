@@ -344,6 +344,42 @@ func TestGoal_HatTrickIgnoresOwnGoals(t *testing.T) {
 	}
 }
 
+func TestGoal_StolenGoalHappyPath(t *testing.T) {
+	roster := goalRoster(t,
+		&types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	)
+	corr := correlation.New(8)
+	// Teammate Bo took a shot, then Ada touched the ball, then scored.
+	corr.Record("StatfeedEvent", &types.StatfeedRecord{
+		EventName: "Shot",
+		MainRef:   &types.ShortcutRef{Name: "Bo"},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+	})
+	e := NewGoal(roster, corr, tick.New(), &fakeFlipReset{}, &fakeGoalCounter{})
+
+	out := e.Process(makeGoalScored(t, "Ada", 100))
+	if len(out) != 1 {
+		t.Fatalf("expected one event, got %v", out)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(out[0].Data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var mods map[string]bool
+	if err := json.Unmarshal(payload["modifiers"], &mods); err != nil {
+		t.Fatalf("unmarshal modifiers: %v", err)
+	}
+	if !mods["isStolenGoal"] {
+		t.Fatalf("expected isStolenGoal=true, got %+v", mods)
+	}
+}
+
 func makeGoalScored(t *testing.T, scorerName string, speed float64) bus.Event {
 	t.Helper()
 	return makeGoalScoredFor(t, scorerName, 0, speed)

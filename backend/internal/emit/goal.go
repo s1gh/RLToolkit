@@ -248,6 +248,7 @@ func (e *Goal) processGoal(evt bus.Event) []bus.Event {
 	if e.flipReset != nil && e.flipReset.ConsumeFlipResetArm(scorer.ID) {
 		mods.IsFlipResetGoal = true
 	}
+	mods.IsStolenGoal = detectStolenGoal(scorer, lastToucher, out.IsOwnGoal, e.correlation)
 	out.Modifiers = mods
 
 	// Record the resolved goal so _OwnGoal can attach it as
@@ -399,4 +400,65 @@ func collectGoalModifiers(c Correlator, scorer *types.ShortcutRef) *goalModifier
 	})
 
 	return mods
+}
+
+// detectStolenGoal returns true when the scorer finished a teammate's
+// shot with no other BallHit in between. Event-sequence based, so it
+// is independent of the user's configured PacketSendRate.
+//
+// Criteria:
+//   - not an own goal,
+//   - scorer is the resolved last toucher,
+//   - the BallHit immediately before the scorer's last touch was by a
+//     different player on the same team (a teammate),
+//   - that teammate has a Shot statfeed in the recent buffer.
+//
+// Consumes the matched Shot statfeed so a teammate's earlier
+// unconverted Shot cannot spuriously credit a later goal.
+func detectStolenGoal(
+	scorer *types.EnrichedPlayer,
+	lastToucher *types.EnrichedPlayer,
+	isOwnGoal bool,
+	c Correlator,
+) bool {
+	if isOwnGoal || scorer == nil || lastToucher == nil {
+		return false
+	}
+	if lastToucher.ID != scorer.ID {
+		return false
+	}
+	hits := c.Recent("BallHit", 2)
+	if len(hits) < 2 {
+		return false
+	}
+	prev, ok := hits[1].(*types.BallHitRecord)
+	if !ok || prev == nil || prev.Player == nil {
+		return false
+	}
+	teammate := prev.Player
+	if teammate.ID == scorer.ID {
+		return false
+	}
+	if teammate.Team != scorer.Team {
+		return false
+	}
+	teammateRef := &types.ShortcutRef{Name: teammate.Name}
+	for _, p := range c.Recent("StatfeedEvent", 15) {
+		rec, ok := p.(*types.StatfeedRecord)
+		if !ok || rec == nil || rec.EventName != "Shot" {
+			continue
+		}
+		if !sameShortcutPlayer(rec.MainRef, teammateRef) {
+			continue
+		}
+		c.RemoveByName("StatfeedEvent", func(p interface{}) bool {
+			r, ok := p.(*types.StatfeedRecord)
+			if !ok || r == nil {
+				return false
+			}
+			return r.EventName == "Shot" && sameShortcutPlayer(r.MainRef, teammateRef)
+		})
+		return true
+	}
+	return false
 }
