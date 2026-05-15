@@ -528,6 +528,47 @@ func TestGoal_StolenGoalRejectsShotByDifferentTeammate(t *testing.T) {
 	}
 }
 
+func TestGoal_StolenGoalSuppressedOnOwnGoal(t *testing.T) {
+	// Scorer "Ada" on team 0, but the last toucher on the conceding
+	// team (team 1) — this triggers the own-goal heuristic. The
+	// stolen-goal flag must be suppressed regardless of other state.
+	roster := goalRoster(t,
+		&types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|9|0", Name: "Zed", Team: 1},
+	)
+	corr := correlation.New(8)
+	corr.Record("StatfeedEvent", &types.StatfeedRecord{
+		EventName: "Shot",
+		MainRef:   &types.ShortcutRef{Name: "Bo"},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|9|0", Name: "Zed", Team: 1},
+	})
+	e := NewGoal(roster, corr, tick.New(), &fakeFlipReset{}, &fakeGoalCounter{})
+
+	out := e.Process(makeGoalScoredFor(t, "Ada", 0, 100))
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(out[0].Data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var isOwn bool
+	_ = json.Unmarshal(payload["isOwnGoal"], &isOwn)
+	if !isOwn {
+		t.Fatalf("test setup wrong: expected isOwnGoal=true (last toucher on conceding team)")
+	}
+	var mods map[string]bool
+	if err := json.Unmarshal(payload["modifiers"], &mods); err != nil {
+		t.Fatalf("unmarshal modifiers: %v", err)
+	}
+	if mods["isStolenGoal"] {
+		t.Fatalf("own goal must suppress isStolenGoal")
+	}
+}
+
 func makeGoalScored(t *testing.T, scorerName string, speed float64) bus.Event {
 	t.Helper()
 	return makeGoalScoredFor(t, scorerName, 0, speed)
