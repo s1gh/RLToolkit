@@ -495,6 +495,39 @@ func TestGoal_StolenGoalRejectsNoTeammateShot(t *testing.T) {
 	}
 }
 
+func TestGoal_StolenGoalRejectsShotByDifferentTeammate(t *testing.T) {
+	roster := goalRoster(t,
+		&types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|3|0", Name: "Cal", Team: 0},
+	)
+	corr := correlation.New(8)
+	corr.Record("StatfeedEvent", &types.StatfeedRecord{
+		EventName: "Shot",
+		MainRef:   &types.ShortcutRef{Name: "Cal"},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+	})
+	e := NewGoal(roster, corr, tick.New(), &fakeFlipReset{}, &fakeGoalCounter{})
+
+	out := e.Process(makeGoalScored(t, "Ada", 100))
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(out[0].Data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var mods map[string]bool
+	if err := json.Unmarshal(payload["modifiers"], &mods); err != nil {
+		t.Fatalf("unmarshal modifiers: %v", err)
+	}
+	if mods["isStolenGoal"] {
+		t.Fatalf("Shot by a different teammate than the prev toucher must not yield isStolenGoal=true")
+	}
+}
+
 func makeGoalScored(t *testing.T, scorerName string, speed float64) bus.Event {
 	t.Helper()
 	return makeGoalScoredFor(t, scorerName, 0, speed)
