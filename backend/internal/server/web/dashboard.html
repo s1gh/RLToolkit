@@ -390,6 +390,9 @@ button{font-family:inherit}
   font-size:11px; color:var(--txt-3); cursor:pointer; user-select:none;
   text-decoration:underline; text-decoration-style:dotted;
 }
+.section-head-right .catalog-last-checked{
+  font-size:11px; color:var(--txt-3); user-select:none;
+}
 
 .card-desc{
   font-size:13px; line-height:1.55;
@@ -825,6 +828,7 @@ button{font-family:inherit}
         <button class="btn" type="button" id="overlay-edit-btn" hidden>Edit overlay</button>
         <span id="catalog-error" class="catalog-error" hidden>Couldn’t check for updates · retry</span>
         <button class="btn update-all" type="button" id="update-all-btn" hidden>Update all</button>
+        <span class="catalog-last-checked" id="catalog-last-checked" hidden></span>
         <button class="btn" type="button" id="check-updates-btn">Check for updates</button>
         <button class="btn" type="button" id="install-plugin-btn">Install plugin…</button>
         <input type="file" id="install-plugin-input" accept=".rltp" hidden />
@@ -1415,6 +1419,7 @@ async function refetchCatalog() {
   } catch (e) {
     console.warn('catalog fetch failed', e);
   }
+  renderLastChecked();
 }
 
 // applyActiveTab toggles which grid is visible. The Installed grid
@@ -1460,6 +1465,7 @@ async function maybeRefreshBrowse() {
     console.warn('catalog fetch failed', e);
   }
   renderBrowse();
+  renderLastChecked();
 }
 
 // Delegated handlers on the plugin grid — the grid is rebuilt
@@ -1823,30 +1829,62 @@ if (inLauncher) {
     btn.textContent = 'Checking…';
     try {
       await refreshPluginUpdates({ trigger: 'manual' });
-      if (catalogError) {
-        throw new Error(catalogError);
-      }
       if (activeTab === 'browse') {
         await refetchCatalog();
         renderBrowse();
+      } else {
+        // Keep the catalog cache in sync so the timestamp label
+        // reflects the just-completed check even on Installed.
+        await refetchCatalog();
       }
-      btn.textContent = 'Checked just now';
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.disabled = false;
-        refreshInFlight = false;
-      }, 2000);
     } catch (e) {
       console.warn('check-updates failed', e);
-      btn.textContent = 'Check failed';
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.disabled = false;
-        refreshInFlight = false;
-      }, 3000);
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+      refreshInFlight = false;
+      renderLastChecked();
     }
   });
 })();
+
+// renderLastChecked paints the dimmed "Last checked Xm ago" label
+// next to the Check-for-updates button. Reads catalogEntries.last_checked_at
+// (server-side RFC3339 UTC). Hidden if the catalog has never been
+// refreshed. Called whenever the catalog state changes and on a
+// 30 s tick so the relative time stays current.
+function renderLastChecked() {
+  const el = document.getElementById('catalog-last-checked');
+  if (!el) return;
+  const iso = catalogEntries && catalogEntries.last_checked_at;
+  if (!iso) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.textContent = 'Last checked ' + formatRelative(Date.now() - ts);
+}
+
+// formatRelative turns a millisecond delta into a short human label.
+// Tiers: just now (<45 s), Xm ago (<60 min), Xh ago (<24 h),
+// Xd ago beyond that. Always lower-case, no plural fuss.
+function formatRelative(deltaMs) {
+  if (deltaMs < 45_000) return 'just now';
+  const min = Math.round(deltaMs / 60_000);
+  if (min < 60) return min + 'm ago';
+  const hr = Math.round(min / 60);
+  if (hr < 24) return hr + 'h ago';
+  const day = Math.round(hr / 24);
+  return day + 'd ago';
+}
+
+setInterval(renderLastChecked, 30_000);
 
 // ─── Install plugin from file ───────────────────────────────
 //
