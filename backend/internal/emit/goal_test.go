@@ -633,6 +633,61 @@ func TestGoal_StolenGoalRejectsWhenNoLastToucher(t *testing.T) {
 	}
 }
 
+func TestGoal_StolenGoalRejectsStaleTeammateShotAcrossOpponentTouches(t *testing.T) {
+	// Reproduces the false-positive scenario:
+	// 1. Teammate Bo took a Shot earlier in the match.
+	// 2. Opponent Zed touched the ball multiple times after that.
+	// 3. Bo touched it again (no new Shot statfeed — just a touch).
+	// 4. Ada (scorer) finished it.
+	// The lookback-only check would still find Bo's stale Shot in the
+	// buffer and credit Ada with a stolen goal. The chronological
+	// guard rejects it because Zed's BallHits sit between Bo's Shot
+	// statfeed and the prev BallHit.
+	roster := goalRoster(t,
+		&types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|9|0", Name: "Zed", Team: 1},
+	)
+	corr := correlation.New(16)
+	corr.Record("StatfeedEvent", &types.StatfeedRecord{
+		EventName: "Shot",
+		MainRef:   &types.ShortcutRef{Name: "Bo"},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	})
+	// Opponent intervened — multiple touches between the teammate's
+	// shot and the eventual goal.
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|9|0", Name: "Zed", Team: 1},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|9|0", Name: "Zed", Team: 1},
+	})
+	// Teammate touched the ball again (no new Shot statfeed), then
+	// scorer finished.
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+	})
+	e := NewGoal(roster, corr, tick.New(), &fakeFlipReset{}, &fakeGoalCounter{})
+
+	out := e.Process(makeGoalScored(t, "Ada", 100))
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(out[0].Data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var mods map[string]bool
+	if err := json.Unmarshal(payload["modifiers"], &mods); err != nil {
+		t.Fatalf("unmarshal modifiers: %v", err)
+	}
+	if mods["isStolenGoal"] {
+		t.Fatalf("opponent BallHits between teammate's Shot and the goal must not yield isStolenGoal=true")
+	}
+}
+
 func makeGoalScored(t *testing.T, scorerName string, speed float64) bus.Event {
 	t.Helper()
 	return makeGoalScoredFor(t, scorerName, 0, speed)

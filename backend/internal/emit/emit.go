@@ -10,6 +10,7 @@ package emit
 
 import (
 	"rl-toolkit/backend/internal/bus"
+	"rl-toolkit/backend/internal/correlation"
 	"rl-toolkit/backend/internal/types"
 )
 
@@ -61,6 +62,13 @@ type Correlator interface {
 	Recent(name string, n int) []interface{}
 	FindWithin(name string, lookback int, predicate func(interface{}) bool) interface{}
 	RemoveByName(name string, predicate func(interface{}) bool)
+	// WalkRecent returns entries across multiple event names in
+	// chronological order (newest first). Used when correctness
+	// depends on knowing the relative ordering of events that
+	// per-name Recent() can't surface — e.g., did this teammate's
+	// Shot statfeed actually come after the most recent opponent
+	// BallHit in the buffer?
+	WalkRecent(names []string, limit int) []correlation.MixedEntry
 }
 
 // FlipResetClearer is the slim view TickDiff needs into Statfeed:

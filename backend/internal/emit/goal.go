@@ -411,7 +411,9 @@ func collectGoalModifiers(c Correlator, scorer *types.ShortcutRef) *goalModifier
 //   - scorer is the resolved last toucher,
 //   - the BallHit immediately before the scorer's last touch was by a
 //     different player on the same team (a teammate),
-//   - that teammate has a Shot statfeed in the recent buffer.
+//   - that teammate has a Shot statfeed in the recent buffer that was
+//     recorded AFTER any opponent BallHit (so an old unrelated Shot
+//     can't credit a later goal just because it's still in the buffer).
 //
 // Consumes the matched Shot statfeed so a teammate's earlier
 // unconverted Shot cannot spuriously credit a later goal.
@@ -443,22 +445,48 @@ func detectStolenGoal(
 		return false
 	}
 	teammateRef := &types.ShortcutRef{Name: teammate.Name}
-	for _, p := range c.Recent("StatfeedEvent", 15) {
-		rec, ok := p.(*types.StatfeedRecord)
-		if !ok || rec == nil || rec.EventName != "Shot" {
-			continue
-		}
-		if !sameShortcutPlayer(rec.MainRef, teammateRef) {
-			continue
-		}
-		c.RemoveByName("StatfeedEvent", func(p interface{}) bool {
-			r, ok := p.(*types.StatfeedRecord)
-			if !ok || r == nil {
-				return false
+
+	// Walk BallHits and Shot statfeeds together in chronological
+	// order (newest first). The teammate's Shot must appear before
+	// (i.e. more recently than) any opponent BallHit — otherwise the
+	// statfeed is from an earlier play that opponents have already
+	// touched the ball during, which means the goal isn't actually
+	// finishing this teammate's shot.
+	mixed := c.WalkRecent([]string{"BallHit", "StatfeedEvent"}, 30)
+	for _, m := range mixed {
+		switch m.Name {
+		case "BallHit":
+			rec, ok := m.Payload.(*types.BallHitRecord)
+			if !ok || rec == nil || rec.Player == nil {
+				continue
 			}
-			return r.EventName == "Shot" && sameShortcutPlayer(r.MainRef, teammateRef)
-		})
-		return true
+			// Skip the scorer's own most-recent BallHit and the
+			// teammate's previous BallHit — those are expected and
+			// don't break the chain. Any OTHER player's BallHit
+			// (an opponent, or another teammate later than the
+			// shooting one) means the teammate's earlier Shot
+			// can't be the one that became the goal.
+			if rec.Player.ID == scorer.ID || rec.Player.ID == teammate.ID {
+				continue
+			}
+			return false
+		case "StatfeedEvent":
+			rec, ok := m.Payload.(*types.StatfeedRecord)
+			if !ok || rec == nil || rec.EventName != "Shot" {
+				continue
+			}
+			if !sameShortcutPlayer(rec.MainRef, teammateRef) {
+				continue
+			}
+			c.RemoveByName("StatfeedEvent", func(p interface{}) bool {
+				r, ok := p.(*types.StatfeedRecord)
+				if !ok || r == nil {
+					return false
+				}
+				return r.EventName == "Shot" && sameShortcutPlayer(r.MainRef, teammateRef)
+			})
+			return true
+		}
 	}
 	return false
 }

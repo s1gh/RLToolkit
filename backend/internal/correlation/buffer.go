@@ -93,3 +93,36 @@ func (c *Buffer) RemoveByName(name string, predicate func(interface{}) bool) {
 	}
 	c.entries = c.entries[:n]
 }
+
+// MixedEntry is one entry from WalkRecent, carrying the event name
+// alongside the payload so callers can branch on type while keeping
+// the chronological ordering between unrelated event kinds.
+type MixedEntry struct {
+	Name    string
+	Payload interface{}
+}
+
+// WalkRecent returns up to `limit` most recent entries whose name
+// appears in `names`, walking the buffer newest-first. The returned
+// slice preserves chronological order across event kinds — used when
+// a caller needs to check whether one event happened after another
+// (e.g., "did this teammate's Shot statfeed come after any opponent
+// BallHit in the buffer?"), which the per-name Recent() can't answer.
+func (c *Buffer) WalkRecent(names []string, limit int) []MixedEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	wanted := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		wanted[n] = struct{}{}
+	}
+	out := make([]MixedEntry, 0, limit)
+	for i := len(c.entries) - 1; i >= 0 && len(out) < limit; i-- {
+		e := c.entries[i]
+		if _, ok := wanted[e.name]; !ok {
+			continue
+		}
+		out = append(out, MixedEntry{Name: e.name, Payload: e.payload})
+	}
+	return out
+}
