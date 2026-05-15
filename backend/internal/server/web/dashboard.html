@@ -274,6 +274,54 @@ button{font-family:inherit}
   background: var(--bg-1);
   color: var(--txt-2);
 }
+.card-actions .installed-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  color: var(--txt-2);
+  align-self: center;
+}
+.card.expanded {
+  outline: 1px solid var(--line, rgba(255,255,255,0.08));
+}
+.card-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, rgba(255,255,255,0.07));
+}
+.card-detail-kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.card-detail-kv dt {
+  color: var(--txt-2);
+}
+.card-detail-kv dd {
+  margin: 0;
+  color: var(--txt);
+}
+.card-detail-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.card-detail-error {
+  margin: 10px 0 0;
+  color: var(--red, #ef4444);
+  font-size: 13px;
+}
+.btn.ghost {
+  background: transparent;
+  border: 1px solid var(--line, rgba(255,255,255,0.12));
+  color: var(--txt-2);
+}
+.btn.ghost:hover {
+  color: var(--txt);
+}
 
 .card{
   position:relative;
@@ -1174,17 +1222,20 @@ function renderPlugins() {
 
 }
 
-// renderBrowse paints the Browse-tab grid from catalogEntries. Stub
-// here; Task 5 fills in the cards. Already updates the tab counter
-// and shows / hides the banner so empty + error states work today.
+// renderBrowse paints the Browse grid from catalogEntries. Each card
+// uses the same .card shell as the Installed grid. Footer action
+// depends on entry.state: Install button, Installed chip, or Update
+// button. Clicking expands the card inline; a second click commits
+// the install via /api/plugins/install-update.
 function renderBrowse() {
   const grid = document.getElementById('pl-browse');
   if (!grid) return;
   grid.innerHTML = '';
-  document.getElementById('tab-browse-count').textContent =
-    String(catalogEntries.entries.length);
+  const entries = catalogEntries.entries || [];
+  document.getElementById('tab-browse-count').textContent = String(entries.length);
+
   const banner = document.getElementById('browse-banner');
-  if (catalogEntries.entries.length === 0) {
+  if (entries.length === 0) {
     banner.hidden = false;
     banner.classList.add('empty');
     banner.textContent = catalogEntries.last_error
@@ -1196,6 +1247,160 @@ function renderBrowse() {
     banner.textContent = `Couldn’t refresh: ${catalogEntries.last_error}`;
   } else {
     banner.hidden = true;
+  }
+
+  for (const e of entries) {
+    grid.appendChild(renderBrowseCard(e));
+  }
+}
+
+// renderBrowseCard builds one .card element for a catalog entry.
+// Reuses the Installed-card visual language (icon, title, sub, desc)
+// and adds a state-specific footer action.
+function renderBrowseCard(e) {
+  const card = document.createElement('article');
+  card.className = 'card';
+  card.dataset.browseName = e.name;
+  if (expandedCard === e.name) card.classList.add('expanded');
+
+  const title = e.title || e.name;
+  const initials = title.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '◇';
+  const desc = e.description
+    ? esc(e.description)
+    : '<span style="color:var(--txt-3);font-style:italic">No description provided.</span>';
+
+  card.innerHTML =
+    '<div class="card-head">'
+      + '<div class="card-icon">' + esc(initials) + '</div>'
+      + '<div class="card-meta">'
+        + '<div class="card-title">' + esc(title) + '</div>'
+        + '<div class="card-sub">'
+          + '<span class="v">v' + esc(e.version) + '</span>'
+          + (e.author ? '<span class="author">@' + esc(e.author) + '</span>' : '')
+        + '</div>'
+      + '</div>'
+    + '</div>'
+    + '<p class="card-desc">' + desc + '</p>'
+    + '<div class="card-actions"></div>';
+
+  const actions = card.querySelector('.card-actions');
+  if (e.state === 'up_to_date') {
+    const chip = document.createElement('span');
+    chip.className = 'installed-chip';
+    chip.textContent = 'Installed';
+    actions.appendChild(chip);
+  } else {
+    const primary = document.createElement('button');
+    primary.className = 'btn primary';
+    primary.type = 'button';
+    primary.textContent = e.state === 'update_available'
+      ? 'Update to v' + e.version
+      : 'Install';
+    primary.addEventListener('click', () => toggleBrowseExpand(e.name));
+    actions.appendChild(primary);
+  }
+
+  if (expandedCard === e.name) {
+    card.appendChild(renderBrowseDetail(e));
+  }
+  return card;
+}
+
+// renderBrowseDetail builds the inline detail panel shown when a
+// Browse card is expanded. Clicking Install posts to install-update;
+// errors render in red beneath the buttons and keep the card open
+// for retry.
+function renderBrowseDetail(e) {
+  const wrap = document.createElement('div');
+  wrap.className = 'card-detail';
+  const sizeBytes = e.size_bytes || 0;
+  const sizeLabel = sizeBytes >= 1024 * 1024
+    ? (sizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
+    : Math.max(1, Math.round(sizeBytes / 1024)) + ' KB';
+  const confirmLabel = e.state === 'update_available'
+    ? 'Update to v' + esc(e.version)
+    : 'Install';
+  wrap.innerHTML =
+    '<dl class="card-detail-kv">'
+      + '<dt>Version</dt><dd>v' + esc(e.version) + '</dd>'
+      + '<dt>Author</dt><dd>' + esc(e.author || '—') + '</dd>'
+      + '<dt>Size</dt><dd>' + esc(sizeLabel) + '</dd>'
+    + '</dl>'
+    + '<div class="card-detail-actions">'
+      + '<button type="button" class="btn primary" data-act="confirm">' + confirmLabel + '</button>'
+      + '<button type="button" class="btn ghost" data-act="cancel">Cancel</button>'
+    + '</div>'
+    + '<p class="card-detail-error" hidden></p>';
+
+  wrap.querySelector('[data-act="cancel"]').addEventListener('click', () => {
+    expandedCard = null;
+    renderBrowse();
+  });
+  wrap.querySelector('[data-act="confirm"]').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const errEl = wrap.querySelector('.card-detail-error');
+    errEl.hidden = true;
+    btn.disabled = true;
+    btn.textContent = 'Installing…';
+    try {
+      const r = await fetch('/api/plugins/install-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: e.name }),
+      });
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try { const body = await r.json(); if (body && body.error) msg = body.error; } catch {}
+        throw new Error(msg);
+      }
+      expandedCard = null;
+      spawnInstallToast({
+        kind: 'success',
+        title: (e.state === 'update_available' ? 'Updated ' : 'Installed ')
+               + (e.title || e.name),
+        detail: 'v' + e.version,
+      });
+      await Promise.all([refetchInstalled(), refetchCatalog()]);
+      renderBrowse();
+    } catch (err) {
+      errEl.hidden = false;
+      errEl.textContent = String(err && err.message ? err.message : err);
+      btn.disabled = false;
+      btn.textContent = confirmLabel;
+    }
+  });
+  return wrap;
+}
+
+// toggleBrowseExpand opens the named card and collapses any other.
+// Re-clicking the same card collapses it.
+function toggleBrowseExpand(name) {
+  expandedCard = (expandedCard === name) ? null : name;
+  renderBrowse();
+}
+
+// refetchInstalled re-loads the Installed grid after an install lands.
+async function refetchInstalled() {
+  try {
+    const r = await fetch('/api/plugins');
+    if (r.ok) {
+      const ps = await r.json();
+      plugins = ps || [];
+      renderPlugins();
+    }
+  } catch (e) {
+    console.warn('plugins fetch failed', e);
+  }
+}
+
+// refetchCatalog re-loads the catalog without forcing a server-side
+// refresh, just to pick up new installed_version / state values.
+async function refetchCatalog() {
+  try {
+    const r = await fetch('/api/plugins/catalog');
+    if (r.ok) catalogEntries = await r.json();
+  } catch (e) {
+    console.warn('catalog fetch failed', e);
   }
 }
 
