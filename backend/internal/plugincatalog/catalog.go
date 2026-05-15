@@ -129,6 +129,17 @@ func (m *Manager) Find(name string) (Entry, bool) {
 	return e, ok
 }
 
+// Entries returns a snapshot of the cached catalog entries in the
+// order they were parsed. Empty if Refresh has not yet succeeded.
+// Safe for concurrent reads; callers receive a copy.
+func (m *Manager) Entries() []Entry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Entry, len(m.entries))
+	copy(out, m.entries)
+	return out
+}
+
 // LastChecked is the time the catalog was last successfully fetched,
 // zero if never.
 func (m *Manager) LastChecked() time.Time {

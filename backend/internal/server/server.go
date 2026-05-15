@@ -86,6 +86,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/plugins/updates", s.handlePluginUpdates)
 	mux.HandleFunc("/api/plugins/refresh-catalog", s.handleRefreshCatalog)
 	mux.HandleFunc("/api/plugins/install-update", s.handleInstallUpdate)
+	mux.HandleFunc("/api/plugins/catalog", s.handlePluginCatalog)
 	mux.HandleFunc("/api/plugins/", s.handlePluginByName)
 	mux.HandleFunc("/api/events", s.handleEventCatalog)
 	mux.HandleFunc("/api/status", s.handleStatus)
