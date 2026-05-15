@@ -160,6 +160,19 @@ const MaxArchiveBytes = 50 << 20
 // blob fails the hash check before the archive is unpacked.
 var downloadClient = &http.Client{}
 
+// SetHTTPClientForTesting swaps the package-level downloadClient with c
+// and returns a function that restores the original client. Test-only
+// hook: production callers rely on the default zero-value client.
+// Typical use:
+//
+//	restore := install.SetHTTPClientForTesting(srv.Client())
+//	defer restore()
+func SetHTTPClientForTesting(c *http.Client) func() {
+	prev := downloadClient
+	downloadClient = c
+	return func() { downloadClient = prev }
+}
+
 // InstallFromURL downloads a .rltp from url, verifies SHA-256 against
 // expectedSHA256 (lowercase hex, 64 chars), and unpacks it into
 // pluginsDir/<name>/. Returns the unpacked plugin name on success.

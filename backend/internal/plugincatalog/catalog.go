@@ -140,6 +140,21 @@ func (m *Manager) Entries() []Entry {
 	return out
 }
 
+// SetEntriesForTesting replaces the cached entries and refreshes the
+// byName index. Test-only hook: production code populates the cache
+// exclusively via Refresh, which validates each entry. Tests use this
+// to bypass network and HTTPS validation when wiring up an in-process
+// HTTP fixture.
+func (m *Manager) SetEntriesForTesting(entries []Entry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries = entries
+	m.byName = make(map[string]Entry, len(entries))
+	for _, e := range entries {
+		m.byName[e.Name] = e
+	}
+}
+
 // LastChecked is the time the catalog was last successfully fetched,
 // zero if never.
 func (m *Manager) LastChecked() time.Time {
