@@ -178,6 +178,169 @@ surfClearBtn.addEventListener("click", async () => {
   }
 });
 
+// ─── Settings: edit-mode shortcut capture ─────────────────────
+// The capture control listens for keydown while focused, builds a
+// canonical "Ctrl+Shift+KeyE"-style string from e.code (layout-
+// independent — the global hotkey backend keys on physical scancodes
+// too, so matching against e.code is what survives keyboard-layout
+// changes), and posts it to the backend. The backend tries to bind
+// the new combo BEFORE persisting, so a bogus combo can't strand
+// the user without a shortcut.
+const isMac = navigator.platform.toLowerCase().includes("mac");
+const shortcutCaptureBtn = document.getElementById("shortcut-capture");
+const shortcutDisplay = document.getElementById("shortcut-display");
+const shortcutResetBtn = document.getElementById("shortcut-reset");
+const shortcutHint = document.getElementById("shortcut-hint");
+const shortcutDefaultLabel = document.getElementById("shortcut-default-label");
+
+let shortcutState = { current: "", stored: null, default: "" };
+let shortcutCapturing = false;
+
+function tokenToDisplay(token) {
+  // Friendly labels for both the parser's accepted forms (KeyE,
+  // Digit1, Numpad0, F5, …) and the modifier names.
+  if (/^Key[A-Z]$/.test(token)) return token.slice(3);
+  if (/^Digit\d$/.test(token)) return token.slice(5);
+  if (/^Numpad(\d|.+)$/.test(token)) return "Num" + token.slice(6);
+  const m = {
+    Ctrl: isMac ? "⌃" : "Ctrl",
+    Control: isMac ? "⌃" : "Ctrl",
+    Shift: isMac ? "⇧" : "Shift",
+    Alt: isMac ? "⌥" : "Alt",
+    Super: isMac ? "⌘" : "Super",
+    Meta: isMac ? "⌘" : "Super",
+    Cmd: "⌘",
+    ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
+    Space: "Space", Escape: "Esc", Enter: "Enter", Tab: "Tab",
+    Backspace: "Backspace", Delete: "Del",
+    Equal: "=", Minus: "-", Comma: ",", Period: ".", Slash: "/",
+    Backslash: "\\", Quote: "'", Semicolon: ";",
+    BracketLeft: "[", BracketRight: "]", Backquote: "`",
+  };
+  return m[token] || token;
+}
+
+function formatCombo(combo) {
+  if (!combo) return "—";
+  const sep = isMac ? " " : "+";
+  return combo.split("+").map(tokenToDisplay).join(sep);
+}
+
+function renderShortcut() {
+  shortcutDisplay.textContent = formatCombo(shortcutState.current);
+  shortcutDefaultLabel.textContent = "Default: " + formatCombo(shortcutState.default);
+  // "Reset" only makes sense when a non-default value is stored.
+  shortcutResetBtn.disabled = !shortcutState.stored;
+}
+
+function setShortcutHint(text, isError) {
+  shortcutHint.textContent = text || "";
+  shortcutHint.classList.toggle("error", !!isError);
+}
+
+async function loadShortcut() {
+  try {
+    shortcutState = await invoke("get_edit_mode_shortcut");
+  } catch (e) {
+    console.warn("[launcher] get_edit_mode_shortcut failed", e);
+    shortcutState = { current: "Ctrl+Shift+KeyE", stored: null, default: "Ctrl+Shift+KeyE" };
+  }
+  renderShortcut();
+  setShortcutHint("Click and press a key combination.", false);
+}
+
+async function saveShortcut(combo) {
+  try {
+    shortcutState = await invoke("set_edit_mode_shortcut", { combo });
+    renderShortcut();
+    setShortcutHint("Saved.", false);
+  } catch (e) {
+    setShortcutHint(String(e?.message || e), true);
+    // Refresh from backend so the UI matches whatever the rollback
+    // restored, rather than the failed candidate.
+    await loadShortcut();
+  }
+}
+
+function stopCapture() {
+  shortcutCapturing = false;
+  shortcutCaptureBtn.classList.remove("capturing");
+  renderShortcut();
+}
+
+function isModifierKey(code) {
+  return (
+    code === "ControlLeft" || code === "ControlRight" ||
+    code === "ShiftLeft" || code === "ShiftRight" ||
+    code === "AltLeft" || code === "AltRight" ||
+    code === "MetaLeft" || code === "MetaRight" ||
+    code === "OSLeft" || code === "OSRight"
+  );
+}
+
+function buildComboFromEvent(e) {
+  const mods = [];
+  if (e.ctrlKey) mods.push("Ctrl");
+  if (e.shiftKey) mods.push("Shift");
+  if (e.altKey) mods.push("Alt");
+  if (e.metaKey) mods.push(isMac ? "Cmd" : "Super");
+  return { mods, code: e.code };
+}
+
+shortcutCaptureBtn.addEventListener("click", () => {
+  shortcutCapturing = true;
+  shortcutCaptureBtn.classList.add("capturing");
+  shortcutDisplay.textContent = "Press a key combination…";
+  setShortcutHint("Esc to cancel.", false);
+  shortcutCaptureBtn.focus();
+});
+
+shortcutCaptureBtn.addEventListener("blur", () => {
+  if (shortcutCapturing) stopCapture();
+});
+
+shortcutCaptureBtn.addEventListener("keydown", (e) => {
+  if (!shortcutCapturing) return;
+  // Escape always cancels, regardless of modifier state.
+  if (e.code === "Escape" && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+    e.preventDefault();
+    stopCapture();
+    setShortcutHint("Cancelled.", false);
+    return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+
+  // Live preview while only modifiers are held — gives feedback that
+  // capture is working before the user lands the non-modifier key.
+  if (isModifierKey(e.code)) {
+    const { mods } = buildComboFromEvent(e);
+    shortcutDisplay.textContent = mods.length
+      ? mods.map(tokenToDisplay).join(isMac ? " " : "+") + (isMac ? " " : "+") + "…"
+      : "Press a key combination…";
+    return;
+  }
+
+  const { mods, code } = buildComboFromEvent(e);
+  // Require at least one non-Shift modifier. A bare letter or
+  // Shift+letter would collide with normal typing the moment the
+  // user focuses any input, anywhere on the system.
+  const hasRealMod = mods.some((m) => m !== "Shift");
+  if (!hasRealMod) {
+    setShortcutHint("Use at least Ctrl, Alt, or " + (isMac ? "Cmd" : "Super") + ".", true);
+    return;
+  }
+
+  const combo = [...mods, code].join("+");
+  stopCapture();
+  saveShortcut(combo);
+});
+
+shortcutResetBtn.addEventListener("click", () => {
+  if (shortcutCapturing) stopCapture();
+  saveShortcut(null);
+});
+
 // ─── Splash state machine ────────────────────────────────────
 const splash = document.getElementById("splash");
 const splashStatus = document.getElementById("splash-status");
@@ -722,6 +885,7 @@ async function openSettings() {
   // place when the response lands. Errors fall back to a "1920×1080"
   // placeholder so the inputs are never empty.
   loadSurface();
+  loadShortcut();
 }
 
 function closeSettings() {

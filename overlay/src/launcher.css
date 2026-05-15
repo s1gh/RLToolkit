@@ -320,6 +320,47 @@ input, textarea {
   min-height: 1.2em;
 }
 .surface-detail .mismatch { color: var(--gold); }
+
+/* ─── Settings: edit-mode shortcut capture ─────────────────── */
+.shortcut-row {
+  display: flex; gap: 8px; align-items: center;
+}
+.shortcut-capture {
+  flex: 1;
+  background: #0c0d10; color: var(--fg);
+  border: 1px solid #262a33;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+  min-height: 36px;
+}
+.shortcut-capture:hover { background: #11141a; }
+.shortcut-capture:focus,
+.shortcut-capture.capturing {
+  outline: none;
+  border-color: var(--accent);
+  background: #11141a;
+}
+.shortcut-capture.capturing .shortcut-display {
+  color: var(--muted);
+}
+.shortcut-display {
+  display: inline-block;
+  letter-spacing: 0.03em;
+}
+.shortcut-row .btn-secondary {
+  padding: 6px 12px; font-size: 12px;
+}
+.shortcut-hint {
+  margin: 6px 0 0;
+  font-size: 11px; color: var(--muted);
+  min-height: 1.2em;
+}
+.shortcut-hint.error { color: var(--gold); }
+
 .modal-actions {
   display: flex; gap: 8px;
   justify-content: flex-end;

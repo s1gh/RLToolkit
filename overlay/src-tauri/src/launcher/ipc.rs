@@ -413,6 +413,81 @@ pub fn save_settings(
     Ok(SaveSettingsResult { changed: true, respawned: true })
 }
 
+#[derive(serde::Serialize)]
+pub struct EditModeShortcutView {
+    /// Currently registered combo, or the default if the user hasn't
+    /// configured one. Canonical form, e.g. "Ctrl+Shift+KeyE".
+    pub current: String,
+    /// What the file holds (None when never customized). Lets the UI
+    /// show "Reset to default" only when something is actually set.
+    pub stored: Option<String>,
+    pub default: String,
+}
+
+#[tauri::command]
+pub fn get_edit_mode_shortcut(state: State<LauncherState>) -> EditModeShortcutView {
+    let stored = state.lock().unwrap().settings.load().edit_mode_shortcut;
+    let (_, label) = crate::launcher::shortcut::parse_or_default(stored.as_deref());
+    EditModeShortcutView {
+        current: label,
+        stored,
+        default: crate::launcher::shortcut::DEFAULT_SHORTCUT.to_string(),
+    }
+}
+
+/// Update the edit-mode global shortcut. Passing `None` (or empty)
+/// resets to the built-in default.
+///
+/// Order of operations: register the new combo FIRST. Only after the
+/// OS accepts the new binding do we persist to disk. That way a typo
+/// or conflict can't leave the user with no shortcut at all — on
+/// error we re-register the previous combo as a best-effort restore.
+#[tauri::command]
+pub fn set_edit_mode_shortcut(
+    combo: Option<String>,
+    app: AppHandle,
+    state: State<LauncherState>,
+) -> Result<EditModeShortcutView, String> {
+    let prev_stored = state.lock().unwrap().settings.load().edit_mode_shortcut;
+    let trimmed = combo.as_deref().map(str::trim).unwrap_or("");
+    let target = if trimmed.is_empty() {
+        crate::launcher::shortcut::DEFAULT_SHORTCUT.to_string()
+    } else {
+        trimmed.to_string()
+    };
+
+    let registered = match crate::launcher::shortcut::replace(&app, &target) {
+        Ok(s) => s,
+        Err(e) => {
+            // Try to restore the previously-registered combo so the
+            // user isn't left with a dead shortcut on failure.
+            let (_, prev_label) =
+                crate::launcher::shortcut::parse_or_default(prev_stored.as_deref());
+            let _ = crate::launcher::shortcut::replace(&app, &prev_label);
+            return Err(e);
+        }
+    };
+
+    // Persist. If the new combo equals the default and nothing was
+    // stored before, leave the field None to keep launcher.json tidy.
+    let new_stored = if trimmed.is_empty() {
+        None
+    } else {
+        Some(registered.clone())
+    };
+    {
+        let ctx = state.lock().unwrap();
+        let mut s = ctx.settings.load();
+        s.edit_mode_shortcut = new_stored.clone();
+        ctx.settings.save(&s).map_err(|e| e.to_string())?;
+    }
+    Ok(EditModeShortcutView {
+        current: registered,
+        stored: new_stored,
+        default: crate::launcher::shortcut::DEFAULT_SHORTCUT.to_string(),
+    })
+}
+
 #[tauri::command]
 pub fn overlay_edit_toggle(app: AppHandle) -> Result<bool, String> {
     crate::launcher::edit_mode::toggle(&app)

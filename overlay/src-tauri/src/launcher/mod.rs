@@ -93,6 +93,8 @@ pub fn run(args: Args) {
         ipc::overlay_edit_toggle,
         ipc::overlay_edit_exit,
         ipc::overlay_edit_module_failed,
+        ipc::get_edit_mode_shortcut,
+        ipc::set_edit_mode_shortcut,
         updater::check_for_updates,
         updater::apply_update,
     ]);
@@ -116,6 +118,8 @@ pub fn run(args: Args) {
         ipc::overlay_edit_toggle,
         ipc::overlay_edit_exit,
         ipc::overlay_edit_module_failed,
+        ipc::get_edit_mode_shortcut,
+        ipc::set_edit_mode_shortcut,
     ]);
 
     builder

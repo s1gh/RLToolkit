@@ -20,6 +20,11 @@ pub struct LauncherSettings {
     pub plugins_dir: Option<String>,
     pub data_dir: Option<String>,
     pub rl_addr: Option<String>,
+    /// Global shortcut combo for toggling overlay edit mode. Canonical
+    /// form follows the global-hotkey parser: modifiers then key,
+    /// joined by `+`, e.g. `"Ctrl+Shift+KeyE"`. None means use the
+    /// built-in default (Ctrl+Shift+E).
+    pub edit_mode_shortcut: Option<String>,
 }
 
 pub struct SettingsStore {
