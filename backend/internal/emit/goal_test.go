@@ -569,6 +569,50 @@ func TestGoal_StolenGoalSuppressedOnOwnGoal(t *testing.T) {
 	}
 }
 
+func TestGoal_StolenGoalConsumesTeammateShot(t *testing.T) {
+	roster := goalRoster(t,
+		&types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+		&types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	)
+	corr := correlation.New(16)
+	// First goal: teammate Bo shot, Ada finished — should be a steal.
+	corr.Record("StatfeedEvent", &types.StatfeedRecord{
+		EventName: "Shot",
+		MainRef:   &types.ShortcutRef{Name: "Bo"},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+	})
+	e := NewGoal(roster, corr, tick.New(), &fakeFlipReset{}, &fakeGoalCounter{})
+
+	out := e.Process(makeGoalScored(t, "Ada", 100))
+	var payload map[string]json.RawMessage
+	_ = json.Unmarshal(out[0].Data, &payload)
+	var mods map[string]bool
+	_ = json.Unmarshal(payload["modifiers"], &mods)
+	if !mods["isStolenGoal"] {
+		t.Fatalf("first goal: expected isStolenGoal=true, got %+v", mods)
+	}
+
+	// Second goal: same teammate touched just before Ada again, but no
+	// new Shot statfeed. The earlier Shot should have been consumed.
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|2|0", Name: "Bo", Team: 0},
+	})
+	corr.Record("BallHit", &types.BallHitRecord{
+		Player: &types.EnrichedPlayer{ID: "Steam|1|0", Name: "Ada", Team: 0},
+	})
+	out = e.Process(makeGoalScored(t, "Ada", 100))
+	_ = json.Unmarshal(out[0].Data, &payload)
+	_ = json.Unmarshal(payload["modifiers"], &mods)
+	if mods["isStolenGoal"] {
+		t.Fatalf("second goal must not inherit consumed Shot statfeed; got %+v", mods)
+	}
+}
+
 func makeGoalScored(t *testing.T, scorerName string, speed float64) bus.Event {
 	t.Helper()
 	return makeGoalScoredFor(t, scorerName, 0, speed)
