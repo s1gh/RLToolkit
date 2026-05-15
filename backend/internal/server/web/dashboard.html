@@ -226,6 +226,55 @@ button{font-family:inherit}
   margin-bottom:48px;
 }
 
+.tab-switch {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--bg-elev, rgba(255,255,255,0.04));
+  padding: 4px;
+  border-radius: 10px;
+  margin-left: 12px;
+}
+.tab-switch .tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--fg-muted, #9aa3b2);
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.tab-switch .tab:hover {
+  color: var(--fg, #e6e9ef);
+}
+.tab-switch .tab[aria-selected="true"] {
+  background: var(--bg-elev-strong, rgba(255,255,255,0.08));
+  color: var(--fg, #e6e9ef);
+}
+.tab-switch .tab-count {
+  font-weight: 500;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.browse-banner {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(220, 80, 80, 0.1);
+  color: #f3a4a4;
+  font-size: 13px;
+}
+.browse-banner.empty {
+  background: var(--bg-elev, rgba(255,255,255,0.04));
+  color: var(--fg-muted, #9aa3b2);
+}
+
 .card{
   position:relative;
   background:linear-gradient(180deg, var(--bg-1), var(--bg-2) 110%);
@@ -714,17 +763,27 @@ button{font-family:inherit}
     <div class="section-head">
       <div class="section-head-left">
         <h2>Plugins</h2>
-        <span class="count" id="stat-count">0</span>
+        <div class="tab-switch" role="tablist">
+          <button class="tab" type="button" id="tab-installed" role="tab" aria-selected="true">
+            Installed <span class="tab-count" id="tab-installed-count">0</span>
+          </button>
+          <button class="tab" type="button" id="tab-browse" role="tab" aria-selected="false">
+            Browse <span class="tab-count" id="tab-browse-count">0</span>
+          </button>
+        </div>
       </div>
       <div class="section-head-right">
         <button class="btn" type="button" id="overlay-edit-btn" hidden>Edit overlay</button>
         <span id="catalog-error" class="catalog-error" hidden>Couldn’t check for updates · retry</span>
         <button class="btn update-all" type="button" id="update-all-btn" hidden>Update all</button>
+        <button class="btn" type="button" id="check-updates-btn">Check for updates</button>
         <button class="btn" type="button" id="install-plugin-btn">Install plugin…</button>
         <input type="file" id="install-plugin-input" accept=".rltp" hidden />
       </div>
     </div>
     <div class="plugins" id="pl"></div>
+    <div class="plugins" id="pl-browse" hidden></div>
+    <div class="browse-banner" id="browse-banner" hidden></div>
   </section>
 
   <div id="install-toasts" class="install-toasts" aria-live="polite"></div>
@@ -807,6 +866,13 @@ let overrides = {};
 let pluginsFp = '';
 let pluginUpdates = []; // [{name, installed_version, latest_version, size_bytes}]
 let catalogError = null;
+
+// Browse-tab state. catalogEntries holds the latest /api/plugins/catalog
+// response. activeTab is persisted to localStorage so reloads preserve it.
+let catalogEntries = { entries: [], last_checked_at: null, last_error: null };
+let activeTab = localStorage.getItem('rlt.pluginsTab') === 'browse' ? 'browse' : 'installed';
+let expandedCard = null;
+let refreshInFlight = false;
 
 async function refreshPluginUpdates({ trigger } = {}) {
   try {
@@ -1025,7 +1091,7 @@ function isEnabled(name) {
 
 function renderPlugins() {
   const c = document.getElementById('pl');
-  document.getElementById('stat-count').textContent = plugins.length;
+  document.getElementById('tab-installed-count').textContent = plugins.length;
 
   if (plugins.length === 0) {
     c.innerHTML = '<div class="empty">'
@@ -1103,6 +1169,76 @@ function renderPlugins() {
     + '</article>';
   }).join('');
 
+}
+
+// renderBrowse paints the Browse-tab grid from catalogEntries. Stub
+// here; Task 5 fills in the cards. Already updates the tab counter
+// and shows / hides the banner so empty + error states work today.
+function renderBrowse() {
+  const grid = document.getElementById('pl-browse');
+  if (!grid) return;
+  grid.innerHTML = '';
+  document.getElementById('tab-browse-count').textContent =
+    String(catalogEntries.entries.length);
+  const banner = document.getElementById('browse-banner');
+  if (catalogEntries.entries.length === 0) {
+    banner.hidden = false;
+    banner.classList.add('empty');
+    banner.textContent = catalogEntries.last_error
+      ? `Couldn’t load catalog: ${catalogEntries.last_error}`
+      : 'Catalog is empty. Try Check for updates.';
+  } else if (catalogEntries.last_error) {
+    banner.hidden = false;
+    banner.classList.remove('empty');
+    banner.textContent = `Couldn’t refresh: ${catalogEntries.last_error}`;
+  } else {
+    banner.hidden = true;
+  }
+}
+
+// applyActiveTab toggles which grid is visible. The Installed grid
+// stays mounted in the DOM (just hidden), so its event handlers stay
+// bound across tab switches.
+function applyActiveTab() {
+  const installedTab = document.getElementById('tab-installed');
+  const browseTab = document.getElementById('tab-browse');
+  const installedGrid = document.getElementById('pl');
+  const browseGrid = document.getElementById('pl-browse');
+  const isBrowse = activeTab === 'browse';
+
+  installedTab.setAttribute('aria-selected', isBrowse ? 'false' : 'true');
+  browseTab.setAttribute('aria-selected', isBrowse ? 'true' : 'false');
+  installedGrid.hidden = isBrowse;
+  browseGrid.hidden = !isBrowse;
+  // Banner visibility is also tab-gated; renderBrowse owns the content.
+  const banner = document.getElementById('browse-banner');
+  if (!isBrowse) banner.hidden = true;
+}
+
+// maybeRefreshBrowse refetches the catalog if cache is stale (>30 s)
+// or never populated. Always GETs /api/plugins/catalog afterwards
+// to pick up install-state changes since the last visit.
+async function maybeRefreshBrowse() {
+  const last = catalogEntries.last_checked_at
+    ? Date.parse(catalogEntries.last_checked_at)
+    : 0;
+  const stale = !last || (Date.now() - last) > 30_000;
+  if (stale) {
+    try {
+      await fetch('/api/plugins/refresh-catalog', { method: 'POST' });
+    } catch (e) {
+      console.warn('refresh-catalog failed', e);
+    }
+  }
+  try {
+    const r = await fetch('/api/plugins/catalog');
+    if (r.ok) {
+      catalogEntries = await r.json();
+    }
+  } catch (e) {
+    console.warn('catalog fetch failed', e);
+  }
+  renderBrowse();
 }
 
 // Delegated handlers on the plugin grid — the grid is rebuilt
@@ -1409,6 +1545,30 @@ if (inLauncher) {
   if (catalogErrEl) {
     catalogErrEl.addEventListener('click', () => refreshPluginUpdates({ trigger: 'manual' }));
   }
+})();
+
+(function wirePluginTabs() {
+  document.getElementById('tab-installed').addEventListener('click', () => {
+    activeTab = 'installed';
+    localStorage.setItem('rlt.pluginsTab', 'installed');
+    applyActiveTab();
+  });
+  document.getElementById('tab-browse').addEventListener('click', async () => {
+    activeTab = 'browse';
+    localStorage.setItem('rlt.pluginsTab', 'browse');
+    applyActiveTab();
+    await maybeRefreshBrowse();
+  });
+  // Apply the persisted tab once the initial installed-plugin render has
+  // landed so the Installed grid is fully populated before we potentially
+  // hide it. If we're reloading directly into Browse, kick off the
+  // catalog fetch too.
+  initialPluginListReady.then(() => {
+    applyActiveTab();
+    if (activeTab === 'browse') {
+      maybeRefreshBrowse();
+    }
+  });
 })();
 
 // ─── Install plugin from file ───────────────────────────────
