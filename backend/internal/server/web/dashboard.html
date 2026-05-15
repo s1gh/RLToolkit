@@ -1872,19 +1872,24 @@ function renderLastChecked() {
 }
 
 // formatRelative turns a millisecond delta into a short human label.
-// Tiers: just now (<45 s), Xm ago (<60 min), Xh ago (<24 h),
-// Xd ago beyond that. Always lower-case, no plural fuss.
+// "just now" only covers the first 10 s so the label visibly moves
+// to "1m ago" within a minute of a refresh. Tiers beyond: Xm (<60),
+// Xh (<24), Xd otherwise. Always lower-case, no plural fuss.
 function formatRelative(deltaMs) {
-  if (deltaMs < 45_000) return 'just now';
-  const min = Math.round(deltaMs / 60_000);
+  if (deltaMs < 10_000) return 'just now';
+  if (deltaMs < 60_000) return '<1m ago';
+  const min = Math.floor(deltaMs / 60_000);
   if (min < 60) return min + 'm ago';
-  const hr = Math.round(min / 60);
+  const hr = Math.floor(min / 60);
   if (hr < 24) return hr + 'h ago';
-  const day = Math.round(hr / 24);
+  const day = Math.floor(hr / 24);
   return day + 'd ago';
 }
 
-setInterval(renderLastChecked, 30_000);
+// Tick frequently enough that the user sees the label transition
+// without staring. 5 s is fast enough to catch "just now" → "<1m"
+// and "Xm" → "(X+1)m" near each minute boundary.
+setInterval(renderLastChecked, 5_000);
 
 // ─── Install plugin from file ───────────────────────────────
 //
