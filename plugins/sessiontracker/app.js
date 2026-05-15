@@ -12,6 +12,7 @@
     return {
       aerial: 0, bicycle: 0, longGoal: 0, overtime: 0,
       hatTrick: 0, flipReset: 0, backwards: 0, turtle: 0, poolShot: 0,
+      stolenGoal: 0,
       ownGoal: 0,
     };
   }
@@ -210,6 +211,7 @@
     isBackwardsGoal: 'backwards',
     isTurtleGoal:    'turtle',
     isPoolShot:      'poolShot',
+    isStolenGoal:    'stolenGoal',
   };
 
   function applyGoalScored(bucket, payload) {
@@ -555,7 +557,7 @@
   const MOD_LABEL = {
     aerial: 'AERIAL', bicycle: 'BICYCLE', longGoal: 'LONG', overtime: 'OT',
     hatTrick: 'HAT TRICK', flipReset: 'FLIP RESET', backwards: 'BACKWARDS',
-    turtle: 'TURTLE', poolShot: 'POOL', ownGoal: 'OWN GOAL',
+    turtle: 'TURTLE', poolShot: 'POOL', stolenGoal: 'STOLEN', ownGoal: 'OWN GOAL',
   };
 
   let settings = { showStreak: true };
@@ -1036,6 +1038,12 @@
       }
       if (bucket && bucket.match && bucket.match.modifiers && bucket.match.modifiers.ownGoal === undefined) {
         bucket.match.modifiers.ownGoal = 0;
+      }
+      if (bucket && bucket.modifiers && bucket.modifiers.stolenGoal === undefined) {
+        bucket.modifiers.stolenGoal = 0;
+      }
+      if (bucket && bucket.match && bucket.match.modifiers && bucket.match.modifiers.stolenGoal === undefined) {
+        bucket.match.modifiers.stolenGoal = 0;
       }
       if (bucket && bucket.totals && typeof bucket.totals.ownGoals === 'number') {
         bucket.modifiers.ownGoal += bucket.totals.ownGoals;
