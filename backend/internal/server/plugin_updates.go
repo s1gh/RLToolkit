@@ -70,6 +70,11 @@ func (s *Server) handleRefreshCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.buildUpdatesResponse())
 }
 
+// handleInstallUpdate downloads and installs a catalog entry by name.
+// Used by both the "Update all" affordance (for plugins currently
+// installed at a lower version) and the Browse tab (for plugins not
+// previously installed). The path is the same: catalog lookup,
+// SHA-256-verified download, safe unpack into pluginsDir.
 func (s *Server) handleInstallUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
