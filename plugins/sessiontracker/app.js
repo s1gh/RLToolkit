@@ -77,7 +77,7 @@
       // own goals). Distinct from fastestKmh, which is the lobby's
       // top shot, and myFastestHitKmh, which is my hardest touch
       // (not necessarily resulting in a goal).
-      ball: { fastestKmh: null, myFastestHitKmh: null, fastestGoalKmh: null },
+      ball: { fastestKmh: null, myFastestHitKmh: null, fastestGoalKmh: null, crossbarHardestKmh: null },
       crossbar: { hits: 0, hardest: null },
       mmr: { ranked: {}, casual: null },
     };
@@ -294,13 +294,22 @@
     if (bucket.match) bucket.match.crossbarHits++;
     const impact = payload.impactForce;
     const speed  = payload.ballSpeed;
-    // Per-match crossbar speed ratchet — separate from the session's
-    // hardest-by-impact record so the match overlay can always show
-    // this match's fastest crossbar collision regardless of impact.
-    if (bucket.match && bucket.match.ball && typeof speed === 'number' && isFinite(speed)) {
-      const mb = bucket.match.ball;
-      if (mb.crossbarHardestKmh === null || speed > mb.crossbarHardestKmh) {
-        mb.crossbarHardestKmh = speed;
+    // Per-match AND per-session crossbar speed ratchet — separate
+    // from the session's hardest-by-impact record (bucket.crossbar.hardest)
+    // so the speed displays always reflect the fastest collision,
+    // regardless of which one had the highest impact force. Without
+    // this the Session crossbar speed would freeze on the first hit's
+    // speed if a later harder hit (by impact) happened to be slower,
+    // OR a later faster hit with lower impact would never show up.
+    if (typeof speed === 'number' && isFinite(speed)) {
+      if (bucket.ball.crossbarHardestKmh == null || speed > bucket.ball.crossbarHardestKmh) {
+        bucket.ball.crossbarHardestKmh = speed;
+      }
+      if (bucket.match && bucket.match.ball) {
+        const mb = bucket.match.ball;
+        if (mb.crossbarHardestKmh === null || speed > mb.crossbarHardestKmh) {
+          mb.crossbarHardestKmh = speed;
+        }
       }
     }
     if (typeof impact !== 'number' || !isFinite(impact)) return;
@@ -674,8 +683,11 @@
     // pattern. crossbar speed for Match comes from match.ball, for
     // Session from the hardest-by-impact record.
     const mb = m.ball || { fastestGoalKmh: null, myFastestHitKmh: null, crossbarHardestKmh: null };
-    const sessHardest = b.crossbar.hardest;
-    const sessCrossbarKmh = sessHardest ? sessHardest.speed : null;
+    // Session crossbar speed reads its own ratchet (b.ball.crossbarHardestKmh)
+    // rather than b.crossbar.hardest.speed — the latter tracks the
+    // hardest by IMPACT, not by speed, so a faster-but-softer hit
+    // would never advance the displayed value.
+    const sessCrossbarKmh = b.ball.crossbarHardestKmh;
 
     function speedPill(label, kmh) {
       const has = typeof kmh === 'number' && kmh > 0;
@@ -1070,6 +1082,15 @@
       }
       if (bucket && bucket.ball && bucket.ball.fastestGoalKmh === undefined) {
         bucket.ball.fastestGoalKmh = null;
+      }
+      if (bucket && bucket.ball && bucket.ball.crossbarHardestKmh === undefined) {
+        // Seed from the hardest-by-impact record if the session
+        // already has one, so a returning user doesn't lose their
+        // recorded peak. The ratchet takes over from there.
+        bucket.ball.crossbarHardestKmh =
+          (bucket.crossbar && bucket.crossbar.hardest && typeof bucket.crossbar.hardest.speed === 'number')
+            ? bucket.crossbar.hardest.speed
+            : null;
       }
       snapshotMyTeam();
       mountView();
