@@ -229,7 +229,7 @@ button{font-family:inherit}
 .tab-switch {
   display: inline-flex;
   gap: 4px;
-  background: var(--bg-elev, rgba(255,255,255,0.04));
+  background: var(--bg-1);
   padding: 4px;
   border-radius: 10px;
   margin-left: 12px;
@@ -238,7 +238,7 @@ button{font-family:inherit}
   appearance: none;
   background: transparent;
   border: none;
-  color: var(--fg-muted, #9aa3b2);
+  color: var(--txt-2);
   font: inherit;
   font-weight: 600;
   font-size: 13px;
@@ -251,11 +251,11 @@ button{font-family:inherit}
   transition: background 120ms ease, color 120ms ease;
 }
 .tab-switch .tab:hover {
-  color: var(--fg, #e6e9ef);
+  color: var(--txt);
 }
 .tab-switch .tab[aria-selected="true"] {
-  background: var(--bg-elev-strong, rgba(255,255,255,0.08));
-  color: var(--fg, #e6e9ef);
+  background: var(--bg-3);
+  color: var(--txt);
 }
 .tab-switch .tab-count {
   font-weight: 500;
@@ -271,8 +271,8 @@ button{font-family:inherit}
   font-size: 13px;
 }
 .browse-banner.empty {
-  background: var(--bg-elev, rgba(255,255,255,0.04));
-  color: var(--fg-muted, #9aa3b2);
+  background: var(--bg-1);
+  color: var(--txt-2);
 }
 
 .card{
@@ -869,6 +869,9 @@ let catalogError = null;
 
 // Browse-tab state. catalogEntries holds the latest /api/plugins/catalog
 // response. activeTab is persisted to localStorage so reloads preserve it.
+// expandedCard and refreshInFlight are co-located here because they're
+// consumed by the Browse cards and Check-for-updates wiring landed in
+// follow-up commits.
 let catalogEntries = { entries: [], last_checked_at: null, last_error: null };
 let activeTab = localStorage.getItem('rlt.pluginsTab') === 'browse' ? 'browse' : 'installed';
 let expandedCard = null;
@@ -1559,6 +1562,10 @@ if (inLauncher) {
     applyActiveTab();
     await maybeRefreshBrowse();
   });
+  // Sync call so the persisted tab is applied before the watchdog
+  // reveal can paint a wrong-tab frame. Safe at script-eval time
+  // because the helper only touches markup already in the DOM.
+  applyActiveTab();
   // Apply the persisted tab once the initial installed-plugin render has
   // landed so the Installed grid is fully populated before we potentially
   // hide it. If we're reloading directly into Browse, kick off the
