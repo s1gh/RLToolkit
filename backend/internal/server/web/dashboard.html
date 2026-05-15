@@ -1318,7 +1318,7 @@ function renderBrowseDetail(e) {
     ? (sizeBytes / (1024 * 1024)).toFixed(2) + ' MB'
     : Math.max(1, Math.round(sizeBytes / 1024)) + ' KB';
   const confirmLabel = e.state === 'update_available'
-    ? 'Update to v' + esc(e.version)
+    ? 'Update to v' + e.version
     : 'Install';
   wrap.innerHTML =
     '<dl class="card-detail-kv">'
@@ -1327,7 +1327,7 @@ function renderBrowseDetail(e) {
       + '<dt>Size</dt><dd>' + esc(sizeLabel) + '</dd>'
     + '</dl>'
     + '<div class="card-detail-actions">'
-      + '<button type="button" class="btn primary" data-act="confirm">' + confirmLabel + '</button>'
+      + '<button type="button" class="btn primary" data-act="confirm">' + esc(confirmLabel) + '</button>'
       + '<button type="button" class="btn ghost" data-act="cancel">Cancel</button>'
     + '</div>'
     + '<p class="card-detail-error" hidden></p>';
@@ -1336,40 +1336,52 @@ function renderBrowseDetail(e) {
     expandedCard = null;
     renderBrowse();
   });
-  wrap.querySelector('[data-act="confirm"]').addEventListener('click', async (ev) => {
-    const btn = ev.currentTarget;
-    const errEl = wrap.querySelector('.card-detail-error');
-    errEl.hidden = true;
-    btn.disabled = true;
-    btn.textContent = 'Installing…';
-    try {
-      const r = await fetch('/api/plugins/install-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: e.name }),
-      });
-      if (!r.ok) {
-        let msg = 'HTTP ' + r.status;
-        try { const body = await r.json(); if (body && body.error) msg = body.error; } catch {}
-        throw new Error(msg);
-      }
-      expandedCard = null;
-      spawnInstallToast({
-        kind: 'success',
-        title: (e.state === 'update_available' ? 'Updated ' : 'Installed ')
-               + (e.title || e.name),
-        detail: 'v' + e.version,
-      });
-      await Promise.all([refetchInstalled(), refetchCatalog()]);
-      renderBrowse();
-    } catch (err) {
-      errEl.hidden = false;
-      errEl.textContent = String(err && err.message ? err.message : err);
-      btn.disabled = false;
-      btn.textContent = confirmLabel;
-    }
+  wrap.querySelector('[data-act="confirm"]').addEventListener('click', (ev) => {
+    confirmBrowseInstall(e, ev.currentTarget, wrap.querySelector('.card-detail-error'), confirmLabel);
   });
   return wrap;
+}
+
+// confirmBrowseInstall posts the install request for one catalog
+// entry and updates the detail panel based on the response. On
+// success: collapses the card, fires a toast, refreshes both grids.
+// On failure: surfaces the error in errEl, restores the button
+// label, leaves the card expanded for retry.
+async function confirmBrowseInstall(entry, btn, errEl, confirmLabel) {
+  errEl.hidden = true;
+  btn.disabled = true;
+  btn.textContent = 'Installing…';
+  try {
+    const r = await fetch('/api/plugins/install-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: entry.name }),
+    });
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try {
+        const body = await r.json();
+        if (body && body.error) msg = body.error;
+      } catch {
+        // Response body wasn't JSON; fall back to HTTP status.
+      }
+      throw new Error(msg);
+    }
+    expandedCard = null;
+    spawnInstallToast({
+      kind: 'ok',
+      title: (entry.state === 'update_available' ? 'Updated ' : 'Installed ')
+             + (entry.title || entry.name),
+      detail: 'v' + entry.version,
+    });
+    await Promise.all([refetchInstalled(), refetchCatalog()]);
+    renderBrowse();
+  } catch (err) {
+    errEl.hidden = false;
+    errEl.textContent = String(err && err.message ? err.message : err);
+    btn.disabled = false;
+    btn.textContent = confirmLabel;
+  }
 }
 
 // toggleBrowseExpand opens the named card and collapses any other.
