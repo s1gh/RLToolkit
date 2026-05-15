@@ -21,6 +21,13 @@
       result: null,
       goals: 0, saves: 0, demos: 0,
       boost: 0, pickups: 0,
+      crossbarHits: 0,
+      // Per-match peak speeds. Mirrors bucket.ball but resets every
+      // match so the overlay can show "this game's fastest goal" next
+      // to the session-wide best. crossbarHardestKmh is the speed of
+      // the hardest crossbar collision in this match, not the count
+      // (count lives in crossbarHits above).
+      ball: { fastestGoalKmh: null, myFastestHitKmh: null, crossbarHardestKmh: null },
       modifiers: emptyModifiers(),
     };
   }
@@ -244,6 +251,12 @@
     if (bucket.ball.myFastestHitKmh === null || s > bucket.ball.myFastestHitKmh) {
       bucket.ball.myFastestHitKmh = s;
     }
+    if (bucket.match && bucket.match.ball) {
+      const mb = bucket.match.ball;
+      if (mb.myFastestHitKmh === null || s > mb.myFastestHitKmh) {
+        mb.myFastestHitKmh = s;
+      }
+    }
   }
 
   // applyMyFastestGoal: from _GoalScored. Ratchets fastestGoalKmh
@@ -259,6 +272,12 @@
     if (bucket.ball.fastestGoalKmh === null || s > bucket.ball.fastestGoalKmh) {
       bucket.ball.fastestGoalKmh = s;
     }
+    if (bucket.match && bucket.match.ball) {
+      const mb = bucket.match.ball;
+      if (mb.fastestGoalKmh === null || s > mb.fastestGoalKmh) {
+        mb.fastestGoalKmh = s;
+      }
+    }
   }
 
   function applyCrossbarHit(bucket, payload) {
@@ -270,8 +289,18 @@
     const src = payload.ballLastTouch && payload.ballLastTouch.player;
     if (!src || !src.isMe) return;
     bucket.crossbar.hits++;
+    if (bucket.match) bucket.match.crossbarHits++;
     const impact = payload.impactForce;
     const speed  = payload.ballSpeed;
+    // Per-match crossbar speed ratchet — separate from the session's
+    // hardest-by-impact record so the match overlay can always show
+    // this match's fastest crossbar collision regardless of impact.
+    if (bucket.match && bucket.match.ball && typeof speed === 'number' && isFinite(speed)) {
+      const mb = bucket.match.ball;
+      if (mb.crossbarHardestKmh === null || speed > mb.crossbarHardestKmh) {
+        mb.crossbarHardestKmh = speed;
+      }
+    }
     if (typeof impact !== 'number' || !isFinite(impact)) return;
     if (bucket.crossbar.hardest && impact <= bucket.crossbar.hardest.impact) return;
     bucket.crossbar.hardest = {
@@ -376,6 +405,12 @@
 
   let bucket = null;
   let currentMode = null;
+  // Last ranked playlist key ('1v1' / '2v2' / '3v3') the overlay
+  // displayed. Used as a sticky fallback so going back to menu after
+  // a ranked game keeps the row on that same playlist instead of
+  // snapping to whichever mode happens to be alphabetically first
+  // among seeded slots.
+  let lastRankedMode = null;
   // myTeam caches the most recent team we observed for the local
   // player. Used as a fallback when _MatchEnded fires after the
   // roster has already been torn down (reconnect race, late SSE
@@ -567,67 +602,177 @@
     const hasHistory = b.results.last.length > 0;
     const matchTag = isLive ? 'Live Match' : (hasHistory ? 'Previous Match' : 'No Match Yet');
 
-    // Match block — big stat cells. A zero count dims so the eye
-    // lands on values that actually moved. No win/loss badge here:
-    // the per-match outcome is already encoded in the record bar
-    // (latest tick + streak label), and rendering a "W" inside
+    // Inline SVG icons used as visual anchors next to each stat. Kept
+    // tiny and monochrome so they inherit currentColor from the
+    // surrounding stat color (cyan on Match, dim on Session). The
+    // viewBox stays 16x16 so .ic/.ic-lg sizing in CSS controls the
+    // rendered footprint without per-icon tweaks.
+    const ICONS = {
+      goals:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11M2.5 8h11M4.6 4.6l6.8 6.8M11.4 4.6l-6.8 6.8"/></svg>',
+      saves:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 9c0-3 2.2-5.5 5-5.5s5 2.5 5 5.5"/><path d="M3 9v3h10V9"/><path d="M5.5 9v3M8 9v3M10.5 9v3"/></svg>',
+      demos:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 1.5l1.4 3.6 3.8.3-2.9 2.5.9 3.7L8 9.7l-3.2 1.9.9-3.7L2.8 5.4l3.8-.3z"/><path d="M8 11l-1 3.5M8 11l1 3.5M5 13.5l-1.5 1M11 13.5l1.5 1"/></svg>',
+      boost:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 1.5L3 9.5h4l-1 5 6-8H8l1-5z"/></svg>',
+      pickups:  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><circle cx="8" cy="8" r="6" stroke-dasharray="2 2"/></svg>',
+      crossbar: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 5.5h11M2.5 5.5v2M13.5 5.5v2M5 7.5v6M11 7.5v6"/></svg>',
+      ball:     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M2.5 8h11"/></svg>',
+      mmr:      '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 13L8 3l5 10z"/><path d="M5.5 9.5h5"/></svg>',
+      mods:     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h10M5 5h6M5 11h6"/></svg>',
+    };
+    const ic = (k) => '<span class="st-c-ic">' + ICONS[k] + '</span>';
+
+    // Match hero — six big icon-led cells. A zero count dims so the
+    // eye lands on values that actually moved. No win/loss badge
+    // here: the per-match outcome is already encoded in the record
+    // bar (latest tick + streak label), and rendering a "W" inside
     // "LIVE MATCH" reads as the live match having an outcome —
     // misleading once the next match's countdown begins.
-    const cellCls = (v) => v > 0 ? 'st-c-stat-v' : 'st-c-stat-v zero';
-    const matchGrid =
-      '<div class="st-c-stat"><span class="' + cellCls(m.goals)   + '">' + m.goals   + '</span><span class="st-c-stat-l">Goals</span></div>' +
-      '<div class="st-c-stat"><span class="' + cellCls(m.saves)   + '">' + m.saves   + '</span><span class="st-c-stat-l">Saves</span></div>' +
-      '<div class="st-c-stat"><span class="' + cellCls(m.demos)   + '">' + m.demos   + '</span><span class="st-c-stat-l">Demos</span></div>' +
-      '<div class="st-c-stat"><span class="' + cellCls(m.boost)   + '">' + m.boost   + '</span><span class="st-c-stat-l">Boost</span></div>' +
-      '<div class="st-c-stat"><span class="' + cellCls(m.pickups) + '">' + m.pickups + '</span><span class="st-c-stat-l">Pickups</span></div>';
+    const heroNumCls = (v) => v > 0 ? 'st-c-hero-num' : 'st-c-hero-num zero';
+    function heroCell(iconKey, value, label) {
+      return '<div class="st-c-hero-cell">' +
+        ic(iconKey) +
+        '<span class="' + heroNumCls(value) + '">' + value + '</span>' +
+        '<span class="st-c-hero-lbl">' + label + '</span>' +
+      '</div>';
+    }
+    const matchHits = (m.crossbarHits | 0);
+    const heroBlock =
+      heroCell('goals',    m.goals,   'Goals') +
+      heroCell('saves',    m.saves,   'Saves') +
+      heroCell('demos',    m.demos,   'Demos') +
+      heroCell('boost',    m.boost,   'Boost') +
+      heroCell('pickups',  m.pickups, 'Pickups') +
+      heroCell('crossbar', matchHits, 'Crossbar');
 
-    // Session telemetry strip — three rows: Session totals, Ball
-    // Speed, MMR. Each row uses the same "label · chips" rhythm.
-    const sesRow =
-      '<div class="st-c-srow">' +
-        '<span class="st-c-srow-l">Session</span>' +
-        '<span class="st-c-srow-v">' +
-          '<span class="st-c-pair"><small>Goals</small><b>'   + b.totals.goals   + '</b></span>' +
-          '<span class="st-c-pair"><small>Saves</small><b>'   + b.totals.saves   + '</b></span>' +
-          '<span class="st-c-pair"><small>Demos</small><b>'   + b.totals.demos   + '</b></span>' +
-          '<span class="st-c-pair"><small>Boost</small><b>'   + b.totals.boost   + '</b></span>' +
-          '<span class="st-c-pair"><small>Pickups</small><b>' + b.totals.pickups + '</b></span>' +
-        '</span>' +
+    // Session strip — same six icon columns at a smaller size so the
+    // user can scan the same stat across both rows by glancing down.
+    const sessNumCls = (v) => v > 0 ? '' : ' zero';
+    function sessCell(iconKey, value) {
+      return '<div class="st-c-sess-cell' + sessNumCls(value) + '">' +
+        ic(iconKey) +
+        '<span class="st-c-sess-v">' + value + '</span>' +
+      '</div>';
+    }
+    const sessBlock =
+      '<div class="st-c-sess">' +
+        '<div class="st-c-sess-lbl">Session</div>' +
+        '<div class="st-c-sess-cells">' +
+          sessCell('goals',    b.totals.goals)   +
+          sessCell('saves',    b.totals.saves)   +
+          sessCell('demos',    b.totals.demos)   +
+          sessCell('boost',    b.totals.boost)   +
+          sessCell('pickups',  b.totals.pickups) +
+          sessCell('crossbar', b.crossbar.hits)  +
+        '</div>' +
       '</div>';
 
-    const hardest = b.crossbar.hardest;
-    const hits = b.crossbar.hits;
-    const crossbarPair = hardest
-      ? '<span class="st-c-pair"><small>Crossbar</small><b>' + hits + '</b><small class="dim">· ' + esc(fmtImpact(hardest.impact)) + ' · ' + esc(fmtSpeed(hardest.speed)) + '</small></span>'
-      : '<span class="st-c-pair"><small>Crossbar</small><b' + (hits ? '' : ' class="mut"') + '>' + (hits || '—') + '</b></span>';
-    const ballRow =
-      '<div class="st-c-srow">' +
-        '<span class="st-c-srow-l">Ball Speed</span>' +
-        '<span class="st-c-srow-v">' +
-          '<span class="st-c-pair"><small>Goal</small><b' + (b.ball.fastestGoalKmh ? '' : ' class="mut"') + '>' + esc(fmtSpeed(b.ball.fastestGoalKmh)) + '</b></span>' +
-          '<span class="st-c-pair"><small>Shot</small><b' + (b.ball.myFastestHitKmh ? '' : ' class="mut"') + '>' + esc(fmtSpeed(b.ball.myFastestHitKmh)) + '</b></span>' +
-          crossbarPair +
-        '</span>' +
-      '</div>';
+    // Speed strips — three peak velocities (Goal / Shot / Crossbar)
+    // shown in two parallel rows: Match (this game's peaks, bright)
+    // and Session (session-wide peaks, dim). Same Match/Session pill
+    // structure as the count grid above so the eye picks up the
+    // pattern. crossbar speed for Match comes from match.ball, for
+    // Session from the hardest-by-impact record.
+    const mb = m.ball || { fastestGoalKmh: null, myFastestHitKmh: null, crossbarHardestKmh: null };
+    const sessHardest = b.crossbar.hardest;
+    const sessCrossbarKmh = sessHardest ? sessHardest.speed : null;
 
-    // MMR — show 1v1 and casual as two slots, no "ranked" label
-    // (we can't actually tell whether the player is queueing ranked
-    // or casual at any given time, so the label was misleading).
-    const rankedMode = (currentMode && RANKED_MODES.indexOf(currentMode) >= 0)
-      ? currentMode
-      : (RANKED_MODES.find((mm) => b.mmr.ranked[mm]) || '2v2');
+    function speedPill(label, kmh) {
+      const has = typeof kmh === 'number' && kmh > 0;
+      const num = has ? kmh.toFixed(1) : '—';
+      return '<div class="st-c-spd-cell' + (has ? '' : ' zero') + '">' +
+        '<span class="st-c-spd-l">' + label + '</span>' +
+        '<span class="st-c-spd-v">' + num + '</span>' +
+        '<small class="st-c-spd-u">km/h</small>' +
+      '</div>';
+    }
+    function speedStrip(rowLabel, rowClass, goalKmh, shotKmh, crossbarKmh) {
+      return '<div class="st-c-spd ' + rowClass + '">' +
+        '<div class="st-c-spd-lbl">' + ic('ball') + rowLabel + '</div>' +
+        '<div class="st-c-spd-cells">' +
+          speedPill('Goal',     goalKmh) +
+          speedPill('Shot',     shotKmh) +
+          speedPill('Crossbar', crossbarKmh) +
+        '</div>' +
+      '</div>';
+    }
+    const speedBlock =
+      speedStrip('Match',   'is-match', mb.fastestGoalKmh, mb.myFastestHitKmh, mb.crossbarHardestKmh) +
+      speedStrip('Session', 'is-sess',  b.ball.fastestGoalKmh, b.ball.myFastestHitKmh, sessCrossbarKmh);
+
+    // MMR row — current rating + delta per playlist. Casual deltas
+    // are typically negative (RL deflates rating after losses); cyan
+    // for positive, magenta for negative, dim em-dash when unknown.
+    //
+    // Pick the ranked mode to display by, in order:
+    //   1. The live roster size (1v1/2v2/3v3) — this catches bot
+    //      matches and unranked playlists where currentMode is "other"
+    //      but we can still infer the format from how many players
+    //      are in the lobby (2 = 1v1, 4 = 2v2, 6 = 3v3).
+    //   2. currentMode if it's already a ranked playlist key.
+    //   3. The first ranked playlist we have any seeded data for.
+    //   4. 2v2 as a last-resort default.
+    function rankedFromRoster() {
+      const cur = RLT.match && RLT.match.current;
+      const n = cur && Array.isArray(cur.players) ? cur.players.length : 0;
+      if (n === 2) return '1v1';
+      if (n === 4) return '2v2';
+      if (n === 6) return '3v3';
+      return null;
+    }
+    // Pick the ranked mode to display, in order:
+    //   1. Live roster size (1v1/2v2/3v3) — instant when in a lobby
+    //      or match, including bot matches where currentMode = 'other'.
+    //   2. currentMode if it's already a ranked playlist key — used
+    //      after countdown when modeFromRoster() set it.
+    //   3. lastRankedMode — sticky pick that remembers the most
+    //      recent ranked mode shown so going back to menu doesn't
+    //      flip the row to whichever playlist happens to be alphabetically
+    //      first (1v1 always wins that race, hiding 3v3 data).
+    //   4. The first ranked playlist with seeded data, then 2v2.
+    const rosterMode = rankedFromRoster();
+    const rankedMode = rosterMode
+      || ((currentMode && RANKED_MODES.indexOf(currentMode) >= 0) ? currentMode : null)
+      || (lastRankedMode && b.mmr.ranked[lastRankedMode] ? lastRankedMode : null)
+      || RANKED_MODES.find((mm) => b.mmr.ranked[mm])
+      || '2v2';
+    // Remember it for the next render so menu/lobby stays on the
+    // playlist the user actually played, not whatever sorts first.
+    if (RANKED_MODES.indexOf(rankedMode) >= 0) {
+      lastRankedMode = rankedMode;
+    }
     const rankedSlot = b.mmr.ranked[rankedMode] || null;
     const casualSlot = b.mmr.casual;
-    const mmrRow =
-      '<div class="st-c-srow">' +
-        '<span class="st-c-srow-l">MMR</span>' +
-        '<span class="st-c-srow-v">' +
-          '<span class="st-c-pair"><small>' + esc(rankedMode) + '</small>' +
-            '<b' + (rankedSlot ? '' : ' class="mut"') + '>' + (rankedSlot ? rankedSlot.current : '—') + '</b>' +
-            '<small class="' + deltaClass(rankedSlot) + '">' + esc(deltaText(rankedSlot)) + '</small></span>' +
-          '<span class="st-c-pair"><small>Casual</small>' +
-            '<b' + (casualSlot ? '' : ' class="mut"') + '>' + (casualSlot ? casualSlot.current : '—') + '</b>' +
-            '<small class="' + deltaClass(casualSlot) + '">' + esc(deltaText(casualSlot)) + '</small></span>' +
+    // Compact delta for the overlay row: "+18" / "-7" / "" — drop the
+    // duplicate "(current)" suffix that deltaText() includes for the
+    // dashboard, since the cell already shows .current right next to it.
+    function shortDelta(slot) {
+      if (!slot) return '';
+      const d = (slot.current | 0) - (slot.start | 0);
+      if (!d) return '';
+      return (d > 0 ? '+' : '−') + Math.abs(d);
+    }
+    // MMR lives in a footer strip at the very bottom of the overlay.
+    // Rating data is session-identity ("who you are right now"), not
+    // per-match telemetry — it doesn't change during play, so giving
+    // it a full pill row in the body of the overlay was overweighting
+    // a value the user only checks once per session. As a footer chip
+    // it stays available as session context without competing with
+    // the live stats above.
+    function mmrChip(label, slot) {
+      const v = slot ? slot.current : '—';
+      const d = shortDelta(slot);
+      const dCls = deltaClass(slot);
+      return '<span class="st-c-mmr-chip">' +
+        '<small>' + label + '</small>' +
+        '<b' + (slot ? '' : ' class="mut"') + '>' + esc(String(v)) + '</b>' +
+        (d ? '<span class="st-c-mmr-d ' + dCls + '">' + esc(d) + '</span>' : '') +
+      '</span>';
+    }
+    const mmrFooter =
+      '<div class="st-c-foot">' +
+        '<span class="st-c-foot-l">' + ic('mmr') + 'MMR</span>' +
+        '<span class="st-c-mmr-chips">' +
+          mmrChip(rankedMode, rankedSlot) +
+          mmrChip('Casual',   casualSlot) +
         '</span>' +
       '</div>';
 
@@ -651,7 +796,7 @@
     }
     const modsBlock =
       '<div class="st-c-mods">' +
-        '<div class="st-c-mods-h">Goal Modifiers</div>' +
+        '<div class="st-c-mods-h">' + ic('mods') + 'Goal Modifiers</div>' +
         '<div class="st-c-mods-cols">' +
           '<div class="st-c-mod-col live">' +
             '<div class="st-c-mod-col-h">Match</div>' +
@@ -679,12 +824,14 @@
           '<div class="st-c-match-head">' +
             '<span class="st-c-match-tag">' + matchTag + '</span>' +
           '</div>' +
-          '<div class="st-c-match-grid">' + matchGrid + '</div>' +
+          '<div class="st-c-hero">' + heroBlock + '</div>' +
+          sessBlock +
         '</div>' +
         '<div class="st-c-strip">' +
-          sesRow + ballRow + mmrRow +
+          speedBlock +
         '</div>' +
         modsBlock +
+        mmrFooter +
       '</div>';
   }
 
@@ -853,6 +1000,12 @@
         if (bucket && bucket.bootId === liveBootId) return;
         bucket = emptyBucket(liveBootId);
         try { await RLT.store.set(STORE_KEY, bucket); } catch (_) {}
+        // After replacing the bucket, re-pull MMR so the freshly-empty
+        // bucket gets seeded too. Without this, a boot-ID reset that
+        // races against the init-time fetchMmr() can wipe the data
+        // we'd just loaded and the MMR row stays "—" until the next
+        // countdown event triggers another fetch.
+        fetchMmr();
         scheduleRender();
       });
       // Backfill fields added in newer plugin versions so render code
@@ -865,6 +1018,12 @@
       }
       if (bucket && bucket.match && bucket.match.pickups === undefined) {
         bucket.match.pickups = 0;
+      }
+      if (bucket && bucket.match && bucket.match.crossbarHits === undefined) {
+        bucket.match.crossbarHits = 0;
+      }
+      if (bucket && bucket.match && !bucket.match.ball) {
+        bucket.match.ball = { fastestGoalKmh: null, myFastestHitKmh: null, crossbarHardestKmh: null };
       }
       if (bucket && bucket.match && !bucket.match.modifiers) {
         bucket.match.modifiers = emptyModifiers();
@@ -918,7 +1077,11 @@
         const id = p && p.bootId;
         if (id && bucket && bucket.bootId !== id) {
           bucket = emptyBucket(id);
-          save(); scheduleRender();
+          save();
+          // Boot ID change wipes the bucket; re-seed MMR so the row
+          // doesn't stay "—" until the next countdown.
+          fetchMmr();
+          scheduleRender();
         }
       },
 

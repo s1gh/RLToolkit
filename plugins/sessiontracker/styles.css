@@ -197,12 +197,12 @@ body.overlay-mode #root {
   font-size: 13px;
 }
 
-/* Header strip */
+/* Header strip — title left, mode/started right. */
 .st-c-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 10px 14px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--rlt-line, #232a44);
   font-family: var(--rlt-mono, monospace);
   font-size: 10px;
@@ -213,6 +213,66 @@ body.overlay-mode #root {
 .st-c-title { color: var(--rlt-txt-2, #a9b0cf); }
 .st-c-meta  { color: var(--rlt-txt-2, #a9b0cf); }
 .st-c-meta b { color: var(--rlt-cyan, #22d3ee); font-weight: 600; }
+
+/* Footer — MMR chips. Sits at the very bottom of the card as session
+   identity, dim-by-default; the delta gets the only color so a
+   successful session pops. Top border ties it to the body without
+   adding chrome. */
+.st-c-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--rlt-line, #232a44);
+  background: rgba(15, 19, 32, 0.6);
+}
+.st-c-foot-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--rlt-display, sans-serif);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+}
+.st-c-foot-l .st-c-ic { color: var(--rlt-txt-2, #a9b0cf); }
+.st-c-mmr-chips {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.st-c-mmr-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-family: var(--rlt-mono, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.st-c-mmr-chip small {
+  color: var(--rlt-txt-3, #6c739a);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.st-c-mmr-chip b {
+  color: var(--rlt-txt, #e6e9f5);
+  font-weight: 600;
+  font-size: 12px;
+}
+.st-c-mmr-chip b.mut {
+  color: var(--rlt-txt-3, #6c739a);
+  font-weight: 500;
+}
+.st-c-mmr-d {
+  font-size: 10px;
+  font-weight: 600;
+}
+.st-c-mmr-d.st-pos { color: var(--rlt-cyan, #22d3ee); }
+.st-c-mmr-d.st-neg { color: var(--rlt-magenta, #f472b6); }
+.st-c-mmr-d.st-mut { color: var(--rlt-txt-3, #6c739a); }
 
 /* Record bar — W/L + ticks + streak */
 .st-c-record {
@@ -253,7 +313,7 @@ body.overlay-mode #root {
   text-transform: uppercase;
 }
 
-/* Live match block — dominant typographic numerals */
+/* Live match block — hero stat grid + session strip below */
 .st-c-match {
   padding: 14px 16px 16px;
   border-bottom: 1px solid var(--rlt-line, #232a44);
@@ -262,7 +322,7 @@ body.overlay-mode #root {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .st-c-match-tag {
   font-family: var(--rlt-mono, monospace);
@@ -278,89 +338,242 @@ body.overlay-mode #root {
   font-size: 8px;
   vertical-align: middle;
 }
-.st-c-match-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 2px 6px;
+
+/* Inline icon shell — sized via the surrounding container; inherits
+   currentColor so a parent's color drives the stroke. */
+.st-c-ic {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  flex-shrink: 0;
 }
-.st-c-stat {
+.st-c-ic svg { display: block; width: 100%; height: 100%; }
+
+/* Match hero — six icon-led cells, Match values dominant in cyan. */
+.st-c-hero {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  padding: 8px 0 12px;
+}
+.st-c-hero-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 6px;
   text-align: center;
-  padding: 2px 0;
   min-width: 0;
 }
-.st-c-stat-v {
+.st-c-hero-cell .st-c-ic {
+  width: 18px;
+  height: 18px;
+  color: var(--rlt-cyan, #22d3ee);
+}
+.st-c-hero-num {
   font-family: var(--rlt-display, sans-serif);
   font-weight: 700;
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1;
-  letter-spacing: 0.02em;
   color: var(--rlt-txt, #e6e9f5);
   font-variant-numeric: tabular-nums;
 }
-.st-c-stat-v.zero { color: var(--rlt-txt-3, #6c739a); }
-.st-c-stat-l {
-  font-family: var(--rlt-mono, monospace);
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--rlt-txt-3, #6c739a);
-  margin-top: 5px;
-}
-
-/* Session telemetry strip — Session / Ball Speed / MMR rows */
-.st-c-strip {
-  padding: 12px 14px;
-  background: rgba(10, 12, 20, 0.55);
-}
-.st-c-srow {
-  display: grid;
-  grid-template-columns: 70px 1fr;
-  align-items: baseline;
-  gap: 12px;
-  padding: 4px 0;
-  font-family: var(--rlt-mono, monospace);
-  font-size: 11px;
-}
-.st-c-srow + .st-c-srow {
-  border-top: 1px dashed var(--rlt-line, #232a44);
-  margin-top: 2px;
-  padding-top: 6px;
-}
-.st-c-srow-l {
-  color: var(--rlt-txt-3, #6c739a);
+.st-c-hero-num.zero { color: var(--rlt-txt-3, #6c739a); }
+.st-c-hero-lbl {
+  font-family: var(--rlt-display, sans-serif);
+  font-weight: 600;
   font-size: 9px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
 }
-.st-c-srow-v {
-  color: var(--rlt-txt-2, #a9b0cf);
+
+/* Session strip — six narrow icon+value cells under the hero, with a
+   Session label pill on the left. Same column count as hero so the
+   eye scans the same stat down both rows. */
+.st-c-sess {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  align-items: baseline;
+  align-items: stretch;
+  background: rgba(10, 12, 20, 0.5);
+  border: 1px solid var(--rlt-line, #232a44);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 4px;
 }
-.st-c-pair {
+.st-c-sess-lbl {
+  background: rgba(15, 19, 32, 0.7);
+  padding: 8px 12px;
+  font-family: var(--rlt-display, sans-serif);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+  border-right: 1px solid var(--rlt-line, #232a44);
+  display: flex;
+  align-items: center;
+}
+.st-c-sess-cells {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  flex: 1;
+  min-width: 0;
+}
+.st-c-sess-cell {
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--rlt-mono, monospace);
+  font-size: 12px;
+  color: var(--rlt-txt, #e6e9f5);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.st-c-sess-cell + .st-c-sess-cell {
+  border-left: 1px solid var(--rlt-line, #232a44);
+}
+.st-c-sess-cell .st-c-ic { color: var(--rlt-txt-3, #6c739a); }
+.st-c-sess-cell.zero { color: var(--rlt-txt-3, #6c739a); }
+.st-c-sess-v { font-weight: 500; }
+
+/* Secondary strip — Ball Speed and MMR rows. Each row has an
+   icon+label pill on the left and a flex of cells on the right. */
+.st-c-strip {
+  padding: 10px 16px;
+  background: rgba(10, 12, 20, 0.5);
+  display: grid;
+  gap: 6px;
+}
+.st-c-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  background: rgba(15, 19, 32, 0.55);
+  border: 1px solid var(--rlt-line, #232a44);
+  border-radius: 3px;
+}
+.st-c-row-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--rlt-display, sans-serif);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+}
+.st-c-row-h .st-c-ic { color: var(--rlt-txt-2, #a9b0cf); }
+.st-c-row-cells {
+  display: flex;
+  gap: 10px;
+  flex-wrap: nowrap;
+  font-family: var(--rlt-mono, monospace);
+  font-size: 11px;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+.st-c-row-cell {
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
+  white-space: nowrap;
 }
-.st-c-pair small {
+.st-c-row-cell small {
   color: var(--rlt-txt-3, #6c739a);
   font-size: 9px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
-.st-c-pair small.dim { color: var(--rlt-txt-3, #6c739a); }
-.st-c-pair small.st-pos { color: var(--rlt-cyan, #22d3ee); }
-.st-c-pair small.st-neg { color: var(--rlt-magenta, #f472b6); }
-.st-c-pair b {
-  color: var(--rlt-txt, #e6e9f5);
-  font-weight: 500;
+.st-c-row-cell b {
+  color: var(--rlt-cyan, #22d3ee);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
-.st-c-pair b.mut { color: var(--rlt-txt-3, #6c739a); font-weight: 500; }
+.st-c-row-cell b.mut { color: var(--rlt-txt-3, #6c739a); font-weight: 500; }
+.st-c-row-cell .st-pos { color: var(--rlt-cyan, #22d3ee); font-size: 10px; }
+.st-c-row-cell .st-neg { color: var(--rlt-magenta, #f472b6); font-size: 10px; }
+.st-c-row-cell .st-mut { color: var(--rlt-txt-3, #6c739a); font-size: 10px; }
+
+/* Speed block — three peak velocities (Goal/Shot/Crossbar) shown as
+   two parallel pill strips: Match (bright cyan values) and Session
+   (dimmer values). Each strip carries the speed icon inline on its
+   label pill so the row reads as a unit without a separate header. */
+.st-c-spd {
+  display: flex;
+  align-items: stretch;
+  background: rgba(10, 12, 20, 0.5);
+  border: 1px solid var(--rlt-line, #232a44);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.st-c-spd + .st-c-spd { margin-top: 4px; }
+.st-c-spd-lbl {
+  background: rgba(15, 19, 32, 0.7);
+  padding: 8px 12px;
+  font-family: var(--rlt-display, sans-serif);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border-right: 1px solid var(--rlt-line, #232a44);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 100px;
+}
+.st-c-spd.is-match .st-c-spd-lbl { color: var(--rlt-cyan, #22d3ee); }
+.st-c-spd.is-sess  .st-c-spd-lbl { color: var(--rlt-txt-3, #6c739a); }
+.st-c-spd-lbl .st-c-ic { color: var(--rlt-txt-2, #a9b0cf); }
+.st-c-spd-cells {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  flex: 1;
+  min-width: 0;
+}
+.st-c-spd-cell {
+  padding: 6px 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--rlt-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  min-width: 0;
+}
+.st-c-spd-cell + .st-c-spd-cell {
+  border-left: 1px solid var(--rlt-line, #232a44);
+}
+.st-c-spd-l {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+}
+.st-c-spd-v {
+  font-weight: 600;
+  color: var(--rlt-txt, #e6e9f5);
+}
+.st-c-spd-u {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+}
+.st-c-spd.is-match .st-c-spd-cell:not(.zero) .st-c-spd-v {
+  color: var(--rlt-cyan, #22d3ee);
+}
+.st-c-spd-cell.zero .st-c-spd-v,
+.st-c-spd-cell.zero .st-c-spd-u {
+  color: var(--rlt-txt-3, #6c739a);
+}
+
 
 /* Goal Modifiers section — its own block at the bottom of the
    card, split into Match / Session columns. Match column uses
@@ -369,7 +582,7 @@ body.overlay-mode #root {
 .st-c-mods {
   border-top: 1px solid var(--rlt-line, #232a44);
   background: rgba(10, 12, 20, 0.55);
-  padding: 10px 14px 12px;
+  padding: 10px 16px 12px;
 }
 .st-c-mods-h {
   padding-bottom: 8px;
