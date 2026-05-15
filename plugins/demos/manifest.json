@@ -1,13 +1,13 @@
 {
   "name": "demos",
   "title": "Demolitions",
-  "version": "2.7.4",
+  "version": "2.7.5",
   "author": "rl-toolkit",
   "description": "Tracks how many players you've demolished, in this match and across all time",
   "overlay": {
     "file": "overlay.html",
-    "width": "auto",
-    "height": "auto",
+    "width": 500,
+    "height": 220,
     "anchor": "top-left",
     "offset_x": 16,
     "offset_y": 16,
