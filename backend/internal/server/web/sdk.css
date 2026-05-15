@@ -187,13 +187,26 @@ body {
 /* In overlay mode the iframe is sized to manifest width/height. By default
    stretch the plugin body to fill that box so the manifest's dimensions
    describe the visible widget, not just an invisible canvas. Plugins that
-   want a content-shrunk widget can override (e.g. `body.overlay-mode { width: auto }`). */
+   want a content-shrunk widget can override (e.g. `body.overlay-mode { width: auto }`).
+
+   When the manifest declares an axis as "auto", the SDK adds rlt-auto-width
+   / rlt-auto-height to body. Those axes shrink to content so the autoSize
+   observer can measure real content and grow the iframe to match — pinning
+   to 100% would feed the iframe's collapsed size back into the measurement
+   and lock the widget tiny. */
 body.overlay-mode {
-  width: 100%;
-  height: 100%;
   box-sizing: border-box;
   background: transparent;
   margin: 0;
+  width: 100%;
+  height: 100%;
+}
+body.overlay-mode.rlt-auto-width {
+  width: max-content;
+}
+body.overlay-mode.rlt-auto-height {
+  height: auto;
+  min-height: 0;
 }
 
 /* Convenience classes plugins can drop in. */

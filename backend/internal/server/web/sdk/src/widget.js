@@ -43,11 +43,17 @@ export function teardownWatchers() {
 }
 
 function startSizeWatcher(getTarget, flush) {
+  // Coalesce on a microtask, never rAF. rAF ties this work to the
+  // compositor frame schedule shared with the underlying game window;
+  // even cheap measurement work fired inside a rAF callback can land
+  // on a hot frame and cause visible micro-stutters in RL. Microtasks
+  // run as soon as the current JS task ends, off the frame schedule.
+  // Final debounce/throttle for actual posts lives in autoSize itself.
   let pending = false;
   const schedule = () => {
     if (pending) return;
     pending = true;
-    requestAnimationFrame(() => {
+    Promise.resolve().then(() => {
       pending = false;
       flush();
     });
@@ -165,6 +171,15 @@ export const widget = (function () {
       const minH = opts.minHeight | 0 || 1;
       const maxW = opts.maxWidth | 0 || 4096;
       const maxH = opts.maxHeight | 0 || 4096;
+      // Debounce coalesces a burst of resize observations into a single
+      // post. Plugins that incrementally render (e.g. dejavu rendering
+      // one player per _PlayerJoined event) would otherwise produce a
+      // visible step-by-step iframe pop as each render fires the
+      // observer. 60ms is short enough to still feel instant for static
+      // content and long enough to absorb a typical burst of streaming
+      // events. Plugins can override via opts.debounceMs (set 0 to keep
+      // the legacy per-frame behavior).
+      const debounceMs = opts.debounceMs == null ? 60 : opts.debounceMs | 0;
 
       stopSizeWatcher(autoSizeWatcher);
       autoSizeWatcher = null;
@@ -172,7 +187,8 @@ export const widget = (function () {
 
       let lastW = -1,
         lastH = -1;
-      const flush = () => {
+      let pendingTimer = null;
+      const measureAndPost = () => {
         const el = resolveTarget(opts.target);
         if (!el) return;
         const r = el.getBoundingClientRect();
@@ -189,6 +205,17 @@ export const widget = (function () {
         lastW = w;
         lastH = h;
         postSize(w, h);
+      };
+      const flush = () => {
+        if (debounceMs <= 0) {
+          measureAndPost();
+          return;
+        }
+        if (pendingTimer !== null) clearTimeout(pendingTimer);
+        pendingTimer = setTimeout(() => {
+          pendingTimer = null;
+          measureAndPost();
+        }, debounceMs);
       };
 
       autoSizeWatcher = startSizeWatcher(() => resolveTarget(opts.target), flush);

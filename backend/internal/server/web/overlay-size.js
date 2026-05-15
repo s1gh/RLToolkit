@@ -22,14 +22,17 @@ export function clamp(value, min, max) {
   return out;
 }
 
-// applyDimension writes <n>px when v is numeric, clears the inline style
-// when v is "auto", and silently ignores anything else (defensive — a
-// malformed manifest reaches us as the parsed JSON value, not a string
-// we can validate). axis is 'width' or 'height'.
+// applyDimension writes <n>px when v is numeric, leaves any existing
+// inline style intact when v is "auto" (preserving the latest autoSize
+// measurement across reflows — clearing would briefly snap the iframe
+// back to the HTML default 300x150 before the next ResizeObserver tick,
+// causing visible content clipping during _OverridesChanged events),
+// and silently ignores anything else (defensive — a malformed manifest
+// reaches us as the parsed JSON value, not a string we can validate).
+// axis is 'width' or 'height'.
 export function applyDimension(el, axis, v) {
   if (!el || (axis !== 'width' && axis !== 'height')) return;
   if (isAuto(v)) {
-    el.style[axis] = '';
     return;
   }
   if (typeof v === 'number' && Number.isFinite(v)) {

@@ -1,13 +1,13 @@
 {
   "name": "sessiontracker",
   "title": "Session Tracker",
-  "version": "2.8.4",
+  "version": "2.8.5",
   "author": "rl-toolkit",
   "description": "Tracks your current session's record, key stats, and MMR delta.",
   "overlay": {
     "file": "overlay.html",
     "width": 480,
-    "height": 560,
+    "height": "auto",
     "anchor": "top-right",
     "offset_x": 16,
     "offset_y": 16,

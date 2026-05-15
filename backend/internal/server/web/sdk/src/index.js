@@ -67,6 +67,7 @@ window.RLT = {
   statusStable: () => statusStableState.get(),
   onStatusStable: (fn) => statusStableState.onChange(fn),
   match,
+  state,
   me: identity,
   // RLT.identity is an alias for RLT.me — kept for plugins from the
   // pre-convergence era when the two referred to different stores.

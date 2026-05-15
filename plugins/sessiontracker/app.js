@@ -553,6 +553,20 @@
     const mode = currentMode || '—';
     const dur  = fmtDuration(b.startedAt);
 
+    // Label the match block by the active phase. Three states:
+    //   - In a live match (countdown / live / paused / replay): "Live Match".
+    //   - Between matches with at least one finished this session:
+    //     "Previous Match" so the lingering numbers are read as the
+    //     last game's stats, not the currently-running one.
+    //   - Fresh session, no match recorded yet: "No Match Yet" — the
+    //     all-zero row means "we haven't played" rather than "the
+    //     previous game was a goalless slog".
+    const phase = (RLT.state && RLT.state.phase) || 'none';
+    const LIVE_PHASES = ['countdown', 'live', 'paused', 'replay'];
+    const isLive = LIVE_PHASES.indexOf(phase) !== -1;
+    const hasHistory = b.results.last.length > 0;
+    const matchTag = isLive ? 'Live Match' : (hasHistory ? 'Previous Match' : 'No Match Yet');
+
     // Match block — big stat cells. A zero count dims so the eye
     // lands on values that actually moved. No win/loss badge here:
     // the per-match outcome is already encoded in the record bar
@@ -663,7 +677,7 @@
         '</div>' +
         '<div class="st-c-match">' +
           '<div class="st-c-match-head">' +
-            '<span class="st-c-match-tag">Live Match</span>' +
+            '<span class="st-c-match-tag">' + matchTag + '</span>' +
           '</div>' +
           '<div class="st-c-match-grid">' + matchGrid + '</div>' +
         '</div>' +
@@ -958,6 +972,19 @@
             applyMatchEnded(bucket, synth, team);
             save(); scheduleRender();
           }
+        }
+        // Phase change may flip the match-block label without otherwise
+        // mutating the bucket. Avoid a full re-render just for a label
+        // flip — patch the existing tag node in place. Falls through
+        // to a normal render if the node doesn't exist yet (first
+        // paint hasn't happened).
+        const tag = document.querySelector('.st-c-match-tag');
+        if (tag) {
+          const ph = (RLT.state && RLT.state.phase) || 'none';
+          const live = ph === 'countdown' || ph === 'live' || ph === 'paused' || ph === 'replay';
+          const hasHistory = !!(bucket && bucket.results && bucket.results.last && bucket.results.last.length > 0);
+          const want = live ? 'Live Match' : (hasHistory ? 'Previous Match' : 'No Match Yet');
+          if (tag.textContent !== want) tag.textContent = want;
         }
       },
 
