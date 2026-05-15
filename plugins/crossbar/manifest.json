@@ -1,7 +1,7 @@
 {
   "name": "crossbar",
   "title": "Crossbar Sound",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "rl-toolkit",
   "description": "Plays a sound effect every time the ball hits a crossbar.",
   "overlay": {

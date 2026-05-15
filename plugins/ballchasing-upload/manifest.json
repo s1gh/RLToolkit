@@ -1,7 +1,7 @@
 {
   "name": "ballchasing-upload",
   "title": "Ballchasing Upload",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "rl-toolkit",
   "description": "Automatically uploads saved replays to ballchasing.com.",
   "overlay": {
