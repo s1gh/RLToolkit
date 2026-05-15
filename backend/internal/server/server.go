@@ -258,6 +258,26 @@ func (s *Server) handlePluginByName(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "uninstall: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Tell the rest of the world the plugin is gone. The dashboard's
+	// SSE listener re-fetches /api/plugins on _PluginUpdated; the
+	// overlay listens for _OverridesChanged to reflow its iframe
+	// set. We fire both: the overrides entry (if any) is cleaned up
+	// inside Delete, which also broadcasts when the entry existed.
+	// A force-broadcast follows so plugins with no override entry
+	// still cause the overlay to unmount the iframe.
+	if s.deps.Overrides != nil {
+		if err := s.deps.Overrides.Delete(name); err != nil {
+			log.Printf("[server] uninstall: clearing overrides for %s failed: %v", name, err)
+		}
+		if s.deps.Bus != nil {
+			if env := MarshalOverridesChanged(s.deps.Overrides.GetAll()); env != nil {
+				s.deps.Bus.Broadcast(bus.Event{Name: "_OverridesChanged", Raw: env})
+			}
+		}
+	}
+	if s.deps.Plugins != nil {
+		s.deps.Plugins.NotifyUpdated(name)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
