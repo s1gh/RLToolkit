@@ -24,6 +24,7 @@ type goalModifiers struct {
 	IsHoopsSwishGoal bool `json:"isHoopsSwishGoal"`
 	IsHatTrickGoal   bool `json:"isHatTrickGoal"`
 	IsFlipResetGoal  bool `json:"isFlipResetGoal"`
+	IsStolenGoal     bool `json:"isStolenGoal"`
 }
 
 // modifierStatfeedNames maps the statfeed EventName (as RL ships it)

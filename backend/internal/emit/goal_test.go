@@ -197,7 +197,7 @@ func TestGoal_ModifiersAlwaysPresent(t *testing.T) {
 	if mods["isAerialGoal"] != true {
 		t.Errorf("isAerialGoal: want true, got %v", mods["isAerialGoal"])
 	}
-	for _, k := range []string{"isHatTrickGoal", "isBackwardsGoal", "isBicycleGoal", "isFlipResetGoal"} {
+	for _, k := range []string{"isHatTrickGoal", "isBackwardsGoal", "isBicycleGoal", "isFlipResetGoal", "isStolenGoal"} {
 		if _, has := mods[k]; !has {
 			t.Errorf("%s: must be present (false), got missing", k)
 		}
