@@ -1788,10 +1788,19 @@ if (inLauncher) {
   // landed so the Installed grid is fully populated before we potentially
   // hide it. If we're reloading directly into Browse, kick off the
   // catalog fetch too.
-  initialPluginListReady.then(() => {
+  initialPluginListReady.then(async () => {
     applyActiveTab();
     if (activeTab === 'browse') {
-      maybeRefreshBrowse();
+      await maybeRefreshBrowse();
+    } else {
+      // Seed the Browse tab counter from the cached catalog so users
+      // see "Browse N" before they click the tab. No network refresh
+      // here, just a read of whatever the startup poll already cached.
+      // applyActiveTab runs after renderBrowse so the banner stays
+      // hidden while the Installed tab is active.
+      await refetchCatalog();
+      renderBrowse();
+      applyActiveTab();
     }
   });
 })();
