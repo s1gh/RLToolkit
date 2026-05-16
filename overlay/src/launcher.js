@@ -845,13 +845,37 @@ document.querySelectorAll("[data-cmd]").forEach(btn => {
     }
     if (btn.dataset.cmd === "toggle_backend") {
       // Dispatch to start_backend or stop_backend based on current label.
-      const cmd = btn.textContent.trim().toLowerCase().startsWith("start")
-        ? "start_backend"
-        : "stop_backend";
-      invoke(cmd).catch(() => {});
+      // Stopping is destructive (kills the running backend), so gate it
+      // behind a confirm; starting is safe and goes through directly.
+      const starting = btn.textContent.trim().toLowerCase().startsWith("start");
+      if (starting) {
+        invoke("start_backend").catch(() => {});
+        return;
+      }
+      const ok = await confirmAction({
+        title: "Stop backend?",
+        body: "The dashboard will be unavailable until you start it again.",
+        confirmLabel: "Stop backend",
+      });
+      if (ok) invoke("stop_backend").catch(() => {});
+      return;
+    }
+    if (btn.dataset.cmd === "restart_backend") {
+      const ok = await confirmAction({
+        title: "Restart backend?",
+        body: "The dashboard will be unavailable briefly while the backend restarts.",
+        confirmLabel: "Restart backend",
+      });
+      if (ok) invoke("restart_backend").catch(() => {});
       return;
     }
     if (btn.dataset.cmd === "reclaim_identity") {
+      const ok = await confirmAction({
+        title: "Change identity?",
+        body: "This signs out the current player and returns to the splash screen. You'll need to pick or create an identity again.",
+        confirmLabel: "Change identity",
+      });
+      if (!ok) return;
       try {
         await clearIdentity();
         await enterSplash();
@@ -981,6 +1005,44 @@ function closeSettings() {
 
 document.getElementById("settings-cancel").addEventListener("click", closeSettings);
 settingsModal.querySelector(".modal-backdrop").addEventListener("click", closeSettings);
+
+// Reusable confirm modal for destructive overflow-menu actions
+// (change identity, stop/restart backend). The triggers live one
+// click away in the overflow menu, so we gate destructive actions
+// behind an explicit confirm. Reuses the settings-modal classes for
+// visual consistency and matches its backdrop-click-to-dismiss
+// behaviour. Cancel is auto-focused so a stray Enter press dismisses
+// rather than confirms.
+const confirmModal = document.getElementById("confirm-modal");
+const confirmModalTitle = document.getElementById("confirm-modal-title");
+const confirmModalBody = document.getElementById("confirm-modal-body");
+const confirmModalCancel = document.getElementById("confirm-modal-cancel");
+const confirmModalOk = document.getElementById("confirm-modal-ok");
+let confirmModalResolver = null;
+
+function closeConfirmModal(result) {
+  confirmModal.hidden = true;
+  const resolver = confirmModalResolver;
+  confirmModalResolver = null;
+  if (resolver) resolver(result);
+}
+
+function confirmAction({ title, body, confirmLabel }) {
+  // If a previous prompt is still open (shouldn't happen with the
+  // overflow menu closing on click, but be defensive), resolve it as
+  // a cancel before reusing the modal.
+  if (confirmModalResolver) closeConfirmModal(false);
+  confirmModalTitle.textContent = title;
+  confirmModalBody.textContent = body;
+  confirmModalOk.textContent = confirmLabel;
+  confirmModal.hidden = false;
+  confirmModalCancel.focus();
+  return new Promise(resolve => { confirmModalResolver = resolve; });
+}
+
+confirmModalCancel.addEventListener("click", () => closeConfirmModal(false));
+confirmModal.querySelector(".modal-backdrop").addEventListener("click", () => closeConfirmModal(false));
+confirmModalOk.addEventListener("click", () => closeConfirmModal(true));
 
 document.querySelectorAll("[data-pick]").forEach(btn => {
   btn.addEventListener("click", async () => {

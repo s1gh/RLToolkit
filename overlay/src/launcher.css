@@ -505,6 +505,63 @@ input, textarea {
 }
 .btn-secondary:hover { background: #1a1d24; }
 
+/* ─── Confirm modal ───────────────────────────────────────
+   Compact head/body/actions layout for destructive
+   confirmations, matching the dashboard's plugin-uninstall
+   confirm so users see a consistent prompt across the app. */
+.modal-card.modal-confirm {
+  width: min(420px, 92vw);
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.modal-confirm .modal-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid #20232a;
+}
+.modal-confirm .modal-head h3 {
+  margin: 0;
+  font-size: 15px; font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.modal-confirm .modal-body {
+  padding: 18px 22px;
+  color: var(--muted);
+  font-size: 14px; line-height: 1.5;
+}
+.modal-confirm .modal-body p { margin: 0; }
+.modal-confirm .modal-actions {
+  margin: 0;
+  padding: 12px 18px 16px;
+  border-top: 1px solid #20232a;
+}
+.modal-confirm .btn {
+  flex: 1;
+  font: 600 12px Inter, sans-serif;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #262a33;
+  background: #1a1d24; color: var(--fg);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color .15s ease, color .15s ease,
+              filter .15s ease, background .15s ease;
+}
+.modal-confirm .btn:hover { background: #20232a; }
+.modal-confirm .btn.primary.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+  font-weight: 700;
+}
+.modal-confirm .btn.primary.danger:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  filter: brightness(1.05);
+}
+
 /* ─── First-run identity splash ──────────────────────────── */
 #splash {
   position: fixed;
