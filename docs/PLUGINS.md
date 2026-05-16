@@ -119,14 +119,16 @@ read.
 Behaviors that vary by view:
 
 - **`RLT.widget.*` window-shape ops** (`size`, `anchor`, `margin`,
-  `opacity`, `visible`) only do anything inside the Tauri overlay
-  window. Outside Tauri they resolve to `false`. The sizing helpers
-  (`autoSize`, `fitWidth`) also work in hosted iframes — they post the
-  measured size to the parent aggregator (web overlay / OBS browser
-  source), which honors the message only on axes the manifest declared
-  as `"auto"`. All of these are safe to call unconditionally; gate on
-  `RLT.widget.isHosted()` (which means "in Tauri") if a no-op would
-  hide a real bug.
+  `opacity`, `visible`) only do anything when the plugin owns its OS
+  window — i.e. the standalone Tauri overlay. In a hosted iframe of the
+  unified aggregator (even though that iframe is technically inside
+  Tauri), and in non-Tauri contexts, they resolve to `false`. The
+  sizing helpers (`autoSize`, `fitWidth`) also work in hosted iframes
+  — they post the measured size to the parent aggregator (web overlay
+  / OBS browser source), which honors the message only on axes the
+  manifest declared as `"auto"`. All of these are safe to call
+  unconditionally; gate on `RLT.widget.isHosted()` (which means "I own
+  the window") if a no-op would hide a real bug.
 - **`RLT.store` writes** are allowed from the overlay and settings
   views (which are user-controlled and trustworthy). The dashboard
   and background views are read-only by default; override with
@@ -966,20 +968,22 @@ RLT.stats.known          // Set of all values for membership tests
 ### Widget control: `RLT.widget`
 
 Window-shape methods (`size`, `anchor`, `margin`, `opacity`, `visible`)
-require the plugin to own its own OS window — i.e. the Tauri desktop
-overlay. Outside Tauri (dashboard tab, settings iframe, OBS browser
-source, web overlay aggregator) those methods no-op.
+require the plugin to own its own OS window — i.e. the standalone Tauri
+desktop overlay. When mounted as one of many iframes in the unified
+overlay aggregator (the common case), the parent owns the window, so
+these methods no-op. They also no-op in non-Tauri contexts (dashboard
+tab, settings iframe, OBS browser source).
 
 Sizing methods (`autoSize`, `fitWidth`) work in **both** contexts:
-inside Tauri they call the desktop window-resize command directly;
-inside a hosted iframe they post the measured size to the parent,
-which honors the message only on axes the manifest declared as
-`"auto"` (and clamps it with `min_*` / `max_*`). Plugins call the
-same API either way.
+in the standalone overlay they call the desktop window-resize command
+directly; inside a hosted iframe (including the unified aggregator on
+any platform) they post the measured size to the parent, which honors
+the message only on axes the manifest declared as `"auto"` (and clamps
+it with `min_*` / `max_*`). Plugins call the same API either way.
 
 ```js
-RLT.widget.isHosted()                      // true inside Tauri
-await RLT.widget.size(width, height)       // Tauri-only
+RLT.widget.isHosted()                      // true only when this plugin owns the Tauri window
+await RLT.widget.size(width, height)       // standalone-overlay-only
 await RLT.widget.anchor("top-left")        // Tauri-only — top-right / bottom-*
 await RLT.widget.margin(x, y)              // Tauri-only
 await RLT.widget.opacity(0.0..1.0)         // Tauri-only

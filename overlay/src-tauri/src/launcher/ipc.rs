@@ -16,6 +16,14 @@ pub struct LauncherCtx {
     /// True when the user explicitly stopped via Stop, so the UI shows
     /// "Start backend" instead of "Restart" (distinct from "crashed").
     pub stopped_by_user: bool,
+    /// True once the overlay webview has been navigated from its
+    /// transparent placeholder (overlay/src/index.html) to the live
+    /// `<toolkit>/overlay` URL. The probe thread flips this after
+    /// /api/status returns OK; toggle_overlay reads it to decide
+    /// whether a manual ON needs a lazy navigation first (covers the
+    /// case where the user toggles before backend readiness, or after
+    /// the probe thread's 10s window timed out).
+    pub overlay_loaded: bool,
 }
 
 pub type LauncherState = Mutex<LauncherCtx>;
@@ -108,20 +116,68 @@ pub fn toggle_overlay(
     state: State<LauncherState>,
 ) -> Result<(), String> {
     use tauri::Manager;
-    {
+    let (toolkit_url, already_loaded) = {
         let mut ctx = state.lock().unwrap();
         ctx.overlay_enabled = enabled;
         let mut s = ctx.settings.load();
         s.overlay_enabled = enabled;
         ctx.settings.save(&s).map_err(|e| e.to_string())?;
-    }
+        (ctx.toolkit_url.clone(), ctx.overlay_loaded)
+    };
 
     // The overlay window was built once during launcher setup() (see
     // mod.rs) — building from an IPC worker deadlocks WebView2 on
     // Windows. show()/hide() is safe from any thread.
     if let Some(w) = app.get_webview_window("main") {
         if enabled {
+            // Lazy live-load. If the probe thread already navigated the
+            // webview to <toolkit>/overlay, skip — re-navigating would
+            // reload the page and tear down the aggregator's SSE bus
+            // and iframe mounts for no reason. If the probe failed
+            // (backend timed out, or the user started the backend
+            // manually afterwards) the webview still has the transparent
+            // placeholder loaded; navigate before showing so the user
+            // gets the live overlay instead of a blank fullscreen.
+            //
+            // Gate the navigation on a quick /api/status probe. Without
+            // it, a manual toggle ON while the backend is still down
+            // would point the webview at a dead URL — WebView2 caches
+            // the resulting "can't connect" error page, defeating the
+            // whole point of building with a placeholder. If the probe
+            // fails we still show the (transparent) placeholder window
+            // so the user has visible feedback that the toggle landed;
+            // the next toggle attempt re-probes and retries.
+            if !already_loaded {
+                let probe_url = format!("{}/api/status", toolkit_url.trim_end_matches('/'));
+                let ready = matches!(
+                    probe_status(&probe_url, std::time::Duration::from_millis(500)),
+                    ProbeOutcome::Toolkit { .. }
+                );
+                if ready {
+                    match crate::overlay_bridge::navigate_overlay(&app, &toolkit_url) {
+                        Ok(()) => {
+                            state.lock().unwrap().overlay_loaded = true;
+                        }
+                        Err(e) => crate::log_warn!("[launcher] overlay navigate failed: {e}"),
+                    }
+                }
+            }
             let _ = w.show();
+            // Remount the plugin iframes that __rlt_prepare_for_hide
+            // tore down on the previous hide. visibilitychange in
+            // overlay.html SHOULD do this, but Tauri's window.hide()/
+            // show() doesn't reliably drive document.visibilityState
+            // — WebView2 keeps it 'visible' across the round-trip, so
+            // the listener never fires and the overlay comes back
+            // empty until the user disables/enables a plugin (which
+            // triggers _OverridesChanged → reflow). Belt-and-braces:
+            // call the explicit hook here. The function no-ops on a
+            // fresh navigation (page just loaded applyConfig itself)
+            // and on the first ever show after a successful navigate.
+            let _ = w.eval(
+                "if (typeof window.__rlt_resume_after_show === 'function') \
+                 { window.__rlt_resume_after_show(); }",
+            );
         } else {
             // Pre-hide flush. WebKitGTK doesn't paint while a document
             // is hidden (Page Visibility / "update the rendering"

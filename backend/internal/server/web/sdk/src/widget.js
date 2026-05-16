@@ -1,14 +1,20 @@
 // Widget control + sizing helpers.
 //
 // Window-shape ops (size/anchor/margin/opacity/visible) only make sense
-// when the plugin is the sole tenant of an OS window — i.e. the Tauri
-// desktop overlay. Outside Tauri they no-op.
+// when the plugin is the sole tenant of an OS window — i.e. the
+// standalone Tauri desktop overlay (Mode::Plugin). In any other context
+// — a hosted iframe of the unified-overlay aggregator (Mode::Unified),
+// the dashboard tab, the settings iframe, an OBS browser source — they
+// no-op. "Are we in Tauri" alone isn't enough to decide that, because
+// Tauri's IPC bridge is injected into iframes on Windows (WebView2 runs
+// init scripts in all frames by default); the decisive test is "are we
+// the top frame AND is Tauri present" — see the inTauri gate below.
 //
-// Sizing helpers (autoSize, fitWidth) work in both contexts: in Tauri
-// they call the desktop window-resize command directly; in a hosted
-// iframe (web overlay aggregator, OBS browser source) they post the
-// measured size to the parent, which honors the message only on axes
-// the manifest declared as "auto" (see overlay.html).
+// Sizing helpers (autoSize, fitWidth) work in both contexts: in the
+// standalone Tauri overlay they call the desktop window-resize command
+// directly; in a hosted iframe (unified aggregator, OBS browser source)
+// they post the measured size to the parent, which honors the message
+// only on axes the manifest declared as "auto" (see overlay.html).
 //
 // `teardownWatchers` is exported for the pagehide handler in index.js
 // to call alongside the bus.closeEventSource() so we don't leak
@@ -101,8 +107,23 @@ function stopSizeWatcher(watcher) {
 }
 
 export const widget = (function () {
+  // "Are we the top-level Tauri webview?" — not just "is Tauri present?".
+  // Both questions matter because the unified-overlay aggregator mounts
+  // each plugin in an iframe, and Tauri's IPC bridge is injected into
+  // those iframes on Windows (WebView2 runs init scripts in all frames
+  // by default) but NOT on Linux (WebKitGTK injects into the top frame
+  // only). If we keyed off __TAURI_INTERNALS__ alone, a plugin running
+  // in the aggregator on Windows would route postSize through
+  // invoke('widget_size', …), which is no-op'd by ignored_in_unified on
+  // the Rust side — the iframe would never resize, "auto" widths/heights
+  // would lock to the iframe's default 300×150, and content past that
+  // would be clipped by overlay-mode's html{overflow:hidden}. The
+  // window.parent === window gate forces hosted iframes onto the
+  // postMessage path on every platform, matching Linux's accidentally-
+  // correct behavior.
   const inTauri =
     typeof window !== 'undefined' &&
+    window.parent === window &&
     !!window.__TAURI_INTERNALS__ &&
     typeof window.__TAURI_INTERNALS__.invoke === 'function';
 

@@ -68,6 +68,7 @@ pub fn run(args: Args) {
         starting: true,
         tray_ok: true,
         stopped_by_user: false,
+        overlay_loaded: false,
     };
 
     let builder = install_plugins(tauri::Builder::default())
@@ -210,16 +211,33 @@ pub fn run(args: Args) {
                     }
                 };
 
-                // Wait up to 10s for a freshly-spawned backend to come up.
-                if matches!(owned, BackendOwnership::SpawnedSidecar(_) | BackendOwnership::SpawnedRaw(_)) {
-                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-                    while std::time::Instant::now() < deadline {
-                        if matches!(probe_status(&url, std::time::Duration::from_millis(300)), ProbeOutcome::Toolkit { .. }) {
-                            break;
+                // Decide whether the backend is actually serving before
+                // we touch the overlay webview. Attached = already up at
+                // first probe; SpawnedSidecar/Raw = we just launched it
+                // and need to wait for /api/status to start answering.
+                // A 10s ceiling means a backend that hangs on boot
+                // doesn't keep the overlay hidden forever; toggle_overlay
+                // has a lazy-navigate fallback for the "backend came up
+                // after the window closed" case.
+                let backend_ready = match &owned {
+                    BackendOwnership::Attached => true,
+                    BackendOwnership::SpawnedSidecar(_) | BackendOwnership::SpawnedRaw(_) => {
+                        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                        let mut up = false;
+                        while std::time::Instant::now() < deadline {
+                            if matches!(
+                                probe_status(&url, std::time::Duration::from_millis(300)),
+                                ProbeOutcome::Toolkit { .. }
+                            ) {
+                                up = true;
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(200));
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        up
                     }
-                }
+                    _ => false,
+                };
                 clear_starting(&app_for_probe);
 
                 // Report the launcher's monitor size as the detected
@@ -227,10 +245,8 @@ pub fn run(args: Args) {
                 // resolution the user runs and falls back to 1920×1080
                 // in the Settings UI. The overlay's own report (when
                 // it mounts) overwrites this with the overlay's monitor.
-                if matches!(owned, BackendOwnership::Attached
-                    | BackendOwnership::SpawnedSidecar(_)
-                    | BackendOwnership::SpawnedRaw(_))
-                {
+                // No point reporting if the backend can't be reached.
+                if backend_ready {
                     if let Some(win) = app_for_probe.get_webview_window("launcher") {
                         if let Some((w, h)) = window::window_monitor_logical(&win) {
                             report_detected_surface(&toolkit_url, w, h);
@@ -238,18 +254,37 @@ pub fn run(args: Args) {
                     }
                 }
 
-                // Autostart the overlay if overlay_enabled is set —
-                // the window was pre-built hidden in setup().
-                let auto = {
-                    use tauri::Manager;
-                    let state: tauri::State<LauncherState> = app_for_probe.state();
-                    let ctx = state.lock().unwrap();
-                    ctx.overlay_enabled
-                };
-                if auto {
-                    use tauri::Manager;
-                    if let Some(w) = app_for_probe.get_webview_window("main") {
-                        let _ = w.show();
+                // Live-load + autostart, only on confirmed readiness.
+                // The overlay window was built with a transparent local
+                // placeholder (overlay/src/index.html) so any stray show
+                // — winit's set_fullscreen does briefly map the HWND on
+                // Windows even with .visible(false) — renders nothing
+                // visible instead of WebView2's "can't connect" error
+                // page filling the screen. Navigating now replaces the
+                // placeholder with the live /overlay aggregator; show
+                // happens after, so the user only sees the real overlay.
+                if backend_ready {
+                    match crate::overlay_bridge::navigate_overlay(&app_for_probe, &toolkit_url) {
+                        Ok(()) => {
+                            use tauri::Manager;
+                            if let Some(state) = app_for_probe.try_state::<LauncherState>() {
+                                state.lock().unwrap().overlay_loaded = true;
+                            }
+                        }
+                        Err(e) => crate::log_warn!("[launcher] overlay navigate failed: {e}"),
+                    }
+
+                    let auto = {
+                        use tauri::Manager;
+                        let state: tauri::State<LauncherState> = app_for_probe.state();
+                        let ctx = state.lock().unwrap();
+                        ctx.overlay_enabled
+                    };
+                    if auto {
+                        use tauri::Manager;
+                        if let Some(w) = app_for_probe.get_webview_window("main") {
+                            let _ = w.show();
+                        }
                     }
                 }
 

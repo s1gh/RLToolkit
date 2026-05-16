@@ -485,6 +485,21 @@
     if (!document.hidden && lastMerged) applyConfig(lastMerged);
   });
 
+  // Explicit resume hook. The Tauri host evaluates this immediately
+  // after window.show() in toggle_overlay (and overlay-edit activation)
+  // because Page Visibility transitions are unreliable across
+  // window.hide()/show() — WebView2 on Windows in particular keeps
+  // document.visibilityState in 'visible' across the round-trip, so
+  // visibilitychange never fires and the iframe unmount we just did in
+  // __rlt_prepare_for_hide is never undone. With this hook the remount
+  // is driven from the side that actually knows the window came back,
+  // not from a spec event the webview may or may not emit. Idempotent
+  // with the visibilitychange listener above (applyConfig itself is
+  // idempotent — applyOne re-uses any iframe already in `widgets`).
+  window.__rlt_resume_after_show = function () {
+    if (lastMerged) applyConfig(lastMerged);
+  };
+
   // Live edit hook (Phase 2+).
   // The Tauri host calls window.__rlt_set_live_edit(true|false) via
   // webview.eval to toggle the page's drag wrappers. The actual JS

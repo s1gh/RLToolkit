@@ -84,6 +84,19 @@ pub fn set<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<bool, String> {
         *state.pre_edit_visible.lock().unwrap() = Some(was_visible);
         if !was_visible {
             let _ = window.show();
+            // Drive the aggregator's plugin remount path explicitly.
+            // The previous hide() ran __rlt_prepare_for_hide which
+            // unmounts every iframe; visibilitychange would normally
+            // remount via applyConfig(lastMerged) on the next show,
+            // but Tauri's window.show() doesn't reliably flip
+            // document.visibilityState on WebView2 — the overlay
+            // comes back empty. Calling the explicit hook here keeps
+            // edit-mode-after-hide working. See overlay.html for the
+            // long version.
+            let _ = window.eval(
+                "if (typeof window.__rlt_resume_after_show === 'function') \
+                 { window.__rlt_resume_after_show(); }",
+            );
         }
         if let Err(e) = set_clickthrough(&window, false) {
             // Roll back: hide if we showed, clear state.

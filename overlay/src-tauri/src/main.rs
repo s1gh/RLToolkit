@@ -614,11 +614,22 @@ fn launcher_mode_active(args: &Args) -> bool {
 /// Build the overlay window from the launcher's app instance.
 /// Unified mode with hardcoded defaults; the launcher owns the
 /// lifecycle so tray and focus-watcher setup are skipped here.
+///
+/// The launcher path builds the overlay with a local transparent
+/// placeholder (overlay/src/index.html) instead of pointing it at
+/// `<toolkit>/overlay`. The launcher's probe thread navigates the
+/// pre-built webview to the live URL only after /api/status returns OK
+/// — see `launcher::run` and `navigate_overlay_to_toolkit` below.
+/// Without this, a slow cold start (sidecar still booting, RL Toolkit
+/// HTTP server not yet listening) leaves WebView2's "can't connect"
+/// error page in the webview, which then flashes fullscreen the moment
+/// the probe thread calls show().
 fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
     use tauri::Manager;
 
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
+    if app.get_webview_window("main").is_some() {
+        // Window already built. Don't auto-show here — the launcher
+        // probe thread decides when to show after the backend is ready.
         return Ok(());
     }
 
@@ -628,11 +639,24 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
         "http://localhost:49200".to_string()
     };
 
-    let url = unified_url(&toolkit_url);
     let title = "RL Toolkit – Overlay".to_string();
+    let initial = WebviewUrl::App("index.html".into());
 
-    build_overlay_window(app, &Mode::Unified, &url, &title, false, None, &toolkit_url)
+    build_overlay_window(app, &Mode::Unified, initial, &title, false, None, &toolkit_url)
         .map_err(|e| e.to_string())
+}
+
+/// Navigate the launcher's pre-built overlay webview to `<toolkit>/overlay`.
+/// Called by the launcher probe thread once /api/status reports the
+/// backend is up. Safe to call from any thread.
+pub fn navigate_overlay_to_toolkit(app: &AppHandle, toolkit_url: &str) -> Result<(), String> {
+    use tauri::Manager;
+    let Some(w) = app.get_webview_window("main") else {
+        return Err("overlay window not built".to_string());
+    };
+    let overlay_url = format!("{}/overlay", toolkit_url.trim_end_matches('/'));
+    let parsed = url::Url::parse(&overlay_url).map_err(|e| format!("parse {overlay_url}: {e}"))?;
+    w.navigate(parsed).map_err(|e| e.to_string())
 }
 
 /// Construct the overlay webview window inside the given app. Handles
@@ -643,18 +667,25 @@ fn build_overlay_for_launcher(app: &AppHandle) -> Result<(), String> {
 fn build_overlay_window(
     app: &AppHandle,
     mode: &Mode,
-    url: &str,
+    initial_url: WebviewUrl,
     title: &str,
     persist_cache: bool,
     monitor: Option<usize>,
     toolkit: &str,
 ) -> tauri::Result<()> {
-    let parsed = url::Url::parse(url).map_err(tauri::Error::InvalidUrl)?;
-
     // Built once during launcher setup() with visible(false), then
     // show()/hide()d on toggle. Building from an IPC worker thread
     // deadlocks WebView2 on Windows — only the main-thread setup()
     // path is safe.
+    //
+    // The standalone overlay path passes `WebviewUrl::External(<toolkit>/overlay)`
+    // here because by then it has already probed /api/status (see
+    // main_overlay) and won't even build the window if the backend
+    // isn't up. The launcher path passes `WebviewUrl::App("index.html")`
+    // — a transparent local placeholder — and navigates to the live
+    // URL after its own probe thread confirms readiness. Mixing the
+    // two would either fail-fast in standalone or flash an error page
+    // during a slow cold start under the launcher.
     //
     // .shadow(false) is critical on Windows. Tauri 2 defaults window
     // shadows to ON, and decorations(false) alone doesn't disable
@@ -665,7 +696,7 @@ fn build_overlay_window(
     // upstream in tauri-apps/tauri#8308 (and root-cause #8632): same
     // shadow defaults broke transparency in v2 vs v1. Fix: disable
     // shadows explicitly.
-    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
+    let mut builder = WebviewWindowBuilder::new(app, "main", initial_url)
         .title(title)
         .decorations(false)
         .transparent(true)
@@ -761,6 +792,9 @@ fn main() {
         // user-configured data_dir from launcher.json). The standalone
         // overlay path below uses the platform default.
         rl_widget::overlay_bridge::install(|app| build_overlay_for_launcher(app));
+        rl_widget::overlay_bridge::install_navigator(|app, toolkit_url| {
+            navigate_overlay_to_toolkit(app, toolkit_url)
+        });
         launcher::run(args);
         return;
     }
@@ -831,10 +865,11 @@ fn main_overlay(args: Args) {
                 rl_widget::log_warn!("[rl-widget] tray icon failed to register: {e}");
             }
 
+            let parsed = url::Url::parse(&url).map_err(tauri::Error::InvalidUrl)?;
             build_overlay_window(
                 app.handle(),
                 &mode_for_setup,
-                &url,
+                WebviewUrl::External(parsed),
                 &title,
                 args_for_setup.persist_cache,
                 args_for_setup.monitor,

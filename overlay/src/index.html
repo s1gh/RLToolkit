@@ -1,4 +1,10 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>rl-widget</title></head>
-<body><!-- placeholder; the widget navigates to the toolkit URL on startup --></body>
+<html><head><meta charset="utf-8"><title>rl-widget</title>
+<style>html,body{margin:0;padding:0;background:transparent;width:100vw;height:100vh;overflow:hidden}</style>
+</head>
+<body><!-- transparent placeholder; the launcher navigates this webview to
+<toolkit>/overlay only after /api/status confirms the backend is up. Keeping
+the body empty and the page transparent means a stray show() during cold
+start renders nothing visible instead of WebView2's "can't connect" error
+page over the whole screen. --></body>
 </html>
