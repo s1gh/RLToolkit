@@ -412,8 +412,11 @@ func collectGoalModifiers(c Correlator, scorer *types.ShortcutRef) *goalModifier
 //   - the BallHit immediately before the scorer's last touch was by a
 //     different player on the same team (a teammate),
 //   - that teammate has a Shot statfeed in the recent buffer that was
-//     recorded AFTER any opponent BallHit (so an old unrelated Shot
-//     can't credit a later goal just because it's still in the buffer).
+//     recorded AFTER any other BallHit (opponent OR a second teammate
+//     touch) — only the teammate's single shot touch and the scorer's
+//     finish are allowed between the Shot and the goal, so an old
+//     unrelated Shot can't credit a later goal just because the same
+//     teammate happened to touch the ball again.
 //
 // Consumes the matched Shot statfeed so a teammate's earlier
 // unconverted Shot cannot spuriously credit a later goal.
@@ -448,11 +451,12 @@ func detectStolenGoal(
 
 	// Walk BallHits and Shot statfeeds together in chronological
 	// order (newest first). The teammate's Shot must appear before
-	// (i.e. more recently than) any opponent BallHit — otherwise the
-	// statfeed is from an earlier play that opponents have already
-	// touched the ball during, which means the goal isn't actually
-	// finishing this teammate's shot.
+	// (i.e. more recently than) any BallHit other than the scorer's
+	// finish and the teammate's single prev touch — otherwise the
+	// statfeed is from an earlier moment of play and the goal isn't
+	// actually finishing this teammate's shot.
 	mixed := c.WalkRecent([]string{"BallHit", "StatfeedEvent"}, 30)
+	sawTeammateBallHit := false
 	for _, m := range mixed {
 		switch m.Name {
 		case "BallHit":
@@ -460,15 +464,24 @@ func detectStolenGoal(
 			if !ok || rec == nil || rec.Player == nil {
 				continue
 			}
-			// Skip the scorer's own most-recent BallHit and the
-			// teammate's previous BallHit — those are expected and
-			// don't break the chain. Any OTHER player's BallHit
-			// (an opponent, or another teammate later than the
-			// shooting one) means the teammate's earlier Shot
-			// can't be the one that became the goal.
-			if rec.Player.ID == scorer.ID || rec.Player.ID == teammate.ID {
+			// Scorer's finishing touch is expected — skip.
+			if rec.Player.ID == scorer.ID {
 				continue
 			}
+			// First teammate BallHit (newest-first) is the shot
+			// itself — expected. A second teammate BallHit before
+			// the Shot statfeed means there was play before the shot
+			// we're crediting, so the statfeed belongs to an earlier
+			// moment, not this finish.
+			if rec.Player.ID == teammate.ID {
+				if sawTeammateBallHit {
+					return false
+				}
+				sawTeammateBallHit = true
+				continue
+			}
+			// Any other player's BallHit (opponent or third teammate)
+			// breaks the chain.
 			return false
 		case "StatfeedEvent":
 			rec, ok := m.Payload.(*types.StatfeedRecord)
