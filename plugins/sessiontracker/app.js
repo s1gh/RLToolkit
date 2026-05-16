@@ -618,16 +618,21 @@
     // surrounding stat color (cyan on Match, dim on Session). The
     // viewBox stays 16x16 so .ic/.ic-lg sizing in CSS controls the
     // rendered footprint without per-icon tweaks.
+    // Icons sourced from Lucide (https://lucide.dev, ISC). Inlined as
+    // strings so the overlay has no runtime dependency on a font or
+    // external asset. ball is custom (Lucide has no soccer-ball icon
+    // distinct from a plain circle); everything else is verbatim
+    // Lucide. Sized via .st-c-ic (width/height 14px, currentColor).
     const ICONS = {
-      goals:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11M2.5 8h11M4.6 4.6l6.8 6.8M11.4 4.6l-6.8 6.8"/></svg>',
-      saves:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 9c0-3 2.2-5.5 5-5.5s5 2.5 5 5.5"/><path d="M3 9v3h10V9"/><path d="M5.5 9v3M8 9v3M10.5 9v3"/></svg>',
-      demos:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 1.5l1.4 3.6 3.8.3-2.9 2.5.9 3.7L8 9.7l-3.2 1.9.9-3.7L2.8 5.4l3.8-.3z"/><path d="M8 11l-1 3.5M8 11l1 3.5M5 13.5l-1.5 1M11 13.5l1.5 1"/></svg>',
-      boost:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 1.5L3 9.5h4l-1 5 6-8H8l1-5z"/></svg>',
-      pickups:  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><circle cx="8" cy="8" r="6" stroke-dasharray="2 2"/></svg>',
-      crossbar: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 5.5h11M2.5 5.5v2M13.5 5.5v2M5 7.5v6M11 7.5v6"/></svg>',
-      ball:     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M2.5 8h11"/></svg>',
-      mmr:      '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 13L8 3l5 10z"/><path d="M5.5 9.5h5"/></svg>',
-      mods:     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h10M5 5h6M5 11h6"/></svg>',
+      goals:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 7a16 16 20 0 1 10.98 4.362"/><path d="M12 12a13 13 0 0 1-8.66 5"/><path d="M16.83 13.634a16 16 0 0 1-9.267 7.328"/><path d="M20.66 17A13 13 0 0 0 12 12a13 13 0 0 1 0-10"/><path d="M8.17 15.366a16 16 0 0 1-1.713-11.69"/><circle cx="12" cy="12" r="10"/></svg>',
+      saves:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 9v6"/><path d="M16 15v6"/><path d="M16 3v6"/><path d="M3 15h18"/><path d="M3 9h18"/><path d="M8 15v6"/><path d="M8 3v6"/></svg>',
+      demos:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="13" r="9"/><path d="M14.35 4.65 16.3 2.7a2.41 2.41 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4l-1.95 1.95"/><path d="m22 2-1.5 1.5"/></svg>',
+      boost:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>',
+      pickups:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.1 2.18a9.93 9.93 0 0 1 3.8 0"/><path d="M17.6 3.71a9.95 9.95 0 0 1 2.69 2.7"/><path d="M21.82 10.1a9.93 9.93 0 0 1 0 3.8"/><path d="M20.29 17.6a9.95 9.95 0 0 1-2.7 2.69"/><path d="M13.9 21.82a9.94 9.94 0 0 1-3.8 0"/><path d="M6.4 20.29a9.95 9.95 0 0 1-2.69-2.7"/><path d="M2.18 13.9a9.93 9.93 0 0 1 0-3.8"/><path d="M3.71 6.4a9.95 9.95 0 0 1 2.7-2.69"/><circle cx="12" cy="12" r="1"/></svg>',
+      crossbar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" x2="9" y1="4" y2="20"/><path d="M4 7c0-1.7 1.3-3 3-3h13"/><path d="M18 20c-1.7 0-3-1.3-3-3V4"/></svg>',
+      ball:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>',
+      mmr:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></svg>',
+      mods:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg>',
     };
     const ic = (k) => '<span class="st-c-ic">' + ICONS[k] + '</span>';
 
@@ -654,8 +659,9 @@
       heroCell('pickups',  m.pickups, 'Pickups') +
       heroCell('crossbar', matchHits, 'Crossbar');
 
-    // Session strip — same six icon columns at a smaller size so the
-    // user can scan the same stat across both rows by glancing down.
+    // Session totals strip — same six icon columns as the match hero
+    // at a smaller size, lives in its own peer card below the live
+    // match section so the eye scans the same stat down both rows.
     const sessNumCls = (v) => v > 0 ? '' : ' zero';
     function sessCell(iconKey, value) {
       return '<div class="st-c-sess-cell' + sessNumCls(value) + '">' +
@@ -665,7 +671,6 @@
     }
     const sessBlock =
       '<div class="st-c-sess">' +
-        '<div class="st-c-sess-lbl">Session</div>' +
         '<div class="st-c-sess-cells">' +
           sessCell('goals',    b.totals.goals)   +
           sessCell('saves',    b.totals.saves)   +
@@ -700,7 +705,7 @@
     }
     function speedStrip(rowLabel, rowClass, goalKmh, shotKmh, crossbarKmh) {
       return '<div class="st-c-spd ' + rowClass + '">' +
-        '<div class="st-c-spd-lbl">' + ic('ball') + rowLabel + '</div>' +
+        '<div class="st-c-spd-lbl">' + rowLabel + '</div>' +
         '<div class="st-c-spd-cells">' +
           speedPill('Goal',     goalKmh) +
           speedPill('Shot',     shotKmh) +
@@ -839,9 +844,13 @@
             '<span class="st-c-match-tag">' + matchTag + '</span>' +
           '</div>' +
           '<div class="st-c-hero">' + heroBlock + '</div>' +
+        '</div>' +
+        '<div class="st-c-strip">' +
+          '<div class="st-c-strip-h">Session Totals</div>' +
           sessBlock +
         '</div>' +
         '<div class="st-c-strip">' +
+          '<div class="st-c-strip-h">' + ic('ball') + 'Ball Speeds</div>' +
           speedBlock +
         '</div>' +
         modsBlock +
