@@ -1,6 +1,6 @@
 //! Per-OS foreground-window query. cfg-dispatching wrapper.
 
-use super::ForegroundInfo;
+use super::{ForegroundInfo, MatchRule};
 
 #[cfg(target_os = "windows")]
 mod windows;
@@ -39,6 +39,36 @@ pub fn query_foreground() -> Option<ForegroundInfo> {
 #[cfg(target_os = "linux")]
 pub fn wait_for_event(timeout: std::time::Duration) {
     linux::wait_for_event(timeout);
+}
+
+/// Decide whether the foreground window matches the rule, with
+/// platform-specific quirks the generic `query_foreground` path can't
+/// express. Returns:
+///   - `Some(true)`  — the rule's target is considered foreground.
+///   - `Some(false)` — something else is foreground (overlay should hide).
+///   - `None`        — no signal this tick; the run loop holds its state.
+///
+/// On platforms where the foreground answer is reliable, this is just
+/// `query_foreground` + `rule.apply` + self-PID filter. Wayland gets a
+/// custom impl because Hyprland's wlr-foreign-toplevel manager does
+/// not mark XWayland fullscreen toplevels (Rocket League on Proton) as
+/// `activated`, so the activated-only view of foreground misses the
+/// most important case the watcher exists to detect. The Wayland impl
+/// falls back to "rule-matching toplevel exists" when nothing is
+/// activated.
+pub fn query_match(rule: &MatchRule, self_pid: u32) -> Option<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        return linux::query_match(rule, self_pid);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let info = query_foreground()?;
+        if info.pid == self_pid {
+            return None;
+        }
+        Some(rule.apply(&info))
+    }
 }
 
 #[cfg(not(target_os = "linux"))]

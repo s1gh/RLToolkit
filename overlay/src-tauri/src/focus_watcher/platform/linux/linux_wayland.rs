@@ -4,7 +4,7 @@
 //! the manager interface and we degrade to "always None" (overlay
 //! stays visible).
 
-use crate::focus_watcher::ForegroundInfo;
+use crate::focus_watcher::{ForegroundInfo, MatchRule};
 use std::os::fd::AsRawFd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -174,41 +174,42 @@ pub fn wait_for_event(timeout: Duration) {
     }
 }
 
+/// Pump pending Wayland events into `app_data` and prune closed
+/// toplevels. Shared by query_foreground and query_match so they see
+/// the same view of compositor state without each driving the event
+/// queue independently.
+fn pump_events(s: &mut WaylandState) {
+    let WaylandState { queue, app_data, conn } = s;
+
+    let _ = conn.flush();
+
+    if let Err(e) = queue.dispatch_pending(app_data) {
+        log_dispatch_error(&e);
+    }
+
+    if let Some(guard) = conn.prepare_read() {
+        match guard.read() {
+            Ok(_) => {
+                if let Err(e) = queue.dispatch_pending(app_data) {
+                    log_dispatch_error(&e);
+                }
+            }
+            Err(wayland_client::backend::WaylandError::Io(io_err))
+                if io_err.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                // No events ready this tick — normal idle path.
+            }
+            Err(e) => log_dispatch_error_str(&format!("read: {e}")),
+        }
+    }
+
+    app_data.toplevels.retain(|(_, info)| !info.closed);
+}
+
 pub fn query_foreground() -> Option<ForegroundInfo> {
     let m = state()?;
     let mut s = m.lock().ok()?;
-    // Non-blocking poll pattern: flush outgoing → dispatch buffered →
-    // prepare_read + read (WouldBlock = no events this tick) →
-    // dispatch what we just read. dispatch_pending alone won't pull
-    // events off the socket. The borrow is split so the checker sees
-    // disjoint fields.
-    {
-        let WaylandState { queue, app_data, conn } = &mut *s;
-
-        let _ = conn.flush();
-
-        if let Err(e) = queue.dispatch_pending(app_data) {
-            log_dispatch_error(&e);
-        }
-
-        if let Some(guard) = conn.prepare_read() {
-            match guard.read() {
-                Ok(_) => {
-                    if let Err(e) = queue.dispatch_pending(app_data) {
-                        log_dispatch_error(&e);
-                    }
-                }
-                Err(wayland_client::backend::WaylandError::Io(io_err))
-                    if io_err.kind() == std::io::ErrorKind::WouldBlock =>
-                {
-                    // No events ready this tick — normal idle path.
-                }
-                Err(e) => log_dispatch_error_str(&format!("read: {e}")),
-            }
-        }
-
-        app_data.toplevels.retain(|(_, info)| !info.closed);
-    }
+    pump_events(&mut s);
 
     let active = s
         .app_data
@@ -222,6 +223,64 @@ pub fn query_foreground() -> Option<ForegroundInfo> {
         window_title: Some(active.title.to_lowercase()),
         pid: active.pid,
     })
+}
+
+/// Wayland-specific match query.
+///
+/// `query_foreground`'s strict "find the activated toplevel and apply
+/// the rule" path silently fails on Hyprland for the exact case the
+/// watcher exists to handle: Rocket League runs under Proton as an
+/// XWayland fullscreen client, and Hyprland's wlr-foreign-toplevel
+/// manager never reports its `activated` state bit. The toplevel
+/// exists with the right title, it just never carries activation.
+/// With activated-only the watcher sits in Inactive forever and
+/// `hide_when_unfocused` plugins stay opacity:0.
+///
+/// Decision table — the activated bit IS authoritative when it's set,
+/// even when it's set on something other than RL. Treating
+/// "RL toplevel exists" as foreground unconditionally regresses the
+/// alt-tab case: RL is still in the toplevel list while the user is
+/// in their browser, so the overlay would paint over the browser.
+///
+///   activated matches RL?      → Some(true)
+///   activated, doesn't match RL → Some(false)   (alt-tabbed elsewhere)
+///   nothing activated, RL exists → Some(true)   (Hyprland XWayland quirk)
+///   nothing activated, no RL    → None          (nothing useful to say)
+///   no toplevels at all         → None
+pub fn query_match(rule: &MatchRule) -> Option<bool> {
+    let m = state()?;
+    let mut s = m.lock().ok()?;
+    pump_events(&mut s);
+
+    let snapshot: Vec<(String, bool)> = s
+        .app_data
+        .toplevels
+        .iter()
+        .map(|(_, info)| (info.title.clone(), info.activated))
+        .collect();
+
+    if snapshot.is_empty() {
+        return None;
+    }
+
+    let info_for = |title: &str| ForegroundInfo {
+        exe_name: None,
+        window_title: Some(title.to_lowercase()),
+        pid: 0,
+    };
+
+    if let Some((title, _)) = snapshot.iter().find(|(_, activated)| *activated) {
+        return Some(rule.apply(&info_for(title)));
+    }
+
+    // Nothing activated. If RL's toplevel is present, that's our
+    // signal (Hyprland XWayland-fullscreen quirk); otherwise stay
+    // quiet so the state machine holds whatever it had.
+    if snapshot.iter().any(|(t, _)| rule.apply(&info_for(t))) {
+        Some(true)
+    } else {
+        None
+    }
 }
 
 // --- wayland-client dispatch glue ---

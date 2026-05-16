@@ -417,7 +417,7 @@ fn run_loop(app: AppHandle, rule: MatchRule, self_pid: u32) {
     let mut state = DebounceState::initial();
     let mut last_emit_log_at: Option<Instant> = None;
     loop {
-        let matched_opt = poll_once(&rule, self_pid);
+        let matched_opt = platform::query_match(&rule, self_pid);
         let now = Instant::now();
         if let Some(matched) = matched_opt {
             let outcome = state.clone().step(matched, now);
@@ -510,13 +510,3 @@ fn post_focus_message(app: &AppHandle, active: bool) -> Result<(), String> {
     }
 }
 
-/// One poll cycle. None = no signal this tick (transient query
-/// failure or self-PID — state unchanged); Some(b) = RL is/isn't
-/// foreground.
-fn poll_once(rule: &MatchRule, self_pid: u32) -> Option<bool> {
-    let info = platform::query_foreground()?;
-    if info.pid == self_pid {
-        return None;
-    }
-    Some(rule.apply(&info))
-}

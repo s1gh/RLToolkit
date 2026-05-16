@@ -2,7 +2,7 @@
 //! environment, then sticks with the choice for the lifetime of the
 //! process.
 
-use crate::focus_watcher::ForegroundInfo;
+use crate::focus_watcher::{ForegroundInfo, MatchRule};
 use std::sync::OnceLock;
 
 mod linux_wayland;
@@ -35,6 +35,25 @@ pub fn query_foreground() -> Option<ForegroundInfo> {
     match backend {
         Backend::X11 => linux_x11::query_foreground(),
         Backend::Wayland => linux_wayland::query_foreground(),
+    }
+}
+
+/// See `crate::focus_watcher::platform::query_match`. X11 has a reliable
+/// notion of the active window via `_NET_ACTIVE_WINDOW`, so we just
+/// reuse the generic path. Wayland needs a custom impl that copes with
+/// non-activated XWayland fullscreen toplevels (Rocket League on
+/// Proton + Hyprland).
+pub fn query_match(rule: &MatchRule, self_pid: u32) -> Option<bool> {
+    let backend = *BACKEND.get_or_init(pick_backend);
+    match backend {
+        Backend::X11 => {
+            let info = linux_x11::query_foreground()?;
+            if info.pid == self_pid {
+                return None;
+            }
+            Some(rule.apply(&info))
+        }
+        Backend::Wayland => linux_wayland::query_match(rule),
     }
 }
 
