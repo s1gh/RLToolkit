@@ -14,8 +14,59 @@ const overlayToggle = $("#overlay-toggle");
 const restartBtn = $("#restart-btn");
 const toggleBackendBtn = $("#toggle-backend-btn");
 const fallback = document.getElementById("fallback");
+const fallbackCard = document.getElementById("fallback-card");
+const fallbackTitle = document.getElementById("fallback-title");
 const fallbackMsg = document.getElementById("fallback-msg");
 const fallbackRetry = document.getElementById("fallback-retry");
+
+// Tracks the most recent body_state we rendered so the fallback button
+// can be re-enabled the instant body_state moves (e.g. stopped →
+// starting after the user clicked Start). The click handler below also
+// arms `fallbackResetTimer` as a stuck-state safety net so a silently
+// failing action doesn't leave the button permanently disabled.
+let lastBodyState = null;
+let fallbackResetTimer = null;
+
+// Per-state copy + button label for the fallback card. body_state
+// arrives from the launcher's Rust StatusView (see launcher/ipc.rs).
+// We intentionally do NOT echo s.message into the card body: that field
+// often re-states the title verbatim (e.g. body_state=stopped sends
+// "Backend stopped." which would render right under a "Backend stopped"
+// heading) and the Rust side has no UX context for a two-line layout.
+// The `body` strings here are the actionable hint specific to each
+// state — what the user should do next, not just what happened.
+const FALLBACK_COPY = {
+  starting: {
+    title:  "Starting backend",
+    body:   "Hang tight — this usually takes a few seconds.",
+    btn:    null,
+    action: null,
+  },
+  stopped: {
+    title:  "Backend stopped",
+    body:   "The toolkit isn't running. Click Start to bring it back online.",
+    btn:    "Start",
+    action: "start",
+  },
+  crashed: {
+    title:  "Backend crashed",
+    body:   "The toolkit exited unexpectedly. Restart to try again.",
+    btn:    "Restart",
+    action: "restart",
+  },
+  not_responding: {
+    title:  "Backend not responding",
+    body:   "The toolkit is up but isn't answering. Retrying usually clears it.",
+    btn:    "Retry",
+    action: "restart",
+  },
+  port_conflict: {
+    title:  "Port in use",
+    body:   "Something else is already listening on the toolkit port. Close it, or change the port in Settings.",
+    btn:    "Retry",
+    action: "restart",
+  },
+};
 const settingsModal = document.getElementById("settings-modal");
 const settingsHint = document.getElementById("settings-hint");
 const pluginsDirInput = document.getElementById("plugins-dir");
@@ -623,10 +674,28 @@ async function refreshStatus() {
     fallback.hidden = true;
   } else {
     fallback.hidden = false;
-    fallbackMsg.textContent = s.message || "Backend not responding";
-    fallbackRetry.hidden = s.body_state === "starting";
-    fallbackRetry.textContent = s.body_state === "stopped" ? "Start" : "Retry";
-    fallbackRetry.dataset.action = s.body_state === "stopped" ? "start" : "restart";
+    const copy = FALLBACK_COPY[s.body_state] || FALLBACK_COPY.not_responding;
+    fallbackCard.dataset.state = s.body_state;
+    fallbackTitle.textContent = copy.title;
+    fallbackMsg.textContent = copy.body;
+    if (copy.btn) {
+      fallbackRetry.hidden = false;
+      fallbackRetry.textContent = copy.btn;
+      fallbackRetry.dataset.action = copy.action;
+    } else {
+      fallbackRetry.hidden = true;
+    }
+  }
+  // Re-enable the action button as soon as body_state actually moves
+  // — the click handler disables it optimistically and the safety
+  // timeout (in the click handler) covers the stuck-state case.
+  if (s.body_state !== lastBodyState) {
+    fallbackRetry.disabled = false;
+    if (fallbackResetTimer) {
+      clearTimeout(fallbackResetTimer);
+      fallbackResetTimer = null;
+    }
+    lastBodyState = s.body_state;
   }
 
   document.getElementById("tray-banner").hidden = !!s.tray_ok;
@@ -740,9 +809,27 @@ async function syncBackgroundWorkers() {
   }
 }
 
+// Disable the fallback button immediately on click so the user gets
+// visible feedback that the action registered. The status poll runs
+// every POLL_FAST_MS=2s, so without this the button looks idle for up
+// to two seconds while the request is in flight. The button is
+// re-enabled when body_state actually changes (in the status handler
+// above — see `if (s.body_state !== lastBodyState)`), or by the safety
+// timeout below if the action silently failed and the state is stuck.
 fallbackRetry.addEventListener("click", () => {
+  if (fallbackRetry.disabled) return;
+  fallbackRetry.disabled = true;
   const cmd = fallbackRetry.dataset.action === "start" ? "start_backend" : "restart_backend";
   invoke(cmd).catch(() => {});
+  // Safety net: if the next ~5s of status polls don't move body_state
+  // (e.g. start_backend failed silently, or the backend is wedged), the
+  // user is otherwise stranded on a permanently-disabled button. 5s is
+  // ~2.5 fast-poll cycles — enough headroom for a healthy transition.
+  if (fallbackResetTimer) clearTimeout(fallbackResetTimer);
+  fallbackResetTimer = setTimeout(() => {
+    fallbackRetry.disabled = false;
+    fallbackResetTimer = null;
+  }, 5000);
 });
 
 overlayToggle.addEventListener("change", e => {

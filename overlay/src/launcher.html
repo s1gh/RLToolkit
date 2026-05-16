@@ -113,9 +113,24 @@
          and is independent of the dashboard iframe so background
          work survives dashboard reloads. -->
     <div id="bg-workers" hidden aria-hidden="true"></div>
+    <!-- Fallback view: shown whenever the backend isn't serving the
+         dashboard. State (starting / stopped / crashed / port-conflict
+         / not-responding) is reflected via data-state on the card so
+         CSS can recolor the status indicator without per-state markup
+         changes. The starting state hides the action button (no point
+         clicking "Retry" while we're actively booting). -->
     <div id="fallback" class="fallback" hidden>
-      <div class="msg" id="fallback-msg">Starting backend…</div>
-      <button id="fallback-retry" hidden>Retry</button>
+      <div class="fallback-card" id="fallback-card" data-state="starting">
+        <div class="fallback-indicator" aria-hidden="true">
+          <span class="fallback-spinner"></span>
+          <span class="fallback-dot"></span>
+        </div>
+        <h2 class="fallback-title" id="fallback-title">Starting backend…</h2>
+        <p class="fallback-msg" id="fallback-msg">Starting backend…</p>
+        <div class="fallback-actions">
+          <button id="fallback-retry" class="fallback-btn" hidden>Retry</button>
+        </div>
+      </div>
     </div>
   </main>
 

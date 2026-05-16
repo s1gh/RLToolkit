@@ -220,18 +220,130 @@ input, textarea {
   transition: opacity .12s ease-out;
 }
 #dashboard.loaded { opacity: 1; }
+/* Fallback view — shown when the backend isn't serving the dashboard.
+   Centered status card matching the splash card so the launcher reads
+   as one design language. The status indicator (spinner for starting,
+   solid colored dot for terminal states) gets its color from a
+   data-state attribute set by launcher.js so adding a new BodyState
+   only needs a new selector here. */
 .fallback {
   position: absolute; inset: 0;
-  display: grid; place-items: center; gap: 12px;
+  display: grid; place-items: center;
+  padding: 24px;
   background: var(--bg);
 }
 .fallback[hidden] { display: none; }
-.fallback .msg { color: var(--muted); }
-.fallback button {
-  background: var(--accent); color: #0c0d10;
-  border: 0; padding: 6px 12px; border-radius: var(--radius);
-  font: 600 13px Inter, system-ui, sans-serif; cursor: pointer;
+.fallback-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg-soft);
+  border: 1px solid #20232a;
+  border-radius: 12px;
+  padding: 28px 28px 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  text-align: center;
 }
+.fallback-indicator {
+  width: 64px; height: 64px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  color: var(--muted);
+  transition: color 200ms ease, background-color 200ms ease;
+}
+.fallback-card[data-state="starting"] .fallback-indicator { color: var(--gold); }
+.fallback-card[data-state="stopped"] .fallback-indicator { color: var(--muted); }
+.fallback-card[data-state="port_conflict"] .fallback-indicator { color: var(--gold); }
+.fallback-card[data-state="not_responding"] .fallback-indicator { color: var(--red); }
+.fallback-card[data-state="crashed"] .fallback-indicator { color: var(--red); }
+
+/* Spinner: only visible while we're actively booting. .fallback-dot
+   covers every other state with a solid filled circle. data-state on
+   the card swaps which child is shown so the same card layout serves
+   both transient and terminal states. */
+.fallback-spinner {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: fallback-spin 0.9s linear infinite;
+  display: none;
+}
+.fallback-dot {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent);
+  display: none;
+}
+.fallback-card[data-state="starting"] .fallback-spinner { display: block; }
+.fallback-card:not([data-state="starting"]) .fallback-dot { display: block; }
+
+@keyframes fallback-spin {
+  to { transform: rotate(360deg); }
+}
+
+.fallback-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg);
+  /* Force grayscale anti-aliasing on the heading. The body-level
+     -webkit-font-smoothing rule should cover this, but WebView2 in
+     practice still subpixel-renders bold Inter at this size on a dark
+     surface — the result is a red/blue fringe top and bottom of each
+     glyph. Re-asserting here, plus dropping the negative letter-spacing
+     (which tightened glyphs into the subpixel grid and exaggerated the
+     fringe), produces clean edges. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.fallback-msg {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.fallback-actions {
+  display: flex; justify-content: center; gap: 8px;
+}
+.fallback-btn {
+  background: var(--accent); color: #0c0d10;
+  border: 0; padding: 9px 22px; border-radius: var(--radius);
+  font: 600 13px Inter, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  /* Snappy transition. 60ms is short enough that the press visual lands
+     within one frame at 60Hz — anything longer and the user releases
+     the mouse before the "pressed" look even fully renders, so the
+     button reads as unresponsive even though the click registered. */
+  transition: filter 60ms ease, transform 60ms ease;
+}
+.fallback-btn:hover { filter: brightness(1.10); }
+.fallback-btn:active {
+  /* Combined press cue: small scale-down, downward nudge, and a
+     brightness drop. Any one of these alone is too subtle on a
+     yellow-on-dark button at this size — together they read as a
+     deliberate press. */
+  transform: translateY(1px) scale(0.97);
+  filter: brightness(0.86);
+}
+.fallback-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+/* Disabled-on-click state: muted color, locked transforms, no
+   pointer cursor. Overrides :hover/:active so a hover after the
+   click doesn't visually un-disable the button. */
+.fallback-btn:disabled,
+.fallback-btn:disabled:hover,
+.fallback-btn:disabled:active {
+  cursor: default;
+  filter: brightness(0.6) saturate(0.55);
+  transform: none;
+}
+.fallback-btn[hidden] { display: none; }
 
 .modal {
   position: fixed; inset: 0;

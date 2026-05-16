@@ -103,8 +103,13 @@
       anchor: o.anchor || 'top-right',
       offset_x: o.offset_x | 0,
       offset_y: o.offset_y | 0,
-      width: o.width | 0 || 320,
-      height: o.height | 0 || 120,
+      // Preserve the manifest's "auto" sentinel through reset so a
+      // plugin that ships with width/height: "auto" doesn't get
+      // converted to a fixed fallback (320×120) just because the user
+      // hit Reset. The Dimension JSON marshaller on the Rust side
+      // accepts both "auto" and integer values.
+      width:  o.width  === 'auto' ? 'auto' : (o.width  | 0 || 320),
+      height: o.height === 'auto' ? 'auto' : (o.height | 0 || 120),
       opacity: o.opacity == null ? 1 : o.opacity,
     };
   }
@@ -208,8 +213,15 @@
     for (const w of widgets) {
       const ox = w.overlay.offset_x | 0;
       const oy = w.overlay.offset_y | 0;
-      const wW = w.overlay.width | 0;
-      const wH = w.overlay.height | 0;
+      // Read the live laid-out size from the DOM, not w.overlay.width.
+      // The manifest may declare an axis as "auto" — in that case
+      // `w.overlay.width | 0` is 0, which silently passes the bounds
+      // check even when the plugin's measured content overflows the
+      // canvas. offsetWidth/Height reflect whatever the autoSize loop
+      // most recently posted, so this stays correct for both fixed and
+      // auto widgets.
+      const wW = w.el.offsetWidth;
+      const wH = w.el.offsetHeight;
       const off = ox < 0 || oy < 0 || ox + wW > W || oy + wH > H;
       // Use a different outline color for off-canvas widgets, persisting
       // across the selected/unselected outline updates by checking here
@@ -246,12 +258,34 @@
   applyCanvasLayout();
   window.addEventListener('resize', applyCanvasLayout);
 
+  function isAuto(v) { return v === 'auto'; }
+
   function buildWidget(plugin, overlay) {
     const a = overlay.anchor || 'top-right';
+    // Auto-axis widgets self-size: the SDK's autoSize loop measures
+    // body content and posts __rlt_resize__ to the parent, which
+    // resizes the host iframe. We replicate the production aggregator's
+    // behaviour here so editor previews match the live overlay.
+    // Without this, an "auto" manifest dimension stringifies to "autopx"
+    // in the style assignment below, which the browser drops — the
+    // widget then falls back to whatever default the wrapper happens to
+    // resolve to (frequently zero, sometimes 300×150). The same plugin
+    // looks fine in production and broken in the editor.
+    const autoW = isAuto(overlay.width);
+    const autoH = isAuto(overlay.height);
     const el = document.createElement('div');
     el.style.position = 'absolute';
-    el.style.width = overlay.width + 'px';
-    el.style.height = overlay.height + 'px';
+    // Seed auto axes at min_*/1 — the autoSize ResizeObserver fires
+    // within ~60ms of mount, so this initial value is what the user
+    // briefly sees before the live size lands. Going to 1px instead of
+    // a guessed 320×120 means the "tiny then grow" hop reads as a load
+    // hiccup rather than a wrongly-laid-out widget.
+    el.style.width  = autoW
+      ? ((overlay.min_width  | 0) || 1) + 'px'
+      : (overlay.width  | 0) + 'px';
+    el.style.height = autoH
+      ? ((overlay.min_height | 0) || 1) + 'px'
+      : (overlay.height | 0) + 'px';
     el.style.outline = '1px solid rgba(34, 211, 238, 0.4)';
     el.style.outlineOffset = '0';
     el.style.boxSizing = 'content-box';
@@ -265,8 +299,20 @@
     iframe.style.opacity = overlay.opacity == null ? 1 : overlay.opacity;
     iframe.setAttribute('allowtransparency', 'true');
     iframe.setAttribute('frameborder', '0');
-    iframe.src =
-      '/plugins/' + plugin.name + '/' + overlay.file + '?overlay=1&anchor=' + encodeURIComponent(a);
+    // Mirror the URL-flag set the production aggregator (overlay.html)
+    // forwards so the SDK self-enables auto-sizing without the plugin
+    // having to detect "edit mode". The __rlt_resize__ listener below
+    // honours these on a per-axis basis exactly like the production
+    // path.
+    let src = '/plugins/' + plugin.name + '/' + overlay.file +
+              '?overlay=1&anchor=' + encodeURIComponent(a);
+    if (autoW) src += '&auto_width=1';
+    if (autoH) src += '&auto_height=1';
+    if (overlay.min_width  | 0) src += '&min_width='  + (overlay.min_width  | 0);
+    if (overlay.max_width  | 0) src += '&max_width='  + (overlay.max_width  | 0);
+    if (overlay.min_height | 0) src += '&min_height=' + (overlay.min_height | 0);
+    if (overlay.max_height | 0) src += '&max_height=' + (overlay.max_height | 0);
+    iframe.src = src;
     el.appendChild(iframe);
 
     // Transparent capture div on top of the iframe — intercepts every
@@ -308,7 +354,7 @@
     positionResizeHandle(resize, a);
 
     canvas.appendChild(el);
-    return { plugin, overlay, el, iframe, capture, badge, resize };
+    return { plugin, overlay, el, iframe, capture, badge, resize, autoW, autoH };
   }
 
   // applyAnchor sets the four positional CSS properties on `el` so that
@@ -358,7 +404,11 @@
     selected = w;
     if (selected) {
       selected.el.style.outline = '2px solid rgba(34, 211, 238, 1)';
-      selected.resize.style.display = 'block';
+      // Resize handle only makes sense when the user actually owns
+      // both dimensions. Auto-axis widgets size themselves via the
+      // SDK's postSize loop — see the __rlt_resize__ listener above
+      // and the resize-drag skip in the wiring loop.
+      selected.resize.style.display = (selected.autoW || selected.autoH) ? 'none' : 'block';
     }
     flagOffCanvasWidgets();
     renderPanel();
@@ -466,8 +516,47 @@
     target.addEventListener('pointercancel', end);
   }
 
+  // ─── Live size from auto-sized plugin iframes ─────────────
+  // Mirror the production aggregator's `__rlt_resize__` postMessage
+  // handler so an "auto" plugin inside the editor self-grows the same
+  // way it does on the live overlay. Identity is verified by matching
+  // event.source against each iframe's contentWindow — payload-supplied
+  // IDs would let one iframe spoof another's size. Only the axis the
+  // manifest declared as "auto" is honoured here; a non-auto axis is
+  // already pinned to the manifest/override value at buildWidget time.
+  window.addEventListener('message', (e) => {
+    const data = e?.data;
+    if (!data || data.__rlt_resize__ !== 1) return;
+    let target = null;
+    for (const w of widgets) {
+      if (w.iframe && w.iframe.contentWindow === e.source) { target = w; break; }
+    }
+    if (!target) return;
+    let changed = false;
+    if (target.autoW && Number.isFinite(data.w)) {
+      target.el.style.width = Math.max(1, data.w | 0) + 'px';
+      changed = true;
+    }
+    if (target.autoH && Number.isFinite(data.h)) {
+      target.el.style.height = Math.max(1, data.h | 0) + 'px';
+      changed = true;
+    }
+    // Re-evaluate the off-canvas outline whenever the live size moves.
+    // flagOffCanvasWidgets reads el.offsetWidth/Height for auto axes,
+    // so the orange outline stays accurate as the plugin grows or
+    // shrinks (e.g. dejavu adding a player row mid-match).
+    if (changed) flagOffCanvasWidgets();
+  });
+
   // ─── Drag to resize ──────────────────────────────────────
   for (const w of widgets) {
+    // Auto-axis widgets are sized by the plugin's content via the
+    // __rlt_resize__ listener above. Letting the user drag a manual
+    // size on top of that would write a fixed `width`/`height` override
+    // into overlay-overrides.json and silently break the manifest's
+    // auto contract on the next reload. Hide the handle entirely when
+    // either axis is auto — the user can still drag to reposition.
+    if (w.autoW || w.autoH) continue;
     w.resize.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation(); // don't also trigger the widget's drag handler
@@ -738,9 +827,9 @@
       '</div>' +
       '<div style="display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-bottom:14px">' +
       '<label>Width</label>' +
-      numInput('width', o.width) +
+      sizeInput('width', o.width) +
       '<label>Height</label>' +
-      numInput('height', o.height) +
+      sizeInput('height', o.height) +
       '</div>' +
       '<div style="margin-bottom:6px">Opacity <span data-role="opacity-val">' +
       (o.opacity == null ? 1 : o.opacity).toFixed(2) +
@@ -793,6 +882,24 @@
     );
   }
 
+  // Width/Height field renderer that distinguishes manifest-fixed
+  // values from manifest-auto. Auto axes show a disabled "auto" pill
+  // instead of a number input, so the user can see at a glance that
+  // the dimension is plugin-driven and the editor can't (and won't)
+  // override it. wirePanel below skips listener attachment when the
+  // input is the auto stand-in.
+  function sizeInput(role, value) {
+    if (value === 'auto') {
+      return (
+        '<div data-role="' + role + '-auto" style="' +
+        'padding:6px 8px;background:#0f1320;color:#6c739a;' +
+        'border:1px solid #232a44;border-radius:6px;font:500 12px JetBrains Mono,monospace;' +
+        'text-align:center;letter-spacing:0.04em">auto</div>'
+      );
+    }
+    return numInput(role, value);
+  }
+
   function escapeHtml(s) {
     return String(s).replace(
       /[&<>"']/g,
@@ -840,10 +947,18 @@
       });
     });
 
+    // Width/Height inputs are absent for auto axes (sizeInput renders a
+    // disabled "auto" stand-in instead). Guarding on the querySelector
+    // result keeps the wirePanel call working for any mix of fixed +
+    // auto axes — listener attaches only on the editable inputs.
     const wInput = panel.querySelector('[data-role="width"]');
     const hInput = panel.querySelector('[data-role="height"]');
-    wInput.addEventListener('change', () => commitSize(w, +wInput.value, w.overlay.height));
-    hInput.addEventListener('change', () => commitSize(w, w.overlay.width, +hInput.value));
+    if (wInput) {
+      wInput.addEventListener('change', () => commitSize(w, { width: +wInput.value }));
+    }
+    if (hInput) {
+      hInput.addEventListener('change', () => commitSize(w, { height: +hInput.value }));
+    }
 
     const op = panel.querySelector('[data-role="opacity"]');
     const opVal = panel.querySelector('[data-role="opacity-val"]');
@@ -861,17 +976,26 @@
     panel.querySelector('[data-role="reset"]').addEventListener('click', () => resetWidget(w));
   }
 
-  function commitSize(w, width, height) {
-    // Clamp to the same minimum the resize handle uses (16px). 0 would
-    // produce an invisible widget that can't be re-selected. Snap to
-    // the same 8px grid that drag-resize uses on release.
-    width = Math.round(Math.max(16, width | 0) / SNAP) * SNAP;
-    height = Math.round(Math.max(16, height | 0) / SNAP) * SNAP;
-    w.overlay.width = width;
-    w.overlay.height = height;
-    w.el.style.width = width + 'px';
-    w.el.style.height = height + 'px';
-    saveOverride(w, { width, height }).catch((err) => toast('Save failed: ' + err.message));
+  function commitSize(w, partial) {
+    // Single-axis or both. Caller (wirePanel) sends only the axis it
+    // owns so a mixed widget (e.g. fixed width + "auto" height) doesn't
+    // accidentally write a fixed override on the auto axis. Clamp to
+    // the same minimum the resize handle uses (16px) and snap to the
+    // 8px grid that drag-resize uses on release.
+    const update = {};
+    if ('width' in partial) {
+      const v = Math.round(Math.max(16, partial.width | 0) / SNAP) * SNAP;
+      w.overlay.width = v;
+      w.el.style.width = v + 'px';
+      update.width = v;
+    }
+    if ('height' in partial) {
+      const v = Math.round(Math.max(16, partial.height | 0) / SNAP) * SNAP;
+      w.overlay.height = v;
+      w.el.style.height = v + 'px';
+      update.height = v;
+    }
+    saveOverride(w, update).catch((err) => toast('Save failed: ' + err.message));
   }
 
   async function resetWidget(w) {

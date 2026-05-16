@@ -733,8 +733,12 @@ fn build_overlay_window(
                 // The launcher path doesn't manage WidgetState, so
                 // apply_pixel_position can't run here. The window
                 // appears at the default position; the toolkit
-                // handles per-plugin layout.
-                let _ = monitor;
+                // handles per-plugin layout. `manifest` and `monitor`
+                // are Linux-only inputs (consumed by
+                // apply_layer_shell_plugin above); discard explicitly
+                // so the non-Linux build doesn't warn on unused
+                // pattern bindings.
+                let _ = (manifest, monitor);
             }
         }
         Mode::Unified => {

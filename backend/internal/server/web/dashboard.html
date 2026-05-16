@@ -164,6 +164,14 @@ button{font-family:inherit}
 .shell{
   max-width:1600px; margin:0 auto;
   padding:24px 32px 40px;
+  /* Flex column + min-height: 100vh + `.dev-footer { margin-top:auto }`
+     pins the developer-endpoints/version footer to the bottom of the
+     window when the plugin grid is short, while still letting it sit
+     naturally after the content when the page grows past the viewport.
+     Without this the footer floated mid-page on a tall window because
+     it had nothing pushing it down. */
+  display:flex; flex-direction:column;
+  min-height:100vh;
 }
 @media (max-width:720px){ .shell{ padding:20px 18px 32px; } }
 
@@ -604,7 +612,13 @@ button{font-family:inherit}
    really are diagnostic, not branded launcher features. */
 .dev-footer{
   border-top:1px solid var(--line);
-  padding-top:14px; margin-top:8px;
+  padding-top:14px;
+  /* margin-top:auto cooperates with `.shell { display:flex;
+     flex-direction:column; min-height:100vh }` to push this footer to
+     the bottom of the window when the page is shorter than the
+     viewport. On a tall page it collapses to 0 and the footer sits
+     naturally after the plugin grid. */
+  margin-top:auto;
   display:flex; align-items:flex-start; justify-content:space-between;
   gap:16px;
 }
@@ -825,7 +839,6 @@ button{font-family:inherit}
         </div>
       </div>
       <div class="section-head-right">
-        <button class="btn" type="button" id="overlay-edit-btn" hidden>Edit overlay</button>
         <span id="catalog-error" class="catalog-error" hidden>Couldn’t check for updates · retry</span>
         <button class="btn update-all" type="button" id="update-all-btn" hidden>Update all</button>
         <span class="catalog-last-checked" id="catalog-last-checked" hidden></span>
@@ -1955,21 +1968,6 @@ setInterval(renderLastChecked, 5_000);
       });
     }
   }
-})();
-
-(function wireOverlayEditButton() {
-  const btn = document.getElementById('overlay-edit-btn');
-  if (!btn) return;
-  const inTauri = !!(window.__TAURI_INTERNALS__);
-  if (!inTauri) return;
-  btn.hidden = false;
-  btn.addEventListener('click', async () => {
-    try {
-      await window.__TAURI_INTERNALS__.invoke('overlay_edit_toggle');
-    } catch (err) {
-      console.warn('overlay_edit_toggle failed', err);
-    }
-  });
 })();
 
 </script>

@@ -952,8 +952,6 @@
   function renderSettings(root) {
     root.innerHTML =
       '<div class="st-set">' +
-        '<div class="st-set-h">SESSION TRACKER · SETTINGS</div>' +
-
         '<div class="st-card">' +
           '<div class="st-card-h">DISPLAY</div>' +
           '<label class="st-toggle">' +

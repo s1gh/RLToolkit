@@ -95,19 +95,33 @@
 
 /* Settings */
 .st-set {
-  max-width: 600px;
-  margin: 24px auto;
-  padding: 0 20px;
+  max-width: 520px;
+  /* margin: auto only — no vertical margin. sdk.css gives body
+     min-height: 100vh, so any vertical margin here stacks on top of a
+     viewport-sized block and produces a scrollbar even when the
+     content fits comfortably. Top/bottom breathing room lives in
+     `padding` instead, which is inside the body box. */
+  margin: 0 auto;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
-.st-set-h {
-  font-size: 12px;
-  letter-spacing: 0.18em;
+.st-card {
+  background: linear-gradient(180deg, var(--rlt-bg-1, #0f1320), var(--rlt-bg-2, #161b2c));
+  border: 1px solid var(--rlt-line, #232a44);
+  border-radius: var(--rlt-radius, 10px);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.st-card-h {
+  font-family: var(--rlt-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--rlt-txt, #e6e9f5);
-  padding: 0 4px;
+  color: var(--rlt-txt-3, #6c739a);
 }
 
 .st-toggle {

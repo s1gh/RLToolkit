@@ -6,58 +6,47 @@
     <link rel="stylesheet" href="/sdk.css" />
     <script src="/sdk.js" data-plugin="hello-world" data-view="settings"></script>
     <style>
-      body {
-        font-family: var(--rlt-ui, "Inter", system-ui, sans-serif);
-        font-size: 14px;
-        color: var(--rlt-txt, #e9ecf2);
-        background: var(--rlt-bg-0, #08090f);
-        margin: 0;
-        padding: 24px;
-        max-width: 480px;
+      /* Layout: centered column inside the settings modal iframe.
+         All breathing room lives on .hw-set, NOT on body. sdk.css gives
+         body { height: 100%; min-height: 100vh; } with the default
+         content-box sizing — any padding or margin on body sits
+         on top of that, producing 100vh+padding total height and an
+         unwanted scrollbar even with tiny content. */
+      .hw-set {
+        max-width: 520px;
+        margin: 0 auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
       }
-      h2 {
-        margin: 0 0 18px;
-        font-size: 16px;
-      }
-      label {
+      .hw-row {
         display: inline-flex;
         align-items: center;
         gap: 10px;
         cursor: pointer;
+        font-size: 14px;
       }
-      .actions {
-        margin-top: 24px;
+      .hw-actions {
         display: flex;
         gap: 10px;
-      }
-      button {
-        padding: 8px 14px;
-        border-radius: 8px;
-        border: 1px solid var(--rlt-line, #252938);
-        background: var(--rlt-bg-3, #1f232f);
-        color: var(--rlt-txt, #e9ecf2);
-        font: inherit;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      button.primary {
-        background: var(--rlt-cyan, #22d3ee);
-        color: #08090f;
-        border-color: transparent;
+        justify-content: flex-end;
       }
     </style>
   </head>
   <body>
-    <h2>Hello World settings</h2>
+    <div class="hw-set">
+      <div class="rlt-card">
+        <label class="hw-row">
+          <input type="checkbox" id="own-goals" />
+          Also log own goals
+        </label>
+      </div>
 
-    <label>
-      <input type="checkbox" id="own-goals" />
-      Also log own goals
-    </label>
-
-    <div class="actions">
-      <button id="save" class="primary" type="button">Save</button>
-      <button id="cancel" type="button">Close</button>
+      <div class="hw-actions">
+        <button id="cancel" class="rlt-btn" type="button">Close</button>
+        <button id="save" class="rlt-btn rlt-btn-primary" type="button">Save</button>
+      </div>
     </div>
 
     <script src="./shared.js"></script>
