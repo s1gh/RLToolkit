@@ -163,39 +163,52 @@ input, textarea {
 #overflow li button:disabled { color: var(--muted); cursor: not-allowed; background: transparent; }
 #overflow li.sep { height: 1px; background: #20232a; margin: 4px 0; }
 
-/* Window controls: minimize / toggle-maximize / close. Native-style
-   sized to the same vertical extent as the strip so they meet the
-   window edges flush — the close button uses Microsoft's accent red
-   on hover, matching what users see in every other Win/Linux app. */
+/* Window controls: minimize / toggle-maximize / close. Rendered as
+   small macOS-style traffic-light circles but kept in Win/Linux
+   order (min, max, close) so the close button still sits in the
+   right-hand corner where users expect it. The glyph inside each
+   circle stays hidden by default for a clean look and fades in on
+   hover/focus, matching the macOS feel. */
 .window-controls {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 12px;
   height: 100%;
-  margin-left: 4px;
+  padding: 0 16px 0 12px;
 }
 .wc {
+  position: relative;
   display: inline-grid;
   place-items: center;
-  width: 44px;
-  height: 100%;
-  background: transparent;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--wc-bg, #3a3d44);
   border: 0;
-  color: var(--muted);
+  color: rgba(0,0,0,0.65);
   cursor: pointer;
   padding: 0;
-  transition: background 80ms ease, color 80ms ease;
+  transition: filter 80ms ease, background 80ms ease;
 }
-.wc:hover { background: #1a1d24; color: var(--fg); }
-.wc:active { background: #22262f; }
-.wc-close:hover { background: #c42b1c; color: #fff; }
-.wc-close:active { background: #a82213; }
-.wc svg { display: block; }
+.wc[data-window-cmd="minimize"]      { --wc-bg: #f5bf4f; }
+.wc[data-window-cmd="toggleMaximize"] { --wc-bg: #5dca5b; }
+.wc.wc-close                         { --wc-bg: #ed6a5e; }
+.wc:hover  { filter: brightness(1.08); }
+.wc:active { filter: brightness(0.9); }
+.wc svg {
+  display: block;
+  width: 9px; height: 9px;
+  opacity: 0;
+  shape-rendering: geometricPrecision;
+  transition: opacity 80ms ease;
+}
+.window-controls:hover .wc svg,
+.wc:focus-visible svg { opacity: 1; }
 /* webkitgtk paints a 1px focus ring around buttons after click;
-   on these full-height title-bar controls it reads as a vertical
-   hairline between buttons. Title-bar window controls are
-   pointer-driven only — keyboard focus belongs in the dashboard
-   below — so removing the outline is the right call here, not in
-   the rest of the launcher UI. */
+   on these title-bar controls it reads as a stray dot next to the
+   circle. Title-bar window controls are pointer-driven only —
+   keyboard focus belongs in the dashboard below — so removing the
+   outline is the right call here, not in the rest of the launcher UI. */
 .wc:focus, .wc:focus-visible { outline: none; }
 
 .banner {
