@@ -1,7 +1,7 @@
 {
   "name": "sessiontracker",
   "title": "Session Tracker",
-  "version": "2.9.5",
+  "version": "2.9.6",
   "author": "rl-toolkit",
   "description": "Tracks your current session's record, key stats, and MMR delta.",
   "overlay": {
