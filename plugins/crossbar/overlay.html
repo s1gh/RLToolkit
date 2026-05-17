@@ -3,9 +3,37 @@
   <head>
     <meta charset="utf-8" />
     <title>Crossbar Sound</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <script src="/sdk.js" data-plugin="crossbar" data-view="overlay"></script>
   </head>
   <body>
-    <!-- Crossbar runs in background.html. Overlay stub kept because
-         the manifest validator requires overlay.file. -->
+    <script src="./shared.js"></script>
+    <script>
+      // Sound-only overlay. The Tauri widget is sized 1x1 with
+      // opacity 0 (see manifest); nothing to paint, just play audio.
+      // Lives in the overlay (not background.html) because hidden
+      // background iframes are blocked by the WebView autoplay policy.
+      (function () {
+        const DEBOUNCE_MS = 250;
+        let lastHitAt = 0;
+
+        RLT.plugin.register({
+          name: 'crossbar',
+          events: {
+            async _CrossbarHit() {
+              const now =
+                typeof performance !== 'undefined' && performance.now
+                  ? performance.now()
+                  : Date.now();
+              if (now - lastHitAt < DEBOUNCE_MS) return;
+              lastHitAt = now;
+              const cfg = await Crossbar.readConfig();
+              if (!cfg.playInReplays && RLT.match.state.phase === 'replay') return;
+              Crossbar.playSound(cfg);
+            },
+          },
+        });
+      })();
+    </script>
   </body>
 </html>
