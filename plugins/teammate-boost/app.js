@@ -70,6 +70,57 @@
     return out;
   }
 
+  // Roster pass without the boost filter: same team, not me. Used by
+  // the overlay tick handler together with applyBoostMemory so that a
+  // teammate's card doesn't flicker out on transient frames where RL
+  // omits the Boost field (respawn, phase edges).
+  function collectTeammateRoster(match) {
+    if (!match?.me) return [];
+    const meTeam = match.me.team;
+    if (typeof meTeam !== 'number') return [];
+    const meId = match.me.id;
+
+    const out = [];
+    const players = Array.isArray(match.players) ? match.players : [];
+    for (const p of players) {
+      if (!p) continue;
+      if (p.id === meId) continue;
+      if (p.team !== meTeam) continue;
+      out.push({
+        id: p.id,
+        name: p.name || p.id || '',
+        boost: typeof p.boost === 'number' ? clamp(p.boost, 0, 100) : null,
+      });
+    }
+    out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return out;
+  }
+
+  // Fill in boost from memory when the current tick is missing it.
+  // Mutates memory in place with the latest numeric values. A teammate
+  // is dropped only if we have no numeric value for them in the current
+  // roster and have never seen one before.
+  function applyBoostMemory(roster, memory) {
+    const out = [];
+    for (const t of roster) {
+      let boost = t.boost;
+      if (typeof boost !== 'number') {
+        boost = memory.get(t.id);
+        if (typeof boost !== 'number') continue;
+      } else {
+        memory.set(t.id, boost);
+      }
+      out.push({ id: t.id, name: t.name, boost });
+    }
+    // Forget memory for ids that have left the roster so we don't leak
+    // stale data across matches.
+    const present = new Set(roster.map((t) => t.id));
+    for (const id of memory.keys()) {
+      if (!present.has(id)) memory.delete(id);
+    }
+    return out;
+  }
+
   function renderCard(t, config) {
     const card = document.createElement('div');
     card.className = 'tb-card';
@@ -114,18 +165,25 @@
   function bootOverlay() {
     const host = document.getElementById('root');
     let config = DEFAULT_CONFIG;
+    const boostMemory = new Map();
+
+    function paint(match) {
+      const roster = collectTeammateRoster(match);
+      const teammates = applyBoostMemory(roster, boostMemory);
+      renderInto(host, teammates, config);
+    }
 
     RLT.plugin.register({
       async ready() {
         config = coerceConfig(await RLT.store.get('config'));
         RLT.store.onChange('config', async () => {
           config = coerceConfig(await RLT.store.get('config'));
-          renderInto(host, collectTeammates(RLT.match.current), config);
+          paint(RLT.match.current);
         });
-        renderInto(host, collectTeammates(RLT.match.current), config);
+        paint(RLT.match.current);
       },
       onTick(m) {
-        renderInto(host, collectTeammates(m), config);
+        paint(m);
       },
     });
   }
@@ -224,6 +282,8 @@
     clamp,
     coerceConfig,
     collectTeammates,
+    collectTeammateRoster,
+    applyBoostMemory,
     isLowBoost,
     _internal: { renderCard, renderInto, DEFAULT_CONFIG },
   };
