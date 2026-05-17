@@ -1,0 +1,208 @@
+/* Teammate Boost — shared styles for overlay, dashboard, settings.
+   Tokens come from sdk.css (--rlt-cyan, --rlt-bg-1, etc.). The plugin
+   never declares its own colors — settings flip the accent by
+   changing data-color on .tb-stack. */
+
+:root {
+  --rlt-plugin-accent: var(--rlt-cyan);
+  --rlt-plugin-accent-2: var(--rlt-violet);
+  --rlt-plugin-accent-glow: var(--rlt-cyan-glow);
+}
+
+#root {
+  font-family: var(--rlt-ui, sans-serif);
+  color: var(--rlt-txt, #e6e9f5);
+}
+
+/* Stack of teammate cards. Holds the per-instance accent vars so
+   every dial inside picks them up without prop drilling. */
+.tb-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: linear-gradient(180deg, rgba(15, 19, 32, 0.78), rgba(22, 27, 44, 0.72));
+  border: 1px solid rgba(35, 42, 68, 0.85);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+
+  /* Accent + glow used by the dial; overridden per color scheme below. */
+  --tb-accent: var(--rlt-cyan);
+  --tb-accent-glow: var(--rlt-cyan-glow);
+}
+.tb-stack[data-color="violet"] {
+  --tb-accent: var(--rlt-violet);
+  --tb-accent-glow: var(--rlt-violet-glow);
+}
+.tb-stack[data-color="teamBlue"] {
+  --tb-accent: var(--rlt-blue);
+  --tb-accent-glow: var(--rlt-blue-glow);
+}
+.tb-stack[data-color="teamOrange"] {
+  --tb-accent: var(--rlt-orange);
+  --tb-accent-glow: var(--rlt-orange-glow);
+}
+
+/* Per-teammate card. */
+.tb-card {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 4px 4px;
+}
+
+/* Dial: conic gradient from --p (0..100) of accent, rest bg-3, with a
+   radial-gradient punch-out to leave a hole in the middle. */
+.tb-dial {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background:
+    radial-gradient(closest-side, var(--rlt-bg-1) 0 60%, transparent 61%),
+    conic-gradient(var(--tb-accent) 0 calc(var(--p, 0) * 1%), var(--rlt-bg-3) 0 100%);
+  box-shadow: 0 0 12px var(--tb-accent-glow);
+  display: grid;
+  place-items: center;
+  transition:
+    background 120ms linear,
+    box-shadow 120ms linear;
+}
+.tb-dial::after {
+  content: attr(data-value);
+  font-family: var(--rlt-display, sans-serif);
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--rlt-txt, #e6e9f5);
+  font-variant-numeric: tabular-nums;
+}
+
+.tb-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tb-name {
+  font-family: var(--rlt-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rlt-txt, #e6e9f5);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 14ch;
+}
+.tb-lbl {
+  font-family: var(--rlt-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3, #6c739a);
+}
+
+/* When .tb-card.tb-low is set, recolor dial + numeral to magenta and
+   pulse. Override --tb-accent + glow at the card scope so the conic
+   gradient picks up the new color without a duplicated rule. */
+.tb-card.tb-low {
+  --tb-accent: var(--rlt-magenta);
+  --tb-accent-glow: rgba(244, 114, 182, 0.45);
+}
+.tb-card.tb-low .tb-dial {
+  animation: tb-pulse 1.4s ease-in-out infinite alternate;
+}
+.tb-card.tb-low .tb-dial::after,
+.tb-card.tb-low .tb-lbl {
+  color: var(--rlt-magenta, #f472b6);
+}
+@keyframes tb-pulse {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Settings + dashboard surfaces use the shared rlt-page chrome from
+   sdk.css; only the form-specific rules live here. */
+.tb-set {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tb-set fieldset {
+  border: 1px solid var(--rlt-line);
+  border-radius: var(--rlt-radius, 10px);
+  padding: 12px 14px;
+  margin: 0;
+}
+.tb-set legend {
+  font-family: var(--rlt-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--rlt-txt-3);
+  padding: 0 6px;
+}
+.tb-set label.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--rlt-txt-2);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.tb-set label.row input[type="number"] {
+  width: 64px;
+  font-family: var(--rlt-mono);
+  font-size: 13px;
+  background: var(--rlt-bg-3);
+  color: var(--rlt-txt);
+  border: 1px solid var(--rlt-line);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.tb-set .hint {
+  font-size: 11px;
+  color: var(--rlt-txt-3);
+  margin-left: 4px;
+}
+.tb-set .swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--rlt-line-2);
+  margin-right: 2px;
+  vertical-align: -2px;
+}
+.tb-set .swatch.cyan {
+  background: var(--rlt-cyan);
+}
+.tb-set .swatch.violet {
+  background: var(--rlt-violet);
+}
+.tb-set .swatch.teamBlue {
+  background: var(--rlt-blue);
+}
+.tb-set .swatch.teamOrange {
+  background: var(--rlt-orange);
+}
+
+.tb-preview-host {
+  /* Pins the live preview against a dark background like the overlay. */
+  background: var(--rlt-bg-0);
+  border: 1px solid var(--rlt-line);
+  border-radius: var(--rlt-radius-lg, 14px);
+  padding: 24px;
+  display: flex;
+  justify-content: flex-start;
+}
