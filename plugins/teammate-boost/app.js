@@ -1,6 +1,4 @@
 (function (root) {
-  'use strict';
-
   function clamp(n, lo, hi) {
     if (typeof n !== 'number' || Number.isNaN(n)) return lo;
     if (n < lo) return lo;
@@ -20,7 +18,7 @@
   });
 
   function coerceConfig(raw) {
-    const src = (raw && typeof raw === 'object') ? raw : {};
+    const src = raw && typeof raw === 'object' ? raw : {};
 
     let gaugeStyle = src.gaugeStyle;
     if (!GAUGE_STYLES.has(gaugeStyle) || !IMPLEMENTED_GAUGE_STYLES.has(gaugeStyle)) {
@@ -38,9 +36,7 @@
       lowBoostThreshold = DEFAULT_CONFIG.lowBoostThreshold;
     }
 
-    const showNames = (src.showNames === undefined)
-      ? DEFAULT_CONFIG.showNames
-      : !!src.showNames;
+    const showNames = src.showNames === undefined ? DEFAULT_CONFIG.showNames : !!src.showNames;
 
     return { gaugeStyle, colorScheme, lowBoostThreshold, showNames };
   }
@@ -51,10 +47,33 @@
     return boost < threshold;
   }
 
+  function collectTeammates(match) {
+    if (!match?.me) return [];
+    const meTeam = match.me.team;
+    if (typeof meTeam !== 'number') return [];
+    const meId = match.me.id;
+
+    const out = [];
+    const players = Array.isArray(match.players) ? match.players : [];
+    for (const p of players) {
+      if (!p) continue;
+      if (p.id === meId) continue;
+      if (p.team !== meTeam) continue;
+      if (typeof p.boost !== 'number') continue;
+      out.push({
+        id: p.id,
+        name: p.name || p.id || '',
+        boost: clamp(p.boost, 0, 100),
+      });
+    }
+    out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return out;
+  }
+
   const TeammateBoost = {
     clamp,
     coerceConfig,
-    collectTeammates() {},
+    collectTeammates,
     isLowBoost,
   };
 
