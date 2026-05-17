@@ -569,7 +569,7 @@
     turtle: 'TURTLE', poolShot: 'POOL', stolenGoal: 'STOLEN', ownGoal: 'OWN GOAL',
   };
 
-  let settings = { showStreak: true };
+  const settings = { showStreak: true };
 
   async function loadSettings() {
     try {
