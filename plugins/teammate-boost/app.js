@@ -1,11 +1,15 @@
 (function (root) {
   'use strict';
 
-  // Pure helpers exported for the test suite. Filled in by later
-  // tasks; the test harness only needs the keys to exist as functions
-  // initially so we can drive the rest of the build TDD-style.
+  function clamp(n, lo, hi) {
+    if (typeof n !== 'number' || Number.isNaN(n)) return lo;
+    if (n < lo) return lo;
+    if (n > hi) return hi;
+    return n;
+  }
+
   const TeammateBoost = {
-    clamp() {},
+    clamp,
     coerceConfig() {},
     collectTeammates() {},
     isLowBoost() {},
