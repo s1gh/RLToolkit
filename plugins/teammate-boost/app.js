@@ -70,12 +70,77 @@
     return out;
   }
 
+  function renderCard(t, config) {
+    const card = document.createElement('div');
+    card.className = 'tb-card';
+    if (isLowBoost(t.boost, config.lowBoostThreshold)) card.classList.add('tb-low');
+
+    const dial = document.createElement('div');
+    dial.className = 'tb-dial';
+    dial.style.setProperty('--p', String(t.boost));
+    dial.setAttribute('data-value', String(t.boost));
+
+    const meta = document.createElement('div');
+    meta.className = 'tb-meta';
+    if (config.showNames) {
+      const name = document.createElement('span');
+      name.className = 'tb-name';
+      name.textContent = t.name;
+      meta.appendChild(name);
+    }
+    const lbl = document.createElement('span');
+    lbl.className = 'tb-lbl';
+    lbl.textContent = card.classList.contains('tb-low') ? 'boost · low' : 'boost';
+    meta.appendChild(lbl);
+
+    card.appendChild(dial);
+    card.appendChild(meta);
+    return card;
+  }
+
+  function renderInto(host, teammates, config) {
+    if (!host) return;
+    if (!teammates.length) {
+      host.replaceChildren();
+      return;
+    }
+    const stack = document.createElement('div');
+    stack.className = 'tb-stack';
+    stack.setAttribute('data-color', config.colorScheme);
+    for (const t of teammates) stack.appendChild(renderCard(t, config));
+    host.replaceChildren(stack);
+  }
+
+  function bootOverlay() {
+    const host = document.getElementById('root');
+    let config = DEFAULT_CONFIG;
+
+    RLT.plugin.register({
+      async ready() {
+        config = coerceConfig(await RLT.store.get('config'));
+        RLT.store.onChange('config', async () => {
+          config = coerceConfig(await RLT.store.get('config'));
+          renderInto(host, collectTeammates(RLT.match.current), config);
+        });
+        renderInto(host, collectTeammates(RLT.match.current), config);
+      },
+      onTick(m) {
+        renderInto(host, collectTeammates(m), config);
+      },
+    });
+  }
+
   const TeammateBoost = {
     clamp,
     coerceConfig,
     collectTeammates,
     isLowBoost,
+    _internal: { renderCard, renderInto, DEFAULT_CONFIG },
   };
 
   if (root) root.TeammateBoost = TeammateBoost;
+
+  if (typeof RLT !== 'undefined') {
+    if (RLT.isOverlay) bootOverlay();
+  }
 })(typeof window !== 'undefined' ? window : null);
