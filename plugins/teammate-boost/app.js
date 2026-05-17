@@ -130,6 +130,73 @@
     });
   }
 
+  function bootSettings() {
+    const host = document.getElementById('root');
+
+    function render(config) {
+      const form = document.createElement('form');
+      form.className = 'tb-set';
+      form.innerHTML = `
+        <fieldset>
+          <legend>Gauge style</legend>
+          <label class="row"><input type="radio" name="gauge" value="radial"> Radial</label>
+          <label class="row"><input type="radio" name="gauge" value="bar" disabled> Bar <span class="hint">(coming soon)</span></label>
+          <label class="row"><input type="radio" name="gauge" value="column" disabled> Column <span class="hint">(coming soon)</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>Color scheme</legend>
+          <label class="row"><input type="radio" name="color" value="cyan"><span class="swatch cyan"></span>Cyan</label>
+          <label class="row"><input type="radio" name="color" value="violet"><span class="swatch violet"></span>Violet</label>
+          <label class="row"><input type="radio" name="color" value="teamBlue"><span class="swatch teamBlue"></span>Team blue</label>
+          <label class="row"><input type="radio" name="color" value="teamOrange"><span class="swatch teamOrange"></span>Team orange</label>
+        </fieldset>
+        <fieldset>
+          <legend>Low-boost emphasis</legend>
+          <label class="row">
+            Pulse below
+            <input type="number" name="low" min="0" max="100" step="5">
+            <span class="hint" data-role="low-hint"></span>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Display</legend>
+          <label class="row"><input type="checkbox" name="names"> Show teammate names</label>
+        </fieldset>
+      `;
+
+      form.querySelector(`input[name="gauge"][value="${config.gaugeStyle}"]`).checked = true;
+      form.querySelector(`input[name="color"][value="${config.colorScheme}"]`).checked = true;
+      form.querySelector('input[name="low"]').value = String(config.lowBoostThreshold);
+      form.querySelector('input[name="names"]').checked = !!config.showNames;
+
+      function updateLowHint() {
+        const v = parseInt(form.querySelector('input[name="low"]').value, 10);
+        form.querySelector('[data-role="low-hint"]').textContent = v === 0 ? 'Disabled' : '';
+      }
+      updateLowHint();
+
+      form.addEventListener('change', async () => {
+        updateLowHint();
+        const next = {
+          gaugeStyle: form.querySelector('input[name="gauge"]:checked').value,
+          colorScheme: form.querySelector('input[name="color"]:checked').value,
+          lowBoostThreshold: parseInt(form.querySelector('input[name="low"]').value, 10),
+          showNames: form.querySelector('input[name="names"]').checked,
+        };
+        const coerced = coerceConfig(next);
+        await RLT.store.set('config', coerced);
+      });
+
+      host.replaceChildren(form);
+    }
+
+    RLT.plugin.register({
+      async ready() {
+        render(coerceConfig(await RLT.store.get('config')));
+      },
+    });
+  }
+
   const TeammateBoost = {
     clamp,
     coerceConfig,
@@ -142,5 +209,6 @@
 
   if (typeof RLT !== 'undefined') {
     if (RLT.isOverlay) bootOverlay();
+    else if (RLT.isSettingsView) bootSettings();
   }
 })(typeof window !== 'undefined' ? window : null);
