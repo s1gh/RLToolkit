@@ -382,8 +382,65 @@
     return { kind, count };
   }
 
+  // buildSimBucket: fully-populated sample bucket for in-game verification
+  // of the overlay's auto-height behavior. Every modifier in MODIFIER_MAP
+  // plus ownGoal carries a non-zero count so the Goal Modifiers block
+  // exercises its tallest possible layout; results.last is filled to its
+  // 10-entry cap so the tick strip is at full width too.
+  function buildSimBucket(bootId) {
+    const b = emptyBucket(bootId || 'sim');
+    b.results.wins = 7;
+    b.results.losses = 4;
+    b.results.last = ['win','loss','win','win','loss','win','loss','win','win','loss'];
+    b.totals = { goals: 18, saves: 22, demos: 9, boost: 1340, pickups: 86 };
+    b.modifiers = {
+      aerial: 5, bicycle: 1, longGoal: 3, overtime: 2,
+      hatTrick: 1, flipReset: 4, backwards: 2, turtle: 1, poolShot: 1,
+      stolenGoal: 2,
+      ownGoal: 1,
+    };
+    b.ball = {
+      fastestKmh: 132.4,
+      myFastestHitKmh: 121.7,
+      fastestGoalKmh: 118.9,
+      crossbarHardestKmh: 109.3,
+    };
+    b.crossbar = {
+      hits: 6,
+      hardest: {
+        impact: 9420,
+        speed: 109.3,
+        player: { name: 'You', team: 0, isMe: true },
+        at: new Date().toISOString(),
+      },
+    };
+    b.mmr = {
+      ranked: {
+        '1v1': { start: 812, current: 829 },
+        '2v2': { start: 1104, current: 1142 },
+        '3v3': { start: 988, current: 971 },
+      },
+      casual: { start: 612, current: 605 },
+    };
+    b.match = {
+      result: 'win',
+      goals: 3, saves: 4, demos: 2,
+      boost: 215, pickups: 14,
+      crossbarHits: 2,
+      ball: { fastestGoalKmh: 118.9, myFastestHitKmh: 121.7, crossbarHardestKmh: 109.3 },
+      modifiers: {
+        aerial: 2, bicycle: 0, longGoal: 1, overtime: 1,
+        hatTrick: 1, flipReset: 2, backwards: 1, turtle: 0, poolShot: 1,
+        stolenGoal: 1,
+        ownGoal: 1,
+      },
+    };
+    return b;
+  }
+
   const Reducers = {
     emptyBucket,
+    buildSimBucket,
     resetMatch,
     applyMatchStarted,
     applyMatchAbandoned,
@@ -982,6 +1039,13 @@
             '</div>' +
             '<button id="st-reset" class="st-danger">RESET</button>' +
           '</div>' +
+          '<div class="st-set-row">' +
+            '<div class="st-set-row-text">' +
+              '<div class="st-set-row-title">Seed simulation data</div>' +
+              '<div class="st-set-row-hint">Fills the bucket with sample wins/losses, every goal modifier, MMR, and crossbar data so you can verify the overlay layout in-game. Press RESET above to clear.</div>' +
+            '</div>' +
+            '<button id="st-seed" class="st-danger">SEED</button>' +
+          '</div>' +
         '</div>' +
       '</div>';
 
@@ -997,6 +1061,13 @@
       bucket = emptyBucket(bucket ? bucket.bootId : '');
       try { await RLT.store.set(STORE_KEY, bucket); } catch (_) {}
       currentMode = null;
+      scheduleRender();
+    });
+
+    const seed = document.getElementById('st-seed');
+    seed.addEventListener('click', async () => {
+      bucket = buildSimBucket(bucket ? bucket.bootId : '');
+      try { await RLT.store.set(STORE_KEY, bucket); } catch (_) {}
       scheduleRender();
     });
   }
@@ -1106,6 +1177,18 @@
       // countdown event fires, which can be minutes if the user just
       // launched into the menu. fetchMmr no-ops when bucket is null.
       fetchMmr();
+      // Listen for cross-iframe writes to the session key so the
+      // overlay picks up a SEED / RESET fired from the settings panel
+      // without the user having to toggle the overlay off and on.
+      if (isOverlay && RLT.store && typeof RLT.store.onChange === 'function') {
+        RLT.store.onChange(STORE_KEY, async () => {
+          const fresh = await RLT.store.get(STORE_KEY);
+          if (fresh) {
+            bucket = fresh;
+            scheduleRender();
+          }
+        });
+      }
     },
 
     events: {
@@ -1283,6 +1366,18 @@
     } else if (isOverlay) {
       renderOverlay(root);
       elapsedTimer = setInterval(scheduleRender, 30000);
+      // Override the SDK's default body-targeted autoSize with one
+      // pinned to the card itself. On Windows (WebView2) the SDK's
+      // body measurement clamps scrollHeight to the iframe viewport,
+      // so incremental content growth (modifiers piling up over a
+      // match) never advances the reported height past the current
+      // iframe size and the widget stops expanding. Measuring the
+      // inner card avoids that clamp because the card has no
+      // overflow:hidden ancestor up to body. Linux (WebKitGTK) is
+      // unaffected either way; the override is a no-op there.
+      if (RLT.widget && typeof RLT.widget.autoSize === 'function') {
+        RLT.widget.autoSize(true, { target: '.st-c-card' });
+      }
     } else {
       renderDashboard(root);
       elapsedTimer = setInterval(scheduleRender, 30000);
