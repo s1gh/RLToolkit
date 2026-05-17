@@ -102,7 +102,9 @@
     if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching /api/plugins');
     const list = await r.json();
     const p = list.find((x) => x.name === name);
-    if (!p || !p.overlay) throw new Error('plugin ' + name + ' not in catalog');
+    if (!p || !p.overlay || !p.overlay.file) {
+      throw new Error('plugin ' + name + ' has no overlay to reset');
+    }
     const o = p.overlay;
     return {
       anchor: o.anchor || 'top-right',

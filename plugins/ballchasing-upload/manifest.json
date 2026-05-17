@@ -1,16 +1,9 @@
 {
   "name": "ballchasing-upload",
   "title": "Ballchasing Upload",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "author": "rl-toolkit",
   "description": "Automatically uploads saved replays to ballchasing.com.",
-  "overlay": {
-    "file": "overlay.html",
-    "width": 1,
-    "height": 1,
-    "anchor": "top-left",
-    "show_during_phase": []
-  },
   "permissions": {
     "connect": ["https://ballchasing.com"]
   },

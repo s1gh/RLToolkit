@@ -332,11 +332,30 @@ func TestManager_RejectsManifestMissingVersion(t *testing.T) {
 	}
 }
 
-func TestManager_RejectsManifestMissingOverlayFile(t *testing.T) {
+func TestManager_RejectsManifestWithNoSurfaces(t *testing.T) {
+	// Neither overlay nor background -> nothing for the toolkit to
+	// host. Skip the manifest.
 	dir := t.TempDir()
-	writeManifest(t, dir, "nooverlay", Manifest{Name: "nooverlay", Version: "1.0"})
+	writeManifest(t, dir, "nosurfaces", Manifest{Name: "nosurfaces", Version: "1.0"})
 	if got := New(dir).List(); len(got) != 0 {
-		t.Errorf("expected manifest without overlay.file to be rejected; got %+v", got)
+		t.Errorf("expected manifest with no surfaces to be rejected; got %+v", got)
+	}
+}
+
+func TestManager_AcceptsBackgroundOnlyManifest(t *testing.T) {
+	// A plugin that only needs a Background (sound effects, replay
+	// uploaders) is valid without an overlay block.
+	dir := t.TempDir()
+	writeManifest(t, dir, "bgonly", Manifest{
+		Name: "bgonly", Version: "1.0",
+		Background: &ViewConfig{File: "background.html"},
+	})
+	got := New(dir).List()
+	if len(got) != 1 || got[0].Name != "bgonly" {
+		t.Errorf("expected background-only manifest to load; got %+v", got)
+	}
+	if got[0].Overlay.File != "" {
+		t.Errorf("Overlay.File = %q, want empty", got[0].Overlay.File)
 	}
 }
 

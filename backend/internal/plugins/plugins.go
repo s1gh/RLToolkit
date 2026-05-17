@@ -18,14 +18,16 @@ import (
 )
 
 type Manifest struct {
-	Name        string        `json:"name"`
-	Title       string        `json:"title"`
-	Version     string        `json:"version"`
-	Author      string        `json:"author"`
-	Description string        `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Version     string `json:"version"`
+	Author      string `json:"author"`
+	Description string `json:"description,omitempty"`
 
-	// Overlay is the required view rendered by the Tauri widget on top
-	// of the game.
+	// Overlay is the view rendered by the Tauri widget on top of the
+	// game. Optional: plugins that only need a Background (e.g. sound
+	// effects, replay uploaders) can omit it. A manifest must declare
+	// at least one of overlay or background.
 	Overlay OverlayConfig `json:"overlay"`
 
 	// Dashboard is an optional full-page browser view linked from the
@@ -136,11 +138,19 @@ func validateManifest(m *Manifest, pluginRoot string) error {
 	if strings.TrimSpace(m.Version) == "" {
 		return errors.New("version is required")
 	}
-	if strings.TrimSpace(m.Overlay.File) == "" {
-		return errors.New("overlay.file is required")
+	// A manifest needs at least one surface that the toolkit will host.
+	// Overlay is the usual case (something painted on top of the game);
+	// background-only plugins (sound effects, replay uploaders) are
+	// allowed too. Manifests with neither are dead weight.
+	hasOverlay := strings.TrimSpace(m.Overlay.File) != ""
+	hasBackground := m.Background != nil && strings.TrimSpace(m.Background.File) != ""
+	if !hasOverlay && !hasBackground {
+		return errors.New("manifest must declare overlay.file or background.file")
 	}
-	if err := validateViewFile("overlay.file", m.Overlay.File, pluginRoot); err != nil {
-		return err
+	if hasOverlay {
+		if err := validateViewFile("overlay.file", m.Overlay.File, pluginRoot); err != nil {
+			return err
+		}
 	}
 	if m.Dashboard != nil {
 		if strings.TrimSpace(m.Dashboard.File) == "" {
