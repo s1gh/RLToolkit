@@ -74,7 +74,16 @@ try {
       // size and truncates rather than showing a chrome scrollbar.
       // Body-level overflow stays visible on auto axes so the autoSize
       // observer sees the content's true bounding rect.
-      html.style.overflow = 'hidden';
+      //
+      // On auto axes, leave html overflow visible. Chromium/WebView2
+      // clamps a descendant's scrollHeight/scrollWidth to the nearest
+      // overflow:hidden ancestor — so html{overflow:hidden} plus
+      // body{height:auto} reports body.scrollHeight pinned to the
+      // current iframe viewport. The autoSize observer then sees no
+      // delta when content grows and the iframe stops expanding past
+      // its initial size. Auto-axis plugins don't need the scrollbar
+      // suppression anyway because the iframe is being sized to fit.
+      html.style.overflow = (autoWidth || autoHeight) ? 'visible' : 'hidden';
       body.style.margin = '0';
       body.style.padding = '0';
       if (autoHeight) {

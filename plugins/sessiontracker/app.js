@@ -1366,18 +1366,6 @@
     } else if (isOverlay) {
       renderOverlay(root);
       elapsedTimer = setInterval(scheduleRender, 30000);
-      // Override the SDK's default body-targeted autoSize with one
-      // pinned to the card itself. On Windows (WebView2) the SDK's
-      // body measurement clamps scrollHeight to the iframe viewport,
-      // so incremental content growth (modifiers piling up over a
-      // match) never advances the reported height past the current
-      // iframe size and the widget stops expanding. Measuring the
-      // inner card avoids that clamp because the card has no
-      // overflow:hidden ancestor up to body. Linux (WebKitGTK) is
-      // unaffected either way; the override is a no-op there.
-      if (RLT.widget && typeof RLT.widget.autoSize === 'function') {
-        RLT.widget.autoSize(true, { target: '.st-c-card' });
-      }
     } else {
       renderDashboard(root);
       elapsedTimer = setInterval(scheduleRender, 30000);
