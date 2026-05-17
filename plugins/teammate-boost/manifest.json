@@ -1,0 +1,20 @@
+{
+  "name": "teammate-boost",
+  "title": "Teammate Boost",
+  "version": "0.1.0",
+  "author": "rl-toolkit",
+  "description": "Live boost gauge for each of your teammates.",
+  "overlay": {
+    "file": "overlay.html",
+    "width": "auto",
+    "height": "auto",
+    "anchor": "top-left",
+    "offset_x": 16,
+    "offset_y": 16,
+    "opacity": 0.95,
+    "hide_when_unfocused": true,
+    "show_during_phase": ["countdown", "live"]
+  },
+  "dashboard": { "file": "dashboard.html" },
+  "settings": { "file": "settings.html" }
+}
