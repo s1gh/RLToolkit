@@ -73,3 +73,25 @@ test('coerceConfig: showNames coerces to boolean', () => {
   assert.equal(TB.coerceConfig({ showNames: 1 }).showNames, true);
   assert.equal(TB.coerceConfig({ showNames: undefined }).showNames, true);
 });
+
+test('isLowBoost: strictly less than threshold is true', () => {
+  assert.equal(TB.isLowBoost(19, 20), true);
+});
+
+test('isLowBoost: equal to threshold is false', () => {
+  assert.equal(TB.isLowBoost(20, 20), false);
+});
+
+test('isLowBoost: above threshold is false', () => {
+  assert.equal(TB.isLowBoost(75, 20), false);
+});
+
+test('isLowBoost: threshold 0 always returns false', () => {
+  assert.equal(TB.isLowBoost(0, 0), false);
+  assert.equal(TB.isLowBoost(50, 0), false);
+});
+
+test('isLowBoost: non-numeric boost returns false', () => {
+  assert.equal(TB.isLowBoost(null, 20), false);
+  assert.equal(TB.isLowBoost(undefined, 20), false);
+});

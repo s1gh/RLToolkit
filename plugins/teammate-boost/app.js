@@ -45,11 +45,17 @@
     return { gaugeStyle, colorScheme, lowBoostThreshold, showNames };
   }
 
+  function isLowBoost(boost, threshold) {
+    if (typeof boost !== 'number' || Number.isNaN(boost)) return false;
+    if (!(threshold > 0)) return false;
+    return boost < threshold;
+  }
+
   const TeammateBoost = {
     clamp,
     coerceConfig,
     collectTeammates() {},
-    isLowBoost() {},
+    isLowBoost,
   };
 
   if (root) root.TeammateBoost = TeammateBoost;
