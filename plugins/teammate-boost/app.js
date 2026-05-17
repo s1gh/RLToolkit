@@ -70,10 +70,10 @@
     return out;
   }
 
-  // Roster pass without the boost filter: same team, not me. Used by
-  // the overlay tick handler together with applyBoostMemory so that a
-  // teammate's card doesn't flicker out on transient frames where RL
-  // omits the Boost field (respawn, phase edges).
+  // Same-team teammate roster, excluding me. Non-numeric boost (RL ships
+  // null on some frames, including when boost is fully depleted) is
+  // treated as 0 so the dial reads accurately instead of holding a stale
+  // value. Keeps the card on screen so the teammate doesn't flicker out.
   function collectTeammateRoster(match) {
     if (!match?.me) return [];
     const meTeam = match.me.team;
@@ -89,35 +89,10 @@
       out.push({
         id: p.id,
         name: p.name || p.id || '',
-        boost: typeof p.boost === 'number' ? clamp(p.boost, 0, 100) : null,
+        boost: typeof p.boost === 'number' ? clamp(p.boost, 0, 100) : 0,
       });
     }
     out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    return out;
-  }
-
-  // Fill in boost from memory when the current tick is missing it.
-  // Mutates memory in place with the latest numeric values. A teammate
-  // is dropped only if we have no numeric value for them in the current
-  // roster and have never seen one before.
-  function applyBoostMemory(roster, memory) {
-    const out = [];
-    for (const t of roster) {
-      let boost = t.boost;
-      if (typeof boost !== 'number') {
-        boost = memory.get(t.id);
-        if (typeof boost !== 'number') continue;
-      } else {
-        memory.set(t.id, boost);
-      }
-      out.push({ id: t.id, name: t.name, boost });
-    }
-    // Forget memory for ids that have left the roster so we don't leak
-    // stale data across matches.
-    const present = new Set(roster.map((t) => t.id));
-    for (const id of memory.keys()) {
-      if (!present.has(id)) memory.delete(id);
-    }
     return out;
   }
 
@@ -165,12 +140,9 @@
   function bootOverlay() {
     const host = document.getElementById('root');
     let config = DEFAULT_CONFIG;
-    const boostMemory = new Map();
 
     function paint(match) {
-      const roster = collectTeammateRoster(match);
-      const teammates = applyBoostMemory(roster, boostMemory);
-      renderInto(host, teammates, config);
+      renderInto(host, collectTeammateRoster(match), config);
     }
 
     RLT.plugin.register({
@@ -283,7 +255,6 @@
     coerceConfig,
     collectTeammates,
     collectTeammateRoster,
-    applyBoostMemory,
     isLowBoost,
     _internal: { renderCard, renderInto, DEFAULT_CONFIG },
   };

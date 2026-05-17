@@ -195,7 +195,7 @@ test('collectTeammates: teammate at boost 0 is kept', () => {
   assert.equal(out[0].boost, 0);
 });
 
-test('collectTeammateRoster: keeps teammates with null boost as null', () => {
+test('collectTeammateRoster: teammates with null boost are reported as 0', () => {
   const m = mkMatch('me', 0, [
     mkPlayer('me', 0, 50, 'Me'),
     mkPlayer('mate1', 0, null, 'NoBoost'),
@@ -204,7 +204,7 @@ test('collectTeammateRoster: keeps teammates with null boost as null', () => {
   const out = TB.collectTeammateRoster(m);
   assert.equal(out.length, 2);
   const byId = Object.fromEntries(out.map((p) => [p.id, p.boost]));
-  assert.equal(byId.mate1, null);
+  assert.equal(byId.mate1, 0);
   assert.equal(byId.mate2, 70);
 });
 
@@ -219,44 +219,9 @@ test('collectTeammateRoster: still excludes me and opponents', () => {
   assert.equal(out[0].id, 'mate1');
 });
 
-test('applyBoostMemory: passes through numeric boosts and remembers them', () => {
-  const memory = new Map();
-  const roster = [{ id: 'a', name: 'A', boost: 60 }];
-  const out = TB.applyBoostMemory(roster, memory);
-  assert.deepEqual(out, [{ id: 'a', name: 'A', boost: 60 }]);
-  assert.equal(memory.get('a'), 60);
-});
-
-test('applyBoostMemory: fills missing boost from memory', () => {
-  const memory = new Map([['a', 42]]);
-  const roster = [{ id: 'a', name: 'A', boost: null }];
-  const out = TB.applyBoostMemory(roster, memory);
+test('collectTeammateRoster: boost 0 stays 0, not treated as null', () => {
+  const m = mkMatch('me', 0, [mkPlayer('me', 0, 50, 'Me'), mkPlayer('mate1', 0, 0, 'Empty')]);
+  const out = TB.collectTeammateRoster(m);
   assert.equal(out.length, 1);
-  assert.equal(out[0].boost, 42);
-});
-
-test('applyBoostMemory: drops teammate with no current and no remembered boost', () => {
-  const memory = new Map();
-  const roster = [{ id: 'a', name: 'A', boost: null }];
-  const out = TB.applyBoostMemory(roster, memory);
-  assert.deepEqual(out, []);
-});
-
-test('applyBoostMemory: forgets ids no longer in roster', () => {
-  const memory = new Map([
-    ['a', 60],
-    ['b', 30],
-  ]);
-  const roster = [{ id: 'a', name: 'A', boost: 70 }];
-  TB.applyBoostMemory(roster, memory);
-  assert.equal(memory.has('a'), true);
-  assert.equal(memory.has('b'), false);
-});
-
-test('applyBoostMemory: zero boost is kept and remembered (not treated as missing)', () => {
-  const memory = new Map();
-  const roster = [{ id: 'a', name: 'A', boost: 0 }];
-  const out = TB.applyBoostMemory(roster, memory);
   assert.equal(out[0].boost, 0);
-  assert.equal(memory.get('a'), 0);
 });
