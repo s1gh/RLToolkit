@@ -197,6 +197,29 @@
     });
   }
 
+  function bootDashboard() {
+    const host = document.getElementById('root');
+    const mock = [
+      { id: 'a-kestrel', name: 'Kestrel', boost: 76 },
+      { id: 'b-halvers', name: 'Halverson', boost: 4 },
+    ];
+
+    function rerender(config) {
+      renderInto(host, mock, config);
+    }
+
+    RLT.plugin.register({
+      async ready() {
+        let config = coerceConfig(await RLT.store.get('config'));
+        rerender(config);
+        RLT.store.onChange('config', async () => {
+          config = coerceConfig(await RLT.store.get('config'));
+          rerender(config);
+        });
+      },
+    });
+  }
+
   const TeammateBoost = {
     clamp,
     coerceConfig,
@@ -210,5 +233,6 @@
   if (typeof RLT !== 'undefined') {
     if (RLT.isOverlay) bootOverlay();
     else if (RLT.isSettingsView) bootSettings();
+    else if (RLT.isDashboard) bootDashboard();
   }
 })(typeof window !== 'undefined' ? window : null);

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Teammate Boost — Dashboard</title>
+    <link rel="stylesheet" href="/sdk.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="/sdk.js" data-plugin="teammate-boost" data-view="dashboard"></script>
+  </head>
+  <body>
+    <div class="rlt-page">
+      <div class="rlt-topbar">
+        <div class="rlt-brand">
+          <div class="rlt-logo">TB</div>
+          <div>
+            <h1 class="rlt-brand-title" style="font-size:18px;margin:0;">Teammate Boost</h1>
+            <div class="rlt-brand-tag">Live boost gauge for each of your teammates</div>
+          </div>
+        </div>
+      </div>
+      <div class="rlt-card">
+        <div class="rlt-card-head"><h2>About</h2></div>
+        <p style="color:var(--rlt-txt-2);font-size:13px;line-height:1.55;margin:0;">
+          Adds a compact radial gauge for each teammate, anchored top-left, visible only during countdown
+          and live gameplay. Configure the gauge style, color, low-boost emphasis, and name display in
+          <strong>Settings</strong>.
+        </p>
+      </div>
+      <div class="rlt-card">
+        <div class="rlt-card-head"><h2>Preview</h2></div>
+        <div class="tb-preview-host">
+          <div id="root"></div>
+        </div>
+      </div>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>
