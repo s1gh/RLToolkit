@@ -38,6 +38,7 @@ The current catalog includes:
 | **Ballchasing Upload** | Auto-uploads saved replays to ballchasing.com. |
 | **Crossbar Sound** | Plays a sound effect when the ball hits a crossbar. |
 | **Minigames** | In-match challenges with XP, levels, and streaks. |
+| **Teammate Boost** | Live boost gauge for each of your teammates. |
 
 The **Install plugin…** button also accepts hand-built `.rltp` packages — useful for testing plugins you're writing or sharing one privately before it lands in the catalog.
 
