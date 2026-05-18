@@ -243,13 +243,13 @@ jobs:
           go-version-file: go.mod
 
       - name: Download Windows artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-artefacts
           path: dist/
 
       - name: Download Linux artefacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-artefacts
           path: dist/
