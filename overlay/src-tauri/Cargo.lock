@@ -3408,14 +3408,14 @@ dependencies = [
 
 [[package]]
 name = "rl-widget"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "clap",
  "dirs",
  "gtk",
  "gtk-layer-shell",
  "libc",
- "objc2 0.5.2",
+ "objc2 0.6.4",
  "objc2-app-kit",
  "objc2-foundation 0.2.2",
  "reqwest 0.12.28",
