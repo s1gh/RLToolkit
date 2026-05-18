@@ -6,8 +6,8 @@
   "description": "Tracks your current session's record, key stats, and MMR delta.",
   "overlay": {
     "file": "overlay.html",
-    "width": "auto",
-    "height": "auto",
+    "width": 500,
+    "height": 750,
     "anchor": "top-right",
     "offset_x": 16,
     "offset_y": 16,
