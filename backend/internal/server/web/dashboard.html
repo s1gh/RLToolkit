@@ -116,7 +116,7 @@ html:not(.ready) .shell{ visibility:hidden; }
    the webview briefly shows its default white canvas between mount
    and the first body paint, which the user sees as a flash before
    the dashboard fades in. */
-html{ height:100%; background:var(--bg-0); }
+html{ height:100%; background:var(--bg-0); color-scheme:dark; }
 body{
   font-family:var(--ui); font-size:14px; color:var(--txt);
   background:
@@ -129,6 +129,23 @@ body{
   min-height:100vh;
   letter-spacing:-0.005em;
 }
+/* Custom scrollbar. WebView2 on Windows ignores color-scheme for its
+   legacy gray scrollbar (the one with arrow buttons), so we replace
+   the whole thing with a thin dark overlay-style bar that matches the
+   dashboard palette. Firefox uses scrollbar-width/scrollbar-color;
+   WebKit/Chromium uses the pseudo-elements. We declare both. */
+*{ scrollbar-width:thin; scrollbar-color:var(--line-2) transparent; }
+::-webkit-scrollbar{ width:10px; height:10px; background:transparent; }
+::-webkit-scrollbar-track{ background:transparent; }
+::-webkit-scrollbar-thumb{
+  background:var(--line-2);
+  border:2px solid transparent;
+  background-clip:padding-box;
+  border-radius:10px;
+}
+::-webkit-scrollbar-thumb:hover{ background:var(--txt-3); background-clip:padding-box; }
+::-webkit-scrollbar-button{ display:none; }
+::-webkit-scrollbar-corner{ background:transparent; }
 /* Embedded inside the launcher: feel like a desktop app, not a web
    page. Text isn't selectable, the cursor is the default arrow.
    Form inputs still allow text selection so users can type. The

@@ -23,6 +23,7 @@
 html, body {
   margin: 0; height: 100%;
   background: var(--bg); color: var(--fg);
+  color-scheme: dark;
   font-family: Inter, system-ui, -apple-system, sans-serif;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
@@ -41,6 +42,24 @@ input, textarea {
   -webkit-user-select: text;
   cursor: text;
 }
+
+/* Custom scrollbar. WebView2 on Windows keeps the legacy gray
+   scrollbar (with arrow buttons) even when color-scheme is dark; the
+   rules below replace it with a thin dark overlay bar that matches
+   the launcher palette. Firefox path is the standard
+   scrollbar-width/scrollbar-color pair. */
+* { scrollbar-width: thin; scrollbar-color: #2a2e38 transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #2a2e38;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover { background: #3a3f4c; background-clip: padding-box; }
+::-webkit-scrollbar-button { display: none; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* Resize handles for the frameless window. Fixed-positioned, sit
    above everything, transparent. Each carries a directional cursor
