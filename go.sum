@@ -2,8 +2,8 @@ github.com/andybalholm/brotli v1.2.1 h1:R+f5xP285VArJDRgowrfb9DqL18yVK0gKAW/F+eT
 github.com/andybalholm/brotli v1.2.1/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/enetx/g v1.0.224 h1:H/uonguFE4qG8YCn5bSpZX5Wh+wTSb+jgf3I2ZM25XM=
-github.com/enetx/g v1.0.224/go.mod h1:lxhby3LjP8jOTGbxJ/PCd+2Zq1gYiSBbtL/llPhAg5c=
+github.com/enetx/g v1.0.225 h1:XqaAboCyswfJnx3o6YNrpL+mZrDuh+eKeHUQI/KRxbw=
+github.com/enetx/g v1.0.225/go.mod h1:lxhby3LjP8jOTGbxJ/PCd+2Zq1gYiSBbtL/llPhAg5c=
 github.com/enetx/http v1.0.28 h1:IaNSSDFlAVVdHnYhNIR9wAN7GY4TWL/kkvYC3jOaueY=
 github.com/enetx/http v1.0.28/go.mod h1:1f4mytfF/SfjATEJnynpwGS6aa1ALjb8DtmYgFVblY0=
 github.com/enetx/http2 v1.0.26 h1:wy3lYGVwnIUY4Q+gyPPQCJ1a+BMXD1B7Unpyc/Csrxc=

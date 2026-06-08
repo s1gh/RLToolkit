@@ -3,7 +3,7 @@ module rl-toolkit
 go 1.25.0
 
 require (
-	github.com/enetx/g v1.0.224
+	github.com/enetx/g v1.0.225
 	github.com/enetx/surf v1.0.200
 	github.com/fsnotify/fsnotify v1.10.1
 )
