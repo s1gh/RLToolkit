@@ -11,6 +11,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
-    "esbuild": "^0.28.0"
+    "esbuild": "^0.28.1"
   }
 }
