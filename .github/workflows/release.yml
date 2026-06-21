@@ -138,7 +138,7 @@ jobs:
         run: make release-windows SHELL=cmd VERSION=${{ needs.prepare.outputs.version }} RELEASE_OWNER=${{ github.repository_owner }}
 
       - name: Upload Windows artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-artefacts
           path: |
@@ -216,7 +216,7 @@ jobs:
             RELEASE_OWNER=${{ github.repository_owner }}
 
       - name: Upload Linux artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-artefacts
           path: |
